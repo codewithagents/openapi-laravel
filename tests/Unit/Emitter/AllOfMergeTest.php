@@ -15,6 +15,18 @@ use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
  */
 function generateSchemas(array $schemas): array
 {
+    return allOfGenerator($schemas)[1];
+}
+
+/**
+ * Build a minimal OpenAPI document from a components.schemas map, generate, and
+ * return both the generator (for registry inspection) and the emitted files.
+ *
+ * @param  array<string, mixed>  $schemas
+ * @return array{0: ModelGenerator, 1: array<string, GeneratedFile>}
+ */
+function allOfGenerator(array $schemas): array
+{
     $document = [
         'openapi' => '3.0.3',
         'info' => ['title' => 'Test', 'version' => '1.0.0'],
@@ -25,7 +37,10 @@ function generateSchemas(array $schemas): array
     $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
     expect($spec)->toBeInstanceOf(OpenApi::class);
 
-    return (new ModelGenerator)->generate($spec);
+    $generator = new ModelGenerator;
+    $files = $generator->generate($spec);
+
+    return [$generator, $files];
 }
 
 it('merges allOf of two inline objects into one flat class', function () {
@@ -254,4 +269,118 @@ it('is deterministic: regenerating produces byte-identical output', function () 
     $second = array_map(fn ($f) => $f->code, generateSchemas($schemas));
 
     expect($first)->toBe($second);
+});
+
+it('splits a composing schema into read + writable when a merged member carries read/write flags', function () {
+    [$generator, $files] = allOfGenerator([
+        'Base' => [
+            'type' => 'object',
+            'properties' => [
+                'id' => ['type' => 'integer', 'readOnly' => true],
+                'password' => ['type' => 'string', 'writeOnly' => true],
+                'name' => ['type' => 'string'],
+            ],
+            'required' => ['password'],
+        ],
+        'Account' => [
+            'allOf' => [['$ref' => '#/components/schemas/Base']],
+        ],
+    ]);
+
+    // Both variants exist because the merged member contributes read/write flags.
+    expect(array_keys($files))->toContain('AccountData', 'AccountWritableData');
+
+    $read = $files['AccountData']->code;
+    $write = $files['AccountWritableData']->code;
+
+    // readOnly id drops from the write variant; writeOnly password drops from read.
+    expect($read)->toContain('$id')
+        ->and($read)->not->toContain('$password')
+        ->and($write)->toContain('$password')
+        ->and($write)->not->toContain('$id')
+        ->and($read)->toContain('$name')
+        ->and($write)->toContain('$name');
+
+    // The server scaffold maps the write body to the writable variant.
+    $registry = $generator->registry();
+    expect($registry['Account']['dataClass'])->toBe('AccountData')
+        ->and($registry['Account']['writeClass'])->toBe('AccountWritableData');
+});
+
+it('merges allOf used inside a property schema (nested address)', function () {
+    $files = generateSchemas([
+        'BaseAddress' => [
+            'type' => 'object',
+            'properties' => [
+                'street' => ['type' => 'string'],
+                'city' => ['type' => 'string'],
+            ],
+        ],
+        'Order' => [
+            'type' => 'object',
+            'properties' => [
+                'address' => [
+                    'allOf' => [
+                        ['$ref' => '#/components/schemas/BaseAddress'],
+                        ['type' => 'object', 'properties' => ['deliveryInstructions' => ['type' => 'string']]],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    // The nested address class carries both BaseAddress props and the inline one.
+    $nested = $files['OrderAddressData']->code;
+
+    expect($nested)->toContain('$street')
+        ->and($nested)->toContain('$city')
+        ->and($nested)->toContain('$deliveryInstructions');
+});
+
+it('marks the merged property nullable when only an allOf member is nullable', function () {
+    $files = generateSchemas([
+        'Inner' => [
+            'type' => 'object',
+            'nullable' => true,
+            'properties' => ['x' => ['type' => 'string']],
+        ],
+        'Holder' => [
+            'type' => 'object',
+            'properties' => [
+                // The property schema itself is not nullable, the member is.
+                'inner' => [
+                    'allOf' => [['$ref' => '#/components/schemas/Inner']],
+                    'description' => 'nullable via the member',
+                ],
+            ],
+        ],
+    ]);
+
+    expect($files['HolderData']->code)->toContain('public readonly ?InnerData $inner = null');
+});
+
+it('requires a property that is required only in a later member (required union)', function () {
+    $files = generateSchemas([
+        'A' => [
+            'type' => 'object',
+            'properties' => ['a' => ['type' => 'string']],
+        ],
+        'B' => [
+            'type' => 'object',
+            'properties' => ['b' => ['type' => 'string']],
+            'required' => ['b'],
+        ],
+        'Combined' => [
+            'allOf' => [
+                ['$ref' => '#/components/schemas/A'],
+                ['$ref' => '#/components/schemas/B'],
+            ],
+        ],
+    ]);
+
+    $code = $files['CombinedData']->code;
+
+    // b is required (only member B declares it required); a is optional.
+    expect($code)->toContain("'b' => ['required', 'string']")
+        ->and($code)->toContain("'a' => ['sometimes', 'string']");
 });

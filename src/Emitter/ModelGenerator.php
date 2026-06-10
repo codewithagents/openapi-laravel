@@ -581,6 +581,12 @@ final class ModelGenerator
             return $this->resolveArray($schema, $nameHint, $depth, $nullable, $variant);
         }
 
+        // A merged schema is nullable if the composing schema OR any allOf
+        // member is nullable (3.0 `nullable: true` or 3.1 `type: [..., null]`).
+        $allOfNullable = $this->notEmptyArray($schema->allOf)
+            ? $this->mergedNullable($schema)
+            : $nullable;
+
         // The common "single $ref wrapped in allOf" pattern (a ref plus a
         // description) is just an alias: resolve it to the referenced class
         // instead of inlining a fresh nested copy. This also breaks self
@@ -589,7 +595,7 @@ final class ModelGenerator
         if ($aliasRef !== null) {
             $resolved = $this->resolveReference($aliasRef);
 
-            return $nullable ? new ResolvedType($resolved->declaration, true, $resolved->docType, $resolved->imports, $resolved->dataCollectionOf) : $resolved;
+            return $allOfNullable ? new ResolvedType($resolved->declaration, true, $resolved->docType, $resolved->imports, $resolved->dataCollectionOf) : $resolved;
         }
 
         // An allOf member set merges to an object even when `type: object` is
@@ -598,7 +604,7 @@ final class ModelGenerator
             || ($primary === null && $this->notEmptyArray($schema->properties))
             || ($primary === null && $this->notEmptyArray($schema->allOf))
         ) {
-            return $this->resolveInlineObject($schema, $nameHint, $depth, $nullable, $variant);
+            return $this->resolveInlineObject($schema, $nameHint, $depth, $allOfNullable, $variant);
         }
 
         return new ResolvedType('mixed', $nullable);
@@ -881,6 +887,39 @@ final class ModelGenerator
         }
 
         return ['properties' => $properties, 'required' => $this->dedupe($required)];
+    }
+
+    /**
+     * Whether a merged schema is nullable: the composing schema or any allOf
+     * member (recursively) declares nullability. A single nullable member is
+     * enough, matching how `allOf` constrains the combined value.
+     *
+     * @param  list<string>  $seen  component names already visited, guards ref cycles
+     */
+    private function mergedNullable(Schema $schema, array $seen = []): bool
+    {
+        if ($this->isNullable($schema)) {
+            return true;
+        }
+
+        $members = $schema->allOf;
+        if (! is_array($members)) {
+            return false;
+        }
+
+        foreach ($members as $member) {
+            $resolved = $this->resolveMemberSchema($member, $seen);
+            if ($resolved === null) {
+                continue;
+            }
+
+            [$memberSchema, $memberSeen] = $resolved;
+            if ($this->mergedNullable($memberSchema, $memberSeen)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
