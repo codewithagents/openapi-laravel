@@ -1,0 +1,85 @@
+# Deptrac: architecture boundary enforcement.
+#
+# Layers mirror the src/ namespaces. The intended dependency direction flows
+# from the outer Console layer inward toward the leaf layers (Parser, Naming),
+# which depend on nothing internal. Core holds the root-level glue (the service
+# provider) and is allowed to reach the Console layer it wires up.
+#
+# Run locally with: composer deptrac
+deptrac:
+  paths:
+    - src
+
+  layers:
+    # Leaf layers: no internal dependencies.
+    - name: Parser
+      collectors:
+        - type: directory
+          value: src/Parser/.*
+
+    - name: Naming
+      collectors:
+        - type: directory
+          value: src/Naming/.*
+
+    # Emitter (models): the Server sub-namespace is carved out into its own layer.
+    - name: Emitter
+      collectors:
+        - type: bool
+          must:
+            - type: directory
+              value: src/Emitter/.*
+          must_not:
+            - type: directory
+              value: src/Emitter/Server/.*
+
+    - name: Server
+      collectors:
+        - type: directory
+          value: src/Emitter/Server/.*
+
+    - name: Console
+      collectors:
+        - type: directory
+          value: src/Console/.*
+
+    # Core: root-level classes (the service provider) that wire everything together.
+    - name: Core
+      collectors:
+        - type: bool
+          must:
+            - type: directory
+              value: src/.*
+          must_not:
+            - type: directory
+              value: src/Parser/.*
+            - type: directory
+              value: src/Naming/.*
+            - type: directory
+              value: src/Emitter/.*
+            - type: directory
+              value: src/Console/.*
+
+  ruleset:
+    # Leaf layers depend on nothing internal: no entries means no allowed targets.
+    Parser: ~
+    Naming: ~
+
+    # Models emitter may use Naming.
+    Emitter:
+      - Naming
+
+    # Server controllers/routes build on the Emitter primitives and Naming.
+    Server:
+      - Emitter
+      - Naming
+
+    # Console orchestrates parsing plus model and server emission.
+    Console:
+      - Parser
+      - Emitter
+      - Server
+
+    # Core wires the package's command into Laravel via the service provider.
+    Core:
+      - Console

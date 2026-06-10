@@ -78,3 +78,17 @@ jobs:
         run: composer-require-checker check --config-file=composer-require-checker.json
       - name: Security advisories (composer audit)
         run: composer audit
+
+  architecture:
+    name: Architecture (deptrac)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --no-progress
+      - name: Deptrac (architecture boundaries)
+        run: composer deptrac

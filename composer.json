@@ -19,6 +19,7 @@
         "spatie/laravel-data": "^4.0"
     },
     "require-dev": {
+        "deptrac/deptrac": "^4.6",
         "larastan/larastan": "^3.0",
         "laravel/pint": "^1.0",
         "orchestra/testbench": "^9.0|^10.0",
@@ -55,6 +56,7 @@
         "test": "@php -d memory_limit=512M vendor/bin/pest",
         "test:type": "@php -d memory_limit=512M vendor/bin/pest --type-coverage --min=100",
         "test:mutate": "@php -d memory_limit=-1 vendor/bin/pest --mutate --covered-only --min=90",
+        "deptrac": "deptrac analyse --config-file=deptrac.yaml --no-progress",
         "qa": [
             "@lint",
             "@stan",
