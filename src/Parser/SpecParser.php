@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Parser;
 
-use cebe\openapi\Reader;
+use cebe\openapi\json\JsonPointer;
+use cebe\openapi\ReferenceContext;
 use cebe\openapi\spec\OpenApi;
+use Symfony\Component\Yaml\Yaml;
 use Throwable;
 
 /**
@@ -54,12 +56,19 @@ final class SpecParser
 
         $this->guardSize($absolute);
 
+        // A real out-of-memory fatal inside the YAML parser is a non-catchable
+        // PHP error, so the surrounding try/catch cannot turn it into a clean
+        // ParseException. Arm a shutdown handler around the parse step instead so
+        // an OOM prints an actionable message rather than a raw fatal + trace
+        // (issue #17). The guard is disarmed as soon as the parse step returns.
+        MemoryGuard::arm($absolute, $this->maxBytes);
+
         try {
-            $document = $this->isYaml($absolute)
-                ? Reader::readFromYamlFile($absolute, OpenApi::class, false)
-                : Reader::readFromJsonFile($absolute, OpenApi::class, false);
+            $document = $this->readDocument($absolute);
         } catch (Throwable $e) {
             throw new ParseException("Failed to parse OpenAPI spec ({$path}): {$e->getMessage()}", 0, $e);
+        } finally {
+            MemoryGuard::disarm();
         }
 
         $this->assertOpenApiDocument($document, $path);
@@ -74,6 +83,38 @@ final class SpecParser
     }
 
     /**
+     * Decode the raw spec, normalise it, then hand it to the cebe object model.
+     *
+     * This mirrors cebe's own `Reader::readFrom{Yaml,Json}File` (decode the file,
+     * `new OpenApi($data)`, attach a non-resolving ReferenceContext) with one
+     * extra step: {@see SchemaNormalizer} rewrites boolean `items` before cebe
+     * sees it, because cebe cannot instantiate a Schema from a boolean (#20).
+     * References are left unresolved, exactly as before.
+     */
+    private function readDocument(string $absolute): OpenApi
+    {
+        $contents = (string) file_get_contents($absolute);
+
+        $data = $this->isYaml($absolute)
+            ? Yaml::parse($contents)
+            : json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
+
+        $data = SchemaNormalizer::normalize($data);
+
+        $document = new OpenApi(is_array($data) ? $data : []);
+
+        // Establish the same base-URI reference context cebe's file readers set,
+        // so any later $ref handling keeps the document's path. We do NOT resolve
+        // references here (the emitter resolves the ones it needs, with cycle
+        // protection), matching the previous `resolveReferences: false` call.
+        $context = new ReferenceContext($document, $absolute);
+        $document->setReferenceContext($context);
+        $document->setDocumentContext($document, new JsonPointer(''));
+
+        return $document;
+    }
+
+    /**
      * Cheap pre-parse input-size guard (B-1). Rejects oversized input before it
      * reaches the YAML parser, bounding the cost of alias/anchor expansion.
      */
@@ -83,7 +124,9 @@ final class SpecParser
 
         if ($size !== false && $size > $this->maxBytes) {
             throw new ParseException(sprintf(
-                'OpenAPI spec is too large (%d bytes, limit %d bytes). Raise the limit only for trusted specs, or run the generator under OS-level resource limits.',
+                'OpenAPI spec is too large (%d bytes, limit %d bytes). Raise --max-bytes only for trusted '
+                .'specs, and note that a larger spec needs a proportionally larger PHP memory_limit to parse '
+                .'(it can otherwise exhaust memory mid-parse). Or run the generator under OS-level resource limits.',
                 $size,
                 $this->maxBytes,
             ));

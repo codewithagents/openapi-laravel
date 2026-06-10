@@ -104,3 +104,46 @@ it('accepts a spec within the size limit', function () {
 
     expect((new SpecParser(maxBytes: 1_048_576))->parseFile($path)->openapi)->toBe('3.0.3');
 });
+
+// #20: cebe cannot instantiate a Schema from a boolean, so valid OpenAPI 3.1
+// boolean `items` (`items: true`, and the closed-tuple `prefixItems` + `items:
+// false`) previously threw "Unable to instantiate Schema Object with data ''".
+// This is the exact construct the conformance fixture had to drop. The Parser
+// now normalises boolean `items` before cebe sees it, so the document parses.
+
+const BOOLEAN_ITEMS_YAML = <<<'YAML'
+openapi: 3.1.0
+info:
+  title: Boolean items
+  version: 1.0.0
+paths: {}
+components:
+  schemas:
+    AnyItems:
+      type: array
+      items: true
+    ClosedTuple:
+      type: array
+      prefixItems:
+        - type: string
+        - type: integer
+      items: false
+YAML;
+
+it('parses a 3.1 spec with boolean items: true and a closed tuple (items: false)', function () {
+    $path = writeTempSpec('boolean-items.yaml', BOOLEAN_ITEMS_YAML);
+
+    // Previously this threw a ParseException ("Unable to instantiate Schema
+    // Object with data ''"). It must now parse cleanly.
+    $document = (new SpecParser)->parseFile($path);
+
+    expect($document->openapi)->toBe('3.1.0');
+
+    $schemas = $document->components->schemas;
+
+    // `items: true` normalised to an empty schema (any).
+    expect($schemas['AnyItems']->items)->not->toBeNull();
+
+    // `items: false` dropped; the tuple is still described by prefixItems.
+    expect($schemas['ClosedTuple']->prefixItems)->toHaveCount(2);
+});
