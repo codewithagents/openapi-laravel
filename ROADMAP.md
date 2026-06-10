@@ -122,31 +122,39 @@ Laravel team can adopt it without surprises". 0.2.0 closes that gap. Roughly in 
 2. **Verified getting-started path** [mostly done]: the `examples/petstore/` demo boots a Testbench
    app, loads the generated routes, and drives the full HTTP chain (generated models + rules() +
    abstract controllers + hand-written concrete controllers), with a drift test proving the demo
-   is genuine generator output. Still open: a CI job that `composer require`s the *published*
-   Packagist artifact (not the local checkout) to catch packaging-only breakage.
-3. **Generator resilience on hostile/odd specs**: today the corpus is "good" specs. Add cases for
-   the failure modes a real user hits: empty schemas, `$ref` to missing component, circular refs
-   beyond the depth bound, schema-less `additionalProperties: true`, properties named like PHP
-   keywords/magic methods, unicode property names. Each should produce a clear error or a
-   documented, sensible output, never a fatal or silent-wrong file.
-4. **oneOf / anyOf / allOf** (the big open design item): decide and implement a representation.
-   allOf = merge (probably straightforward). oneOf/anyOf = union types vs abstract base + variants
-   vs a documented "emitted as mixed with a discriminator note". Whatever ships must be in the
-   docs with examples. This is the most likely reason a real spec generates something unsatisfying
-   today.
-5. **`additionalProperties` policy**: document and implement the decision (ignore unknown keys vs
-   emit an explicit prohibition). Currently undocumented behavior.
-6. **DX on bad input**: actionable error messages (which schema, which property, what was wrong),
-   a `--dry-run` / summary of what would be written, and a non-zero exit on partial failure so CI
-   can gate on it.
-7. **Docs completeness** [in progress]: the site should cover config reference, the read/write
-   variant model, the rules() mapping table (spec constraint -> Laravel rule), the new server
-   scaffold (`--controllers`/`--routes`, the abstract-controller pattern), and a "known
-   limitations" page (oneOf/anyOf, additionalProperties). Honesty about limits builds adoption.
-8. **README accuracy pass** [done]: corrected Infection -> Pest native mutation and two -> three
+   is genuine generator output. A second example under `tests/Feature/Example/Writable/` proves
+   the readOnly/writeOnly write-variant body param validates over real HTTP (missing writeOnly
+   required field to 422 from the writable variant's rules()). Still open: a CI job that
+   `composer require`s the *published* Packagist artifact (not the local checkout).
+3. **Composition keywords** [deferred to 0.3.0, documented in 0.2.0]: an audit found these are
+   currently lossy or broken, not just unsatisfying. Corpus impact and current behavior:
+   - **allOf** (46 specs, 36%): member schemas are NOT merged; a schema composed via `allOf`
+     generates an empty class (all properties dropped). This is the most damaging.
+   - **additionalProperties** (71 specs, 55%): not represented at all; map-style schemas generate
+     an empty class.
+   - **oneOf / anyOf** (28 / 24 specs): typed as `mixed` with presence-only rules, no variant
+     enforcement.
+   Decision (this session): for 0.2.0, document these honestly (docs `guides/limitations`, roadmap
+   page, this file) and ship the server scaffold; do NOT change the generator. 0.3.0 implements
+   them in impact order: additionalProperties -> typed array + per-value rules; allOf -> merge
+   members (resolve `$ref` + inline, merge rules); oneOf/anyOf -> docblock variants + union hints
+   where members resolve, runtime variant validation needs a spec discriminator.
+4. **Generator resilience on hostile/odd specs**: empty schemas, `$ref` to a missing component,
+   circular refs beyond the depth bound, properties named like PHP keywords/magic methods, unicode
+   property names. Each should produce a clear error or documented output, never a fatal or a
+   silent-wrong file. (Overlaps with the composition work above.)
+5. **DX on bad input**: actionable error messages (which schema, which property, what was wrong),
+   a `--dry-run` summary of what would be written, and a non-zero exit on partial failure.
+6. **Docs completeness** [done]: the site covers config reference, generated output, the server
+   scaffold (`--controllers`/`--routes`), and a dedicated `guides/limitations` page. The roadmap
+   page now states the composition gaps accurately (it previously overstated `allOf` as merged).
+7. **README accuracy pass** [done]: corrected Infection -> Pest native mutation and two -> three
    corpus gates so the README matches what the pipeline actually runs.
-9. **Generated rules() typing** [done]: emit `@return array<string, list<string|object>>` so host
+8. **Generated rules() typing** [done]: emit `@return array<string, list<string|object>>` so host
    projects pass PHPStan max over their generated `app/Data`.
+9. **Server scaffold hardening** [done]: review-driven fixes (non-zero exit on misconfig, no unused
+   imports in generated controllers, readable `Untagged` fallback, single descriptor collection),
+   plus the writable-variant HTTP test under item 2.
 
 Stretch (could be 0.2.x or later, not blockers): a committed showcase-subset of generated output
 diff-checked in CI (drift guard), and accepting community spec fixtures.

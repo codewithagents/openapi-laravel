@@ -1,0 +1,87 @@
+---
+title: Limitations
+description: What the generator does not yet represent. OpenAPI composition keywords (allOf, oneOf, anyOf) and additionalProperties are not fully modelled yet. Honest about the gaps so you can plan around them.
+---
+
+import { Aside } from '@astrojs/starlight/components'
+
+The generator targets the common case: object schemas, `$ref`s, enums, arrays, and scalar
+constraints, validated against 128 real-world specs. A few OpenAPI features are not yet fully
+represented. The generated code is always valid PHP, these are completeness gaps, not crashes,
+but for a schema that relies on them the generated class can be incomplete. This page is honest
+about where that happens so you can plan around it.
+
+<Aside type="caution" title="Scheduled for 0.3.0">
+  Merging `allOf`, representing `additionalProperties`, and improving `oneOf`/`anyOf` are the
+  headline items for the next release. See the [roadmap](/roadmap) for the plan.
+</Aside>
+
+## allOf is not merged yet
+
+A schema composed with `allOf` has its member schemas dropped: the generated class is emitted
+without the properties contributed by the `allOf` entries.
+
+```yaml
+Extended_Price:
+  allOf:
+    - type: object
+      properties:
+        billingCurrency: { type: string }
+    - $ref: '#/components/schemas/Price'
+```
+
+Today this generates an empty `ExtendedPriceData` class. The `billingCurrency` property and every
+property inherited from `Price` are not present.
+
+**Workaround for now:** define the properties directly on the schema instead of through `allOf`,
+or flatten the `allOf` in your spec before generating. A schema that lists its properties under a
+single `properties` block generates correctly.
+
+## additionalProperties is not represented yet
+
+Map-style schemas, an object whose keys are dynamic and whose values share a type, are not
+modelled. The dynamic key/value shape is dropped.
+
+```yaml
+Language:
+  type: object
+  additionalProperties:
+    type: integer
+```
+
+Today this generates an empty `LanguageData` class with no way to hold the arbitrary
+string-to-integer entries.
+
+**Workaround for now:** treat such payloads as a plain `array` in your own code, or define the
+known keys explicitly as properties where that is possible.
+
+## oneOf and anyOf are typed as mixed
+
+A property whose schema uses `oneOf` or `anyOf` is generated as `mixed`, with presence-only
+validation. The individual variant types are not enforced, and the generated `rules()` cannot
+assert which variant was supplied.
+
+```yaml
+payload:
+  oneOf:
+    - type: string
+    - type: object
+```
+
+Today this generates `public readonly mixed $payload` with `'payload' => ['required']`.
+
+This is a deeper limitation than the previous two: without a discriminator, PHP and Laravel
+validation cannot enforce "exactly one of these shapes" at request-validation time. A future
+release may emit a union type hint where the variants resolve cleanly, but runtime variant
+validation will always require a discriminator in the spec.
+
+**Workaround for now:** validate the variant shape in your own controller or service layer after
+the Data object is hydrated.
+
+## What is not affected
+
+Everything else generates fully: object schemas with `properties`, `$ref`s between schemas,
+nested objects and arrays (`DataCollection`), native enums, the read/write variant split, scalar
+constraints (`minLength`, `maxLength`, `pattern`, `format`, `minimum`/`maximum`, `enum`), and the
+server scaffold. If your schemas avoid the three features above, the output is complete and the
+spec-derived validation is exact.
