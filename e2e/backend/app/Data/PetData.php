@@ -29,6 +29,9 @@ final class PetData extends Data
         public readonly ?float $weightKg = null,
         /** @var array<string, string> */
         public readonly ?array $attributes = null,
+        /** @var string|int */
+        #[MapName('external_id')]
+        public readonly string|int|null $externalId = null,
     ) {}
 
     /**
@@ -49,6 +52,7 @@ final class PetData extends Data
             'weight_kg' => ['sometimes', 'nullable', 'numeric'],
             'attributes' => ['sometimes', 'array'],
             'attributes.*' => ['string'],
+            'external_id' => ['sometimes'],
         ];
     }
 }

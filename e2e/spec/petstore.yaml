@@ -821,6 +821,15 @@ components:
           additionalProperties:
             type: string
           description: A string to string map that must round-trip intact.
+        external_id:
+          oneOf:
+            - type: string
+            - type: integer
+          description: >-
+            An external identifier that may be a legacy numeric id or a newer
+            string id. A scalar oneOf union: it round-trips cleanly and proves
+            the union path end to end (object unions need a discriminator to
+            auto-hydrate, a documented residual).
       xml:
         name: pet
     ApiResponse:

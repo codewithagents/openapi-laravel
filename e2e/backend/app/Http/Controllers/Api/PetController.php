@@ -111,6 +111,7 @@ final class PetController extends AbstractPetController
             createdAt: $pet->createdAt,
             weightKg: $pet->weightKg,
             attributes: $pet->attributes,
+            externalId: $pet->externalId,
         );
 
         return $this->store->putPet($updated);
@@ -160,6 +161,9 @@ final class PetController extends AbstractPetController
             createdAt: $createdAt,
             weightKg: $pet->weightKg,
             attributes: $pet->attributes,
+            // Preserve external_id exactly as it arrived: a string stays a
+            // string, an integer stays an integer (the oneOf union type).
+            externalId: $pet->externalId,
         );
     }
 }

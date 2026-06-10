@@ -57,6 +57,7 @@ final class PetStore
             createdAt: '2026-01-01T00:00:00+00:00',
             weightKg: 12.5,
             attributes: ['color' => 'brown', 'breed' => 'labrador'],
+            externalId: 'ext-rex-legacy',
         ));
 
         $this->putPet(new PetData(
@@ -67,6 +68,7 @@ final class PetStore
             createdAt: '2026-01-02T00:00:00+00:00',
             weightKg: null,
             attributes: [],
+            externalId: 559900,
         ));
     }
 
@@ -94,6 +96,7 @@ final class PetStore
             createdAt: $pet->createdAt,
             weightKg: $pet->weightKg,
             attributes: $pet->attributes,
+            externalId: $pet->externalId,
         );
 
         $state['pets'][$id] = $stored->toArray();

@@ -11,6 +11,8 @@ controllers + a file-backed store) and the wiring.
   deliberately stresses the cross-language serialization seams where a typed
   client and the laravel-data server must agree (MapName, writeOnly/readOnly
   variants, nullable, additionalProperties maps).
+- Milestone 2.5: a `oneOf` scalar union field (`external_id`), proving the
+  generator's union-type support round-trips end to end over the wire.
 
 Later milestones add a SPA, Playwright, and Docker.
 
@@ -50,6 +52,22 @@ petstore, each targeting a known cross-language mismatch source:
 | `created_at`   | `format: date-time`, `readOnly`    | dropped from `PetWritableData`, set server-side, ignored if a client sends it |
 | `weight_kg`    | `number`, `nullable: true`         | a null is accepted and stays present (as `null`) in responses |
 | `attributes`   | `object` + `additionalProperties`  | a string->string map round-trips intact |
+| `external_id`  | `oneOf: [string, integer]`         | a scalar union: a string stays a string and an integer stays an integer over the wire |
+
+The `external_id` field exercises the generator's `oneOf`/`anyOf` support. For a
+scalar union it emits a real PHP union type, not bare `mixed`:
+
+```php
+/** @var string|int */
+#[MapName('external_id')]
+public readonly string|int|null $externalId = null,
+```
+
+with a presence-only rule (`'external_id' => ['sometimes']`). A scalar union is
+chosen deliberately: object unions cannot auto-hydrate in laravel-data without a
+spec `discriminator` (a documented residual, the generator types those as
+`mixed`), whereas a scalar union round-trips cleanly and proves the union path
+end to end.
 
 Because the spec now uses `readOnly`/`writeOnly`, the generator emits a
 read/write split: `PetData` (response shape, has `created_at`, no `secret_note`)
@@ -188,6 +206,30 @@ curl -s -X POST "$B/pet" ... -d '{"name":"Persisto","photoUrls":["..."],"status"
 curl -s "$B/pet/findByStatus?status=sold"
 # 200 -> [ {... "name":"Persisto", "id":9, ...} ]   the create survived
 ```
+
+### 9) oneOf scalar union (`external_id`) preserves its JSON type
+
+The `string|int|null` union round-trips with the wire type intact in both
+directions: a string stays a string, an integer stays an integer (no coercion).
+
+```bash
+# string variant
+curl -s -X POST "$B/pet" ... -d '{... ,"external_id":"ext-abc-123"}'
+# 201/200 -> "external_id":"ext-abc-123"   (quoted string)
+
+# integer variant
+curl -s -X POST "$B/pet" ... -d '{... ,"external_id":778899}'
+# 201/200 -> "external_id":778899          (bare integer, NOT "778899")
+
+# omitted (optional)
+curl -s -X POST "$B/pet" ... -d '{"name":"NoExt","photoUrls":["..."],"status":"available"}'
+# 201/200 -> "external_id":null
+```
+
+The two seed pets also carry both variants: Rex #1 has `"ext-rex-legacy"`
+(string), Whiskers #2 has `559900` (integer). laravel-data hydrates and emits
+the `string|int|null` union without coercing either side, so the scalar union
+is clean end to end.
 
 ## Known seam quirk (reported honestly)
 
