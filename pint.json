@@ -1,6 +1,7 @@
 {
     "preset": "laravel",
     "exclude": [
+        "e2e",
         "examples/petstore/Data",
         "examples/petstore/routes",
         "tests/Feature/Example/Writable/Data",
