@@ -1,0 +1,52 @@
+---
+title: Roadmap & limitations
+description: What v0.1.0 ships, the known limitations in v1, and what is planned for v2 (server scaffold) and beyond.
+---
+
+import { Aside } from '@astrojs/starlight/components'
+
+`openapi-laravel` is at **v1: models**. This page is the honest account of what is in scope now, what is deliberately basic, and what is planned next.
+
+## Now: v0.1.0 (models)
+
+Spec in, generated `app/Data/*` out:
+
+- One `laravel-data` class per `components.schemas` entry, plus per inline request and response shape.
+- An explicit `rules()` method per class, derived from spec constraints: `required` / `nullable`, types, string `minLength` / `maxLength` / `pattern` / `format` (email, uuid, date, date-time, url, ip), numeric `minimum` / `maximum`, array `minItems` / `maxItems`, and enum via `Rule::enum` or `Rule::in`.
+- Native backed enums for string and integer enums.
+- `readOnly` / `writeOnly` handling: a read variant and a write variant, only when the spec uses the flags.
+- Nested objects become nested Data classes; arrays become typed collections with `#[DataCollectionOf]`.
+- A naming layer: StudlyCaps classes, camelCase properties with `#[MapName]` when the wire name differs, collision handling, and PHP reserved-word escaping.
+- Two ways to run it: `php artisan openapi:generate` via the service provider, and a framework-free `vendor/bin/openapi-laravel` for non-Laravel CI.
+- Determinism: the same spec in produces byte-identical files out.
+
+## Known limitations in v1
+
+<Aside type="caution" title="Basic in v1">
+
+- **`oneOf` / `anyOf`** are handled in a basic way. PHP's union-type and `laravel-data` support for unions is partial, so complex polymorphic schemas may need a manual touch. Discriminator-driven dispatch is not generated for you yet.
+- **`additionalProperties`** is handled in a basic way. Laravel validation has no native way to reject unknown keys on nested arrays, so `additionalProperties: false` does not currently generate a strict rejection rule.
+- **`allOf`** is merged into a single shape. Deep or conflicting compositions may not merge cleanly.
+- **Server scaffolding is not in v1.** No routes file and no controllers. That is v2.
+
+</Aside>
+
+These are areas where the generator produces something reasonable but not exhaustive. The 128-spec corpus keeps the common cases honest, and these edges are tracked for refinement.
+
+## Next: v2 (server scaffold)
+
+The differentiator. Nothing credible exists in the Laravel ecosystem for this yet.
+
+- A generated routes file (`routes/api.generated.php`): one `Route::` entry per spec operation, pointing at controller classes by tag and `operationId`.
+- A generated abstract controller per tag: one abstract method per operation, typed by the v1 Data classes (params and request body in, Data response out). You extend it with concrete controllers and delegate business logic to services. An unimplemented operation is a PHP fatal, not silent drift.
+
+This makes path-level spec/code drift structurally impossible: the routing table derives from the spec. It is the Spring-generator pattern, translated to idiomatic Laravel.
+
+## Later: v3 (maybe)
+
+Client generation built on the `Http::` facade. Less differentiated than the server scaffold, so it is a decide-later item rather than a commitment.
+
+<Aside type="note">
+  For the full version plan and the decisions already locked in, see
+  [ROADMAP.md](https://github.com/codewithagents/openapi-laravel/blob/main/ROADMAP.md) in the repo.
+</Aside>

@@ -1,0 +1,30 @@
+---
+title: Philosophy
+description: The principles behind openapi-laravel, the spec is the source of truth, you own the output, explicit over inferred, deterministic, modern only.
+---
+
+The design of `openapi-laravel` follows a small set of principles. They are the same principles as the sibling project, [openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts), translated to the Laravel ecosystem.
+
+## The spec is the source of truth
+
+Code follows the contract, never the other way around. This is the opposite of annotation-driven tools where your PHP generates the spec. When the OpenAPI document changes, you re-run the generator and the code catches up. There is no second authority to reconcile by hand.
+
+## You own the output
+
+Generated classes are readable PHP in your repo. Review them, commit them, read them in a diff. There is no opaque runtime and no reflection magic you cannot follow. If you ever want to stop using the generator, the code is already yours and keeps working.
+
+## Explicit over inferred
+
+Validation rules are emitted verbatim from spec constraints, not guessed from property types at runtime. If the spec says `maxLength: 255`, the generated `rules()` says `max:255`. What the contract states is what gets validated, and you can read exactly why each rule is there.
+
+## Deterministic
+
+Stable ordering everywhere: properties, rules, enum cases, files. Regenerating produces a byte-identical diff or no diff at all, so the generator is safe to run in CI and commit. A change in the output always means a change in the spec or the generator, never incidental churn.
+
+## Modern only
+
+PHP 8.2 and newer, Laravel 11 and 12, `spatie/laravel-data` v4. No legacy shims and no compatibility layers for versions that are out of support. The output uses promoted readonly properties, native backed enums, and current `laravel-data` idioms, because that is the code you would write today.
+
+## Quality is the feature
+
+A code generator has a wide blast radius: a subtle regression touches every project that runs it. So the generator is held to a high bar. Every spec in a corpus of 128 real-world public APIs (Stripe, GitHub, OpenAI, Slack, Twilio, and more) must parse and generate syntactically valid PHP on every CI run, the output passes `php -l` and PHPStan at max level, and a subset of generated output is committed and diff-checked so any change to the generator is visible in review. The same corpus backs the sibling TypeScript project, so both tools are proven against the same real-world specs.

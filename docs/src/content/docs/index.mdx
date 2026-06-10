@@ -1,0 +1,210 @@
+---
+title: openapi-laravel
+description: Generate Laravel models from your OpenAPI spec. Spatie laravel-data classes, spec-derived validation rules, and native PHP enums. The spec is the source of truth.
+template: splash
+head:
+  - tag: title
+    content: 'openapi-laravel: spec-first Laravel models from your OpenAPI document'
+hero:
+  title: The spec is the source of truth. Your code follows it.
+  tagline: Generate spatie/laravel-data classes with explicit, spec-derived rules() methods and native PHP enums from your OpenAPI document. Readable, deterministic PHP that lives in your repo and looks like code you would have written yourself.
+  actions:
+    - text: Get started
+      link: /getting-started
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/codewithagents/openapi-laravel
+      icon: external
+      variant: secondary
+---
+
+import { Card, CardGrid, Tabs, TabItem, Steps, Aside } from '@astrojs/starlight/components'
+
+## See it in action
+
+A single object schema in your spec becomes a `laravel-data` class with an explicit `rules()` method, plus a native backed enum for any enum it references.
+
+<Tabs>
+  <TabItem label="Data class">
+
+```php
+// generated from components.schemas.Customer
+final class CustomerData extends Data
+{
+    public function __construct(
+        public readonly int $id,
+        public readonly string $name,
+        #[MapName('email_address')]
+        public readonly ?string $emailAddress = null,
+        public readonly ?CustomerStatus $status = null,
+    ) {}
+
+    public static function rules(): array
+    {
+        return [
+            'id'            => ['required', 'integer', 'min:1'],
+            'name'          => ['required', 'string', 'max:255'],
+            'email_address' => ['sometimes', 'nullable', 'string', 'email'],
+            'status'        => ['sometimes', Rule::enum(CustomerStatus::class)],
+        ];
+    }
+}
+```
+
+  </TabItem>
+  <TabItem label="Backed enum">
+
+```php
+// generated from components.schemas.Customer.properties.status
+enum CustomerStatus: string
+{
+    case Active   = 'active';
+    case Inactive = 'inactive';
+    case Pending  = 'pending';
+}
+```
+
+  </TabItem>
+  <TabItem label="OpenAPI input">
+
+```yaml
+components:
+  schemas:
+    Customer:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          maxLength: 255
+        email_address:
+          type: string
+          format: email
+          nullable: true
+        status:
+          $ref: '#/components/schemas/CustomerStatus'
+    CustomerStatus:
+      type: string
+      enum: [active, inactive, pending]
+```
+
+  </TabItem>
+</Tabs>
+
+---
+
+## The pipeline
+
+```
+openapi.yaml
+  └── openapi-laravel  →  app/Data/CustomerData.php          (laravel-data class + rules())
+                          app/Data/CustomerStatus.php        (native backed enum)
+                          app/Data/CustomerWritableData.php  (write variant, when the spec
+                                                              uses readOnly / writeOnly)
+```
+
+You write your business logic. The DTOs and their validation stay in sync when the spec changes. Re-run the generator and the diff tells you exactly what moved.
+
+---
+
+## Why this generator
+
+<CardGrid>
+  <Card title="Spec-first, not code-first" icon="document">
+    The OpenAPI document drives the code, not the other way around. This is the opposite of
+    annotation tools like l5-swagger or scramble, where your PHP generates the spec.
+  </Card>
+  <Card title="Code you own" icon="pencil">
+    Output is readable PHP in your repo. Review it, commit it, read it in a diff. No opaque runtime
+    and no reflection magic you cannot follow.
+  </Card>
+  <Card title="Explicit validation" icon="approve-check-circle">
+    Rules are emitted verbatim from spec constraints (required, nullable, maxLength, pattern, format,
+    minimum, maximum, enum), not guessed from property types at runtime.
+  </Card>
+  <Card title="Proven on 128 real specs" icon="star">
+    Stripe, GitHub, OpenAI, Slack, Twilio, and more. Every spec parses and generates valid PHP in CI.
+    Shared with the sibling project openapi-zod-ts.
+  </Card>
+  <Card title="Deterministic" icon="seti:php">
+    Stable ordering everywhere. The same spec in produces byte-identical files out, so the generator
+    is safe to run in CI and commit.
+  </Card>
+  <Card title="Runs without Laravel" icon="laptop">
+    The same generator ships as a framework-free binary, so non-Laravel projects and CI can run it
+    too.
+  </Card>
+</CardGrid>
+
+---
+
+## Up and running in minutes
+
+<Steps>
+
+1. **Install the package.**
+
+   ```bash
+   composer require --dev codewithagents/openapi-laravel
+   ```
+
+2. **Point it at your spec and generate.**
+
+   ```bash
+   php artisan openapi:generate --spec=openapi.yaml --output=app/Data
+   ```
+
+3. **Use the generated classes.**
+
+   The Data classes validate from request payloads and the enums type your domain. When the spec
+   changes, re-run the generator and review the diff.
+
+</Steps>
+
+<Aside type="tip" title="Not a Laravel project?">
+  The generator also ships as `vendor/bin/openapi-laravel`, a framework-free binary you can run
+  anywhere. See the [quick start](/getting-started/quickstart).
+</Aside>
+
+---
+
+## Is this for you?
+
+<Aside type="note" title="Use it when">
+
+- **Your OpenAPI spec is the contract** and you want PHP DTOs, validation, and enums derived from it.
+- **You want to own the generated code**, not call into a runtime black box.
+- **Your spec is large or full of edge cases.** The generator is tested against 128 real-world specs on every CI run.
+
+</Aside>
+
+<Aside type="note" title="Look elsewhere if">
+
+- **Your code is the source of truth** and you want the spec generated from it. Use
+  [l5-swagger](https://github.com/DarkaOnLine/L5-Swagger) or [scramble](https://scramble.dedoc.co/).
+- **You need full server scaffolding today.** Routes and controllers are planned for v2, not shipped in v1.
+
+</Aside>
+
+---
+
+<div class="cta-section">
+
+## Get started
+
+<CardGrid>
+  <Card title="Quick start" icon="right-arrow">
+    From a spec file to generated Data classes in a few minutes. [Read the quick
+    start](/getting-started/quickstart)
+  </Card>
+  <Card title="GitHub" icon="github">
+    Source code, issues, and the 128-spec corpus. [View on
+    GitHub](https://github.com/codewithagents/openapi-laravel)
+  </Card>
+</CardGrid>
+
+</div>
