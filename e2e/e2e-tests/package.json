@@ -1,0 +1,16 @@
+{
+  "name": "openapi-laravel-e2e-tests",
+  "version": "1.0.0",
+  "description": "Playwright headless-Chrome suite for the openapi-laravel cross-language demo stack.",
+  "private": true,
+  "scripts": {
+    "e2e": "bash run.sh",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "install:browsers": "playwright install --with-deps chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^22.0.0"
+  }
+}
