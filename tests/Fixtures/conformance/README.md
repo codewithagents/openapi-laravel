@@ -32,20 +32,20 @@ in-flight generator fixes.
 | #15 | Defaults (including nullable default) |
 | #18 | Documented no-op string formats |
 
-## Parser-gap finding
+## Parser-gap finding (resolved, issue #20)
 
 The vendored cebe parser (`devizzent/cebe-php-openapi`) cannot instantiate a
 boolean schema value, so the canonical closed-tuple spelling `items: false`
-(and `items: true`) is rejected with `Unable to instantiate Schema Object with
-data ''`. This is valid OpenAPI 3.1, so it is a real parser gap rather than an
-invalid construct. `TupleSchema` therefore uses `prefixItems` alone and omits
-`items: false`; the tuple construct is still covered. Note: boolean
-`additionalProperties: true|false` IS accepted (cebe special-cases that path),
-so those constructs remain in the spec unchanged.
+(and `items: true`) used to be rejected with `Unable to instantiate Schema
+Object with data ''`. The `SchemaNormalizer` (issue #20, on main) now rewrites a
+boolean `items` value before cebe sees it: `items: true` becomes `items: {}` and
+`items: false` is dropped. `TupleSchema` therefore carries the canonical
+`items: false` closed-tuple spelling again and parses cleanly. Boolean
+`additionalProperties: true|false` was always accepted (cebe special-cases that
+path), so those constructs are unchanged.
 
-Both files otherwise parse cleanly through `SpecParser` (and pass cebe's
-optional `validate()` pass): `conformance-3.1.yaml` -> 54 schemas, 9 paths;
-`conformance-3.0-forms.yaml` -> 4 schemas, 1 path.
+Both files parse cleanly through `SpecParser` (and pass cebe's optional
+`validate()` pass): `conformance-3.1.yaml` and `conformance-3.0-forms.yaml`.
 
 ## conformance-3.1.yaml manifest
 
@@ -64,7 +64,7 @@ optional `validate()` pass): `conformance-3.1.yaml` -> 54 schemas, 9 paths;
 |--------|-----------|--------|
 | `ArrayScalar` | scalar items, minItems, maxItems, uniqueItems | #14 |
 | `ArrayOfRef` | items via $ref | |
-| `TupleSchema` | prefixItems tuple (items:false omitted, parser gap) | |
+| `TupleSchema` | closed prefixItems tuple plus `items: false` | #20 |
 | `ArrayOfArray` | array of array | |
 | `ArrayOfUnion` | array whose items are a oneOf union | |
 
@@ -145,10 +145,37 @@ optional `validate()` pass): `conformance-3.1.yaml` -> 54 schemas, 9 paths;
 | `dotted.schema.name` | dotted schema NAME | |
 | `9lives` | numeric-leading schema NAME | |
 
+### Use-site exerciser
+
+| Schema | Constructs | Issues |
+|--------|-----------|--------|
+| `Exerciser` | references the non-object alias/array/map components (scalar map, ref map, map of objects, scalar array + uniqueItems, array of $ref, array of union, array of array, tuple, scalar alias, array alias, oneOf-of-scalars alias, scalar union, object union, recursive TreeNode) as named properties | #9 |
+
+By issue #9 a top-level non-object component (a scalar, an array, a map, a
+oneOf union) is inlined at its use site rather than emitted as its own (empty)
+Data class. Its generated shape (typed maps with the `MapObjectTransformer`,
+`DataCollection`s, the uniqueItems `distinct` rule, tuple/array element types,
+scalar-alias rules, native scalar/object unions) is therefore only observable
+where it is REFERENCED. `Exerciser` references one of each so the golden test
+can assert that inlined output on real generated code; it is a construct
+exerciser, not a realistic payload.
+
 ### Supporting schemas
 
 `GadgetAlpha`, `GadgetBeta` (discriminated union members), `GadgetInput`,
 `GizmoInput`, `Gizmo`, `ErrorObject` support the operations and unions above.
+
+## Known latent issue surfaced by the exerciser
+
+`ArrayOfUnion` (an array whose `items` are a `oneOf` of two $ref objects)
+generates a `DataCollectionOf` attribute argument that is NOT a single class
+reference: `#[DataCollectionOf(GadgetAlphaData|GadgetBetaData::class)]`. PHP
+operator precedence parses `Foo|Bar::class` as `Foo | (Bar::class)`, so `php -l`
+accepts it, but it is semantically wrong (a union is not a valid
+`DataCollectionOf` target). The golden test asserts only the correct part (the
+`@var array<int, GadgetAlphaData|GadgetBetaData>` docblock) and does NOT pin the
+broken attribute, so the test stays green while the bug is tracked. Fixing it
+lives in `src/` (out of scope for the test layer).
 
 ### Operations
 

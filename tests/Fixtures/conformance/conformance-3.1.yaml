@@ -417,18 +417,19 @@ components:
       items:
         $ref: '#/components/schemas/Widget'   # $ref items
 
-    # prefixItems / tuple (3.1).
-    # NOTE: the canonical "closed tuple" spelling adds `items: false`, but the
-    # vendored cebe parser cannot instantiate a boolean schema value and rejects
-    # it (see conformance README, parser-gap finding). prefixItems alone parses,
-    # so the tuple construct is still covered without the boolean schema.
+    # prefixItems / tuple (3.1), CLOSED via `items: false`.
+    # The canonical closed-tuple spelling adds `items: false` (no items beyond
+    # the prefixItems positions). The SchemaNormalizer (issue #20) rewrites the
+    # boolean `items` value before cebe sees it, so this now parses cleanly and
+    # the closed-tuple construct is fully covered.
     TupleSchema:
       type: array
-      description: Tuple via 3.1 prefixItems (items:false omitted, parser gap)
+      description: Closed tuple via 3.1 prefixItems plus items:false
       prefixItems:                # prefixItems tuple positions
         - type: string
         - type: integer
         - type: boolean
+      items: false                # closed tuple: no items beyond the prefix (issue #20)
 
     # Array of array.
     ArrayOfArray:
@@ -837,6 +838,51 @@ components:
       properties:
         ok:
           type: boolean
+
+    # =====================================================================
+    # SECTION 14: USE-SITE EXERCISER
+    # =====================================================================
+    #
+    # Many array/map/alias constructs above are top-level NON-OBJECT components.
+    # By issue #9 those are inlined at their use site instead of emitting their
+    # own empty Data class, so their generated shape (typed maps with the
+    # MapObjectTransformer, DataCollections, uniqueItems `distinct`, tuple and
+    # array-of-array element types, scalar-alias rules, scalar/object unions) is
+    # only observable where they are REFERENCED. This object references one of
+    # each so the golden test can assert their inlined output on real generated
+    # code. It exercises constructs, it is not a realistic payload.
+    Exerciser:
+      type: object
+      description: References the non-object alias/array/map constructs at a use site
+      properties:
+        scalarMap:
+          $ref: '#/components/schemas/AdditionalPropsScalar'   # map of string -> array<string, string>
+        refMap:
+          $ref: '#/components/schemas/AdditionalPropsRef'      # map of object -> array<string, WidgetData>
+        objectMap:
+          $ref: '#/components/schemas/MapOfObjects'            # map of object -> array<string, WidgetData>
+        scalarArray:
+          $ref: '#/components/schemas/ArrayScalar'             # array + uniqueItems -> distinct
+        refArray:
+          $ref: '#/components/schemas/ArrayOfRef'              # array of $ref -> DataCollection of WidgetData
+        unionArray:
+          $ref: '#/components/schemas/ArrayOfUnion'            # array whose items are a oneOf union
+        nestedArray:
+          $ref: '#/components/schemas/ArrayOfArray'            # array of array of integer
+        tuple:
+          $ref: '#/components/schemas/TupleSchema'             # closed prefixItems tuple
+        scalarAlias:
+          $ref: '#/components/schemas/ScalarAlias'             # scalar (string, minLength) alias inlined
+        arrayAlias:
+          $ref: '#/components/schemas/ArrayAlias'              # array alias inlined
+        oneOfAlias:
+          $ref: '#/components/schemas/OneOfAlias'              # oneOf-of-scalars alias -> int|string union
+        scalarUnion:
+          $ref: '#/components/schemas/OneOfScalars'            # oneOf of string|integer|boolean
+        objectUnion:
+          $ref: '#/components/schemas/OneOfNoDiscriminator'    # oneOf of GadgetAlpha|GadgetBeta
+        tree:
+          $ref: '#/components/schemas/TreeNode'                # recursive self-referential schema
 
     # =====================================================================
     # SUPPORTING SCHEMAS referenced above

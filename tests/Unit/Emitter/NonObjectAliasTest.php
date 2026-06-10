@@ -6,6 +6,7 @@ use cebe\openapi\Reader;
 use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
+use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
 /**
  * Regression coverage for issue #9: a top-level component schema that is itself
@@ -241,8 +242,11 @@ it('produces no empty classes for the issue #9 conformance aliases', function ()
     // The conformance fixture defines ScalarAlias (string), ArrayAlias (array),
     // and OneOfAlias (oneOf int|string) as non-object alias components. None must
     // become an empty Data class.
+    // Go through SpecParser (not Reader directly) so the SchemaNormalizer runs:
+    // the fixture's closed tuple uses a boolean `items: false` that cebe cannot
+    // instantiate raw, which the normalizer rewrites before cebe sees it.
     $path = dirname(__DIR__, 2).'/Fixtures/conformance/conformance-3.1.yaml';
-    $spec = Reader::readFromYamlFile($path, OpenApi::class, false);
+    $spec = (new SpecParser)->parseFile($path);
     $files = (new ModelGenerator)->generate($spec);
 
     expect(array_keys($files))->not->toContain('ScalarAliasData')
