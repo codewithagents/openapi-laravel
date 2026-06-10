@@ -20,6 +20,7 @@
         "phpstan/phpstan": "^2.0",
         "spatie/pest-plugin-snapshots": "^2.0"
     },
+    "bin": ["bin/openapi-laravel"],
     "autoload": {
         "psr-4": {
             "CodeWithAgents\\OpenApiLaravel\\": "src/"

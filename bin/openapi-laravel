@@ -1,0 +1,26 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use CodeWithAgents\OpenApiLaravel\Console\StandaloneApplication;
+
+$autoloads = [
+    __DIR__.'/../vendor/autoload.php',      // running from a clone of this package
+    __DIR__.'/../../../autoload.php',       // installed as a dependency in vendor/
+];
+
+foreach ($autoloads as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+
+        break;
+    }
+}
+
+if (! class_exists(StandaloneApplication::class)) {
+    fwrite(STDERR, "Unable to locate the Composer autoloader. Run `composer install`.\n");
+    exit(1);
+}
+
+exit((new StandaloneApplication)->run($argv));
