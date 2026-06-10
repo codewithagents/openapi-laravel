@@ -1,0 +1,8 @@
+{
+    "symbol-whitelist": [
+        "config",
+        "config_path",
+        "Illuminate\\Console\\Command",
+        "Illuminate\\Support\\ServiceProvider"
+    ]
+}

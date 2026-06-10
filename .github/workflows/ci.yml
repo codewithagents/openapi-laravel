@@ -48,7 +48,7 @@ jobs:
         run: composer test:type
 
   mutation:
-    name: Mutation testing (Infection)
+    name: Mutation testing (Pest)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -58,7 +58,7 @@ jobs:
           coverage: pcov
           tools: composer:v2
       - run: composer install --no-interaction --no-progress
-      - name: Infection
+      - name: Pest mutation testing
         run: composer test:mutate
 
   hygiene:
@@ -75,4 +75,4 @@ jobs:
       - name: Unused dependencies
         run: composer-unused
       - name: Missing / undeclared dependencies
-        run: composer-require-checker check
+        run: composer-require-checker check --config-file=composer-require-checker.json

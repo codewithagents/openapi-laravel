@@ -6,12 +6,12 @@
     "keywords": ["openapi", "laravel", "codegen", "laravel-data", "spec-first", "contract-first"],
     "require": {
         "php": "^8.2",
+        "ext-ctype": "*",
         "devizzent/cebe-php-openapi": "^1.1",
         "illuminate/support": "^11.0|^12.0",
         "spatie/laravel-data": "^4.0"
     },
     "require-dev": {
-        "infection/infection": "^0.29",
         "larastan/larastan": "^3.0",
         "laravel/pint": "^1.0",
         "orchestra/testbench": "^9.0|^10.0",
@@ -44,7 +44,7 @@
         "stan": "phpstan analyse --memory-limit=1G",
         "test": "pest",
         "test:type": "pest --type-coverage --min=100",
-        "test:mutate": "infection --threads=max",
+        "test:mutate": "@php -d memory_limit=-1 vendor/bin/pest --mutate --covered-only --min=90",
         "qa": [
             "@lint",
             "@stan",
@@ -57,8 +57,7 @@
             "php": "8.2.0"
         },
         "allow-plugins": {
-            "pestphp/pest-plugin": true,
-            "infection/extension-installer": true
+            "pestphp/pest-plugin": true
         }
     },
     "minimum-stability": "stable",

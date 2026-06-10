@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use CodeWithAgents\OpenApiLaravel\Naming\PhpIdentifier;
 
+mutates(PhpIdentifier::class);
+
 it('builds StudlyCaps class names', function (string $input, string $expected) {
     expect(PhpIdentifier::toClassName($input))->toBe($expected);
 })->with([
@@ -41,6 +43,10 @@ it('builds camelCase property names', function (string $input, string $expected)
 it('resolves $refs to class names', function () {
     expect(PhpIdentifier::refToClassName('#/components/schemas/Customer'))->toBe('Customer')
         ->and(PhpIdentifier::refToClassName('#/components/schemas/Pet', ['Pet' => 'PetRenamed']))->toBe('PetRenamed');
+});
+
+it('falls back to "_" for a $ref with an empty final segment', function () {
+    expect(PhpIdentifier::refToClassName('#/components/schemas/'))->toBe('_');
 });
 
 it('detects when a #[MapName] is required', function () {

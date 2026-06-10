@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use CodeWithAgents\OpenApiLaravel\Naming\UniqueNames;
 
+mutates(UniqueNames::class);
+
 it('returns the candidate when free', function () {
     $names = new UniqueNames;
 
