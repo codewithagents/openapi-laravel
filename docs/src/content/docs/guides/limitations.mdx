@@ -97,6 +97,25 @@ Instead the array type is inlined wherever the component is referenced, so a pro
 `$ref: Language` is generated directly as `array<string, int>`. The map is represented at every use
 site, deterministically, with no empty wrapper class.
 
+### Non-object alias components (scalar, array, oneOf/anyOf)
+
+A top-level component that is itself a scalar (`Time: { type: string, format: date-time }`), an array
+(`Tags: { type: array, items: { type: string } }`), or a `oneOf`/`anyOf` union
+(`IntOrString: { oneOf: [{ type: integer }, { type: string }] }`) has **no** object `properties`, so it
+is a **type alias**, not a Data class. Such a component is **not** emitted as an empty Data class.
+Instead, every `$ref` to it resolves to the underlying type at the use site: a scalar alias becomes the
+scalar PHP type plus the constraint it carries (a date-time alias still emits the date-time rule, a
+length-bounded string alias its `max:`/`min:`), an array alias becomes the `array`/`DataCollection`
+type its items imply, and a union alias becomes the native PHP union (or `mixed` for the messy cases,
+per the usual `oneOf`/`anyOf` rules). Chained aliases (`A: { allOf: [{ $ref: B }] }` where `B` is itself
+an alias) resolve transitively, with a cycle guard. The same resolution applies on the server scaffold:
+a request/response `$ref` to such a component types against the underlying value rather than a missing
+class, falling back to `Request`/`JsonResponse` when the underlying type is not a Data class.
+
+A `type: object` component with no properties (or `properties: {}`) is a genuinely **empty object**, not
+an alias, and **still** emits an (empty) Data class. The distinction is deliberate: only non-object
+(scalar/array/composition) components are aliased.
+
 ### Mixed objects (named properties + additionalProperties)
 
 When a schema declares both named `properties` and `additionalProperties`, the named properties are

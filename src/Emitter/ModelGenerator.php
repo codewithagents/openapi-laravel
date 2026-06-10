@@ -69,6 +69,30 @@ final class ModelGenerator
     private array $mapSchemas = [];
 
     /**
+     * Component schema name => resolved underlying type, for non-object alias
+     * components: a top-level component that is itself a scalar (`{type: string,
+     * format: date-time}`), an array, or a oneOf/anyOf union, with no object
+     * `properties`. Such a component is a TYPE ALIAS, not a Data class: a `$ref`
+     * to it resolves to the underlying type at the use site instead of pointing
+     * at an empty class (which would silently fail to hydrate). Mirrors
+     * $mapAliases. See resolveReference() and isNonObjectAlias().
+     *
+     * @var array<string, ResolvedType>
+     */
+    private array $aliasTypes = [];
+
+    /**
+     * Component schema name => the original Schema, for non-object alias
+     * components. Kept separately so a `$ref` to such an alias can recover the
+     * underlying schema and reuse buildRules() at the use site (so a date-time
+     * alias still contributes its date-time rule, a length-bounded string alias
+     * its max:/min:, etc.). Mirrors $mapSchemas.
+     *
+     * @var array<string, Schema>
+     */
+    private array $aliasSchemas = [];
+
+    /**
      * @var array<string, GeneratedFile>
      */
     private array $files = [];
@@ -89,6 +113,8 @@ final class ModelGenerator
         $this->writeClasses = [];
         $this->mapAliases = [];
         $this->mapSchemas = [];
+        $this->aliasTypes = [];
+        $this->aliasSchemas = [];
         $this->files = [];
 
         $schemas = $this->componentSchemas($document);
@@ -100,6 +126,14 @@ final class ModelGenerator
             // a map alias and skip emitting an empty class. References to it
             // inline the array type at the use site.
             if ($this->isPureMap($schema)) {
+                continue;
+            }
+
+            // A non-object alias component (a scalar/array/union with no object
+            // properties) is a TYPE ALIAS, not a Data class. Skip emitting an
+            // empty class; the second pass resolves it to its underlying type
+            // and references inline that type at the use site.
+            if ($this->isNonObjectAlias($schema)) {
                 continue;
             }
 
@@ -119,6 +153,30 @@ final class ModelGenerator
                 $this->mapSchemas[$name] = $schema;
                 $this->mapAliases[$name] = $this->mapType($schema, PhpIdentifier::toClassName($name), 0, 'all');
             }
+        }
+
+        // Record the schemas of non-object alias components first (so rules at a
+        // use site can recover the underlying schema), then resolve each to its
+        // underlying type. Resolution is lazy and transitive: an alias whose
+        // type is itself a `$ref` to another alias (alias -> alias) chains
+        // through resolveReference, guarded against cycles. Sorted for
+        // determinism.
+        foreach ($schemas as $name => $schema) {
+            if ($this->isNonObjectAlias($schema)) {
+                $this->aliasSchemas[$name] = $schema;
+            }
+        }
+
+        // Promote chained aliases: a registry component that is a thin
+        // `allOf: [{$ref}]` whose chain terminates at a non-object alias is
+        // itself an alias, not a Data class. Done now (not in the first pass)
+        // because it needs the direct-alias set above to know the target's kind.
+        // A chain that terminates at an object Data class stays a Data class
+        // (its read/write split and server-scaffold registry entry are kept).
+        $this->promoteChainedAliases($schemas);
+
+        foreach ($this->aliasSchemas as $name => $schema) {
+            $this->resolveAlias($name);
         }
 
         foreach ($this->registry as $name => $entry) {
@@ -481,6 +539,20 @@ final class ModelGenerator
                 return [array_merge($rules, ["'array'"]), $valueRules, $valueUses];
             }
 
+            // A $ref to a non-object alias component (scalar/array/union): derive
+            // the rules from the underlying alias schema, not the empty class, so
+            // a date-time alias still emits its date-time rule, a length-bounded
+            // string alias its max:/min:, an array alias its 'array' + item
+            // rules, and a union alias its presence-only rules. A chained alias
+            // (allOf-ref -> scalar) is followed to its terminal schema first so
+            // the constraint at the end of the chain is not lost.
+            $aliasSchema = $this->referencedAliasSchema($schema);
+            if ($aliasSchema !== null) {
+                $terminal = $this->terminalAliasSchema($aliasSchema);
+
+                return $this->buildRules($terminal, $required, $type);
+            }
+
             $enumClass = $this->referencedEnumClass($schema);
             if ($enumClass !== null) {
                 $rules[] = 'Rule::enum('.$enumClass.'::class)';
@@ -688,6 +760,49 @@ final class ModelGenerator
         $name = $this->refName($reference->getReference());
 
         return $name !== null ? ($this->mapSchemas[$name] ?? null) : null;
+    }
+
+    /**
+     * If a reference points at a non-object alias component (scalar/array/union),
+     * return that component's schema so the caller can derive its rules from the
+     * underlying type. Returns null when the reference is not such an alias.
+     */
+    private function referencedAliasSchema(Reference $reference): ?Schema
+    {
+        $name = $this->refName($reference->getReference());
+
+        return $name !== null ? ($this->aliasSchemas[$name] ?? null) : null;
+    }
+
+    /**
+     * Follow a chained alias (`allOf: [{$ref}]` -> alias -> ... -> scalar/array/
+     * union) to its terminal schema so rule derivation reads the constraint at
+     * the end of the chain, not the thin allOf wrapper (which would yield only
+     * presence rules). Cycle-guarded; a cyclic or dangling chain returns the last
+     * schema reached. A non-chain alias is returned unchanged.
+     *
+     * @param  array<string, true>  $seen  alias names already followed
+     */
+    private function terminalAliasSchema(Schema $schema, array $seen = []): Schema
+    {
+        $ref = $this->bareAllOfRef($schema);
+        if ($ref === null) {
+            return $schema;
+        }
+
+        $name = $this->refName($ref->getReference());
+        if ($name === null || isset($seen[$name])) {
+            return $schema;
+        }
+
+        $next = $this->aliasSchemas[$name] ?? null;
+        if ($next === null) {
+            return $schema;
+        }
+
+        $seen[$name] = true;
+
+        return $this->terminalAliasSchema($next, $seen);
     }
 
     /**
@@ -1006,10 +1121,13 @@ final class ModelGenerator
             : $nullable;
 
         // The common "single $ref wrapped in allOf" pattern (a ref plus a
-        // description) is just an alias: resolve it to the referenced class
+        // description) is just an alias: resolve it to the referenced type
         // instead of inlining a fresh nested copy. This also breaks self
-        // recursion (e.g. a `templateEvent: allOf: [$ref Self]` property).
-        $aliasRef = $this->soleAllOfRef($schema);
+        // recursion (e.g. a `templateEvent: allOf: [$ref Self]` property). The
+        // bare-ref check accepts a $ref to a non-object alias too, so a chained
+        // alias (allOf-ref -> scalar/array/union) resolves through to the
+        // underlying type via resolveReference rather than an empty class.
+        $aliasRef = $this->bareAllOfRef($schema);
         if ($aliasRef !== null) {
             $resolved = $this->resolveReference($aliasRef);
 
@@ -1211,12 +1329,28 @@ final class ModelGenerator
     {
         if ($member instanceof Reference) {
             $name = $this->refName($member->getReference());
+            if ($name === null) {
+                return false;
+            }
 
-            // Only a $ref to a generated Data class is clean. A pure-map alias
-            // (typed array) or an unknown/enum ref is not part of an object union.
-            return $name !== null
-                && isset($this->registry[$name])
-                && $this->registry[$name]['kind'] === 'data';
+            // A $ref to a generated Data class is clean. A pure-map alias (typed
+            // array) or an unknown/enum ref is not part of an object union.
+            if (isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'data') {
+                return true;
+            }
+
+            // A $ref to a non-object alias is clean only when it resolves to a
+            // scalar (string|int): an array/map/union/mixed alias is not a clean
+            // single union member. The resolved alias type drives the decision.
+            if (isset($this->aliasSchemas[$name])) {
+                $resolved = $this->resolveAlias($name, $this->aliasSeen);
+
+                return ! $resolved->isUnion
+                    && ! $resolved->isMap
+                    && in_array($resolved->declaration, self::SCALARS, true);
+            }
+
+            return false;
         }
 
         // A nested composition keyword makes the member a non-trivial shape.
@@ -1257,6 +1391,14 @@ final class ModelGenerator
         // site (the component itself has no Data class).
         if (isset($this->mapAliases[$name])) {
             return $this->mapAliases[$name];
+        }
+
+        // A reference to a non-object alias component (scalar/array/union)
+        // resolves to its underlying type at the use site. Resolution is
+        // transitive (alias -> alias) and cycle-guarded via $aliasSeen, so a
+        // chain reached mid-resolution still terminates.
+        if (isset($this->aliasSchemas[$name])) {
+            return $this->resolveAlias($name, $this->aliasSeen);
         }
 
         if (isset($this->registry[$name]) && is_string($this->registry[$name]['class'])) {
@@ -1566,6 +1708,156 @@ final class ModelGenerator
     }
 
     /**
+     * Promote chained aliases to the alias set. A registry component that is a
+     * thin `allOf: [{$ref: T}]` (no own properties) is an alias when its target T
+     * is itself an alias (direct or already-promoted). Such a component is then
+     * removed from the registry and recorded in $aliasSchemas, so a `$ref` to it
+     * resolves to the underlying type rather than an empty merged Data class.
+     *
+     * Iterated to a fixpoint so a multi-level chain (A -> B -> C, all allOf-refs
+     * terminating at a scalar) promotes every link: each pass promotes the links
+     * whose immediate target became an alias in the previous pass. A chain whose
+     * target is an object Data class is never promoted and stays a Data class.
+     * Bounded by the registry size (each pass promotes at least one, or stops).
+     *
+     * @param  array<string, Schema>  $schemas
+     */
+    private function promoteChainedAliases(array $schemas): void
+    {
+        do {
+            $promoted = false;
+
+            foreach ($schemas as $name => $schema) {
+                if (isset($this->aliasSchemas[$name]) || ! isset($this->registry[$name])) {
+                    continue;
+                }
+
+                $ref = $this->bareAllOfRef($schema);
+                if ($ref === null) {
+                    continue;
+                }
+
+                $target = $this->refName($ref->getReference());
+                if ($target === null || ! isset($this->aliasSchemas[$target])) {
+                    continue;
+                }
+
+                // The target is an alias: this thin wrapper is an alias too.
+                unset($this->registry[$name], $this->files[$name]);
+                $this->aliasSchemas[$name] = $schema;
+                $promoted = true;
+            }
+        } while ($promoted);
+    }
+
+    /**
+     * Whether a top-level component schema is a non-object ALIAS: a scalar
+     * (`{type: string, format: date-time}`), an array (`{type: array, items}`),
+     * or a oneOf/anyOf union, with NO object `properties`. Such a component is a
+     * type alias, not a Data class, and a `$ref` to it resolves to the
+     * underlying type at the use site rather than an empty class.
+     *
+     * The distinction the issue cares about: a `type: object` component with no
+     * properties (or `properties: {}`) is a LEGITIMATELY EMPTY OBJECT and must
+     * still emit an (empty) Data class, so it is NOT an alias here. This method
+     * targets only scalar/array/composition components.
+     *
+     * Excluded (handled elsewhere): pure-map components (typed arrays already),
+     * enum components (native backed enums), and float-enum scalar components
+     * (wrapped in a single-`value` Data class to keep the Rule::in constraint).
+     */
+    private function isNonObjectAlias(Schema $schema): bool
+    {
+        // A component with named properties is an object Data class, not an alias.
+        if ($this->notEmptyArray($schema->properties)) {
+            return false;
+        }
+
+        // Pure-map and enum components have their own handling; never alias them.
+        if ($this->isPureMap($schema) || $this->isEnum($schema) || $this->isScalarEnumComponent($schema)) {
+            return false;
+        }
+
+        // A oneOf/anyOf component is a union alias. allOf is an object merge, not
+        // a non-object alias, so it is excluded (it stays a Data class).
+        if ($this->notEmptyArray($schema->oneOf) || $this->notEmptyArray($schema->anyOf)) {
+            return true;
+        }
+
+        // allOf is an object merge, so a plain allOf component stays a Data class.
+        // The one exception, a sole-`allOf`-of-one-`$ref` whose target is itself a
+        // non-object alias (the chained-alias shape `A: {allOf: [{$ref: B}]}`,
+        // B scalar/array/union), is promoted to an alias in a later pass once the
+        // target's classification is known (see promoteChainedAliases): it cannot
+        // be decided here because the registry/alias caches are not built yet.
+        if ($this->notEmptyArray($schema->allOf)) {
+            return false;
+        }
+
+        $types = $this->normalizeTypes($schema);
+        $primary = $types[0] ?? null;
+
+        // A scalar (string/int/float/bool) or array component is a non-object
+        // alias. A multi-type scalar array (`type: ["string","integer"]`) is a
+        // scalar union and also aliases. `object` (or untyped/empty, which is a
+        // legitimately empty object after the pure-map check above) is NOT.
+        if ($primary === 'array') {
+            return true;
+        }
+
+        foreach ($types as $type) {
+            if (! isset(self::SCALARS[$type])) {
+                return false;
+            }
+        }
+
+        return $types !== [];
+    }
+
+    /**
+     * Resolve a non-object alias component to its underlying type and cache it in
+     * $aliasTypes. Resolution is transitive and cycle-guarded: the alias schema
+     * is run through resolveType, which consults the registry and the alias
+     * caches, so an alias whose type is a `$ref` to another alias chains through.
+     *
+     * The guard reserves the alias name before recursing; a cyclic alias chain
+     * (A aliases B, B aliases A, which no sane spec writes but a hostile one
+     * might) resolves to `mixed` rather than recursing forever.
+     *
+     * @param  array<string, true>  $seen  alias names already being resolved
+     */
+    private function resolveAlias(string $name, array $seen = []): ResolvedType
+    {
+        if (isset($this->aliasTypes[$name])) {
+            return $this->aliasTypes[$name];
+        }
+
+        if (isset($seen[$name])) {
+            return new ResolvedType('mixed');
+        }
+
+        $schema = $this->aliasSchemas[$name] ?? null;
+        if ($schema === null) {
+            return new ResolvedType('mixed');
+        }
+
+        $seen[$name] = true;
+        $this->aliasSeen = $seen;
+        $resolved = $this->resolveType($schema, PhpIdentifier::toClassName($name), 0, 'all');
+        $this->aliasSeen = [];
+
+        return $this->aliasTypes[$name] = $resolved;
+    }
+
+    /**
+     * Cycle guard for the alias being resolved, so a chained alias $ref reached
+     * through resolveReference does not recurse forever on a cyclic chain.
+     *
+     * @var array<string, true>
+     */
+    private array $aliasSeen = [];
+
+    /**
      * Resolve a pure-map schema to its array type: `array<string, X>` where X is
      * derived from the `additionalProperties` value schema. Scalar values map to
      * their PHP type, a `$ref` value maps to the referenced Data class, and
@@ -1724,14 +2016,20 @@ final class ModelGenerator
     }
 
     /**
-     * Detect the "alias" shape: a schema whose only object content is an
-     * `allOf` with exactly one member, that member being a `$ref` to a known
-     * component, and the schema carrying no own properties. Such a schema is
-     * just the referenced type with extra annotations (typically a
-     * description), so it resolves to the referenced class rather than a merged
-     * copy. Returns the reference, or null when the shape does not match.
+     * Detect the "alias" shape: a schema whose only object content is an `allOf`
+     * with exactly one member, that member being a `$ref`, and the schema
+     * carrying no own properties. Such a schema is just the referenced type with
+     * extra annotations (typically a description), so it resolves to the
+     * referenced type rather than a merged copy. Returns the reference, or null
+     * when the shape does not match.
+     *
+     * Structural only: it does not consult the registry, so it can run during the
+     * alias-classification pass (before the registry is fully built) and so a
+     * chain to a non-object alias target (which is never in the registry) is
+     * still recognized. An unknown target resolves to `mixed` downstream via
+     * resolveReference, the same degenerate result an empty merged class gave.
      */
-    private function soleAllOfRef(Schema $schema): ?Reference
+    private function bareAllOfRef(Schema $schema): ?Reference
     {
         if ($this->notEmptyArray($schema->properties)) {
             return null;
@@ -1747,9 +2045,7 @@ final class ModelGenerator
             return null;
         }
 
-        $name = $this->refName($member->getReference());
-
-        return ($name !== null && isset($this->registry[$name])) ? $member : null;
+        return $this->refName($member->getReference()) !== null ? $member : null;
     }
 
     /**
