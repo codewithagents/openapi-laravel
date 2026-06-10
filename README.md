@@ -151,15 +151,17 @@ Those are excellent if your code is the source of truth. This tool is for the ot
 A code generator has a wide blast radius: a subtle regression touches every project that runs it.
 These are the layers that catch problems before they reach you.
 
-- **128 real-world specs, two gates.** Every spec in the corpus (Stripe, GitHub, OpenAI, Slack,
-  Twilio, Adyen, and more) must both *parse* and *generate syntactically valid PHP* on every CI run.
+- **128 real-world specs, three gates.** Every spec in the corpus (Stripe, GitHub, OpenAI, Slack,
+  Twilio, Adyen, and more) must *parse*, *generate syntactically valid model classes*, and
+  *generate syntactically valid controllers and routes* on every CI run.
 - **End-to-end round-trip.** Generated classes are loaded into a real Laravel app (Orchestra
   Testbench), hydrated from payloads, and validated. Valid payloads pass; a missing required field, a
   bad email, and an out-of-range number each throw `ValidationException`.
 - **PHPStan at max level**, **100% type coverage**, and **Laravel Pint** style enforcement, on every
   PR.
-- **Mutation testing** with [Infection](https://infection.github.io/) deliberately introduces bugs
-  and checks the suite catches them.
+- **Mutation testing** with [Pest's native mutation testing](https://pestphp.com/docs/mutation-testing)
+  (`composer test:mutate`, a dedicated CI job) deliberately introduces bugs into covered code and
+  fails if the suite does not catch them, with a minimum score of 90%.
 - **Dependency hygiene**: `composer-unused` and `composer-require-checker` keep the dependency
   surface honest.
 - **Committed snapshots** of generated output, diff-checked so any change to the generator is
