@@ -76,3 +76,5 @@ jobs:
         run: composer-unused
       - name: Missing / undeclared dependencies
         run: composer-require-checker check --config-file=composer-require-checker.json
+      - name: Security advisories (composer audit)
+        run: composer audit
