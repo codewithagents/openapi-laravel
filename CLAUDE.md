@@ -15,8 +15,10 @@ plan, and the open questions. Do not re-litigate decided items without new infor
 
 ## Current state
 
-`0.3.0` is released on Packagist; `0.4.0` is in progress on `main` (unreleased, nothing pushed).
-ROADMAP.md is the source of truth for the version plan and open questions.
+**Current release: `0.4.0`** on Packagist (`0.2.0` shipped the server scaffold, `0.3.0` shipped
+composition + the security pass, `0.4.0` ships `oneOf`/`anyOf` union types and the e2e demo).
+ROADMAP.md holds the decisions and open questions; if it still phrases 0.4.0 as in-progress it just
+predates the release tag, the released feature set is the one described here.
 
 **Models (v1, shipped):** laravel-data classes, spec-derived `rules()`, backed enums,
 readOnly/writeOnly split, nested objects, collections. Composition keywords are handled: `allOf` is
@@ -50,8 +52,8 @@ drives a generated Laravel backend and (in progress) an openapi-zod-ts TypeScrip
 a headless-Chrome E2E over real HTTP. The backend and contract round trip are proven; the SPA, Docker
 stack, and browser suite are being finalized.
 
-Remaining before tagging `0.4.0`: the empty-map encoding fix (or document it), finishing the e2e
-demo, and release. See ROADMAP.md.
+In flight after `0.4.0`: the empty-map encoding fix (or keep it documented), and finishing the
+cross-language e2e demo (SPA + docker-compose + Playwright). See ROADMAP.md.
 
 ## Layout
 

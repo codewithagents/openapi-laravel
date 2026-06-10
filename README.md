@@ -45,11 +45,19 @@ Sibling project of [openapi-zod-ts](https://github.com/codewithagents/openapi-zo
 same for TypeScript. Both are validated against a corpus of 128 real-world public API specs (Stripe,
 GitHub, OpenAI, Slack, Twilio, and friends).
 
+The generated classes extend `Spatie\LaravelData\Data`, so
+[spatie/laravel-data](https://github.com/spatie/laravel-data) v4 is a **runtime peer dependency of
+your app** (a normal `require`, not `require --dev`). The generator itself is a dev dependency.
+
 ---
 
 ## Install
 
+The generator is a dev dependency; `spatie/laravel-data` is a runtime dependency of your app because
+the generated classes extend it:
+
 ```bash
+composer require spatie/laravel-data:^4.0
 composer require --dev codewithagents/openapi-laravel
 ```
 
@@ -67,8 +75,9 @@ Point it at your spec and generate:
 php artisan openapi:generate --spec=openapi.yaml --output=app/Data
 ```
 
-Or set `spec` and `output.path` in `config/openapi-laravel.php` and just run
-`php artisan openapi:generate`.
+The artisan command writes into the namespace from `config/openapi-laravel.php` (`output.namespace`,
+default `App\Data`); set it there rather than on the command line. Set `spec` and `output.path` in the
+config too and you can then just run `php artisan openapi:generate`.
 
 Want the server scaffold too? Pass `--controllers` and `--routes` to also emit one abstract
 controller per tag and a `routes/api.generated.php` file, typed by the same Data classes:
@@ -130,6 +139,9 @@ discovered in production:
 
 ```php
 // generated: app/Http/Controllers/Api/AbstractPetController.php
+// (this Pet schema marks some fields readOnly/writeOnly, so the request type is
+//  the write variant PetWritableData and the response type is the read variant
+//  PetData; a schema with no such flags would use a single PetData both ways)
 abstract class AbstractPetController
 {
     abstract public function addPet(PetWritableData $pet): PetData;
@@ -190,40 +202,59 @@ Those are excellent if your code is the source of truth. This tool is for the ot
 | Spec-derived validation `rules()` | **Yes** | No | Partial | You do |
 | Native PHP enums | **Yes** | No | No | You do |
 | Server scaffold (abstract controllers + routes) | **Yes** (opt-in) | No | Yes | You do |
+| `allOf` / `additionalProperties` | **Yes** | n/a | Partial | You do |
+| `oneOf` / `anyOf` | **Union type hints** (object unions need a discriminator at runtime) | n/a | Partial | You do |
+| Minimum Laravel version | **11** | 9+ | 10+ | n/a |
+| Runtime peer dependency | `spatie/laravel-data` v4 | none | own DTO layer | none |
 | Standard OpenAPI (no custom extensions) | **Yes** | Yes | No (custom OAS) | n/a |
 | Owned, readable, committed output | **Yes** | n/a | Generated | Yes |
 | Runs without Laravel (CI) | **Yes** (bin) | No | No | n/a |
 
-**Pick something else if** your code is the source of truth and you want the spec generated from it
-(l5-swagger, scramble), or you need a non-PHP target (the sibling
-[openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts) covers TypeScript).
+The `spatie/laravel-data` v4 runtime peer is a real adoption cost: the generated DTOs are
+laravel-data classes, so your app takes on that dependency and its conventions.
+
+**Pick something else if:**
+
+- your code is the source of truth and you want the spec generated from it (l5-swagger, scramble);
+- you are on Laravel 10 or older, or your app standardizes on a DTO/validation layer other than
+  `spatie/laravel-data` v4;
+- you need a non-PHP target (the sibling
+  [openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts) covers TypeScript).
 
 ---
 
 ## Proof: a full contract-first round trip
 
-The strongest claim a generator can make is that its output actually interoperates with another
-implementation over the wire. The [`e2e/`](./e2e) directory proves exactly that, end to end, from a
-single spec.
+The strongest claim a generator can make is that its output actually interoperates over the wire. The
+[`e2e/`](./e2e) directory works toward exactly that from a single spec. The Laravel half is proven
+today; the TypeScript SPA half is being finalized.
+
+**Proven today** (curl-verified over real HTTP):
 
 ```
-                    e2e/spec/petstore.yaml   (one OpenAPI document, the source of truth)
-                    /                       \
-        openapi-laravel                      openapi-zod-ts
-        generates a real                     generates a typed
-        Laravel 12 backend                   TypeScript client
-        (Data classes +                      consumed by a SPA
-         abstract controllers + routes)
-                    \                       /
-                     real HTTP over the wire
-                              │
-                  a headless-Chrome E2E drives the browser:
-                  browser → SPA → generated client → backend
+  e2e/spec/petstore.yaml          (one OpenAPI document, the source of truth)
+        │
+        └── openapi-laravel  →  a real Laravel 12 backend
+                                (Data classes + abstract controllers + routes)
+                                      │
+                                real HTTP, verified with curl
+```
+
+**Being finalized** (not yet proven, in progress):
+
+```
+  e2e/spec/petstore.yaml
+        │
+        └── openapi-zod-ts  →  a typed TypeScript client  →  a SPA
+                                                                │
+                          docker-compose stack + Playwright headless-Chrome E2E:
+                          browser → SPA → generated client → backend
 ```
 
 One spec, two languages, no hand-written types on either side of the wire. The demo deliberately
 stresses the cross-language serialization seams where a typed client and a `laravel-data` server can
-disagree, and proves each one round-trips over real HTTP:
+disagree. The following are proven to round-trip over real HTTP against the generated Laravel backend
+today:
 
 - a `snake_case` wire field forcing `#[MapName]`, mapped in both directions
 - a `writeOnly` field accepted on write and never returned on read
@@ -236,11 +267,11 @@ disagree, and proves each one round-trips over real HTTP:
 It honestly reports the one seam quirk it surfaced: an empty `additionalProperties` map serializes as
 `[]` rather than `{}` (the classic PHP empty-array ambiguity). Non-empty maps and `null` are correct.
 
-Use it two ways: as **proof** that the generated code interoperates across languages over real HTTP,
-and as a **template** a team can copy to bootstrap a spec-first project. The Laravel backend and the
-contract round trip are proven and working today; the SPA, the Docker stack, and the headless-Chrome
-suite are being finalized, so [`e2e/`](./e2e) is the living reference. Exact run-it-yourself commands
-land once the demo is fully green.
+Use it two ways: as **proof** that the generated Laravel backend behaves correctly over real HTTP,
+and as a **template** a team can copy to bootstrap a spec-first project. The Laravel backend and its
+contract round trip are proven and working today; the TypeScript SPA, the Docker stack, and the
+headless-Chrome suite that close the full cross-language loop are being finalized, so [`e2e/`](./e2e)
+is the living reference. Exact run-it-yourself commands land once the demo is fully green.
 
 ---
 
@@ -293,17 +324,21 @@ These are the layers that catch problems before they reach you.
 
 ## Roadmap
 
-- **v1: models (shipped).** Spec → laravel-data classes + validation rules + enums, plus `allOf`,
-  `additionalProperties` maps, and `oneOf`/`anyOf` union types.
-- **v2: server scaffold (shipped in 0.2.0).** Generated routes file + abstract controllers per tag,
-  typed by the v1 models. Your routing table derives from the spec, so path-level drift becomes
-  structurally impossible.
+**Current release: `0.4.0`** on Packagist.
+
+- **0.1.x: models.** Spec → laravel-data classes + validation rules + enums, nested objects,
+  collections, and the readOnly/writeOnly split.
+- **0.2.0: server scaffold.** Generated routes file + abstract controllers per tag, typed by the
+  models, so the routing table derives from the spec.
+- **0.3.0: composition + hardening.** `allOf` merge, `additionalProperties` typed maps, a full
+  security pass (the spec treated as untrusted input), and edge-case fixes.
+- **0.4.0 (current): `oneOf` / `anyOf` union types** and the cross-language end-to-end demo.
 - **v3 (maybe): client generation** built on the `Http::` facade. A decide-later item, not a
   commitment.
 
-`0.3.0` is released on Packagist. The version stays in `0.x` while the generated output format is
-still evolving, and tags `1.0.0` (the API-stability promise) only when the feature set settles. See
-[ROADMAP.md](./ROADMAP.md) for the full plan and the decisions already locked in.
+The version stays in `0.x` while the generated output format is still evolving, and tags `1.0.0`
+(the API-stability promise) only when the feature set settles. See [ROADMAP.md](./ROADMAP.md) for the
+full plan and the decisions already locked in.
 
 ---
 

@@ -96,7 +96,7 @@ Directory the generated classes are written to. Defaults to `app_path('Data')`, 
 
 ### `output.namespace`
 
-PHP namespace the generated classes live under. Defaults to `App\Data`. Overridden by the `--namespace` flag. Keep this aligned with `output.path` so the autoloader resolves the classes.
+PHP namespace the generated classes live under. Defaults to `App\Data`. Keep this aligned with `output.path` so the autoloader resolves the classes. The artisan command has **no** `--namespace` flag, so set this in the config file. Only the standalone binary takes a `--namespace` flag (it has no config file to read from).
 
 ### `output.suffix`
 
@@ -162,12 +162,22 @@ See the [server scaffold guide](/guides/server-scaffold) for a complete worked e
 
 ## Precedence
 
-Command-line flags win over the config file, and the config file wins over the built-in defaults:
+Command-line flags win over the config file, and the config file wins over the built-in defaults.
+
+For the **artisan command** (`--spec`, `--output`, `--prune`, `--controllers`, `--routes`; note there
+is no `--namespace`):
 
 ```
---spec / --output / --namespace  (flags)
+--spec / --output / --prune / --controllers / --routes   (artisan flags)
         ↓ override
-config/openapi-laravel.php        (your committed defaults)
+config/openapi-laravel.php                                (your committed defaults)
         ↓ override
 built-in defaults
 ```
+
+The output **namespace** has no artisan flag, so it always comes from `output.namespace` in the
+config file (or its built-in default `App\Data`).
+
+For the **standalone binary**, which has no config file, every value comes from flags (including
+`--namespace`, `--controller-namespace`, `--controller-output`, and `--routes-output`); anything not
+passed uses the built-in default.

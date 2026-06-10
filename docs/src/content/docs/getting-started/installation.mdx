@@ -11,23 +11,31 @@ import { Steps, Aside } from '@astrojs/starlight/components'
 | ------------- | ---------------------------- |
 | PHP           | 8.2 or newer                 |
 | Laravel       | 11 or 12 (for the artisan command) |
-| spatie/laravel-data | v4 (peer of the generated output) |
+| spatie/laravel-data | v4, a **runtime** dependency of your app: `composer require spatie/laravel-data:^4.0` |
 
-The standalone binary runs without Laravel, so a Laravel install is only required for the artisan command and the published config file.
+`spatie/laravel-data` v4 is a runtime peer dependency, not a dev dependency: the generated classes extend `Spatie\LaravelData\Data`, so your app loads it at runtime. The standalone binary runs without Laravel, so a Laravel install is only required for the artisan command and the published config file.
 
 ## Install
 
 <Steps>
 
-1. **Require the package as a dev dependency.**
+1. **Require `spatie/laravel-data` as a runtime dependency.**
+
+   ```bash
+   composer require spatie/laravel-data:^4.0
+   ```
+
+   The generated classes extend `Spatie\LaravelData\Data` and use its attributes (`#[MapName]`, `#[DataCollectionOf]`), so this is a normal runtime dependency of your app, not a dev dependency. Without it, a fresh app hits fatal autoload errors the moment it loads a generated class.
+
+2. **Require the generator as a dev dependency.**
 
    ```bash
    composer require --dev codewithagents/openapi-laravel
    ```
 
-   It is a dev dependency because the generator runs at build time. The classes it emits are committed to your repo and depend only on `spatie/laravel-data`, which is a normal runtime dependency of your app.
+   The generator runs at build time, so it is a dev dependency. The classes it emits are committed to your repo and depend only on `spatie/laravel-data` at runtime.
 
-2. **Publish the config file (optional).**
+3. **Publish the config file (optional).**
 
    ```bash
    php artisan vendor:publish --tag=openapi-laravel-config
@@ -38,8 +46,10 @@ The standalone binary runs without Laravel, so a Laravel install is only require
 </Steps>
 
 <Aside type="tip">
-  If you skip publishing the config, you can still pass everything on the command line with
-  `--spec`, `--output`, and `--namespace`. The config file just lets you commit those defaults.
+  If you skip publishing the config, the artisan command still accepts `--spec` and `--output` on the
+  command line. The output **namespace** is set only in the config file (`output.namespace`); the
+  artisan command has no `--namespace` flag. The standalone binary does accept `--namespace`, because
+  it has no config file to read from.
 </Aside>
 
 ## Next

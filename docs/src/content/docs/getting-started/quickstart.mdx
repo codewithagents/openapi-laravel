@@ -11,9 +11,14 @@ This guide takes you from a spec file to generated Data classes. There are two w
 
 <Steps>
 
-1. **Install the package.**
+1. **Install the runtime peer and the generator.**
+
+   The generated classes extend `Spatie\LaravelData\Data`, so `spatie/laravel-data` v4 is a runtime
+   dependency of your app. Without it, a fresh app hits fatal autoload errors as soon as it loads a
+   generated class. The generator itself is a dev dependency.
 
    ```bash
+   composer require spatie/laravel-data:^4.0
    composer require --dev codewithagents/openapi-laravel
    ```
 
@@ -23,7 +28,9 @@ This guide takes you from a spec file to generated Data classes. There are two w
    php artisan openapi:generate --spec=openapi.yaml --output=app/Data
    ```
 
-   Or set `spec` and `output.path` in `config/openapi-laravel.php` and just run:
+   The output namespace comes from `config/openapi-laravel.php` (`output.namespace`, default
+   `App\Data`); the artisan command has no `--namespace` flag, so set it in the config if you need a
+   different namespace. Set `spec` and `output.path` there too and you can then just run:
 
    ```bash
    php artisan openapi:generate

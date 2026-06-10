@@ -5,7 +5,7 @@ description: What ships in v1 (models) and v2 (server scaffold), the known limit
 
 import { Aside } from '@astrojs/starlight/components'
 
-`openapi-laravel` has shipped **v1 (models)** and **v2 (server scaffold)**. `0.3.0` is released on Packagist, and `0.4.0` is in progress. The version deliberately stays in `0.x` while the generated output format is still evolving, and tags `1.0.0` (the API-stability promise) only when the feature set settles. This page is the honest account of what is in each version, what is deliberately basic, and what is planned next.
+**The current release is `0.4.0`** on Packagist, which ships the models, the server scaffold, full composition support (`allOf`, `additionalProperties`, `oneOf` / `anyOf`), and the security pass. The version deliberately stays in `0.x` while the generated output format is still evolving, and tags `1.0.0` (the API-stability promise) only when the feature set settles. This page is the honest account of what is in each version, what is deliberately basic, and what is planned next.
 
 ## v1: models
 
@@ -72,23 +72,25 @@ the fallback rules, and the object-union workaround.
 
 ## Release history
 
+- **0.1.x:** the models (laravel-data classes, `rules()`, enums, nested objects, collections, the
+  readOnly/writeOnly split).
 - **0.2.0:** the server scaffold (abstract controllers per tag plus a routes file).
-- **0.3.0 (released on Packagist):** `allOf` merging, `additionalProperties` typed maps, and a full
-  security-hardening pass that treats the spec as untrusted input.
-- **0.4.0 (in progress):** `oneOf` / `anyOf` native union typing (union type hints and variant
-  docblocks where members resolve cleanly, a deterministic `mixed` fallback otherwise, Data-class
-  union return types in the server scaffold), plus the cross-language end-to-end demo below. Runtime
-  variant validation and object-union hydration still depend on a `discriminator` in the spec.
+- **0.3.0:** `allOf` merging, `additionalProperties` typed maps, and a full security-hardening pass
+  that treats the spec as untrusted input.
+- **0.4.0 (current):** `oneOf` / `anyOf` native union typing (union type hints and variant docblocks
+  where members resolve cleanly, a deterministic `mixed` fallback otherwise, Data-class union return
+  types in the server scaffold), plus the cross-language end-to-end demo below. Runtime variant
+  validation and object-union hydration still depend on a `discriminator` in the spec.
 
-## Proof: a cross-language end-to-end demo
+## Proof: a contract-first end-to-end demo
 
-The repository carries a contract-first proof: one OpenAPI spec is the single source of truth,
-`openapi-laravel` generates a real Laravel backend (Data classes, abstract controllers, routes) and
-the sibling [openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts) generates a typed
-TypeScript client for a SPA, and a headless-Chrome end-to-end test drives the browser through real
-HTTP so both sides are proven to agree on the wire. The Laravel backend and the contract round trip
-are working today; the SPA, the Docker stack, and the browser suite are being finalized. See the
-[end-to-end demo page](/guides/end-to-end-demo).
+The repository carries a contract-first demo. One OpenAPI spec is the single source of truth, and
+`openapi-laravel` generates a real Laravel backend (Data classes, abstract controllers, routes) whose
+behaviour is verified over real HTTP with `curl`. The cross-language half, where the sibling
+[openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts) generates a typed TypeScript client
+for a SPA and a Playwright headless-Chrome suite drives the browser end to end, is being finalized.
+The Laravel backend and its contract round trip are proven today; the TypeScript SPA, the Docker
+stack, and the browser suite are not yet. See the [end-to-end demo page](/guides/end-to-end-demo).
 
 ## Later: v3 (maybe)
 

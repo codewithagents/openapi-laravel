@@ -1,41 +1,51 @@
 ---
 title: End-to-end demo
-description: A cross-language contract-first proof. One OpenAPI spec drives a generated Laravel backend and a generated TypeScript client, proven to agree over real HTTP. Use it as proof and as a starting template.
+description: A contract-first demo. One OpenAPI spec drives a generated Laravel backend, verified over real HTTP with curl, with a generated TypeScript client and SPA being finalized. Use it as proof and as a starting template.
 ---
 
 import { Aside, CardGrid, Card } from '@astrojs/starlight/components'
 
-The strongest claim a generator can make is that its output actually interoperates with another implementation over the wire. The [`e2e/`](https://github.com/codewithagents/openapi-laravel/tree/main/e2e) directory in the repository proves exactly that, end to end, from a single spec.
+The strongest claim a generator can make is that its output actually behaves correctly over the wire. The [`e2e/`](https://github.com/codewithagents/openapi-laravel/tree/main/e2e) directory in the repository works toward that from a single spec. The generated Laravel backend is proven over real HTTP today; the generated TypeScript client and SPA that close the full cross-language loop are being finalized.
 
 It is two things at once:
 
-- **Proof** that the generated code interoperates across languages over real HTTP.
+- **Proof** that the generated Laravel backend behaves correctly over real HTTP, against a spec that deliberately stresses the cross-language serialization seams.
 - A **template** a team can copy to bootstrap a spec-first project.
 
 ## The architecture
 
-One OpenAPI document is the single source of truth. Two generators read it, in two different languages, and the two implementations are proven to agree on the wire.
+One OpenAPI document is the single source of truth. The goal is two implementations, in two languages, proven to agree on the wire. The diagram is split deliberately into what is proven today and what is still being finalized, so nothing is shown as done before it is.
+
+### Proven today (curl-verified over real HTTP)
 
 ```
-                    e2e/spec/petstore.yaml   (one OpenAPI document, the source of truth)
-                    /                       \
-        openapi-laravel                      openapi-zod-ts
-        generates a real                     generates a typed
-        Laravel 12 backend                   TypeScript client
-        (Data classes +                      consumed by a SPA
-         abstract controllers + routes)
-                    \                       /
-                     real HTTP over the wire
-                              │
-                  a headless-Chrome E2E drives the browser:
-                  browser → SPA → generated client → backend
+  e2e/spec/petstore.yaml          (one OpenAPI document, the source of truth)
+        │
+        └── openapi-laravel  →  a real Laravel 12 backend
+                                (Data classes + abstract controllers + routes)
+                                      │
+                                real HTTP, verified with curl
 ```
 
-No hand-written request or response types exist on either side of the wire. The Laravel side derives its Data classes, abstract controllers, and routes from the spec via `openapi-laravel`. The TypeScript side derives its client from the same spec via the sibling [openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts). The only hand-written PHP is the glue: the concrete controllers and a small file-backed store.
+The Laravel side derives its Data classes, abstract controllers, and routes from the spec via `openapi-laravel`. The only hand-written PHP is the glue: the concrete controllers and a small file-backed store. Every seam in the table below was exercised with `curl` against this running backend.
+
+### Being finalized (not yet proven, in progress)
+
+```
+  e2e/spec/petstore.yaml
+        │
+        └── openapi-zod-ts  →  a typed TypeScript client  →  a SPA
+                                                                │
+                          docker-compose stack + Playwright headless-Chrome E2E:
+                          browser → SPA → generated client → backend
+```
+
+The TypeScript side will derive its client from the same spec via the sibling [openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts), consumed by a SPA, with a docker-compose stack and a Playwright headless-Chrome suite driving the browser end to end. This half is not proven yet.
 
 <Aside type="note" title="Status: being finalized">
-  The Laravel backend and the contract round trip are proven and working today. The SPA, the
-  Docker stack, and the headless-Chrome suite are being completed. Treat
+  The Laravel backend and its contract round trip are proven and working today. The TypeScript SPA,
+  the Docker stack, and the headless-Chrome suite that would close the full cross-language loop are
+  still being completed. Treat
   [`e2e/`](https://github.com/codewithagents/openapi-laravel/tree/main/e2e) as the living reference,
   and read its `README.md` for the current detail. Exact run-it-yourself commands will be published
   here once the full stack is green, so this page describes the architecture and the proofs rather

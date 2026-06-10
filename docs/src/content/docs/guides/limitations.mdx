@@ -168,8 +168,38 @@ a raw payload without a discriminator or a custom cast. So while the type hint i
 for static analysis, at runtime an object-union property arrives as a raw array unless you supply a
 discriminator-aware cast yourself.
 
-**Workaround for object unions:** add a custom cast, or validate and hydrate the chosen variant in
-your own controller or service layer after the Data object is constructed.
+**Workaround for object unions.** Hydrate the chosen variant yourself after the Data object is
+constructed, keyed off a discriminator field your spec already carries. Given a spec like:
+
+```yaml
+animal:
+  oneOf:
+    - $ref: '#/components/schemas/Cat'
+    - $ref: '#/components/schemas/Dog'
+  discriminator:
+    propertyName: kind   # each variant carries a "kind" field: "cat" or "dog"
+```
+
+the generated property is typed `CatData|DogData|null`, but at runtime `$pet->animal` arrives as a
+raw `array`. Dispatch on the discriminator in your controller or service:
+
+```php
+$raw = $pet->animal;                        // raw array, e.g. ['kind' => 'cat', 'lives' => 9]
+
+$animal = match ($raw['kind'] ?? null) {    // the spec's discriminator propertyName
+    'cat'   => CatData::from($raw),
+    'dog'   => DogData::from($raw),
+    default => throw ValidationException::withMessages([
+        'animal' => 'Unknown animal variant.',
+    ]),
+};
+
+// $animal is now a fully hydrated CatData or DogData
+```
+
+If your spec has no discriminator, sniff a distinguishing field instead (for example a property only
+`CatData` defines), or register a custom cast on the property. Scalar unions (`string|int`) need none
+of this: they hydrate directly.
 
 ## const is a single-value enum
 
