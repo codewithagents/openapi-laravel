@@ -13,6 +13,7 @@
 name: Qodana
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -21,6 +22,7 @@ permissions:
   contents: read
   pull-requests: write
   security-events: write
+  checks: write
 
 jobs:
   qodana:
@@ -31,6 +33,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # Check out the actual PR commit, not the synthetic merge commit.
+          ref: ${{ github.event.pull_request.head.sha }}
           # A full history lets Qodana attribute findings and diff against the base.
           fetch-depth: 0
 
@@ -44,6 +48,7 @@ jobs:
         env:
           # Optional. If the secret is unset the action runs without Cloud upload.
           QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
+          QODANA_ENDPOINT: 'https://qodana.cloud'
 
       - name: Upload SARIF to GitHub code scanning
         # Surface findings in the Security tab. Guarded so a missing SARIF (for
