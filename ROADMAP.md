@@ -1,15 +1,25 @@
 # Roadmap
 
-Status: **0.1.1 released on Packagist.** The v1 models generator is shipped end to end. All seven
-v1 phases are done: parser, naming, models emitter, rules() emitter, artisan command, standalone
-bin, readOnly/writeOnly split, docs site, and the release pipeline (release-please + Packagist).
-All 128 corpus specs parse and generate valid PHP, with PHPStan max, 100% type coverage, Pest
-mutation >=90%, dependency hygiene, and Testbench round-trip tests green. 0.1.1 also added a
-`.gitattributes` so the published dist ships only runtime code (~28 KB) instead of the full repo.
+Status: **0.1.1 released on Packagist; 0.2.0 in progress on main (unreleased).** The v1 models
+generator is shipped end to end. 0.2.0 adds the **v2 server scaffold** (abstract controllers +
+routes generated from the spec) plus production-ready polish, all committed and gated green but
+not yet tagged.
 
-The next milestone is **0.2.0: production-ready**, the work that makes the package safe to
-recommend to real Laravel shops. See "Road to production-ready" below. This file is the resume
-point for the next session.
+Done and committed toward 0.2.0:
+- Server scaffold generator (`src/Emitter/Server/`): one `Abstract{Tag}Controller` per tag typed
+  by the v1 Data classes, plus `routes/api.generated.php`. Opt-in via `--controllers`/`--routes`.
+  Reuses the model registry (`ModelGenerator::registry()`) so signatures reference real classes.
+  A third corpus gate asserts valid controllers + routes for all 128 specs.
+- End-to-end petstore demo (`examples/petstore/`, export-ignored): generated Data + abstract
+  controllers + routes, hand-written concrete controllers, Testbench feature tests (invalid body
+  to 422 from generated `rules()`), and a drift test asserting byte-identical regeneration.
+- `.gitattributes` (0.1.1): dist ships only runtime code (~28 KB) instead of the full repo.
+- Generated `rules()` now carries `@return array<string, list<string|object>>` so host projects
+  pass PHPStan max over their own `app/Data`.
+- README accuracy: Pest native mutation (not Infection), three corpus gates.
+
+The remaining "Road to production-ready" items below are the path to tagging 0.2.0. This file is
+the resume point for the next session.
 
 ## Vision
 
@@ -103,10 +113,11 @@ Laravel team can adopt it without surprises". 0.2.0 closes that gap. Roughly in 
 
 1. **Packaging hygiene** [done in 0.1.1]: `.gitattributes export-ignore` so the dist ships only
    runtime code. Verified: published dist is ~28 KB, src+bin+config only.
-2. **Verified getting-started path**: stand up a throwaway Laravel app, `composer require` the
-   published package (not the local checkout), generate from a real spec, and assert the output
-   compiles and validates. This is the one test that proves the *published artifact* works, not
-   just the repo. Candidate for a scheduled CI job against the live Packagist release.
+2. **Verified getting-started path** [mostly done]: the `examples/petstore/` demo boots a Testbench
+   app, loads the generated routes, and drives the full HTTP chain (generated models + rules() +
+   abstract controllers + hand-written concrete controllers), with a drift test proving the demo
+   is genuine generator output. Still open: a CI job that `composer require`s the *published*
+   Packagist artifact (not the local checkout) to catch packaging-only breakage.
 3. **Generator resilience on hostile/odd specs**: today the corpus is "good" specs. Add cases for
    the failure modes a real user hits: empty schemas, `$ref` to missing component, circular refs
    beyond the depth bound, schema-less `additionalProperties: true`, properties named like PHP
@@ -122,11 +133,14 @@ Laravel team can adopt it without surprises". 0.2.0 closes that gap. Roughly in 
 6. **DX on bad input**: actionable error messages (which schema, which property, what was wrong),
    a `--dry-run` / summary of what would be written, and a non-zero exit on partial failure so CI
    can gate on it.
-7. **Docs completeness**: the site exists but should cover config reference, the read/write variant
-   model, the rules() mapping table (spec constraint -> Laravel rule), and a "known limitations"
-   page (oneOf/anyOf, additionalProperties). Honesty about limits builds trust for adoption.
-8. **README accuracy pass**: the "Why quality matters" section still cites Infection; we ship Pest
-   native mutation. Align the docs with what the pipeline actually runs.
+7. **Docs completeness** [in progress]: the site should cover config reference, the read/write
+   variant model, the rules() mapping table (spec constraint -> Laravel rule), the new server
+   scaffold (`--controllers`/`--routes`, the abstract-controller pattern), and a "known
+   limitations" page (oneOf/anyOf, additionalProperties). Honesty about limits builds adoption.
+8. **README accuracy pass** [done]: corrected Infection -> Pest native mutation and two -> three
+   corpus gates so the README matches what the pipeline actually runs.
+9. **Generated rules() typing** [done]: emit `@return array<string, list<string|object>>` so host
+   projects pass PHPStan max over their generated `app/Data`.
 
 Stretch (could be 0.2.x or later, not blockers): a committed showcase-subset of generated output
 diff-checked in CI (drift guard), and accepting community spec fixtures.
