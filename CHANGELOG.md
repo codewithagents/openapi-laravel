@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0](https://github.com/codewithagents/openapi-laravel/compare/v0.3.0...v0.4.0) (2026-06-10)
+
+
+### Features
+
+* **emitter:** emit native union types for oneOf/anyOf ([b9583d8](https://github.com/codewithagents/openapi-laravel/commit/b9583d8cda0ac5f019e9ed7b97642d5e68e7d5c8))
+
+
+### Miscellaneous Chores
+
+* exclude e2e demo app from pint style checks ([adecd0d](https://github.com/codewithagents/openapi-laravel/commit/adecd0d36e7817493acabc7816ece43cfc186da9))
+
 ## [0.3.0](https://github.com/codewithagents/openapi-laravel/compare/v0.2.0...v0.3.0) (2026-06-10)
 
 
