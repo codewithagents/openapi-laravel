@@ -1,10 +1,15 @@
 # Roadmap
 
-Status: v1 models generator working end to end. Phases 1-5 plus the artisan command, the
-standalone bin, and the readOnly/writeOnly split are done and committed; all 128 corpus specs
-parse and generate valid PHP, with PHPStan max, 100% type coverage, and Testbench round-trip
-tests green. Remaining before the 0.1.0 tag: dependency-hygiene + mutation thresholds, the docs
-site, and the release itself. This file is the resume point for the next session.
+Status: **0.1.1 released on Packagist.** The v1 models generator is shipped end to end. All seven
+v1 phases are done: parser, naming, models emitter, rules() emitter, artisan command, standalone
+bin, readOnly/writeOnly split, docs site, and the release pipeline (release-please + Packagist).
+All 128 corpus specs parse and generate valid PHP, with PHPStan max, 100% type coverage, Pest
+mutation >=90%, dependency hygiene, and Testbench round-trip tests green. 0.1.1 also added a
+`.gitattributes` so the published dist ships only runtime code (~28 KB) instead of the full repo.
+
+The next milestone is **0.2.0: production-ready**, the work that makes the package safe to
+recommend to real Laravel shops. See "Road to production-ready" below. This file is the resume
+point for the next session.
 
 ## Vision
 
@@ -74,26 +79,57 @@ Spec in -> generated `app/Data/*` (configurable namespace/path):
 
 ### v3 (maybe): client generation (`Http::` facade based). Less differentiated, decide later.
 
-## Phase plan for v1
+## Phase plan for v1 (all shipped in 0.1.0 / 0.1.1)
 
-1. **Skeleton compiles**: composer.json deps resolve, Pest runs, PHPStan max passes on empty src,
-   GitHub Actions CI (php 8.2/8.3/8.4 matrix). Decide exact version floors.
-2. **Parser layer**: wrap cebe; normalize 3.0 `nullable` -> 3.1 union style once (mirror
-   openapi-zod-ts `normalize-nullable`); recursion depth bound (DoS protection, mirror
-   `schema-depth`); corpus smoke test: all 128 fixtures parse.
-3. **Naming layer** + tests (port the ideas from openapi-zod-ts `src/utils/naming.ts`: dots,
-   spaces, kebab-case, collisions; add PHP reserved words, namespaces).
-4. **Models emitter**: schemas -> Data classes + enums. Snapshot tests (Pest) per feature,
-   then corpus test: generate all 128, `php -l` + PHPStan max on output. This is the long phase.
-5. **rules() emitter**: constraints -> Laravel validation arrays. Edge cases: oneOf/anyOf
-   (union types + manual discriminator note), allOf (merge), additionalProperties
-   (document the strictness decision), default values.
-6. **Artisan command + config + docs**: README with comparison table (vs ensi-platform,
-   rogervila, hand-writing), usage, philosophy section (mirror openapi-zod-ts README style).
-   Docs site: GitHub Pages is already enabled on the repo; domain
-   https://openapi-laravel.codewithagents.de already exists, wire Pages to it.
-7. **Release**: Packagist + tags, conventional commits, GitHub release workflow.
-   (Release Please works for PHP too with `release-type: php`; Packagist auto-updates via webhook.)
+1. **Skeleton compiles** [done]: composer.json deps resolve, Pest runs, PHPStan max, CI matrix
+   (php 8.2/8.3/8.4 x lowest/highest). Floors: PHP 8.2, Laravel 11/12, laravel-data v4.
+2. **Parser layer** [done]: wraps cebe (`devizzent/cebe-php-openapi`), lazy refs (no eager
+   resolution, DoS-safe), depth bound, format detection. All 128 fixtures parse.
+3. **Naming layer** [done]: StudlyCaps classes, camelCase properties, `#[MapName]`, reserved-word
+   escaping, collision suffixing, nested-name de-duplication.
+4. **Models emitter** [done]: schemas -> Data classes + native enums + nested + collections.
+   Snapshot tests per feature; corpus generate gate (128) with `php -l` + PHPStan max on output.
+5. **rules() emitter** [done]: required/nullable, string/numeric/array constraints, format rules,
+   regex, `Rule::enum` / `Rule::in`, readOnly/writeOnly read+write variants.
+6. **Artisan command + config + docs** [done]: `openapi:generate`, publishable config, standalone
+   bin, README with comparison table, docs site live at https://openapi-laravel.codewithagents.de.
+7. **Release** [done]: release-please (`release-type: php`), Packagist webhook + explicit CI
+   notify, conventional commits. v0.1.0 then v0.1.1 published.
+
+## Road to production-ready (0.2.0)
+
+The generator works on all 128 corpus specs, but "generates valid PHP" is not the same as "a
+Laravel team can adopt it without surprises". 0.2.0 closes that gap. Roughly in priority order:
+
+1. **Packaging hygiene** [done in 0.1.1]: `.gitattributes export-ignore` so the dist ships only
+   runtime code. Verified: published dist is ~28 KB, src+bin+config only.
+2. **Verified getting-started path**: stand up a throwaway Laravel app, `composer require` the
+   published package (not the local checkout), generate from a real spec, and assert the output
+   compiles and validates. This is the one test that proves the *published artifact* works, not
+   just the repo. Candidate for a scheduled CI job against the live Packagist release.
+3. **Generator resilience on hostile/odd specs**: today the corpus is "good" specs. Add cases for
+   the failure modes a real user hits: empty schemas, `$ref` to missing component, circular refs
+   beyond the depth bound, schema-less `additionalProperties: true`, properties named like PHP
+   keywords/magic methods, unicode property names. Each should produce a clear error or a
+   documented, sensible output, never a fatal or silent-wrong file.
+4. **oneOf / anyOf / allOf** (the big open design item): decide and implement a representation.
+   allOf = merge (probably straightforward). oneOf/anyOf = union types vs abstract base + variants
+   vs a documented "emitted as mixed with a discriminator note". Whatever ships must be in the
+   docs with examples. This is the most likely reason a real spec generates something unsatisfying
+   today.
+5. **`additionalProperties` policy**: document and implement the decision (ignore unknown keys vs
+   emit an explicit prohibition). Currently undocumented behavior.
+6. **DX on bad input**: actionable error messages (which schema, which property, what was wrong),
+   a `--dry-run` / summary of what would be written, and a non-zero exit on partial failure so CI
+   can gate on it.
+7. **Docs completeness**: the site exists but should cover config reference, the read/write variant
+   model, the rules() mapping table (spec constraint -> Laravel rule), and a "known limitations"
+   page (oneOf/anyOf, additionalProperties). Honesty about limits builds trust for adoption.
+8. **README accuracy pass**: the "Why quality matters" section still cites Infection; we ship Pest
+   native mutation. Align the docs with what the pipeline actually runs.
+
+Stretch (could be 0.2.x or later, not blockers): a committed showcase-subset of generated output
+diff-checked in CI (drift guard), and accepting community spec fixtures.
 
 ## Test strategy (mirror what worked in openapi-zod-ts)
 
@@ -103,12 +139,15 @@ Spec in -> generated `app/Data/*` (configurable namespace/path):
 - Later: mutation testing (Infection, the PHP Stryker), runtime round-trip tests
   (instantiate generated Data from fixture payloads inside an Orchestra Testbench app).
 
-## Open questions for next session
+## Open questions (genuine design decisions, mostly for 0.2.0)
 
-- oneOf/anyOf representation in PHP: union types? abstract base + variants? laravel-data has
-  partial union support, research first.
-- additionalProperties: false -> Laravel validation has no native "reject unknown keys" on nested
-  arrays; decide policy (ignore vs generate explicit prohibition).
-- Exact laravel-data v4 feature surface for casts/transformers we should lean on vs emit by hand.
-- Floors: PHP 8.2 vs 8.3 minimum, Laravel 11 vs 12 minimum.
-- Does `vendor/bin` standalone mode need illuminate/console bootstrapping or a slim symfony/console entry?
+- **oneOf/anyOf representation in PHP**: union types? abstract base + variants? a documented
+  `mixed` + discriminator note? laravel-data has partial union support, research first. This is
+  the headline 0.2.0 design question (item 4 above).
+- **additionalProperties policy**: `false` -> Laravel has no native "reject unknown keys" on nested
+  arrays; `true`/schema -> how to type it. Decide ignore vs explicit prohibition vs typed bag.
+- **Exact laravel-data v4 feature surface** for casts/transformers we should lean on vs emit by
+  hand (dates, enums, nested hydration edge cases).
+
+Resolved since the first draft: floors are PHP 8.2 + Laravel 11/12 + laravel-data v4; the standalone
+`vendor/bin` mode uses a slim framework-free `StandaloneApplication` (no illuminate/console needed).
