@@ -6,6 +6,10 @@ OpenAPI -> Laravel model generator. Sibling of `openapi-zod-ts` (same author, sa
 published as `codewithagents/openapi-laravel` on Packagist. @codewithagents OSS, casual/OSS mode:
 move deliberately, but this is our project, no client constraints.
 
+Infrastructure (exists already): remote `https://github.com/codewithagents/openapi-laravel.git`
+(public, GitHub Pages enabled), docs site `https://openapi-laravel.codewithagents.de`
+(point Pages there when docs land, see roadmap phase 6).
+
 **Read `ROADMAP.md` first in every session.** It holds the decisions already made, the version
 plan, and the open questions. Do not re-litigate decided items without new information.
 

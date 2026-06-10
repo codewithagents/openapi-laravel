@@ -86,6 +86,8 @@ Spec in -> generated `app/Data/*` (configurable namespace/path):
    (document the strictness decision), default values.
 6. **Artisan command + config + docs**: README with comparison table (vs ensi-platform,
    rogervila, hand-writing), usage, philosophy section (mirror openapi-zod-ts README style).
+   Docs site: GitHub Pages is already enabled on the repo; domain
+   https://openapi-laravel.codewithagents.de already exists, wire Pages to it.
 7. **Release**: Packagist + tags, conventional commits, GitHub release workflow.
    (Release Please works for PHP too with `release-type: php`; Packagist auto-updates via webhook.)
 
