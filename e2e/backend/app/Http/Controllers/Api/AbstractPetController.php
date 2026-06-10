@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Data\ApiResponseData;
 use App\Data\PetData;
+use App\Data\PetWritableData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Spatie\LaravelData\DataCollection;
@@ -17,14 +18,14 @@ abstract class AbstractPetController
      *
      * Add a new pet to the store.
      */
-    abstract public function addPet(PetData $pet): PetData;
+    abstract public function addPet(PetWritableData $pet): PetData;
 
     /**
      * PUT /pet
      *
      * Update an existing pet.
      */
-    abstract public function updatePet(PetData $pet): PetData;
+    abstract public function updatePet(PetWritableData $pet): PetData;
 
     /**
      * GET /pet/findByStatus

@@ -2,33 +2,62 @@
 
 This directory is a runnable proof that `openapi-laravel` generates a real,
 bootable backend from an OpenAPI spec. The spec is the single source of truth:
-the models, the abstract controllers, and the routes are all generated from it.
-The only hand-written PHP is the glue (concrete controllers + an in-memory
-store) and the wiring.
+the models (read + writable variants), the abstract controllers, and the routes
+are all generated from it. The only hand-written PHP is the glue (concrete
+controllers + a file-backed store) and the wiring.
 
-This is milestone 1: the backend over real HTTP. Later milestones add a SPA,
-Playwright, and Docker.
+- Milestone 1: the backend over real HTTP.
+- Milestone 2 (this one): a persistent store and a "petstore-plus" spec that
+  deliberately stresses the cross-language serialization seams where a typed
+  client and the laravel-data server must agree (MapName, writeOnly/readOnly
+  variants, nullable, additionalProperties maps).
+
+Later milestones add a SPA, Playwright, and Docker.
 
 ## Layout
 
 ```
 e2e/
-  spec/petstore.yaml          The shared contract. Source of truth for backend
-                              (and, later, the frontend). Identical to the
-                              repo's examples/petstore/openapi.yaml.
+  spec/petstore.yaml          The shared contract ("petstore-plus"). Source of
+                              truth for backend (and, later, the frontend).
   backend/                    A real Laravel 12 application.
-    app/Data/                 GENERATED Data classes (PetData, OrderData, ...).
+    app/Data/                 GENERATED Data classes. PetData (read variant) and
+                              PetWritableData (write variant) plus the rest.
     app/Http/Controllers/Api/ AbstractPet/Store/UserController are GENERATED;
                               the matching concrete controllers are hand-written.
     app/Http/Middleware/      CreatedResponse (promotes create 200 -> 201).
-    app/Support/PetStore.php  Hand-written in-memory store (stands in for a DB).
+    app/Support/PetStore.php  Hand-written file-backed JSON store (stands in for
+                              a DB; persists across requests/processes).
     routes/api.generated.php  GENERATED route table, mounted under /api.
+    routes/console.php        petstore:reset command (reseed the store).
     config/openapi-laravel.php Generator config (points at ../spec/petstore.yaml).
     config/cors.php           Permissive CORS, DEMO ONLY (for the later SPA).
 ```
 
 Generated files are committed on purpose: they are the proof artifact. The
-Laravel `vendor/` directory is gitignored (run `composer install` to restore).
+Laravel `vendor/` directory and the runtime store file
+(`storage/app/petstore.json`) are gitignored.
+
+## The petstore-plus seams
+
+The `Pet` schema in `spec/petstore.yaml` adds five fields on top of the stock
+petstore, each targeting a known cross-language mismatch source:
+
+| Field          | Spec trait                         | What it proves |
+|----------------|------------------------------------|----------------|
+| `microchip_id` | snake_case wire name               | `#[MapName]` maps to the `microchipId` property and back, both directions |
+| `secret_note`  | `writeOnly: true`                  | lands on `PetWritableData`, accepted on create, never in any read response |
+| `created_at`   | `format: date-time`, `readOnly`    | dropped from `PetWritableData`, set server-side, ignored if a client sends it |
+| `weight_kg`    | `number`, `nullable: true`         | a null is accepted and stays present (as `null`) in responses |
+| `attributes`   | `object` + `additionalProperties`  | a string->string map round-trips intact |
+
+Because the spec now uses `readOnly`/`writeOnly`, the generator emits a
+read/write split: `PetData` (response shape, has `created_at`, no `secret_note`)
+and `PetWritableData` (request shape, has `secret_note`, no `created_at`). The
+generated `AbstractPetController::addPet` therefore takes a `PetWritableData`
+and returns a `PetData`. The concrete controller does the one thing the contract
+cannot: assign `created_at` server-side and copy field-by-field into a `PetData`
+(which drops `secret_note` by construction).
 
 ## How generation is wired (dogfooding the local package)
 
@@ -63,73 +92,123 @@ php artisan openapi:generate --controllers --routes
 Only the `Abstract*` controllers are ever (over)written; the concrete
 controllers are never touched.
 
+## Persistence
+
+The store is a single JSON file at `storage/app/petstore.json`, read-modify-write
+on every mutation, with `LOCK_EX`. The reason: `php artisan serve` (PHP's built-in
+server) and the later Docker/php-fpm setup each handle requests in separate
+workers/processes, so an in-process array would reset between requests and a
+create in one request would be invisible to a list in the next. A file survives.
+
+Pets persist through the generated `PetData` read-model: `toArray()` on the way
+to disk (so `created_at` and the snake_case wire names are what land in the file)
+and `PetData::from()` on the way back. The store seeds two pets on first use
+(Rex #1, Whiskers #2). Reseed at any time:
+
+```bash
+php artisan petstore:reset
+```
+
 ## Boot the backend
 
 ```bash
 cd e2e/backend
 composer install            # restore vendor/ (symlinks the local package)
+php artisan petstore:reset  # optional: start from the known seed
 php artisan serve --port=8088
 ```
 
 The generated routes are mounted under `/api` (see `bootstrap/app.php`), so the
 endpoints are real HTTP routes. `php artisan route:list` shows them all.
 
-Note on state: `php artisan serve` uses PHP's built-in web server, where each
-request is a fresh process, so the in-memory store does not persist writes
-across requests. `PetStore` seeds two pets (id 1 Rex, id 2 Whiskers) at
-construction so every request has deterministic data to read and delete. A
-later milestone backing this with a persistent store can drop the seed.
+## The seam proofs (real HTTP, port 8088)
 
-## The curl proofs
+Each block below was captured live. IDs assume a fresh `petstore:reset` (seeds
+are #1 Rex and #2 Whiskers, so the first create is #3).
 
-With the server running on port 8088:
+### 1) MapName round-trip (`microchip_id`)
 
 ```bash
-B=http://127.0.0.1:8088/api
-
-# 1) GET list -> 200 (seeded)
-curl -s -H 'Accept: application/json' "$B/pet/findByStatus?status=available"
-
-# 2) POST a VALID body -> 201 with the created pet (auto-assigned id)
 curl -s -X POST "$B/pet" -H 'Content-Type: application/json' -H 'Accept: application/json' \
-  -d '{"name":"Buddy","photoUrls":["https://example.com/buddy.png"],"status":"available"}'
-
-# 3) POST an INVALID body -> 422, validation from the GENERATED PetData rules()
-curl -s -X POST "$B/pet" -H 'Content-Type: application/json' -H 'Accept: application/json' \
-  -d '{"status":"on-fire"}'
-
-# 4) GET one -> 200 existing, 404 missing
-curl -s -H 'Accept: application/json' "$B/pet/1"
-curl -s -o /dev/null -w '%{http_code}\n' -H 'Accept: application/json' "$B/pet/9999"
-
-# 5) DELETE -> 204 existing, 404 missing
-curl -s -o /dev/null -w '%{http_code}\n' -X DELETE -H 'Accept: application/json' "$B/pet/2"
-curl -s -o /dev/null -w '%{http_code}\n' -X DELETE -H 'Accept: application/json' "$B/pet/9999"
+  -d '{"name":"Mappy","photoUrls":["https://example.com/m.png"],"status":"available","microchip_id":"chip-xyz-999"}'
+# 201 -> {... "microchip_id":"chip-xyz-999", "created_at":"2026-06-10T17:30:02+00:00", ...}
+curl -s "$B/pet/3"
+# 200 -> "microchip_id":"chip-xyz-999"   (mapped back from the microchipId property)
 ```
 
-### The headline proof: spec-derived validation over real HTTP
+### 2) writeOnly `secret_note` (accepted, never read back)
 
-`POST /api/pet` with `{"status":"on-fire"}` returns `422`:
-
-```json
-{
-  "message": "The name field is required. (and 2 more errors)",
-  "errors": {
-    "name": ["The name field is required."],
-    "photoUrls": ["The photo urls field is required."],
-    "status": ["The selected status is invalid."]
-  }
-}
+```bash
+curl -s -X POST "$B/pet" ... -d '{... ,"secret_note":"do-not-leak-this"}'
+# 201 -> response has NO secret_note
+curl -s "$B/pet/4" | grep secret_note    # (empty: not present in the read)
 ```
 
-Every one of those errors comes from the generated `app/Data/PetData::rules()`,
-which the generator derived from the spec:
+### 3) readOnly `created_at` (server-set, client value ignored)
 
-- `name` and `photoUrls` are required because the spec lists them in `required`.
-- `status` must be one of `available|pending|sold` because the spec declares
-  that enum, which became `Rule::in([...])`.
+```bash
+curl -s -X POST "$B/pet" ... -d '{... ,"created_at":"1999-12-31T23:59:59+00:00"}'
+# 201 -> "created_at":"2026-06-10T17:30:16+00:00"   (server time, NOT 1999)
+```
 
-Bad input is rejected by the contract, before any hand-written code runs.
+### 4) nullable `weight_kg` (null stays present)
+
+```bash
+curl -s -X POST "$B/pet" ... -d '{... ,"weight_kg":null}'   # 201 -> "weight_kg":null
+curl -s -X POST "$B/pet" ... -d '{... ,"weight_kg":42.7}'   # 201 -> "weight_kg":42.7
+```
+
+### 5) `attributes` map round-trip
+
+```bash
+curl -s -X POST "$B/pet" ... -d '{... ,"attributes":{"color":"black","size":"large","mood":"sleepy"}}'
+# 201/200 -> "attributes":{"color":"black","size":"large","mood":"sleepy"}
+```
+
+### 6) enum 422 still fires
+
+```bash
+curl -s -X POST "$B/pet" ... -d '{"name":"Bad","photoUrls":["..."],"status":"on-fire"}'
+# 422 -> {"message":"The selected status is invalid.","errors":{"status":["The selected status is invalid."]}}
+```
+
+### 7) DELETE -> 204
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE "$B/pet/2"     # 204
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE "$B/pet/9999"  # 404
+```
+
+### 8) Persistence across separate requests
+
+```bash
+# request A
+curl -s -X POST "$B/pet" ... -d '{"name":"Persisto","photoUrls":["..."],"status":"sold", ...}'   # 201, id 9
+# request B (separate process)
+curl -s "$B/pet/findByStatus?status=sold"
+# 200 -> [ {... "name":"Persisto", "id":9, ...} ]   the create survived
+```
+
+## Known seam quirk (reported honestly)
+
+An EMPTY `attributes` map round-trips as a JSON array `[]`, not an object `{}`:
+
+```bash
+curl -s -X POST "$B/pet" ... -d '{... ,"attributes":{}}'
+# 201 -> "attributes":[]
+```
+
+This is the classic PHP ambiguity: an empty associative array is identical to an
+empty list, so `json_encode` emits `[]`. A NON-empty map encodes correctly as an
+object (proof 5). A strict typed client expecting `Record<string,string>` would
+see an array for the empty case. The honest fixes live on either side of the
+seam (a cast that forces object encoding, or a client that tolerates `[] | {}`),
+and are noted here rather than papered over. `null` vs empty map is unaffected:
+a null `attributes` stays `null`.
+
+Note also that `PUT /pet` does a full replace (the write variant is the whole
+resource), so fields omitted from a PUT body become null. `created_at` is the
+exception: the controller preserves the original on update.
 
 ## CORS
 

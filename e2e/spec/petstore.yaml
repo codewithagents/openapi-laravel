@@ -792,6 +792,35 @@ components:
             - available
             - pending
             - sold
+        microchip_id:
+          type: string
+          description: >-
+            Snake_case wire name mapping to a camelCase property (microchipId).
+            Exercises #[MapName] round-trips in both directions.
+          example: chip-abc-123
+        secret_note:
+          type: string
+          writeOnly: true
+          description: >-
+            Accepted on create, never present in any read response. Exercises
+            the writeOnly split into the WritableData variant.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: >-
+            Set server-side on create, present in reads, ignored if a client
+            sends it. Exercises the readOnly split out of the WritableData
+            variant.
+        weight_kg:
+          type: number
+          nullable: true
+          description: Nullable number that stays present (as null) in responses.
+        attributes:
+          type: object
+          additionalProperties:
+            type: string
+          description: A string to string map that must round-trip intact.
       xml:
         name: pet
     ApiResponse:

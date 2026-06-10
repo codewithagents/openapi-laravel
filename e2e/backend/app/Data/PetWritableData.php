@@ -9,7 +9,7 @@ use Spatie\LaravelData\Attributes\DataCollectionOf;
 use Spatie\LaravelData\Attributes\MapName;
 use Spatie\LaravelData\Data;
 
-final class PetData extends Data
+final class PetWritableData extends Data
 {
     public function __construct(
         public readonly string $name,
@@ -23,8 +23,8 @@ final class PetData extends Data
         public readonly ?string $status = null,
         #[MapName('microchip_id')]
         public readonly ?string $microchipId = null,
-        #[MapName('created_at')]
-        public readonly ?string $createdAt = null,
+        #[MapName('secret_note')]
+        public readonly ?string $secretNote = null,
         #[MapName('weight_kg')]
         public readonly ?float $weightKg = null,
         /** @var array<string, string> */
@@ -45,7 +45,7 @@ final class PetData extends Data
             'tags' => ['sometimes', 'array'],
             'status' => ['sometimes', Rule::in(['available', 'pending', 'sold'])],
             'microchip_id' => ['sometimes', 'string'],
-            'created_at' => ['sometimes', 'string', 'date'],
+            'secret_note' => ['sometimes', 'string'],
             'weight_kg' => ['sometimes', 'nullable', 'numeric'],
             'attributes' => ['sometimes', 'array'],
             'attributes.*' => ['string'],
