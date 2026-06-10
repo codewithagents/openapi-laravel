@@ -3,13 +3,31 @@
     "description": "Generate Laravel models (spatie/laravel-data classes, validation rules, enums) from an OpenAPI spec. The spec is the source of truth.",
     "type": "library",
     "license": "MIT",
+    "homepage": "https://openapi-laravel.codewithagents.de",
+    "support": {
+        "issues": "https://github.com/codewithagents/openapi-laravel/issues",
+        "docs": "https://openapi-laravel.codewithagents.de",
+        "source": "https://github.com/codewithagents/openapi-laravel"
+    },
+    "authors": [
+        {
+            "name": "Benjamin Eckstein",
+            "homepage": "https://github.com/benjamineckstein",
+            "role": "Developer"
+        }
+    ],
     "keywords": [
         "openapi",
         "laravel",
         "codegen",
         "laravel-data",
         "spec-first",
-        "contract-first"
+        "contract-first",
+        "swagger",
+        "code-generation",
+        "dto",
+        "api",
+        "validation"
     ],
     "require": {
         "php": "^8.2",

@@ -1,10 +1,14 @@
 # openapi-laravel
 
 [![CI](https://github.com/codewithagents/openapi-laravel/actions/workflows/ci.yml/badge.svg)](https://github.com/codewithagents/openapi-laravel/actions/workflows/ci.yml)
+[![Latest Version](https://img.shields.io/packagist/v/codewithagents/openapi-laravel)](https://packagist.org/packages/codewithagents/openapi-laravel)
+[![Total Downloads](https://img.shields.io/packagist/dt/codewithagents/openapi-laravel)](https://packagist.org/packages/codewithagents/openapi-laravel)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 [![PHP 8.2+](https://img.shields.io/badge/PHP-8.2%2B-777BB4.svg)](https://php.net)
 
 > Generate Laravel models and a server scaffold from your OpenAPI spec. The spec is the source of truth, your code follows it.
+
+**Documentation: [openapi-laravel.codewithagents.de](https://openapi-laravel.codewithagents.de)**
 
 You consume or implement a REST API described by an OpenAPI document. You need PHP DTOs, validation
 rules, and enums that match the spec exactly, and you need them to stay in sync every time the spec

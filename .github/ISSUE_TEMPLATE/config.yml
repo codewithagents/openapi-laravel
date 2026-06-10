@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://openapi-laravel.codewithagents.de
+    about: Guides, the quickstart, and the honest limitations list live here.

@@ -1,0 +1,40 @@
+name: Feature request
+description: Propose new generator behavior or OpenAPI feature coverage
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What can you not do today, or what is awkward? Real-world spec context helps.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-behavior
+    attributes:
+      label: Proposed behavior
+      description: How should the generator behave? Mention determinism and graceful degradation if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Example spec and desired output
+      description: A spec snippet plus the PHP you would want generated from it.
+      placeholder: |
+        Spec:
+
+        ```yaml
+        components:
+          schemas:
+            ...
+        ```
+
+        Desired output:
+
+        ```php
+        final class ...
+        ```
+    validations:
+      required: true
