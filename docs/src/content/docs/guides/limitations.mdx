@@ -78,12 +78,15 @@ constraints carry through verbatim.
 **`$ref` value.** A map of objects (for example `additionalProperties: { $ref: Price }`) becomes
 `@var array<string, PriceData>` with `'field' => ['array']` and `'field.*' => ['array']`.
 
-<Aside type="caution" title="$ref map values arrive as raw arrays">
+<Aside type="caution" title="$ref map values are neither validated nor auto-hydrated">
   laravel-data only auto-hydrates `DataCollection` elements and typed constructor parameters. The
   values of a `$ref`-valued map are typed in the docblock (`array<string, PriceData>`) but are
-  **not** cast into `PriceData` instances at runtime, they arrive as raw arrays. The generated
-  `'field.*' => ['array']` rule reflects this honestly. Hydrate the entries yourself
-  (`PriceData::from($value)`) if you need typed objects.
+  **not** cast into `PriceData` instances at runtime, they arrive as raw arrays. Nor are the nested
+  object values validated against the referenced schema's own `rules()`: the generated
+  `'field.*' => ['array']` rule only asserts each value is array-shaped, not that it matches
+  `Price`. So a `$ref`-valued map is validated to "a map of arrays" and the server hands you raw
+  arrays. Hydrate and validate the entries yourself (`PriceData::from($value)` /
+  `PriceData::validate($value)`) if you need typed, checked objects.
 </Aside>
 
 ### Pure-map components
@@ -159,6 +162,14 @@ The generated `rules()` keep presence semantics (`required` / `sometimes` / `nul
 of these shapes" without a discriminator, and a type rule on a union would wrongly reject a valid
 variant. If you have a `discriminator` in the spec, it is noted but not wired into runtime dispatch.
 
+This applies to **scalar** unions too. A `oneOf: [string, integer]` (or the JSON Schema multi-type
+form `type: ["string", "integer"]`) emits the `string|int` type hint but only a presence rule, with
+**no per-variant type rule**. The native PHP union already constrains the value to one of the member
+types at hydration, but the validator does not separately assert "this is a string OR an integer".
+A field whose only constraint is being one of several scalar types is therefore validated for
+presence only. If you need to reject, say, a boolean on a `string|int` field at the validation layer,
+add a rule for it yourself.
+
 ### Object-union runtime hydration still needs a discriminator
 
 The union type hint and docblock are a typing, IDE, and PHPStan improvement. Scalar unions
@@ -200,6 +211,31 @@ $animal = match ($raw['kind'] ?? null) {    // the spec's discriminator property
 If your spec has no discriminator, sniff a distinguishing field instead (for example a property only
 `CatData` defines), or register a custom cast on the property. Scalar unions (`string|int`) need none
 of this: they hydrate directly.
+
+## String formats: some are no-ops
+
+A `format` on a string is mapped to the closest Laravel rule where one exists. `email`/`idn-email`
+become `email`, `uuid` becomes `uuid`, `uri`/`url`/`iri` become `url`, and `ipv4`/`ipv6`/`ip` map to
+the matching IP rule. Date formats are mapped strictly: `date` becomes `date_format:Y-m-d` (a bare
+calendar date, a timestamp is rejected) and `date-time` becomes a dedicated RFC3339 rule that accepts
+the `Z`, numeric-offset, and fractional-second timestamp forms and rejects a bare date.
+
+The following string formats are **intentionally not validated** and emit only the base `string` rule
+(or no extra rule): `hostname` / `idn-hostname`, `byte`, `binary`, and `password`. Laravel has no
+faithful built-in for them, and a hand-rolled regex would be either too loose to add value or too
+strict and wrongly reject valid input, so they are treated as plain strings. The value still arrives
+and round-trips, it is simply not format-checked. Add your own rule if you need to enforce one of
+these.
+
+## Numeric constraints
+
+Inclusive `minimum`/`maximum` emit `min:`/`max:`. The exclusive forms emit `gt:`/`lt:`, covering both
+the OpenAPI 3.0 boolean companion (`minimum: N` with `exclusiveMinimum: true`) and the 3.1 numeric
+keyword (`exclusiveMinimum: N`). `multipleOf` is enforced with a small reusable `MultipleOfRule`
+(Laravel has no native rule for it), and array `uniqueItems: true` adds a `distinct` rule on the
+items. Numeric `enum` values, including floats, emit a `Rule::in([...])` constraint; a top-level
+number-enum component (which cannot be a PHP backed enum) becomes a single-`value` Data class that
+carries that constraint rather than an empty class.
 
 ## const is a single-value enum
 
