@@ -1,25 +1,27 @@
 ---
 title: Limitations
-description: What the generator does not yet represent. OpenAPI composition keywords (allOf, oneOf, anyOf) and additionalProperties are not fully modelled yet. Honest about the gaps so you can plan around them.
+description: What the generator does not yet represent. additionalProperties and the oneOf/anyOf composition keywords are not fully modelled yet. Honest about the gaps so you can plan around them.
 ---
 
 import { Aside } from '@astrojs/starlight/components'
 
-The generator targets the common case: object schemas, `$ref`s, enums, arrays, and scalar
-constraints, validated against 128 real-world specs. A few OpenAPI features are not yet fully
-represented. The generated code is always valid PHP, these are completeness gaps, not crashes,
-but for a schema that relies on them the generated class can be incomplete. This page is honest
-about where that happens so you can plan around it.
+The generator targets the common case: object schemas, `$ref`s, `allOf` composition, enums,
+arrays, and scalar constraints, validated against 128 real-world specs. A few OpenAPI features are
+not yet fully represented. The generated code is always valid PHP, these are completeness gaps, not
+crashes, but for a schema that relies on them the generated class can be incomplete. This page is
+honest about where that happens so you can plan around it.
 
 <Aside type="caution" title="Scheduled for 0.3.0">
-  Merging `allOf`, representing `additionalProperties`, and improving `oneOf`/`anyOf` are the
-  headline items for the next release. See the [roadmap](/roadmap) for the plan.
+  Representing `additionalProperties` and improving `oneOf`/`anyOf` are the remaining items for the
+  next release. See the [roadmap](/roadmap) for the plan.
 </Aside>
 
-## allOf is not merged yet
+## allOf is merged
 
-A schema composed with `allOf` has its member schemas dropped: the generated class is emitted
-without the properties contributed by the `allOf` entries.
+A schema composed with `allOf` is flattened: every member schema is merged into a single class.
+Members may be inline objects or `$ref`s to other components, and members that themselves use
+`allOf` are merged recursively. Each member's `properties` are unioned and the `required` lists are
+concatenated and deduplicated.
 
 ```yaml
 Extended_Price:
@@ -30,12 +32,15 @@ Extended_Price:
     - $ref: '#/components/schemas/Price'
 ```
 
-Today this generates an empty `ExtendedPriceData` class. The `billingCurrency` property and every
-property inherited from `Price` are not present.
+This generates an `ExtendedPriceData` class that carries `billingCurrency` plus every property
+inherited from `Price`, with `rules()` covering all of them. When the same property name is defined
+by more than one source, the value is resolved deterministically: a later `allOf` member overrides
+an earlier one, and an explicit own-level property overrides every member. The first-seen position
+is kept for ordering, so the class lists own properties, then the first member's, then the next, and
+so on.
 
-**Workaround for now:** define the properties directly on the schema instead of through `allOf`,
-or flatten the `allOf` in your spec before generating. A schema that lists its properties under a
-single `properties` block generates correctly.
+A `$ref` member that is also a component in its own right keeps its standalone class. So `Price`
+above is still emitted as `PriceData` and is also merged into `ExtendedPriceData`.
 
 ## additionalProperties is not represented yet
 
@@ -81,7 +86,8 @@ the Data object is hydrated.
 ## What is not affected
 
 Everything else generates fully: object schemas with `properties`, `$ref`s between schemas,
-nested objects and arrays (`DataCollection`), native enums, the read/write variant split, scalar
-constraints (`minLength`, `maxLength`, `pattern`, `format`, `minimum`/`maximum`, `enum`), and the
-server scaffold. If your schemas avoid the three features above, the output is complete and the
+`allOf` composition (merged into a flat class), nested objects and arrays (`DataCollection`),
+native enums, the read/write variant split, scalar constraints (`minLength`, `maxLength`,
+`pattern`, `format`, `minimum`/`maximum`, `enum`), and the server scaffold. If your schemas avoid
+the two features above (`additionalProperties` and `oneOf`/`anyOf`), the output is complete and the
 spec-derived validation is exact.

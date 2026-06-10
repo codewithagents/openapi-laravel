@@ -29,12 +29,19 @@ The server scaffold feature is built and committed toward the 0.2.0 tag. It is o
 
 Pass `--controllers` and/or `--routes` to enable it, or set `controllers.enabled` and `routes.enabled` in the config file. See the [server scaffold guide](/guides/server-scaffold) for the full walkthrough.
 
+## Supported composition
+
+**`allOf` is merged.** A schema composed with `allOf` is flattened: every member schema (inline
+objects and `$ref`s, recursively, including the schema's own `properties`) is merged into one Data
+class, with `required` lists unioned and validation rules covering the combined shape. Conflicts are
+resolved deterministically (a later member overrides an earlier one, an own-level property overrides
+every member). A `$ref` member keeps its standalone class as well. See the [limitations
+page](/guides/limitations) for details.
+
 ## Known limitations
 
-<Aside type="caution" title="Composition keywords are not fully modelled yet">
+<Aside type="caution" title="Some composition keywords are not fully modelled yet">
 
-- **`allOf`** is not merged yet: a schema composed with `allOf` generates a class missing the
-  member properties.
 - **`additionalProperties`** is not represented yet: map-style schemas generate a class without
   the dynamic key/value shape.
 - **`oneOf` / `anyOf`** are typed as `mixed` with presence-only validation; the variant types are
@@ -48,13 +55,12 @@ page](/guides/limitations) has examples and workarounds for each.
 
 ## v0.3.0: composition keywords (planned)
 
-The next release closes those gaps, in order of real-world impact across the corpus:
+`allOf` merging has landed for 0.3.0. The remaining gaps close in order of real-world impact across
+the corpus:
 
 1. **`additionalProperties`** (used by ~55% of the corpus): represent map-style schemas as a typed
    `array` with per-value validation rules.
-2. **`allOf`** (~36%): merge the member schemas (resolving `$ref` members and inline objects) into
-   a single flat shape, merging their validation rules too.
-3. **`oneOf` / `anyOf`** (~20%): improve beyond bare `mixed`, at minimum a docblock listing the
+2. **`oneOf` / `anyOf`** (~20%): improve beyond bare `mixed`, at minimum a docblock listing the
    variants, with union type hints where the members resolve cleanly. Runtime variant validation
    still depends on a discriminator being present in the spec.
 

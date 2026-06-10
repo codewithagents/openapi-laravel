@@ -287,6 +287,9 @@ final class ModelGenerator
             return [$rules, null, false];
         }
 
+        // oneOf/anyOf stay presence-only (no variant enforcement). allOf is an
+        // object shape after merging, so it also gets presence-only rules here;
+        // its member properties carry their own rules in the nested Data class.
         if ($this->notEmptyArray($schema->oneOf) || $this->notEmptyArray($schema->anyOf) || $this->notEmptyArray($schema->allOf)) {
             return [$rules, null, false];
         }
@@ -560,7 +563,9 @@ final class ModelGenerator
             return $this->resolveReference($schema);
         }
 
-        if ($this->notEmptyArray($schema->oneOf) || $this->notEmptyArray($schema->anyOf) || $this->notEmptyArray($schema->allOf)) {
+        // oneOf/anyOf remain mixed (no variant enforcement). allOf is merged:
+        // a schema composing other schemas resolves to a flattened nested object.
+        if ($this->notEmptyArray($schema->oneOf) || $this->notEmptyArray($schema->anyOf)) {
             return new ResolvedType('mixed', $this->isNullable($schema));
         }
 
@@ -576,7 +581,23 @@ final class ModelGenerator
             return $this->resolveArray($schema, $nameHint, $depth, $nullable, $variant);
         }
 
-        if ($primary === 'object' || ($primary === null && $this->notEmptyArray($schema->properties))) {
+        // The common "single $ref wrapped in allOf" pattern (a ref plus a
+        // description) is just an alias: resolve it to the referenced class
+        // instead of inlining a fresh nested copy. This also breaks self
+        // recursion (e.g. a `templateEvent: allOf: [$ref Self]` property).
+        $aliasRef = $this->soleAllOfRef($schema);
+        if ($aliasRef !== null) {
+            $resolved = $this->resolveReference($aliasRef);
+
+            return $nullable ? new ResolvedType($resolved->declaration, true, $resolved->docType, $resolved->imports, $resolved->dataCollectionOf) : $resolved;
+        }
+
+        // An allOf member set merges to an object even when `type: object` is
+        // omitted, so treat a present allOf as an object shape too.
+        if ($primary === 'object'
+            || ($primary === null && $this->notEmptyArray($schema->properties))
+            || ($primary === null && $this->notEmptyArray($schema->allOf))
+        ) {
             return $this->resolveInlineObject($schema, $nameHint, $depth, $nullable, $variant);
         }
 
@@ -766,9 +787,161 @@ final class ModelGenerator
     }
 
     /**
+     * The property map for a schema, with any `allOf` members merged in.
+     *
      * @return array<string, Schema|Reference>
      */
     private function objectProperties(Schema $schema): array
+    {
+        return $this->mergeAllOf($schema)['properties'];
+    }
+
+    /**
+     * The required-property names for a schema, with any `allOf` members merged in.
+     *
+     * @return list<string>
+     */
+    private function requiredNames(Schema $schema): array
+    {
+        return $this->mergeAllOf($schema)['required'];
+    }
+
+    /**
+     * Flatten an object schema that composes other schemas via `allOf` into a
+     * single property map and required list. Members may be inline objects or
+     * `$ref`s to components; refs are resolved through the component registry.
+     * Members that themselves use `allOf` are merged first (recursively), and
+     * `allOf` nested inside a property is handled when that property is later
+     * resolved as its own object.
+     *
+     * Ordering: first-seen wins for position, scanning the schema's own
+     * properties first, then each member in source order. The class therefore
+     * lists own properties, then member1's, then member2's, deduplicated.
+     *
+     * Conflict resolution (same property name from several sources): the value
+     * is overridden by precedence, lowest to highest = earlier member, later
+     * member, the schema's own property. So a later `allOf` member overrides an
+     * earlier one, and an explicit own-level property overrides every member.
+     * The first-seen position is kept even when a later source wins the value.
+     *
+     * @param  list<string>  $seen  component names already being merged, guards ref cycles
+     * @return array{properties: array<string, Schema|Reference>, required: list<string>}
+     */
+    private function mergeAllOf(Schema $schema, array $seen = []): array
+    {
+        $ownProperties = $this->localProperties($schema);
+        $ownRequired = $this->localRequired($schema);
+
+        $members = $schema->allOf;
+        if (! is_array($members) || $members === []) {
+            return ['properties' => $ownProperties, 'required' => $ownRequired];
+        }
+
+        // Position order: own properties first, then members in source order.
+        $order = array_keys($ownProperties);
+
+        // Value precedence, lowest to highest: member1, member2, ..., own.
+        // Build the winning value per name by overwriting in precedence order.
+        $values = [];
+        $required = [];
+
+        foreach ($members as $member) {
+            $resolved = $this->resolveMemberSchema($member, $seen);
+            if ($resolved === null) {
+                continue;
+            }
+
+            [$memberSchema, $memberSeen] = $resolved;
+            $merged = $this->mergeAllOf($memberSchema, $memberSeen);
+
+            foreach ($merged['properties'] as $name => $property) {
+                if (! array_key_exists($name, $values) && ! array_key_exists($name, $ownProperties)) {
+                    $order[] = $name;
+                }
+                $values[$name] = $property;
+            }
+
+            foreach ($merged['required'] as $name) {
+                $required[] = $name;
+            }
+        }
+
+        // Own properties win the value over every member.
+        foreach ($ownProperties as $name => $property) {
+            $values[$name] = $property;
+        }
+
+        foreach ($ownRequired as $name) {
+            $required[] = $name;
+        }
+
+        $properties = [];
+        foreach ($order as $name) {
+            $properties[$name] = $values[$name];
+        }
+
+        return ['properties' => $properties, 'required' => $this->dedupe($required)];
+    }
+
+    /**
+     * Detect the "alias" shape: a schema whose only object content is an
+     * `allOf` with exactly one member, that member being a `$ref` to a known
+     * component, and the schema carrying no own properties. Such a schema is
+     * just the referenced type with extra annotations (typically a
+     * description), so it resolves to the referenced class rather than a merged
+     * copy. Returns the reference, or null when the shape does not match.
+     */
+    private function soleAllOfRef(Schema $schema): ?Reference
+    {
+        if ($this->notEmptyArray($schema->properties)) {
+            return null;
+        }
+
+        $members = $schema->allOf;
+        if (! is_array($members) || count($members) !== 1) {
+            return null;
+        }
+
+        $member = $members[0];
+        if (! $member instanceof Reference) {
+            return null;
+        }
+
+        $name = $this->refName($member->getReference());
+
+        return ($name !== null && isset($this->registry[$name])) ? $member : null;
+    }
+
+    /**
+     * Resolve one `allOf` member to a concrete schema. Inline schemas pass
+     * through. A `$ref` to a component schema is looked up in the registry,
+     * guarded against cycles by tracking the component names already in flight.
+     *
+     * @param  list<string>  $seen
+     * @return array{0: Schema, 1: list<string>}|null resolved schema + updated cycle guard, or null if unresolvable
+     */
+    private function resolveMemberSchema(Schema|Reference $member, array $seen): ?array
+    {
+        if ($member instanceof Schema) {
+            return [$member, $seen];
+        }
+
+        $name = $this->refName($member->getReference());
+
+        if ($name === null || in_array($name, $seen, true) || ! isset($this->registry[$name])) {
+            return null;
+        }
+
+        $target = $this->registry[$name]['schema'];
+        $seen[] = $name;
+
+        return [$target, $seen];
+    }
+
+    /**
+     * @return array<string, Schema|Reference>
+     */
+    private function localProperties(Schema $schema): array
     {
         $result = [];
         foreach ($this->asArray($schema->properties) as $name => $property) {
@@ -783,7 +956,7 @@ final class ModelGenerator
     /**
      * @return list<string>
      */
-    private function requiredNames(Schema $schema): array
+    private function localRequired(Schema $schema): array
     {
         $result = [];
         foreach ($this->asArray($schema->required) as $name) {
@@ -793,6 +966,15 @@ final class ModelGenerator
         }
 
         return $result;
+    }
+
+    /**
+     * @param  list<string>  $names
+     * @return list<string>
+     */
+    private function dedupe(array $names): array
+    {
+        return array_values(array_unique($names));
     }
 
     private function refName(string $pointer): ?string

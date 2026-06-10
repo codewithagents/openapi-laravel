@@ -1,9 +1,11 @@
 # Roadmap
 
-Status: **0.1.1 released on Packagist; 0.2.0 in progress on main (unreleased).** The v1 models
-generator is shipped end to end. 0.2.0 adds the **v2 server scaffold** (abstract controllers +
-routes generated from the spec) plus production-ready polish, all committed and gated green but
-not yet tagged.
+Status: **0.2.0 released on Packagist; 0.3.0 in progress on main (unreleased).** The v1 models
+generator is shipped end to end. 0.2.0 added the **v2 server scaffold** (abstract controllers +
+routes generated from the spec) plus production-ready polish. 0.3.0 starts the composition
+keywords: **`allOf` merging is implemented** (member schemas flattened into the composed class),
+committed and gated green but not yet tagged. `additionalProperties` and `oneOf`/`anyOf` remain
+the open 0.3.0 items.
 
 Done and committed toward 0.2.0:
 - Server scaffold generator (`src/Emitter/Server/`): one `Abstract{Tag}Controller` per tag typed
@@ -126,19 +128,25 @@ Laravel team can adopt it without surprises". 0.2.0 closes that gap. Roughly in 
    the readOnly/writeOnly write-variant body param validates over real HTTP (missing writeOnly
    required field to 422 from the writable variant's rules()). Still open: a CI job that
    `composer require`s the *published* Packagist artifact (not the local checkout).
-3. **Composition keywords** [deferred to 0.3.0, documented in 0.2.0]: an audit found these are
-   currently lossy or broken, not just unsatisfying. Corpus impact and current behavior:
-   - **allOf** (46 specs, 36%): member schemas are NOT merged; a schema composed via `allOf`
-     generates an empty class (all properties dropped). This is the most damaging.
+3. **Composition keywords** [allOf done toward 0.3.0; additionalProperties + oneOf/anyOf remain]:
+   an audit found these were lossy or broken, not just unsatisfying. Corpus impact and status:
+   - **allOf** (46 specs, 36%): **DONE (0.3.0, unreleased).** Member schemas are now merged into a
+     single flat Data class: inline objects and `$ref`s are resolved (recursively, including nested
+     allOf and the schema's own `properties`), `properties` unioned, `required[]` concatenated and
+     deduped, rules() covering the combined shape. Conflict rule: later member overrides earlier,
+     own-level property overrides every member; first-seen position kept for ordering. A `$ref`
+     member still emits its own standalone class too. The single-`$ref`-wrapped-in-allOf alias
+     pattern resolves to the referenced class (which also breaks self-referential allOf cycles).
+     Impact measured: 863 classes that were empty due to allOf across 25 corpus specs are now
+     populated. All 128 corpus specs still generate valid PHP.
    - **additionalProperties** (71 specs, 55%): not represented at all; map-style schemas generate
-     an empty class.
+     an empty class. Still a gap.
    - **oneOf / anyOf** (28 / 24 specs): typed as `mixed` with presence-only rules, no variant
-     enforcement.
-   Decision (this session): for 0.2.0, document these honestly (docs `guides/limitations`, roadmap
-   page, this file) and ship the server scaffold; do NOT change the generator. 0.3.0 implements
-   them in impact order: additionalProperties -> typed array + per-value rules; allOf -> merge
-   members (resolve `$ref` + inline, merge rules); oneOf/anyOf -> docblock variants + union hints
-   where members resolve, runtime variant validation needs a spec discriminator.
+     enforcement. Still a gap.
+   Decision: 0.2.0 documented these honestly and shipped the server scaffold without touching the
+   generator. 0.3.0 implements them in impact order: allOf [done]; additionalProperties -> typed
+   array + per-value rules [next]; oneOf/anyOf -> docblock variants + union hints where members
+   resolve, runtime variant validation needs a spec discriminator [after].
 4. **Generator resilience on hostile/odd specs**: empty schemas, `$ref` to a missing component,
    circular refs beyond the depth bound, properties named like PHP keywords/magic methods, unicode
    property names. Each should produce a clear error or documented output, never a fatal or a
