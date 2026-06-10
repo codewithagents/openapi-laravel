@@ -75,8 +75,14 @@ final class ModelGenerator
         foreach ($this->registry as $entry) {
             if ($entry['kind'] === 'enum') {
                 $this->emitEnum($entry['class'], $entry['schema']);
+            } elseif ($this->hasReadWriteFlags($entry['schema'])) {
+                // The spec marks fields readOnly/writeOnly: split into a read
+                // variant (drops writeOnly) and a write variant (drops readOnly).
+                $this->emitData($entry['class'], $entry['schema'], 0, 'read');
+                $writeClass = $this->names->reserve($this->withSuffix($this->stripSuffix($entry['class']).'Writable'));
+                $this->emitData($writeClass, $entry['schema'], 0, 'write');
             } else {
-                $this->emitData($entry['class'], $entry['schema'], 0);
+                $this->emitData($entry['class'], $entry['schema'], 0, 'all');
             }
         }
 
@@ -107,7 +113,7 @@ final class ModelGenerator
         return $result;
     }
 
-    private function emitData(string $className, Schema $schema, int $depth): void
+    private function emitData(string $className, Schema $schema, int $depth, string $variant = 'all'): void
     {
         $properties = $this->objectProperties($schema);
         $required = $this->requiredNames($schema);
@@ -122,11 +128,21 @@ final class ModelGenerator
         foreach ($properties as $rawName => $propertySchema) {
             // Numeric property names ("200") are coerced to int array keys by PHP.
             $wireName = (string) $rawName;
+
+            // readOnly fields are response-only (drop from the write variant);
+            // writeOnly fields are request-only (drop from the read variant).
+            if ($variant === 'read' && $this->isWriteOnly($propertySchema)) {
+                continue;
+            }
+            if ($variant === 'write' && $this->isReadOnly($propertySchema)) {
+                continue;
+            }
+
             // Distinct wire names can collapse to the same identifier
             // (first_name + firstName); suffix collisions to avoid duplicate params.
             $propertyName = $propertyNames->reserve(PhpIdentifier::toPropertyName($wireName));
             $isRequired = in_array($wireName, $required, true);
-            $type = $this->resolveType($propertySchema, $base.PhpIdentifier::toClassName($wireName), $depth + 1);
+            $type = $this->resolveType($propertySchema, $base.PhpIdentifier::toClassName($wireName), $depth + 1, $variant);
 
             $rendered = $this->renderProperty($wireName, $propertyName, $type, $isRequired);
 
@@ -501,7 +517,7 @@ final class ModelGenerator
         return "\n\n    public static function rules(): array\n    {\n        return [\n".implode("\n", $lines)."\n        ];\n    }";
     }
 
-    private function resolveType(Schema|Reference $schema, string $nameHint, int $depth): ResolvedType
+    private function resolveType(Schema|Reference $schema, string $nameHint, int $depth, string $variant = 'all'): ResolvedType
     {
         if ($depth > $this->options->maxDepth) {
             throw new GenerationException("Maximum schema depth ({$this->options->maxDepth}) exceeded at {$nameHint}.");
@@ -524,11 +540,11 @@ final class ModelGenerator
         }
 
         if ($primary === 'array') {
-            return $this->resolveArray($schema, $nameHint, $depth, $nullable);
+            return $this->resolveArray($schema, $nameHint, $depth, $nullable, $variant);
         }
 
         if ($primary === 'object' || ($primary === null && $this->notEmptyArray($schema->properties))) {
-            return $this->resolveInlineObject($schema, $nameHint, $depth, $nullable);
+            return $this->resolveInlineObject($schema, $nameHint, $depth, $nullable, $variant);
         }
 
         return new ResolvedType('mixed', $nullable);
@@ -546,7 +562,7 @@ final class ModelGenerator
         return new ResolvedType('mixed');
     }
 
-    private function resolveArray(Schema $schema, string $nameHint, int $depth, bool $nullable): ResolvedType
+    private function resolveArray(Schema $schema, string $nameHint, int $depth, bool $nullable, string $variant = 'all'): ResolvedType
     {
         $items = $schema->items;
 
@@ -554,7 +570,7 @@ final class ModelGenerator
             return new ResolvedType('array', $nullable, 'array<int, mixed>');
         }
 
-        $itemType = $this->resolveType($items, $nameHint.'Item', $depth + 1);
+        $itemType = $this->resolveType($items, $nameHint.'Item', $depth + 1, $variant);
         $dataCollectionOf = $this->isDataClass($itemType) ? $itemType->declaration : null;
 
         return new ResolvedType(
@@ -566,13 +582,13 @@ final class ModelGenerator
         );
     }
 
-    private function resolveInlineObject(Schema $schema, string $nameHint, int $depth, bool $nullable): ResolvedType
+    private function resolveInlineObject(Schema $schema, string $nameHint, int $depth, bool $nullable, string $variant = 'all'): ResolvedType
     {
         $className = $this->names->reserve($this->withSuffix($nameHint));
 
         // Reserve the slot before recursing so nested cycles cannot reuse it.
         $this->files[$className] = new GeneratedFile($className, '');
-        $this->emitData($className, $schema, $depth);
+        $this->emitData($className, $schema, $depth, $variant);
 
         return new ResolvedType($className, $nullable);
     }
@@ -651,6 +667,27 @@ final class ModelGenerator
         }
 
         return $this->enumValues($schema) !== [];
+    }
+
+    private function hasReadWriteFlags(Schema $schema): bool
+    {
+        foreach ($this->objectProperties($schema) as $property) {
+            if ($this->isReadOnly($property) || $this->isWriteOnly($property)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isReadOnly(Schema|Reference $schema): bool
+    {
+        return $schema instanceof Schema && $schema->readOnly === true;
+    }
+
+    private function isWriteOnly(Schema|Reference $schema): bool
+    {
+        return $schema instanceof Schema && $schema->writeOnly === true;
     }
 
     private function isDataClass(ResolvedType $type): bool

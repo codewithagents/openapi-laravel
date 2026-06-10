@@ -1,0 +1,19 @@
+{
+    "openapi": "3.0.3",
+    "info": { "title": "Account API", "version": "1.0.0" },
+    "paths": {},
+    "components": {
+        "schemas": {
+            "Account": {
+                "type": "object",
+                "required": ["id", "username", "password"],
+                "properties": {
+                    "id": { "type": "integer", "readOnly": true },
+                    "username": { "type": "string", "maxLength": 30 },
+                    "password": { "type": "string", "writeOnly": true, "minLength": 8 },
+                    "created_at": { "type": "string", "format": "date-time", "readOnly": true }
+                }
+            }
+        }
+    }
+}
