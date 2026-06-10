@@ -1,0 +1,214 @@
+---
+title: Generated output
+description: Worked examples of the PHP the generator emits, a Data class with rules(), a backed enum, and the readOnly / writeOnly read/write variant split.
+---
+
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components'
+
+This page shows the kind of PHP the generator emits. Everything here is plain, readable code that lives in your repo. There is no runtime black box behind it.
+
+## A Data class with rules()
+
+Each object schema becomes a `laravel-data` class with promoted, readonly constructor properties and an explicit `rules()` method. The rules are derived verbatim from the spec constraints, not inferred from the property types.
+
+<Tabs>
+  <TabItem label="Generated PHP">
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data;
+
+use Illuminate\Validation\Rule;
+use Spatie\LaravelData\Attributes\MapName;
+use Spatie\LaravelData\Data;
+
+// generated from components.schemas.Customer
+final class CustomerData extends Data
+{
+    public function __construct(
+        public readonly int $id,
+        public readonly string $name,
+        #[MapName('email_address')]
+        public readonly ?string $emailAddress = null,
+        public readonly ?CustomerStatus $status = null,
+    ) {}
+
+    public static function rules(): array
+    {
+        return [
+            'id'            => ['required', 'integer', 'min:1'],
+            'name'          => ['required', 'string', 'max:255'],
+            'email_address' => ['sometimes', 'nullable', 'string', 'email'],
+            'status'        => ['sometimes', Rule::enum(CustomerStatus::class)],
+        ];
+    }
+}
+```
+
+  </TabItem>
+  <TabItem label="OpenAPI input">
+
+```yaml
+components:
+  schemas:
+    Customer:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          maxLength: 255
+        email_address:
+          type: string
+          format: email
+          nullable: true
+        status:
+          $ref: '#/components/schemas/CustomerStatus'
+```
+
+  </TabItem>
+</Tabs>
+
+A few things to note:
+
+- **`required` vs `sometimes`.** Properties in the schema's `required` array get `required`. Optional properties get `sometimes`, so validation only fires when the key is present.
+- **`#[MapName]`.** When the wire name (`email_address`) differs from the idiomatic PHP property (`emailAddress`), the generator adds a `#[MapName]` attribute so hydration and validation use the spec name.
+- **Format mapping.** `format: email` becomes the `email` rule. The generator maps `uuid`, `date`, `date-time`, `uri` / `url`, and `ipv4` / `ipv6` the same way.
+
+## A backed enum
+
+String and integer enums in the spec become native PHP backed enums. Enums are never given the Data suffix.
+
+<Tabs>
+  <TabItem label="Generated PHP">
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data;
+
+// generated from components.schemas.CustomerStatus
+enum CustomerStatus: string
+{
+    case Active   = 'active';
+    case Inactive = 'inactive';
+    case Pending  = 'pending';
+}
+```
+
+  </TabItem>
+  <TabItem label="OpenAPI input">
+
+```yaml
+components:
+  schemas:
+    CustomerStatus:
+      type: string
+      enum: [active, inactive, pending]
+```
+
+  </TabItem>
+</Tabs>
+
+The case names are StudlyCased from the values, and the backing values stay exactly as the spec wrote them. A class that references this enum validates against it with `Rule::enum(CustomerStatus::class)`.
+
+## The readOnly / writeOnly split
+
+When a schema marks fields with `readOnly` or `writeOnly`, the same object means two different shapes on the wire: what the server returns versus what the client sends. The generator emits a read variant and a write variant, but only when the spec actually uses the flags.
+
+<Tabs>
+  <TabItem label="Read variant">
+
+```php
+// generated from components.schemas.Customer (read shape)
+// includes readOnly fields, excludes writeOnly fields
+final class CustomerData extends Data
+{
+    public function __construct(
+        public readonly int $id,          // readOnly: server-assigned
+        public readonly string $name,
+        public readonly ?CustomerStatus $status = null,
+    ) {}
+
+    public static function rules(): array
+    {
+        return [
+            'id'     => ['required', 'integer', 'min:1'],
+            'name'   => ['required', 'string', 'max:255'],
+            'status' => ['sometimes', Rule::enum(CustomerStatus::class)],
+        ];
+    }
+}
+```
+
+  </TabItem>
+  <TabItem label="Write variant">
+
+```php
+// generated from components.schemas.Customer (write shape)
+// excludes readOnly fields, includes writeOnly fields
+final class CustomerWritableData extends Data
+{
+    public function __construct(
+        public readonly string $name,
+        public readonly string $password,   // writeOnly: never returned
+        public readonly ?CustomerStatus $status = null,
+    ) {}
+
+    public static function rules(): array
+    {
+        return [
+            'name'     => ['required', 'string', 'max:255'],
+            'password' => ['required', 'string', 'min:8'],
+            'status'   => ['sometimes', Rule::enum(CustomerStatus::class)],
+        ];
+    }
+}
+```
+
+  </TabItem>
+  <TabItem label="OpenAPI input">
+
+```yaml
+components:
+  schemas:
+    Customer:
+      type: object
+      required: [name]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+          readOnly: true
+        name:
+          type: string
+          maxLength: 255
+        password:
+          type: string
+          minLength: 8
+          writeOnly: true
+        status:
+          $ref: '#/components/schemas/CustomerStatus'
+```
+
+  </TabItem>
+</Tabs>
+
+<Aside type="note">
+  The write variant uses the `Writable` infix before the suffix (`CustomerWritableData`). If the
+  schema uses no `readOnly` or `writeOnly` flags, only a single class is generated. This mirrors the
+  read/write variant split in the sibling project,
+  [openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts).
+</Aside>
+
+## Determinism
+
+The generator emits stable ordering everywhere: properties, rules, enum cases, and file output. The same spec in produces byte-identical files out, so re-running in CI yields either no diff or a diff that is entirely a consequence of the spec changing.

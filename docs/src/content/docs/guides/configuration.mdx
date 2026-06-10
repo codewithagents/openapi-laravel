@@ -1,0 +1,106 @@
+---
+title: Configuration
+description: Every option in config/openapi-laravel.php, what it does, and its default.
+---
+
+import { Aside } from '@astrojs/starlight/components'
+
+Publish the config file to set defaults you commit to your repo:
+
+```bash
+php artisan vendor:publish --tag=openapi-laravel-config
+```
+
+This writes `config/openapi-laravel.php`:
+
+```php
+<?php
+
+declare(strict_types=1);
+
+return [
+
+    /*
+     * Path to the OpenAPI document (YAML or JSON) used as the source of truth.
+     */
+    'spec' => env('OPENAPI_LARAVEL_SPEC', base_path('openapi.yaml')),
+
+    /*
+     * Where generated classes are written, and the namespace they live under.
+     */
+    'output' => [
+        'path' => app_path('Data'),
+        'namespace' => 'App\\Data',
+
+        /*
+         * Suffix appended to generated Data class names (e.g. Customer ->
+         * CustomerData). Enums are never suffixed. Set to '' to disable.
+         */
+        'suffix' => 'Data',
+
+        /*
+         * Delete existing *.php files in the output directory before writing,
+         * so a removed schema does not leave a stale class behind.
+         */
+        'prune' => false,
+    ],
+
+    /*
+     * Maximum schema nesting depth the parser will follow before bailing out.
+     * Guards against pathological or maliciously deep specs.
+     */
+    'max_depth' => 64,
+
+];
+```
+
+## Options
+
+### `spec`
+
+Path to the OpenAPI document (YAML or JSON) used as the source of truth. Defaults to `base_path('openapi.yaml')`, and reads the `OPENAPI_LARAVEL_SPEC` environment variable if set.
+
+The `--spec` flag on the artisan command and the standalone binary overrides this value.
+
+### `output.path`
+
+Directory the generated classes are written to. Defaults to `app_path('Data')`, that is `app/Data`. Overridden by the `--output` flag.
+
+### `output.namespace`
+
+PHP namespace the generated classes live under. Defaults to `App\Data`. Overridden by the `--namespace` flag. Keep this aligned with `output.path` so the autoloader resolves the classes.
+
+### `output.suffix`
+
+Suffix appended to generated Data class names, so a `Customer` schema becomes `CustomerData`. Defaults to `Data`. Enums are never suffixed. Set it to an empty string (`''`) to disable the suffix entirely.
+
+<Aside type="caution">
+  Disabling the suffix can cause a Data class and the enum it references to collide on the same
+  name (for example a `Status` object and a `Status` enum). The naming layer resolves collisions,
+  but keeping the suffix is the simplest way to avoid them.
+</Aside>
+
+### `output.prune`
+
+When `true`, deletes existing `*.php` files in the output directory before writing, so a schema you removed from the spec does not leave a stale class behind. Defaults to `false`.
+
+<Aside type="caution">
+  Pruning deletes files. Only point `output.path` at a directory that holds nothing but generated
+  output, and rely on version control to review what was removed.
+</Aside>
+
+### `max_depth`
+
+Maximum schema nesting depth the parser follows before it bails out. Defaults to `64`. This guards against pathological or maliciously deep specs that would otherwise recurse without bound. Raise it only if you have a legitimately deeply nested spec and trust its source.
+
+## Precedence
+
+Command-line flags win over the config file, and the config file wins over the built-in defaults:
+
+```
+--spec / --output / --namespace  (flags)
+        ↓ override
+config/openapi-laravel.php        (your committed defaults)
+        ↓ override
+built-in defaults
+```

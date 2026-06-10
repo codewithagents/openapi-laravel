@@ -1,0 +1,53 @@
+---
+title: Introduction
+description: What openapi-laravel does, who it is for, and how the spec-first approach works.
+---
+
+import { Aside, Card, CardGrid } from '@astrojs/starlight/components'
+
+You consume or implement a REST API described by an OpenAPI document. You need PHP DTOs, validation rules, and enums that match the spec exactly, and you need them to stay in sync every time the spec changes. Instead of hand-writing and re-checking all of it, you run one command.
+
+`openapi-laravel` reads an OpenAPI 3.0 or 3.1 document and generates [spatie/laravel-data](https://github.com/spatie/laravel-data) classes with explicit, spec-derived `rules()` methods, plus native PHP enums. The output is readable, deterministic PHP that lives in your repo and looks like code you would have written yourself.
+
+## Spec-first, not code-first
+
+The Laravel ecosystem is full of code-first tools that generate an OpenAPI document from your controllers and annotations. This tool goes the other way: the spec is the contract, and your models derive from it.
+
+```
+openapi.yaml  →  openapi-laravel  →  app/Data/*.php
+(the contract)    (the generator)     (laravel-data classes, rules(), enums)
+```
+
+When the spec changes, you re-run the generator and review the diff. There is no second source of truth to keep aligned by hand.
+
+## What it generates today (v1)
+
+- **Objects** become `laravel-data` classes with promoted, readonly constructor properties.
+- **Validation** becomes an explicit `rules()` method derived from the spec: `required` / `nullable`, types, string `max` / `min` / `pattern` / `format` (email, uuid, date, url, ip), numeric `min` / `max`, array `min` / `max` items, and `Rule::enum` / `Rule::in`.
+- **Enums** become native PHP backed enums (string or int).
+- **Naming** maps spec names to StudlyCaps classes and camelCase properties, with `#[MapName]` when the wire name differs, plus reserved-word and collision handling.
+- **Nested objects** become nested Data classes; **arrays** become `#[DataCollectionOf]` typed collections.
+- **Nullability** is handled for both 3.0 `nullable` and 3.1 `type: [..., 'null']`.
+- **readOnly / writeOnly** produce a read variant and a write variant, only when the spec uses the flags.
+
+<Aside type="note">
+  v1 is models only. Server scaffolding (routes plus abstract controllers per tag) is planned for
+  v2. See the [roadmap](/roadmap) for what is in scope now and what is not.
+</Aside>
+
+## Next steps
+
+<CardGrid>
+  <Card title="Installation" icon="download">
+    Add the package and publish the config. [Install](/getting-started/installation)
+  </Card>
+  <Card title="Quick start" icon="right-arrow">
+    Generate your first Data classes. [Quick start](/getting-started/quickstart)
+  </Card>
+  <Card title="Configuration" icon="setting">
+    Every option in `config/openapi-laravel.php`. [Configuration](/guides/configuration)
+  </Card>
+  <Card title="How it compares" icon="random">
+    Spec-first vs code-first tools. [Comparison](/comparison)
+  </Card>
+</CardGrid>

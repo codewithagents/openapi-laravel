@@ -1,0 +1,48 @@
+---
+title: How it compares
+description: Spec-first vs code-first generation in the Laravel ecosystem, and how openapi-laravel compares to l5-swagger, scramble, ensi-platform, and hand-writing.
+---
+
+import { Aside } from '@astrojs/starlight/components'
+
+The Laravel ecosystem is full of **code-first** tools that generate an OpenAPI document *from* your controllers and annotations: [l5-swagger](https://github.com/DarkaOnLine/L5-Swagger), [dedoc/scramble](https://scramble.dedoc.co/), and [vyuldashev/laravel-openapi](https://github.com/vyuldashev/laravel-openapi). Those are excellent if your code is the source of truth.
+
+`openapi-laravel` is for the other direction: **spec-first**, where the OpenAPI document is the contract and your models derive from it.
+
+## At a glance
+
+| | `openapi-laravel` | l5-swagger / scramble | ensi-platform/* | hand-writing |
+|---|---|---|---|---|
+| Direction | **Spec to code** | Code to spec | Spec to code | n/a |
+| Generates laravel-data DTOs | **Yes** | No | No (custom DTOs) | You do |
+| Spec-derived validation `rules()` | **Yes** | No | Partial | You do |
+| Native PHP enums | **Yes** | No | No | You do |
+| Standard OpenAPI (no custom extensions) | **Yes** | Yes | No (custom OAS) | n/a |
+| Owned, readable, committed output | **Yes** | n/a | Generated | Yes |
+| Runs without Laravel (CI) | **Yes** (bin) | No | No | n/a |
+
+## Code-first: l5-swagger and scramble
+
+These tools read your controllers, annotations, or type hints and produce an OpenAPI document from them. Your PHP is the source of truth, and the spec is the artifact.
+
+Pick them when your code is authoritative and you want documentation generated from it. They do not produce DTOs, validation rules, or enums for you to consume, because in their model your code already exists. That is the opposite problem from the one this tool solves.
+
+## Spec-first: ensi-platform
+
+[ensi-platform/laravel-openapi-server-generator](https://github.com/ensi-platform/laravel-openapi-server-generator) is one of the few spec-first generators in the ecosystem. It generates server scaffolding, but it relies on custom OpenAPI extensions, so the input is not a plain standard spec, and it produces its own DTO shape rather than `laravel-data` classes with derived validation.
+
+`openapi-laravel` reads standard OpenAPI with no custom extensions, and emits `laravel-data` classes with explicit `rules()` and native enums.
+
+## Hand-writing
+
+You can always write the DTOs, validation, and enums by hand. The cost is keeping every one of them aligned with the spec as it changes, by hand, forever. A generator turns that recurring manual reconciliation into a diff you review.
+
+## When to pick something else
+
+<Aside type="note">
+
+- **Your code is the source of truth** and you want the spec generated from it: use l5-swagger or scramble.
+- **You need full server scaffolding today:** that is on the roadmap here as v2, not shipped in v1. See the [roadmap](/roadmap).
+- **You need a non-PHP target:** this tool emits PHP only. The sibling [openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts) covers TypeScript.
+
+</Aside>

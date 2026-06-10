@@ -1,0 +1,47 @@
+---
+title: Installation
+description: Install openapi-laravel with Composer and publish the configuration file.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components'
+
+## Requirements
+
+| Requirement   | Version                      |
+| ------------- | ---------------------------- |
+| PHP           | 8.2 or newer                 |
+| Laravel       | 11 or 12 (for the artisan command) |
+| spatie/laravel-data | v4 (peer of the generated output) |
+
+The standalone binary runs without Laravel, so a Laravel install is only required for the artisan command and the published config file.
+
+## Install
+
+<Steps>
+
+1. **Require the package as a dev dependency.**
+
+   ```bash
+   composer require --dev codewithagents/openapi-laravel
+   ```
+
+   It is a dev dependency because the generator runs at build time. The classes it emits are committed to your repo and depend only on `spatie/laravel-data`, which is a normal runtime dependency of your app.
+
+2. **Publish the config file (optional).**
+
+   ```bash
+   php artisan vendor:publish --tag=openapi-laravel-config
+   ```
+
+   This writes `config/openapi-laravel.php`, where you can set the spec path, output path and namespace, and other options. See the [configuration reference](/guides/configuration).
+
+</Steps>
+
+<Aside type="tip">
+  If you skip publishing the config, you can still pass everything on the command line with
+  `--spec`, `--output`, and `--namespace`. The config file just lets you commit those defaults.
+</Aside>
+
+## Next
+
+Head to the [quick start](/getting-started/quickstart) to generate your first Data classes.
