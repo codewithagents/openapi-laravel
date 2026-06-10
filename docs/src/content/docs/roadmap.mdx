@@ -45,27 +45,38 @@ generates `array<string, PriceData>`. A pure-map component is inlined at its use
 emitted as an empty class. Caveats (raw-array `$ref` map values, uncaptured mixed-object overflow,
 unenforced `additionalProperties: false`) are on the [limitations page](/guides/limitations).
 
+**`oneOf` / `anyOf` emit union types.** A property typed via `oneOf` or `anyOf` emits a native PHP
+union type hint plus a `@var` variant docblock, whenever every member resolves to a scalar or a
+generated Data class: `oneOf: [string, integer]` becomes `string|int`, and
+`oneOf: [Cat, Dog]` becomes `CatData|DogData`. `null` is folded into the union (with a `= null`
+default) when a member is the null type, a member is nullable, or the property is nullable. Messier
+unions (a nested `oneOf`, an array, a map, an untyped or enum member) fall back deterministically to
+`mixed` with presence-only rules. The server scaffold types a response that is a `oneOf`/`anyOf` of
+Data-class `$ref`s as a Data-class union return, and otherwise keeps the `JsonResponse` fallback.
+
 ## Known limitations
 
-<Aside type="caution" title="oneOf / anyOf are not fully modelled yet">
+<Aside type="note" title="oneOf / anyOf object-union hydration needs a discriminator">
 
-- **`oneOf` / `anyOf`** are typed as `mixed` with presence-only validation; the variant types are
-  not enforced.
+- **`oneOf` / `anyOf`** now emit union type hints and variant docblocks with presence rules. The
+  rules stay presence-only (no variant enforcement): standard Laravel cannot assert "exactly one
+  shape" without a discriminator.
+- **Object-union runtime hydration** (`CatData|DogData`) still needs a discriminator or a custom
+  cast. The union type hint is a typing, IDE, and PHPStan improvement; scalar unions hydrate fine,
+  but an object union arrives as a raw array at runtime without a discriminator-aware cast.
 
 </Aside>
 
-The generated code is always valid PHP, this is a completeness gap rather than a crash, but for a
-schema that leans on `oneOf`/`anyOf` the generated class can be incomplete. The [limitations
-page](/guides/limitations) has examples and a workaround.
+The generated code is always valid PHP. The [limitations page](/guides/limitations) has examples,
+the fallback rules, and the object-union workaround.
 
-## v0.3.0: composition keywords (planned)
+## v0.4.0: oneOf / anyOf union typing (landed)
 
-`allOf` merging and `additionalProperties` maps have landed for 0.3.0. The remaining gap closes in
-order of real-world impact across the corpus:
-
-1. **`oneOf` / `anyOf`** (~20%): improve beyond bare `mixed`, at minimum a docblock listing the
-   variants, with union type hints where the members resolve cleanly. Runtime variant validation
-   still depends on a discriminator being present in the spec.
+`allOf` merging and `additionalProperties` maps landed earlier. `oneOf` / `anyOf` union typing is
+the headline of 0.4.0: native PHP union type hints and variant docblocks where the members resolve
+cleanly, a deterministic `mixed` fallback otherwise, and Data-class union return types in the server
+scaffold. Runtime variant validation and object-union hydration still depend on a discriminator being
+present in the spec.
 
 ## Later: v3 (maybe)
 

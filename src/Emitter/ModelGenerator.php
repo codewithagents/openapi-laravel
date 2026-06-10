@@ -311,6 +311,13 @@ final class ModelGenerator
             return 'mixed';
         }
 
+        // An optional property defaults to null, so the union must accept null.
+        // A union spells that as a trailing `|null` member ('string|int|null'),
+        // never the `?` shorthand, which PHP forbids on a union.
+        if ($type->isUnion) {
+            return str_ends_with($type->declaration, '|null') ? $type->declaration : $type->declaration.'|null';
+        }
+
         return '?'.$type->declaration;
     }
 
@@ -743,10 +750,13 @@ final class ModelGenerator
             return $this->resolveReference($schema);
         }
 
-        // oneOf/anyOf remain mixed (no variant enforcement). allOf is merged:
-        // a schema composing other schemas resolves to a flattened nested object.
+        // oneOf/anyOf become a native PHP union type when every member resolves
+        // to a clean type (scalar or generated Data class); otherwise they fall
+        // back to mixed. allOf is merged separately below into a nested object.
+        // oneOf and anyOf are treated identically for typing: both express "the
+        // value is one of these member shapes" and PHP cannot distinguish them.
         if ($this->notEmptyArray($schema->oneOf) || $this->notEmptyArray($schema->anyOf)) {
-            return new ResolvedType('mixed', $this->isNullable($schema));
+            return $this->resolveUnion($schema, $nameHint, $depth, $variant);
         }
 
         $types = $this->normalizeTypes($schema);
@@ -805,6 +815,174 @@ final class ModelGenerator
         }
 
         return new ResolvedType('mixed', $nullable);
+    }
+
+    /**
+     * Resolve a schema whose type is expressed via `oneOf`/`anyOf` to a native
+     * PHP union type when every member resolves cleanly, else to `mixed`.
+     *
+     * A member resolves cleanly when it is a scalar (string/int/float/bool) or a
+     * generated Data class. Members are taken in source order, deduplicated by
+     * their PHP type, and the union is rendered in that stable order with `null`
+     * forced to the end. The union is nullable (and the property defaults to
+     * null) when any member is the `null` type, any member is itself nullable,
+     * or the composing schema is nullable.
+     *
+     * Anything messier (a member that is itself an oneOf/anyOf, an array, a map,
+     * an untyped/empty schema, or an unresolvable $ref) makes the whole union
+     * fall back to `mixed` with presence-only rules. This keeps the established
+     * fallback behavior and is expected for the genuinely ambiguous cases. The
+     * fallback is deterministic: the same spec always lands on the same result.
+     */
+    private function resolveUnion(Schema $schema, string $nameHint, int $depth, string $variant): ResolvedType
+    {
+        $members = $this->unionMembers($schema);
+
+        // A `oneOf`/`anyOf` with no usable members carries no shape: mixed.
+        if ($members === []) {
+            return new ResolvedType('mixed', $this->isNullable($schema));
+        }
+
+        $nullable = $this->isNullable($schema);
+        $declarations = [];
+        $imports = [];
+
+        foreach ($members as $member) {
+            // A `{type: null}` member contributes nullability, not a type.
+            if ($this->isNullTypeMember($member)) {
+                $nullable = true;
+
+                continue;
+            }
+
+            if (! $this->isCleanUnionMember($member)) {
+                // Any messy member collapses the whole union to mixed. The
+                // nullability already gathered still informs the fallback so a
+                // nullable union does not silently lose its null.
+                return new ResolvedType('mixed', $nullable);
+            }
+
+            $resolved = $this->resolveType($member, $nameHint, $depth + 1, $variant);
+
+            if ($resolved->nullable) {
+                $nullable = true;
+            }
+
+            // Dedupe by PHP type while keeping first-seen (source) order.
+            if (! in_array($resolved->declaration, $declarations, true)) {
+                $declarations[] = $resolved->declaration;
+            }
+
+            foreach ($resolved->imports as $import) {
+                $imports[] = $import;
+            }
+        }
+
+        // Every member was the null type: nothing to union over, stay mixed.
+        if ($declarations === []) {
+            return new ResolvedType('mixed', $nullable);
+        }
+
+        $imports = array_values(array_unique($imports));
+        $docType = implode('|', $nullable ? array_merge($declarations, ['null']) : $declarations);
+
+        return new ResolvedType(
+            implode('|', $declarations),
+            $nullable,
+            $docType,
+            $imports,
+            null,
+            true,
+        );
+    }
+
+    /**
+     * The combined member list of a `oneOf`/`anyOf` schema, in source order.
+     * Both keywords are unioned: a schema rarely uses both, but if it does the
+     * members compose into one type union (oneOf members first, then anyOf).
+     *
+     * @return list<Schema|Reference>
+     */
+    private function unionMembers(Schema $schema): array
+    {
+        $members = [];
+
+        foreach ([$schema->oneOf, $schema->anyOf] as $set) {
+            if (! is_array($set)) {
+                continue;
+            }
+            foreach ($set as $member) {
+                if ($member instanceof Schema || $member instanceof Reference) {
+                    $members[] = $member;
+                }
+            }
+        }
+
+        return $members;
+    }
+
+    /**
+     * Whether a union member is the bare `null` type (`{type: 'null'}` or a type
+     * array of only null), which contributes nullability rather than a PHP type.
+     */
+    private function isNullTypeMember(Schema|Reference $member): bool
+    {
+        if (! $member instanceof Schema) {
+            return false;
+        }
+
+        $raw = $member->type;
+
+        if ($raw === 'null') {
+            return true;
+        }
+
+        return is_array($raw) && $raw !== [] && $this->normalizeTypes($member) === [];
+    }
+
+    /**
+     * Whether a union member resolves to a clean PHP type: a scalar, or a $ref to
+     * a generated Data class. Anything else (a nested union, an array, a map, an
+     * inline object, an untyped/empty schema, an enum-only schema, or an
+     * unresolvable/pure-map $ref) is rejected so the whole union falls back to
+     * mixed. Keeping the accepted set small is deliberate: the union type hint is
+     * only emitted when it is unambiguously correct.
+     */
+    private function isCleanUnionMember(Schema|Reference $member): bool
+    {
+        if ($member instanceof Reference) {
+            $name = $this->refName($member->getReference());
+
+            // Only a $ref to a generated Data class is clean. A pure-map alias
+            // (typed array) or an unknown/enum ref is not part of an object union.
+            return $name !== null
+                && isset($this->registry[$name])
+                && $this->registry[$name]['kind'] === 'data';
+        }
+
+        // A nested composition keyword makes the member a non-trivial shape.
+        if ($this->notEmptyArray($member->oneOf)
+            || $this->notEmptyArray($member->anyOf)
+            || $this->notEmptyArray($member->allOf)
+        ) {
+            return false;
+        }
+
+        // An enum or const member is a constrained scalar but the union would
+        // not enforce it; treat only a plain scalar type as clean.
+        if ($this->notEmptyArray($member->enum)) {
+            return false;
+        }
+
+        $types = $this->normalizeTypes($member);
+
+        // Exactly one declared scalar type is clean. Zero types (untyped/empty),
+        // multiple types, 'array', or 'object' are not.
+        if (count($types) !== 1) {
+            return false;
+        }
+
+        return isset(self::SCALARS[$types[0]]);
     }
 
     private function resolveReference(Reference $reference): ResolvedType

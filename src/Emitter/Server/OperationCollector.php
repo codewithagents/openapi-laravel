@@ -325,11 +325,79 @@ final class OperationCollector
 
                 return [self::DATA_COLLECTION_SHORT, 'DataCollection<int, '.$collectionOf.'>'];
             }
+
+            // A oneOf/anyOf response whose members are all generated Data classes
+            // becomes a Data-class union return type ('CatData|DogData'); anything
+            // messier keeps the JsonResponse fallback below. spatie/laravel-data
+            // cannot auto-hydrate such an object union without a discriminator, so
+            // this is a typing/IDE/PHPStan improvement, documented in limitations.
+            $union = $this->responseUnionDataClasses($schema);
+            if ($union !== null) {
+                foreach ($union as $dataClass) {
+                    $imports[] = $this->dataFqcn($dataClass);
+                }
+
+                return [implode('|', $union), null];
+            }
         }
 
         $imports[] = self::JSON_RESPONSE_FQCN;
 
         return [self::JSON_RESPONSE_SHORT, null];
+    }
+
+    /**
+     * For a `oneOf`/`anyOf` response schema, the list of generated Data classes
+     * the union return type should name, in source order and deduplicated, or
+     * null when the union is not made up entirely of generated Data-class $refs.
+     *
+     * The bar is deliberately strict: a return type union only makes sense when
+     * every variant is a concrete Data class the controller can return. A scalar
+     * member, an inline schema, a nested composition, or a $ref to an enum or an
+     * unknown component all drop the operation back to JsonResponse. A bare
+     * `null` member is ignored (a response body is not typically nullable, and a
+     * Data-class union return cannot encode it without widening to mixed).
+     *
+     * @return list<string>|null
+     */
+    private function responseUnionDataClasses(Schema $schema): ?array
+    {
+        $members = [];
+        foreach ([$schema->oneOf, $schema->anyOf] as $set) {
+            if (is_array($set)) {
+                foreach ($set as $member) {
+                    $members[] = $member;
+                }
+            }
+        }
+
+        if ($members === []) {
+            return null;
+        }
+
+        $classes = [];
+        foreach ($members as $member) {
+            // Ignore a bare `{type: null}` member; it carries no Data class.
+            if ($member instanceof Schema && $member->type === 'null') {
+                continue;
+            }
+
+            if (! $member instanceof Reference) {
+                return null;
+            }
+
+            $name = $this->refName($member->getReference());
+            if ($name === null || ! isset($this->registry[$name]) || $this->registry[$name]['kind'] !== 'data') {
+                return null;
+            }
+
+            $dataClass = $this->registry[$name]['dataClass'];
+            if (! in_array($dataClass, $classes, true)) {
+                $classes[] = $dataClass;
+            }
+        }
+
+        return $classes === [] ? null : $classes;
     }
 
     private function arrayItemDataClass(Schema $schema): ?string

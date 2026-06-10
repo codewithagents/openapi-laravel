@@ -11,6 +11,11 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter;
  * ('array<int, CustomerData>'); `imports` lists FQCNs the file must use;
  * `dataCollectionOf` names the element Data class when the value is a typed
  * collection.
+ *
+ * `isUnion` marks a native PHP union type ('string|int', 'CatData|DogData')
+ * emitted for an oneOf/anyOf whose members all resolve cleanly. A union renders
+ * its nullability as a trailing `|null` member, never the `?` shorthand, since
+ * PHP forbids `?A|B`.
  */
 final class ResolvedType
 {
@@ -23,10 +28,17 @@ final class ResolvedType
         public readonly ?string $docType = null,
         public readonly array $imports = [],
         public readonly ?string $dataCollectionOf = null,
+        public readonly bool $isUnion = false,
     ) {}
 
     public function declaration(): string
     {
-        return $this->nullable ? '?'.$this->declaration : $this->declaration;
+        if (! $this->nullable) {
+            return $this->declaration;
+        }
+
+        // A union encodes null as a trailing member ('string|int|null'); a plain
+        // type uses the nullable shorthand ('?string').
+        return $this->isUnion ? $this->declaration.'|null' : '?'.$this->declaration;
     }
 }

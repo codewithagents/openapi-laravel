@@ -1,6 +1,6 @@
 ---
 title: Limitations
-description: What the generator does not yet represent. The oneOf/anyOf composition keywords are not fully modelled yet. Honest about the gaps so you can plan around them.
+description: What the generator does not yet represent. oneOf/anyOf now emit native union type hints where the members resolve, with an honest note on object-union runtime hydration. Honest about the gaps so you can plan around them.
 ---
 
 import { Aside } from '@astrojs/starlight/components'
@@ -11,9 +11,11 @@ specs. A few OpenAPI features are not yet fully represented. The generated code 
 these are completeness gaps, not crashes, but for a schema that relies on them the generated class
 can be incomplete. This page is honest about where that happens so you can plan around it.
 
-<Aside type="caution" title="Scheduled for 0.3.0">
-  Improving `oneOf`/`anyOf` is the remaining item for the next release. See the
-  [roadmap](/roadmap) for the plan.
+<Aside type="note" title="oneOf / anyOf now emit union types">
+  As of 0.4.0, `oneOf`/`anyOf` emit native PHP union type hints (and a variant
+  docblock) wherever the members resolve to scalars or generated Data classes.
+  The residual gap is object-union runtime hydration, which still needs a
+  discriminator. See [oneOf and anyOf](#oneof-and-anyof-emit-union-types) below.
 </Aside>
 
 ## allOf is merged
@@ -108,28 +110,57 @@ Standard Laravel has no rule to reject unknown keys on a nested data structure, 
 are generated as usual; extra keys simply are not rejected. Enforce closed objects in your own
 validation layer if you need that guarantee.
 
-## oneOf and anyOf are typed as mixed
+## oneOf and anyOf emit union types
 
-A property whose schema uses `oneOf` or `anyOf` is generated as `mixed`, with presence-only
-validation. The individual variant types are not enforced, and the generated `rules()` cannot
-assert which variant was supplied.
+A property whose schema uses `oneOf` or `anyOf` emits a native PHP union type hint plus a `@var`
+docblock listing the variants, whenever every member resolves to a clean PHP type: a scalar
+(`string`, `int`, `float`, `bool`) or a generated Data class. `oneOf` and `anyOf` are handled
+identically for typing, since PHP cannot distinguish "exactly one" from "at least one" shape.
 
 ```yaml
-payload:
+animal:
   oneOf:
-    - type: string
-    - type: object
+    - $ref: '#/components/schemas/Cat'
+    - $ref: '#/components/schemas/Dog'
 ```
 
-Today this generates `public readonly mixed $payload` with `'payload' => ['required']`.
+This generates:
 
-This is a deeper limitation than maps: without a discriminator, PHP and Laravel validation cannot
-enforce "exactly one of these shapes" at request-validation time. A future release may emit a union
-type hint where the variants resolve cleanly, but runtime variant validation will always require a
-discriminator in the spec.
+```php
+/** @var CatData|DogData */
+public readonly CatData|DogData|null $animal = null,
+```
 
-**Workaround for now:** validate the variant shape in your own controller or service layer after
-the Data object is hydrated.
+The union is built in source order, deduplicated, with `null` forced to the end. `null` is added to
+the union (and the property defaults to `= null`) when any member is the `null` type, any member is
+itself nullable, or the property is nullable. A scalar union such as `oneOf: [string, integer]`
+becomes `string|int`.
+
+### Fallback to mixed
+
+When a member does **not** resolve to a clean type, the whole property falls back to the previous
+behavior: `public readonly mixed $payload` with presence-only rules. This is deliberate and
+deterministic. It happens when a member is itself a `oneOf`/`anyOf`, an array, a map, an inline
+object, an untyped or empty schema, an enum, or a `$ref` to something that is not a Data class.
+
+### Rules stay presence-only
+
+The generated `rules()` keep presence semantics (`required` / `sometimes` / `nullable`). They do
+**not** assert which variant was supplied: standard Laravel validation cannot enforce "exactly one
+of these shapes" without a discriminator, and a type rule on a union would wrongly reject a valid
+variant. If you have a `discriminator` in the spec, it is noted but not wired into runtime dispatch.
+
+### Object-union runtime hydration still needs a discriminator
+
+The union type hint and docblock are a typing, IDE, and PHPStan improvement. Scalar unions
+(`string|int`) hydrate fine through spatie/laravel-data. An **object union** (`CatData|DogData`),
+however, does not auto-hydrate: spatie/laravel-data cannot pick which Data class to instantiate from
+a raw payload without a discriminator or a custom cast. So while the type hint is correct and useful
+for static analysis, at runtime an object-union property arrives as a raw array unless you supply a
+discriminator-aware cast yourself.
+
+**Workaround for object unions:** add a custom cast, or validate and hydrate the chosen variant in
+your own controller or service layer after the Data object is constructed.
 
 ## const is a single-value enum
 
@@ -202,6 +233,7 @@ Everything else generates fully: object schemas with `properties`, `$ref`s betwe
 `allOf` composition (merged into a flat class), `additionalProperties` maps (typed `array` with
 per-value rules), nested objects and arrays (`DataCollection`), native enums, the read/write variant
 split, scalar constraints (`minLength`, `maxLength`, `pattern`, `format`, `minimum`/`maximum`,
-`enum`), and the server scaffold. If your schemas avoid `oneOf`/`anyOf`, the output is complete and
-the spec-derived validation is exact, with the map caveats noted above (raw-array `$ref` map values,
-uncaptured mixed-object overflow, unenforced `additionalProperties: false`).
+`enum`), the server scaffold, and `oneOf`/`anyOf` union type hints where the members resolve. The
+spec-derived validation is presence-exact, with the caveats noted above: object-union runtime
+hydration needs a discriminator, and the map caveats apply (raw-array `$ref` map values, uncaptured
+mixed-object overflow, unenforced `additionalProperties: false`).

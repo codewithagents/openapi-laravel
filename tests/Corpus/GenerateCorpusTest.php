@@ -43,3 +43,28 @@ it('generates syntactically valid PHP for every corpus spec', function (string $
 
     expect(true)->toBeTrue();
 })->with('corpus_specs');
+
+/**
+ * Corpus guard for the oneOf/anyOf union-typing feature: a curated real-world
+ * spec must now emit a native PHP union type (not a bare `mixed`) where the
+ * variant members resolve to generated Data classes. ably_control.json declares
+ * an `authentication` property as `oneOf: [AwsAccessKeys, AwsAssumeRole]`, which
+ * resolves to an object union. This is the analogue of the non-empty guards the
+ * allOf and additionalProperties features carry: proof the feature fires on real
+ * input, not just hand-built fixtures.
+ */
+it('emits a Data-class union for a curated corpus oneOf (ably_control)', function () {
+    $path = __DIR__.'/../Fixtures/specs/ably_control.json';
+    $document = (new SpecParser)->parseFile($path);
+    $files = (new ModelGenerator)->generate($document);
+
+    expect($files)->toHaveKey('AwsLambdaRulePostTargetData');
+
+    $code = $files['AwsLambdaRulePostTargetData']->code;
+
+    // The property is a native union of the two authentication Data classes,
+    // not the old bare `mixed` fallback.
+    expect($code)->toContain('public readonly AwsAccessKeysData|AwsAssumeRoleData')
+        ->and($code)->toContain('/** @var AwsAccessKeysData|AwsAssumeRoleData')
+        ->and($code)->not->toContain('public readonly mixed $authentication');
+});
