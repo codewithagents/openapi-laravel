@@ -1,0 +1,43 @@
+{
+    "name": "codewithagents/openapi-laravel",
+    "description": "Generate Laravel models (spatie/laravel-data classes, validation rules, enums) from an OpenAPI spec. The spec is the source of truth.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["openapi", "laravel", "codegen", "laravel-data", "spec-first", "contract-first"],
+    "require": {
+        "php": "^8.2",
+        "devizzent/cebe-php-openapi": "^1.1",
+        "illuminate/support": "^11.0|^12.0",
+        "spatie/laravel-data": "^4.0"
+    },
+    "require-dev": {
+        "pestphp/pest": "^3.0",
+        "phpstan/phpstan": "^2.0",
+        "orchestra/testbench": "^9.0|^10.0",
+        "laravel/pint": "^1.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "CodeWithAgents\\OpenApiLaravel\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "CodeWithAgents\\OpenApiLaravel\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "CodeWithAgents\\OpenApiLaravel\\OpenApiLaravelServiceProvider"
+            ]
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "minimum-stability": "stable"
+}
