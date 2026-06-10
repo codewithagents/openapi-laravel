@@ -131,6 +131,47 @@ discriminator in the spec.
 **Workaround for now:** validate the variant shape in your own controller or service layer after
 the Data object is hydrated.
 
+## Security: specs are untrusted input
+
+The generator reads an OpenAPI spec and writes PHP source that your application then loads and
+executes. Treat the spec as untrusted input: a hostile spec can try to inject PHP through any
+spec-derived value that lands in generated code (a class name, a string literal, a docblock, a
+validation rule). The generator defends against this, but operators still own a few boundaries.
+
+**Docblock injection is neutralized.** Free text from the spec (operation summaries, paths) is
+written into generated controller docblocks. Before that, every `*/` is rewritten to `* /` so a
+value cannot close the comment early and inject code, and newlines and other control characters are
+collapsed to a single space so a value cannot forge extra doc lines. The same neutralization applies
+to any spec free text that reaches a comment in the controller or route output.
+
+**Namespace and class-name options are validated.** The `--namespace`, `--suffix`, and
+`--controller-namespace` options (and their `config` equivalents) are interpolated raw into
+generated `namespace ...;` declarations and class names. They are validated at startup, before any
+file is written: a namespace must be a legal PHP namespace and a suffix must be a legal PHP
+identifier. An invalid value fails fast with a clear error and a non-zero exit, rather than emitting
+broken or injected PHP. This also rules out accidental breakage such as a stray space.
+
+**Validation patterns are never silently dropped.** A `pattern` constraint is emitted as a Laravel
+`regex:` rule. The generator picks a PCRE delimiter not present in the pattern from a candidate list,
+and if a pattern somehow contains all candidates it falls back to a fixed delimiter and escapes it
+rather than dropping the rule. A field is never silently left under-validated.
+
+**Non-OpenAPI documents are rejected.** A Swagger 2.0, non-3.x, or empty document is rejected with a
+clear error naming what was found, instead of silently parsing into an empty result.
+
+**Output paths must be operator-controlled.** The output directory, controller path, and routes path
+are written exactly where you point them, by design, with no sandboxing. Never derive these paths
+from untrusted input (for example from spec content or from an end user). Point them at fixed,
+operator-controlled locations.
+
+**YAML resource exhaustion: use OS-level limits.** YAML anchors and aliases are expanded by the
+underlying parser before the generator sees the data, a classic "billion laughs" / alias-bomb
+vector that the vendored library cannot disable. The generator applies a cheap pre-parse input-size
+guard (default 24 MiB, configurable via `max_bytes` / `--max-bytes`) that caps the blast radius and
+sits well above the largest real-world specs. This bounds input size but not expansion depth, so when
+running against genuinely untrusted specs you should still run the generator under OS-level resource
+limits (memory and CPU, for example via `ulimit` or a container quota).
+
 ## What is not affected
 
 Everything else generates fully: object schemas with `properties`, `$ref`s between schemas,

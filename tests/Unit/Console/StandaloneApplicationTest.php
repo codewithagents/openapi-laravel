@@ -35,6 +35,43 @@ it('exits non-zero when the spec cannot be read', function () use ($tempOut) {
     expect($exit)->toBe(1);
 });
 
+// C-3: operator-supplied identifiers are validated before any file is written.
+
+it('rejects an illegal --namespace and writes nothing', function () use ($spec, $tempOut) {
+    $out = $tempOut();
+
+    $exit = (new StandaloneApplication)->run(['bin', '--spec='.$spec(), '--output='.$out, "--namespace=App\\Data'); system('x'); //"]);
+
+    expect($exit)->toBe(1)
+        ->and(is_file($out.'/CustomerData.php'))->toBeFalse();
+});
+
+it('rejects an illegal --suffix and writes nothing', function () use ($spec, $tempOut) {
+    $out = $tempOut();
+
+    $exit = (new StandaloneApplication)->run(['bin', '--spec='.$spec(), '--output='.$out, '--suffix=Da ta']);
+
+    expect($exit)->toBe(1)
+        ->and(is_dir($out))->toBeFalse();
+});
+
+it('rejects an illegal --controller-namespace and writes nothing', function () use ($tempOut) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+
+    $exit = (new StandaloneApplication)->run([
+        'bin',
+        '--spec='.$serverSpec,
+        '--output='.$out.'/data',
+        '--controllers',
+        '--controller-output='.$out.'/controllers',
+        '--controller-namespace=Bad Namespace',
+    ]);
+
+    expect($exit)->toBe(1)
+        ->and(is_dir($out.'/controllers'))->toBeFalse();
+});
+
 it('generates controllers and routes from the server flags', function () use ($tempOut) {
     $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
     $out = $tempOut();
