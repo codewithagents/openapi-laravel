@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.3.0](https://github.com/codewithagents/openapi-laravel/compare/v0.2.0...v0.3.0) (2026-06-10)
+
+
+### Features
+
+* **emitter:** merge allOf member schemas into the composed class ([2ca9691](https://github.com/codewithagents/openapi-laravel/commit/2ca96910912cf30b71bc3cb0d7bed417b93bb945))
+* **emitter:** represent additionalProperties as typed maps with per-value rules ([514ef45](https://github.com/codewithagents/openapi-laravel/commit/514ef45f6ea5e7685b1b1dbf73bf9521b74def72))
+* **emitter:** treat const as a single-value enum ([5601e31](https://github.com/codewithagents/openapi-laravel/commit/5601e3191788b3bea3548a1e60ae71e5b09c0d5b))
+
+
+### Bug Fixes
+
+* **emitter:** union allOf member nullability, guard merged read/write split ([2174896](https://github.com/codewithagents/openapi-laravel/commit/217489623546cd9a5654e93f2da5918baef721f1))
+* **naming:** escape a property named this to avoid the $this fatal ([a48457f](https://github.com/codewithagents/openapi-laravel/commit/a48457f5fd55efce8469b301580abe97695048ed))
+* **security:** neutralize spec-injection vectors in the generator ([1c4f7d0](https://github.com/codewithagents/openapi-laravel/commit/1c4f7d060b747e348217800edb933eab96a4e484))
+* **server:** import Request for a $ref requestBody, add import-resolution gate ([a956723](https://github.com/codewithagents/openapi-laravel/commit/a9567237f2d0f5a4884c3424cd5661bfabba9a29))
+
+
+### Miscellaneous Chores
+
+* add FUNDING.yml (GitHub Sponsors: codewithagents) ([c70041a](https://github.com/codewithagents/openapi-laravel/commit/c70041a8900ff4f938ca87fb9d26c77f8cdd712b))
+
 ## [0.2.0](https://github.com/codewithagents/openapi-laravel/compare/v0.1.1...v0.2.0) (2026-06-10)
 
 
