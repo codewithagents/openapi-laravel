@@ -368,6 +368,15 @@ final class ModelGenerator
             }
         }
 
+        // `const` is a single-value enum: enforce the one allowed value with
+        // Rule::in, reusing the enum machinery and scalar-literal escaping.
+        $const = $this->constValue($schema);
+        if ($const !== null) {
+            $rules[] = 'Rule::in(['.$this->scalarLiteral($const[0]).'])';
+
+            return [$rules, null, true];
+        }
+
         $primary = $this->normalizeTypes($schema)[0] ?? null;
 
         if ($primary === 'string') {
@@ -746,6 +755,16 @@ final class ModelGenerator
 
         if ($primary !== null && isset(self::SCALARS[$primary])) {
             return new ResolvedType(self::SCALARS[$primary], $nullable);
+        }
+
+        // A bare `const` with no declared type: infer the PHP type from the
+        // const literal so the property is typed (string or int) rather than
+        // mixed. A typed const already took the scalar path above.
+        if ($primary === null) {
+            $const = $this->constValue($schema);
+            if ($const !== null) {
+                return new ResolvedType(is_int($const[0]) ? 'int' : 'string', $nullable);
+            }
         }
 
         if ($primary === 'array') {
@@ -1298,6 +1317,36 @@ final class ModelGenerator
     private function dedupe(array $names): array
     {
         return array_values(array_unique($names));
+    }
+
+    /**
+     * The `const` keyword (JSON Schema / OpenAPI 3.1) constrains a value to a
+     * single literal. cebe does not model `const` as a typed attribute, so it
+     * lands in the serialized overflow. We read it from there and only accept
+     * scalar literals (string/int) we can both type and enforce with Rule::in;
+     * anything else (array/object/bool/float/null const) yields null and the
+     * schema is handled by the normal type path.
+     *
+     * Returns a single-element list so callers can distinguish "no const"
+     * (null) from "const present" ([value]) even for falsy values.
+     *
+     * @return array{0: string|int}|null
+     */
+    private function constValue(Schema $schema): ?array
+    {
+        $serialized = (array) $schema->getSerializableData();
+
+        if (! array_key_exists('const', $serialized)) {
+            return null;
+        }
+
+        $value = $serialized['const'];
+
+        if (is_string($value) || is_int($value)) {
+            return [$value];
+        }
+
+        return null;
     }
 
     private function refName(string $pointer): ?string
