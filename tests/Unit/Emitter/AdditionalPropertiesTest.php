@@ -43,7 +43,11 @@ it('represents a scalar value map as array<string, int> with a wildcard value ru
     expect($code)->toContain('/** @var array<string, int> */')
         ->and($code)->toContain('public readonly ?array $counts = null')
         ->and($code)->toContain("'counts' => ['sometimes', 'array']")
-        ->and($code)->toContain("'counts.*' => ['integer']");
+        ->and($code)->toContain("'counts.*' => ['integer']")
+        // A map carries the transformer so an empty map serializes as {} not [].
+        ->and($code)->toContain('#[WithTransformer(MapObjectTransformer::class)]')
+        ->and($code)->toContain('use Spatie\LaravelData\Attributes\WithTransformer;')
+        ->and($code)->toContain('use CodeWithAgents\OpenApiLaravel\Support\MapObjectTransformer;');
 });
 
 it('carries the value-schema constraint into the wildcard rule', function () {
@@ -77,7 +81,9 @@ it('represents additionalProperties: true as array<string, mixed> with no value 
     expect($code)->toContain('/** @var array<string, mixed> */')
         ->and($code)->toContain('public readonly ?array $bag = null')
         ->and($code)->toContain("'bag' => ['sometimes', 'array']")
-        ->and($code)->not->toContain("'bag.*'");
+        ->and($code)->not->toContain("'bag.*'")
+        // An untyped map is still a map: it carries the {} transformer too.
+        ->and($code)->toContain('#[WithTransformer(MapObjectTransformer::class)]');
 });
 
 it('represents a $ref value map as array<string, PriceData> with a wildcard array rule', function () {
@@ -100,7 +106,8 @@ it('represents a $ref value map as array<string, PriceData> with a wildcard arra
     expect($code)->toContain('/** @var array<string, PriceData> */')
         ->and($code)->toContain('public readonly ?array $prices = null')
         ->and($code)->not->toContain('#[DataCollectionOf')
-        ->and($code)->toContain("'prices.*' => ['array']");
+        ->and($code)->toContain("'prices.*' => ['array']")
+        ->and($code)->toContain('#[WithTransformer(MapObjectTransformer::class)]');
 });
 
 it('inlines a pure-map component at the use site instead of emitting an empty class', function () {
@@ -123,7 +130,10 @@ it('inlines a pure-map component at the use site instead of emitting an empty cl
 
     expect($code)->toContain('/** @var array<string, int> */')
         ->and($code)->toContain('public readonly ?array $lang = null')
-        ->and($code)->toContain("'lang.*' => ['integer']");
+        ->and($code)->toContain("'lang.*' => ['integer']")
+        // An inlined pure-map $ref is a map at the use site: it carries the
+        // transformer too, so the empty-map {} fix reaches referenced maps.
+        ->and($code)->toContain('#[WithTransformer(MapObjectTransformer::class)]');
 });
 
 it('emits named properties for a mixed object and documents the uncaptured overflow', function () {

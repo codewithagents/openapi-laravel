@@ -16,6 +16,10 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter;
  * emitted for an oneOf/anyOf whose members all resolve cleanly. A union renders
  * its nullability as a trailing `|null` member, never the `?` shorthand, since
  * PHP forbids `?A|B`.
+ *
+ * `isMap` marks an `additionalProperties` map (`array<string, X>`). A map needs a
+ * transformer so an empty map serializes as a JSON object `{}` rather than the
+ * array `[]` that `json_encode([])` would otherwise emit.
  */
 final readonly class ResolvedType
 {
@@ -29,6 +33,7 @@ final readonly class ResolvedType
         public array $imports = [],
         public ?string $dataCollectionOf = null,
         public bool $isUnion = false,
+        public bool $isMap = false,
     ) {}
 
     public function declaration(): string

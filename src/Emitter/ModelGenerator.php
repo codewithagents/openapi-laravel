@@ -292,6 +292,16 @@ final class ModelGenerator
             $lines[] = '        #[DataCollectionOf('.$type->dataCollectionOf.'::class)]';
         }
 
+        // A map (`array<string, X>`) serializes its empty form as `[]` unless a
+        // transformer casts it to an object. Attach one so an empty map emits the
+        // JSON object `{}` strict clients expect; non-empty maps and null are
+        // unaffected.
+        if ($type->isMap) {
+            $imports[] = 'Spatie\\LaravelData\\Attributes\\WithTransformer';
+            $imports[] = 'CodeWithAgents\\OpenApiLaravel\\Support\\MapObjectTransformer';
+            $lines[] = '        #[WithTransformer(MapObjectTransformer::class)]';
+        }
+
         if (PhpIdentifier::needsMapName($wireName, $propertyName)) {
             $imports[] = 'Spatie\\LaravelData\\Attributes\\MapName';
             $lines[] = "        #[MapName('".$this->escapeSingleQuoted($wireName)."')]";
@@ -1260,7 +1270,7 @@ final class ModelGenerator
         $nullable = $this->isNullable($schema);
 
         if ($value === true || $value === null) {
-            return new ResolvedType('array', $nullable, 'array<string, mixed>');
+            return new ResolvedType('array', $nullable, 'array<string, mixed>', [], null, false, true);
         }
 
         $valueType = $this->resolveType($value, $nameHint.'Value', $depth + 1, $variant);
@@ -1270,6 +1280,9 @@ final class ModelGenerator
             $nullable,
             'array<string, '.$valueType->declaration.'>',
             $valueType->imports,
+            null,
+            false,
+            true,
         );
     }
 
