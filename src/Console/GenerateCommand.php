@@ -25,6 +25,7 @@ final class GenerateCommand extends Command
     protected $signature = 'openapi:generate
         {--spec= : Path to the OpenAPI document (defaults to config)}
         {--output= : Output directory for generated classes (defaults to config)}
+        {--namespace= : Namespace for generated classes (overrides config)}
         {--prune : Delete existing .php files in the output directory first}
         {--controllers : Also generate abstract controllers (one per tag)}
         {--routes : Also generate the routes file}';
@@ -38,7 +39,12 @@ final class GenerateCommand extends Command
     {
         $spec = $this->stringOption('spec') ?? $this->configString('openapi-laravel.spec');
         $output = $this->stringOption('output') ?? $this->configString('openapi-laravel.output.path');
-        $namespace = $this->configString('openapi-laravel.output.namespace') ?? 'App\\Data';
+        // A --namespace option overrides the configured output namespace; the
+        // standalone binary already works this way, so the artisan command
+        // mirrors it. The legal-PHP-namespace check below applies either way.
+        $namespace = $this->stringOption('namespace')
+            ?? $this->configString('openapi-laravel.output.namespace')
+            ?? 'App\\Data';
         $suffix = $this->configString('openapi-laravel.output.suffix') ?? 'Data';
         $depth = config('openapi-laravel.max_depth');
         $maxDepth = is_int($depth) ? $depth : 64;

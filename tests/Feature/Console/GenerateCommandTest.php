@@ -29,6 +29,34 @@ it('honours the --spec and --output options', function () use ($customerSpec, $t
     expect(is_file($out.'/CustomerData.php'))->toBeTrue();
 });
 
+it('honours the --namespace option, overriding the configured namespace', function () use ($customerSpec, $tempOut) {
+    $out = $tempOut();
+
+    config()->set('openapi-laravel.output.namespace', 'App\\Data');
+
+    $this->artisan('openapi:generate', [
+        '--spec' => $customerSpec(),
+        '--output' => $out,
+        '--namespace' => 'App\\Dto',
+    ])->assertSuccessful();
+
+    expect(is_file($out.'/CustomerData.php'))->toBeTrue()
+        ->and(file_get_contents($out.'/CustomerData.php'))->toContain('namespace App\Dto;')
+        ->and(file_get_contents($out.'/CustomerData.php'))->not->toContain('namespace App\Data;');
+});
+
+it('rejects an illegal --namespace before writing any file', function () use ($customerSpec, $tempOut) {
+    $out = $tempOut();
+
+    $this->artisan('openapi:generate', [
+        '--spec' => $customerSpec(),
+        '--output' => $out,
+        '--namespace' => 'Not A Namespace',
+    ])->assertFailed();
+
+    expect(is_file($out.'/CustomerData.php'))->toBeFalse();
+});
+
 it('fails clearly when the spec cannot be read', function () use ($tempOut) {
     config()->set('openapi-laravel.spec', '/no/such/spec.json');
     config()->set('openapi-laravel.output.path', $tempOut());
