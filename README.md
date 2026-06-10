@@ -4,13 +4,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 [![PHP 8.2+](https://img.shields.io/badge/PHP-8.2%2B-777BB4.svg)](https://php.net)
 
-> Generate Laravel models from your OpenAPI spec. The spec is the source of truth, your code follows it.
+> Generate Laravel models and a server scaffold from your OpenAPI spec. The spec is the source of truth, your code follows it.
 
 You consume or implement a REST API described by an OpenAPI document. You need PHP DTOs, validation
 rules, and enums that match the spec exactly, and you need them to stay in sync every time the spec
 changes. Instead of hand-writing and re-checking all of it, you run one command. The output is
 [spatie/laravel-data](https://github.com/spatie/laravel-data) classes with explicit, spec-derived
-`rules()` methods plus native PHP enums.
+`rules()` methods plus native PHP enums, and, when you opt in, an abstract controller per tag and a
+routes file so the request/response types and the routing table derive from the spec too.
 
 Unlike annotation-driven tools that generate a *spec from your code*, this goes the other way: the
 spec drives the code. And unlike most generators, the output is not a black box. It is readable,
@@ -69,6 +70,13 @@ php artisan openapi:generate --spec=openapi.yaml --output=app/Data
 Or set `spec` and `output.path` in `config/openapi-laravel.php` and just run
 `php artisan openapi:generate`.
 
+Want the server scaffold too? Pass `--controllers` and `--routes` to also emit one abstract
+controller per tag and a `routes/api.generated.php` file, typed by the same Data classes:
+
+```bash
+php artisan openapi:generate --controllers --routes
+```
+
 Not a Laravel project? The same generator ships as a framework-free binary:
 
 ```bash
@@ -81,13 +89,16 @@ vendor/bin/openapi-laravel --spec=openapi.yaml --output=src/Data --namespace="Ac
 
 ```
 openapi.yaml
-  └── openapi-laravel  →  app/Data/CustomerData.php        (laravel-data class + rules())
-                          app/Data/CustomerStatus.php      (native backed enum)
-                          app/Data/CustomerWritableData.php (write variant, when the spec
-                                                             uses readOnly/writeOnly)
+  └── openapi-laravel  →  app/Data/CustomerData.php          (laravel-data class + rules())
+                          app/Data/CustomerStatus.php        (native backed enum)
+                          app/Data/CustomerWritableData.php  (write variant, when the spec
+                                                              uses readOnly/writeOnly)
+     --controllers      →  app/Http/Controllers/Api/AbstractCustomerController.php
+     --routes           →  routes/api.generated.php
 ```
 
-You write your business logic. The DTOs and their validation stay in sync when the spec changes.
+You write your business logic. The DTOs, their validation, the controller signatures, and the
+routing table stay in sync when the spec changes.
 
 What the generator handles today:
 
@@ -101,7 +112,48 @@ What the generator handles today:
 - **Nested objects** → nested Data classes; **arrays** → `#[DataCollectionOf]` typed collections
 - **Nullability** → both 3.0 `nullable` and 3.1 `type: [..., 'null']`
 - **readOnly / writeOnly** → a read variant and a write variant, only when the spec uses the flags
+- **`allOf`** → merged into one flat class, members unioned, `required` deduped, conflicts resolved
+  deterministically
+- **`additionalProperties`** → typed maps (`array<string, X>`) with per-value wildcard rules; a
+  pure-map component is inlined at its use sites instead of emitting an empty class
+- **`oneOf` / `anyOf`** → native PHP union types plus a variant docblock when every member resolves
+  to a scalar or a generated Data class (`string|int`, `CatData|DogData`), with a deterministic
+  `mixed` fallback for messier members
+- **Server scaffold** (opt-in via `--controllers` / `--routes`) → an abstract controller per tag and
+  a routes file, typed by the Data classes, so an unimplemented operation is a PHP fatal and
+  path-level drift is structurally impossible
 - **Determinism** → same spec in, byte-identical files out
+
+With `--controllers --routes`, the same spec also produces a typed abstract controller per tag and a
+routes file. An operation you forget to implement is a PHP fatal at class-definition time, not a gap
+discovered in production:
+
+```php
+// generated: app/Http/Controllers/Api/AbstractPetController.php
+abstract class AbstractPetController
+{
+    abstract public function addPet(PetWritableData $pet): PetData;
+    abstract public function getPetById(int $petId): PetData;
+    abstract public function deletePet(int $petId): JsonResponse;
+}
+
+// generated: routes/api.generated.php
+Route::post('/pet', [PetController::class, 'addPet']);
+Route::get('/pet/{petId}', [PetController::class, 'getPetById']);
+Route::delete('/pet/{petId}', [PetController::class, 'deletePet']);
+```
+
+You write only the concrete `PetController extends AbstractPetController`. See the
+[server scaffold guide](https://openapi-laravel.codewithagents.de/guides/server-scaffold) for the
+full walkthrough.
+
+A few OpenAPI features degrade gracefully rather than crash. An object union (`oneOf` of Data
+classes) does not auto-hydrate in laravel-data without a discriminator, an empty
+`additionalProperties` map currently serializes as `[]` rather than `{}` (a known issue), a request
+body referencing a component `$ref` falls back to `Illuminate\Http\Request` instead of a typed Data
+param, and tuple `prefixItems`, int64 literal bounds, and non-JSON responses are represented loosely.
+See the [limitations guide](https://openapi-laravel.codewithagents.de/guides/limitations) for the
+full, honest list.
 
 ---
 
@@ -137,12 +189,72 @@ Those are excellent if your code is the source of truth. This tool is for the ot
 | Generates laravel-data DTOs | **Yes** | No | No (custom DTOs) | You do |
 | Spec-derived validation `rules()` | **Yes** | No | Partial | You do |
 | Native PHP enums | **Yes** | No | No | You do |
+| Server scaffold (abstract controllers + routes) | **Yes** (opt-in) | No | Yes | You do |
 | Standard OpenAPI (no custom extensions) | **Yes** | Yes | No (custom OAS) | n/a |
 | Owned, readable, committed output | **Yes** | n/a | Generated | Yes |
 | Runs without Laravel (CI) | **Yes** (bin) | No | No | n/a |
 
 **Pick something else if** your code is the source of truth and you want the spec generated from it
-(l5-swagger, scramble), or you need full server scaffolding today (on the roadmap here as v2).
+(l5-swagger, scramble), or you need a non-PHP target (the sibling
+[openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts) covers TypeScript).
+
+---
+
+## Proof: a full contract-first round trip
+
+The strongest claim a generator can make is that its output actually interoperates with another
+implementation over the wire. The [`e2e/`](./e2e) directory proves exactly that, end to end, from a
+single spec.
+
+```
+                    e2e/spec/petstore.yaml   (one OpenAPI document, the source of truth)
+                    /                       \
+        openapi-laravel                      openapi-zod-ts
+        generates a real                     generates a typed
+        Laravel 12 backend                   TypeScript client
+        (Data classes +                      consumed by a SPA
+         abstract controllers + routes)
+                    \                       /
+                     real HTTP over the wire
+                              │
+                  a headless-Chrome E2E drives the browser:
+                  browser → SPA → generated client → backend
+```
+
+One spec, two languages, no hand-written types on either side of the wire. The demo deliberately
+stresses the cross-language serialization seams where a typed client and a `laravel-data` server can
+disagree, and proves each one round-trips over real HTTP:
+
+- a `snake_case` wire field forcing `#[MapName]`, mapped in both directions
+- a `writeOnly` field accepted on write and never returned on read
+- a `readOnly` `date-time` set server-side and ignored when the client sends it
+- a `nullable` number where `null` stays present as `null`
+- an `additionalProperties` string-to-string map that round-trips intact
+- a `oneOf: [string, integer]` scalar union where a string stays a string and an integer stays an
+  integer, with no coercion
+
+It honestly reports the one seam quirk it surfaced: an empty `additionalProperties` map serializes as
+`[]` rather than `{}` (the classic PHP empty-array ambiguity). Non-empty maps and `null` are correct.
+
+Use it two ways: as **proof** that the generated code interoperates across languages over real HTTP,
+and as a **template** a team can copy to bootstrap a spec-first project. The Laravel backend and the
+contract round trip are proven and working today; the SPA, the Docker stack, and the headless-Chrome
+suite are being finalized, so [`e2e/`](./e2e) is the living reference. Exact run-it-yourself commands
+land once the demo is fully green.
+
+---
+
+## Security: the spec is untrusted input
+
+The generator reads an OpenAPI document and writes PHP that your application then loads and executes,
+so it treats the spec as untrusted input. Docblock injection is neutralized, namespace and class-name
+options are validated before any file is written, validation patterns are never silently dropped,
+non-OpenAPI documents are rejected with a clear error, and a pre-parse input-size guard caps the YAML
+alias-bomb blast radius. A hostile-input regression suite guards all of these. Output paths are
+written exactly where you point them by design, so point them at fixed, operator-controlled locations
+and never derive them from untrusted input. See the
+[limitations guide](https://openapi-laravel.codewithagents.de/guides/limitations) for the full threat
+model and operator boundaries.
 
 ---
 
@@ -181,12 +293,17 @@ These are the layers that catch problems before they reach you.
 
 ## Roadmap
 
-- **v1 (current): models.** Spec → laravel-data classes + validation rules + enums.
-- **v2: server scaffold.** Generated routes file + abstract controllers per tag, typed by the v1
-  models. Your routing table derives from the spec, so path-level drift becomes structurally
-  impossible.
+- **v1: models (shipped).** Spec → laravel-data classes + validation rules + enums, plus `allOf`,
+  `additionalProperties` maps, and `oneOf`/`anyOf` union types.
+- **v2: server scaffold (shipped in 0.2.0).** Generated routes file + abstract controllers per tag,
+  typed by the v1 models. Your routing table derives from the spec, so path-level drift becomes
+  structurally impossible.
+- **v3 (maybe): client generation** built on the `Http::` facade. A decide-later item, not a
+  commitment.
 
-See [ROADMAP.md](./ROADMAP.md) for detail.
+`0.3.0` is released on Packagist. The version stays in `0.x` while the generated output format is
+still evolving, and tags `1.0.0` (the API-stability promise) only when the feature set settles. See
+[ROADMAP.md](./ROADMAP.md) for the full plan and the decisions already locked in.
 
 ---
 

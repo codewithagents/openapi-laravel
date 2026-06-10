@@ -15,13 +15,43 @@ plan, and the open questions. Do not re-litigate decided items without new infor
 
 ## Current state
 
-v1 models generator working end to end. Parser (lazy refs, 128 specs parse), naming layer,
-models emitter (laravel-data classes, enums, nested objects, collections, nullable, MapName,
-readOnly/writeOnly split), rules() emitter (spec constraints to Laravel validation), the
-`openapi:generate` artisan command, and a standalone `vendor/bin/openapi-laravel`. Full test
-pyramid green: unit, snapshot, corpus parse + generate gates (128), Testbench round-trip and
-validation round-trip. PHPStan max, Pint, 100% type coverage. Remaining before the 0.1.0 tag:
-dependency hygiene + Infection thresholds, docs site, release. See ROADMAP.md.
+`0.3.0` is released on Packagist; `0.4.0` is in progress on `main` (unreleased, nothing pushed).
+ROADMAP.md is the source of truth for the version plan and open questions.
+
+**Models (v1, shipped):** laravel-data classes, spec-derived `rules()`, backed enums,
+readOnly/writeOnly split, nested objects, collections. Composition keywords are handled: `allOf` is
+merged into one flat class, `additionalProperties` becomes typed maps (`array<string, X>`) with
+per-value rules, and `oneOf`/`anyOf` emit native PHP union types (`string|int`, `CatData|DogData`)
+plus a variant docblock, with a deterministic `mixed` fallback for messy members. Parser (lazy refs,
+128 specs parse), naming layer (incl. the `this` special case), the `openapi:generate` artisan
+command, and a framework-free `vendor/bin/openapi-laravel`.
+
+**Server scaffold (v2, shipped in 0.2.0):** an abstract controller per tag plus a routes file, typed
+by the Data classes. Opt in with `--controllers`/`--routes`. A `oneOf`/`anyOf`-of-Data-class response
+is typed as a union return.
+
+**Security:** the spec is treated as untrusted input. Docblock-injection neutralization, identifier
+whitelisting, option validation, structural rejection of non-OpenAPI docs, an input-size guard, and a
+hostile-input test suite.
+
+**Quality:** PHPStan max, Pint, 100% type coverage, Pest native mutation, the import-resolution
+corpus gate (catches unresolvable class references), composer-unused/require-checker, `composer
+audit`, Deptrac architecture enforcement, and a Qodana workflow. 580 tests green; all 128 corpus
+specs generate valid PHP.
+
+**Honest residuals (documented, not hidden):** object-union (`oneOf` of Data classes) does not
+auto-hydrate in laravel-data without a discriminator; an empty `additionalProperties` map serializes
+as `[]` not `{}` (known issue, surfaced by the e2e demo); a component `$ref` request body falls back
+to `Illuminate\Http\Request` (now correctly imported) instead of a typed Data param; tuple
+`prefixItems`, int64 bounds, and non-JSON responses degrade gracefully.
+
+**Cross-language e2e demo (`e2e/`, owned by another agent, do not edit):** one petstore-plus spec
+drives a generated Laravel backend and (in progress) an openapi-zod-ts TypeScript client + SPA, with
+a headless-Chrome E2E over real HTTP. The backend and contract round trip are proven; the SPA, Docker
+stack, and browser suite are being finalized.
+
+Remaining before tagging `0.4.0`: the empty-map encoding fix (or document it), finishing the e2e
+demo, and release. See ROADMAP.md.
 
 ## Layout
 
@@ -36,7 +66,7 @@ tests/Fixtures/specs/   128 real-world OpenAPI specs (copied from openapi-zod-ts
 ## Conventions
 
 - PHP 8.2+, strict_types everywhere, final classes by default.
-- Pest for tests, PHPStan at max level, php-cs-fixer or pint for style (decide phase 1).
+- Pest for tests (incl. native mutation), PHPStan at max level, Laravel Pint for style.
 - Conventional commits with scopes (mirrors openapi-zod-ts release flow).
 - Generated output must be deterministic: same spec in, byte-identical files out.
 - Quality gate: a change is done when all 128 corpus specs generate cleanly and the generated
