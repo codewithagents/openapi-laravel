@@ -3,6 +3,7 @@
         "config",
         "config_path",
         "Illuminate\\Console\\Command",
-        "Illuminate\\Support\\ServiceProvider"
+        "Illuminate\\Support\\ServiceProvider",
+        "Illuminate\\Contracts\\Validation\\ValidationRule"
     ]
 }
