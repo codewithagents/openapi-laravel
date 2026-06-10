@@ -15,9 +15,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Prepares releases by opening and updating a release PR, then on merge
-      # tags the release and creates a GitHub release. Packagist auto-updates
-      # from the tag via its GitHub webhook, so no publish step is needed here.
+      # tags the release and creates a GitHub release.
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # Explicitly notify Packagist when a release is actually cut. The GitHub
+      # webhook also keeps Packagist in sync; this makes the publish visible in
+      # the run log and robust if the webhook is ever disabled.
+      - name: Notify Packagist
+        if: ${{ steps.release.outputs.release_created }}
+        env:
+          PACKAGIST_TOKEN: ${{ secrets.PACKAGIST_TOKEN }}
+        run: |
+          curl -sf -XPOST -H 'content-type: application/json' \
+            "https://packagist.org/api/update-package?username=benjamineckstein&apiToken=${PACKAGIST_TOKEN}" \
+            -d '{"repository":{"url":"https://github.com/codewithagents/openapi-laravel"}}'
