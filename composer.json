@@ -40,7 +40,7 @@
     "scripts": {
         "pint": "pint",
         "lint": "pint --test",
-        "stan": "phpstan analyse",
+        "stan": "phpstan analyse --memory-limit=1G",
         "test": "pest",
         "test:type": "pest --type-coverage --min=100",
         "test:mutate": "infection --threads=max",
