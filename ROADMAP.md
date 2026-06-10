@@ -1,12 +1,93 @@
 # Roadmap
 
-Status: **0.4.0 released on Packagist.** The v1 models generator and v2 server scaffold are shipped.
-0.3.0 added composition keywords (allOf merge, additionalProperties maps), a full security-hardening
-pass, and edge-case fixes mined from the openapi-zod-ts sibling history. 0.4.0 ships **oneOf/anyOf
-union types** and a **cross-language end-to-end demo** (`e2e/`) that proves the contract-first loop
-end to end over real HTTP, with a Docker stack and a Playwright headless-Chrome suite, all green. The
-version target is deliberately 0.4.0, not 1.0.0: we stay in 0.x while the generated output format is
-still evolving, and tag 1.0.0 (the API-stability promise) only when the feature set settles.
+Status: **0.4.0 released on Packagist; 0.5.0 "hardening" releasing now (all merged and CI-green on
+`main`).** The v1 models generator and v2 server scaffold are shipped. 0.3.0 added composition
+keywords (allOf merge, additionalProperties maps), a full security-hardening pass, and edge-case
+fixes mined from the openapi-zod-ts sibling history. 0.4.0 shipped **oneOf/anyOf union types** and a
+**cross-language end-to-end demo** (`e2e/`) that proves the contract-first loop end to end over real
+HTTP, with a Docker stack and a Playwright headless-Chrome suite, all green. 0.5.0 is a
+correctness-and-robustness pass: a large **silent-validation** sweep, **non-object component
+aliasing** (no more empty Data classes), **parser hardening**, and broader **CI tooling**. The
+version target stays deliberately in 0.x, not 1.0.0: we stay in 0.x while the generated output format
+is still evolving, and tag 1.0.0 (the API-stability promise) only when the feature set settles.
+
+## Done in 0.5.0 (releasing now)
+
+### Silent-validation correctness pass
+
+Adversarial review surfaced spec constraints the generator dropped or mishandled, each letting
+invalid input pass silently. All closed, each with a unit test plus a behavioral validator
+round-trip:
+- **Exclusive bounds**: `exclusiveMinimum`/`exclusiveMaximum` emit `gt:`/`lt:`, covering both the 3.0
+  boolean companion (`minimum` + `exclusiveMinimum: true`) and the 3.1 numeric keyword form.
+  Inclusive bounds still emit `min:`/`max:`.
+- **Number/float enums**: floats are included in the enum values, so a `number` enum emits `Rule::in`
+  instead of accepting any number. A top-level float-enum component (which cannot be a PHP backed
+  enum) emits a single-value Data class carrying the constraint, not an empty class.
+- **Multi-type arrays**: `type: ["string","integer"]` emits a `string|int` union with presence-only
+  rules, reusing the union machinery. `["x","null"]` stays a nullable scalar.
+- **multipleOf**: enforced via a reusable `MultipleOfRule` (Laravel has no native rule), attached to
+  numeric properties.
+- **uniqueItems**: adds `distinct` to the array item rules.
+- **Defaults**: a scalar `default` seeds the constructor parameter instead of `null`, and a property
+  with a default is treated as `sometimes` (optional), not `required`, on input.
+- **Strict date-time**: `format: date-time` emits a reusable `Rfc3339DateTimeRule` that accepts the
+  Z/offset/fractional RFC3339 forms and rejects a bare date, while `format: date` keeps
+  `date_format:Y-m-d`. The old shared `date` rule wrongly accepted a date-time on a date field and a
+  bare date on a date-time field.
+- **No `?mixed`**: a nullable mixed-fallback property now renders `mixed` (never the illegal
+  `?mixed`, a hard PHP compile error since `mixed` already includes null).
+
+All 128 corpus specs still generate clean, valid PHP with zero `?mixed`; output stays deterministic.
+
+### Non-object component aliasing (empty-class removal)
+
+A top-level component schema that is itself a scalar, an array, or a `oneOf`/`anyOf` union (no object
+properties) used to be emitted as an empty `final class XxxData extends Data {}` and referenced as a
+property type, so the value silently failed to hydrate. Non-object components are now treated as
+**type aliases**, mirroring the existing pure-map handling: at every `$ref` use site they resolve to
+the underlying type (scalar plus the rules the schema implies, array/`DataCollection`, or the native
+union), with chained aliases resolved transitively and cycle-guarded. A `type: object` component with
+no properties stays a legitimately empty object and still emits an empty Data class. The server
+scaffold inherits the fix: alias components fall back to `Request`/`JsonResponse` rather than a
+missing class. Corpus impact: about 1150 empty Data classes removed across the 128 specs, fixing
+silent data loss; generation stays byte-identical (128/128) and the import-resolution gate stays
+green.
+
+### Parser hardening
+
+- **Boolean `items`**: cebe cannot instantiate a Schema from a boolean, so valid OpenAPI 3.1
+  `items: true` (and the closed-tuple `prefixItems` + `items: false`) threw. A `SchemaNormalizer`
+  now rewrites boolean `items` in the raw decoded spec before cebe sees it (`true` becomes an empty
+  any-schema, `false` is dropped). The parser decodes, normalizes, then instantiates.
+- **OOM surfaced cleanly**: a true OOM inside symfony/yaml is a non-catchable `E_ERROR` fatal, so a
+  `MemoryGuard` shutdown handler now inspects `error_get_last()` and prints an actionable message
+  (raise `memory_limit` or reduce the spec) instead of a raw trace. The `--max-bytes` guard warns
+  that raising the limit needs a proportionally larger `memory_limit`.
+
+### Serialization and DX
+
+- **Empty `additionalProperties` map** now serializes as `{}` not `[]`, via a reusable
+  `MapObjectTransformer` attached to every map-typed property. This closes the e2e finding: PHP
+  cannot distinguish an empty associative array from an empty list, so a strict client expecting
+  `Record<string,string>` previously received `[]` and rejected it. Non-empty maps and `null` were
+  always correct; only the empty case was wrong.
+- **`--namespace` flag** on the `openapi:generate` artisan command, overriding the configured output
+  namespace and reusing the same legal-PHP-namespace validation as the standalone binary (an invalid
+  value fails before any file is written).
+
+### Test and CI infrastructure
+
+- **`php -l` compile gate**: the corpus generate gate validated output with `token_get_all`, which
+  only tokenizes and accepts code that cannot compile (e.g. `?mixed`, `bool $x = 'str'`); that is how
+  the `?mixed` bug slipped past. A real compile-level `php -l` pass now lints the full
+  conformance-fixture output plus a deterministic 20-file slice of every corpus spec, with a short,
+  auditable by-name exempt list for pre-existing src-side residuals.
+- **OpenAPI 3.1 conformance fixture**: a synthetic spec exercising the full generator surface ships
+  in 0.5.0. Its golden-output test is wired in 0.6.0.
+- **Dependency and quality tooling**: `composer audit`, Deptrac (architecture layering), and Qodana
+  run in CI alongside the existing PHPStan-max / Pint / type-coverage / mutation / composer-unused
+  stack; 600+ package tests pass.
 
 ## Done in 0.4.0 (released)
 
@@ -60,9 +141,8 @@ A contract-first proof living inside the repo (never shipped in the dist):
 **An empty `additionalProperties` map serializes as `[]`, not `{}` (openapi-laravel).** PHP cannot
 distinguish an empty associative array from an empty list, so `json_encode([])` emits an array.
 Non-empty maps and null are correct; only the empty case is wrong. A strict client expecting
-`Record<string,string>` would receive an array and reject it. Candidate fix: emit a cast/transformer
-on generated map properties that forces object encoding even when empty, or keep it documented as a
-known limitation. This is exactly the class of bug only a real cross-language round-trip exposes.
+`Record<string,string>` would receive an array and reject it. This is exactly the class of bug only a
+real cross-language round-trip exposes. **Fixed in 0.5.0** via a `MapObjectTransformer`.
 
 **The openapi-zod-ts client omits the `Accept: application/json` header (openapi-zod-ts, cross-repo
 follow-up).** The generated TypeScript client sends `Content-Type` but not `Accept`. A browser fetch
@@ -116,7 +196,7 @@ Quality bar: valid, PHPStan-max-clean output for all 128 real-world specs in
 6. Package name: `codewithagents/openapi-laravel`.
 7. **The sibling history is a test oracle.** openapi-zod-ts's fixed bugs are a checklist of
    real-world edge cases to verify against this generator, independent of the corpus.
-8. **Version 0.4.0 now, 1.0.0 when out of ideas.** Stay in 0.x while the output format evolves.
+8. **Stay in 0.x now, 1.0.0 when out of ideas.** Tag 1.0.0 only when the output format settles.
 
 ## Versions
 
@@ -131,26 +211,32 @@ fatal. Path-level drift structurally impossible. Remaining limitation: a compone
 body falls back to `Illuminate\Http\Request` (now correctly imported) instead of a typed Data param.
 
 ### v3 (maybe): client generation (`Http::` based). Decide later.
+The forward expansion: generate a typed PHP client for *consuming* a third-party or internal API
+(e.g. a typed PayPal/Stripe/microservice client) from its spec, built on the `Http::` facade. Decide
+later, not a near-term commitment.
 
-## Next work (post-0.4.0)
+## Next work (toward 0.6.0)
 
-0.4.0 is released and the cross-language e2e demo is complete (Docker stack + Playwright
-headless-Chrome, green). The open items are:
+With 0.5.0 the validation surface is comprehensive and the empty-map encoding, parser, and `?mixed`
+gaps are closed. The 0.6.0 headline is the enforcement that makes "drift is structurally impossible"
+a runtime guarantee, not just a property of generated code.
 
-1. **additionalProperties empty-map encoding**: fix the `[]` vs `{}` serialization (a cast/transformer
-   that forces object encoding even when empty) or keep it documented. Surfaced by the e2e demo.
-2. **Object-union runtime hydration**: emit a discriminator-driven cast so a `oneOf` of Data classes
+1. **Drift-check command (`php artisan openapi:check`)**, the headline. Regenerate into a temp
+   location and compare against the committed output, failing on any difference, so CI fails when the
+   checked-in code has drifted from the spec. This turns determinism into an enforced gate: the spec
+   and the generated code cannot silently diverge.
+2. **Conformance golden test**: wire the 0.5.0 OpenAPI 3.1 conformance fixture to a committed golden
+   snapshot so any change to the generator surface shows up as a reviewable diff.
+3. **Object-union runtime hydration**: emit a discriminator-driven cast so a `oneOf` of Data classes
    hydrates at runtime, not just type-checks. Currently the documented residual.
-3. **Artisan DX**: a `--namespace` flag and a `--dry-run` summary, plus richer error messages on bad
-   input.
-4. **Published-artifact CI smoke job**: install the published Packagist release and smoke-generate.
-5. **CI maintenance**: bump `actions/checkout` off the deprecated Node 20.
-6. **Cross-repo follow-up**: the openapi-zod-ts `Accept: application/json` gap (issue #289), surfaced
-   by the demo. Fix lives in the sibling repo, not here.
+4. **Small follow-ups**: a `--dry-run` summary and richer error messages on bad input.
+5. **Cross-repo follow-up**: the openapi-zod-ts `Accept: application/json` gap (issue #289), surfaced
+   by the e2e demo. Fix lives in the sibling repo, not here.
 
 Lower-severity lossy cases (document or improve, not blockers): tuple `prefixItems`
 (`array<int, mixed>`), int64/bignum literal bounds, non-JSON responses (JsonResponse fallback),
-`$ref`-valued map values (typed in docblock, raw arrays at runtime), mixed-object overflow keys.
+`$ref`-valued map values (typed in docblock, not auto-hydrated at runtime), mixed-object overflow
+keys.
 
 ## Security posture
 
@@ -174,12 +260,15 @@ the vendored parser, so size guard plus OS limits are the mitigation.
 
 Pest unit tests per feature (minimal in-memory spec builder) plus snapshots. Corpus: all 128
 fixtures parse and generate valid PHP, passing the import-resolution gate (256 corpus cases across
-the model and server gates), plus the allOf/additionalProperties/oneOf non-empty guards. Hostile-
-input suite for the security surfaces. Regression fixtures for the sibling-history edge cases.
-Pest native mutation (>=90%), 100% type coverage, PHPStan max, Pint. The e2e demo adds real-HTTP
-round-trip proofs across the language boundary, plus a Playwright headless-Chrome suite that drives
-the full browser -> SPA -> generated client -> backend loop against a docker-compose stack. Current
-totals: 580 package tests passing locally.
+the model and server gates), the `php -l` compile gate (catches compile errors `token_get_all`
+misses), plus the allOf/additionalProperties/oneOf non-empty guards. A synthetic OpenAPI 3.1
+conformance fixture covers the full generator surface. Hostile-input suite for the security surfaces.
+Behavioral validator round-trips pin each 0.5.0 constraint (exclusive bounds, multipleOf,
+uniqueItems, float enums, strict date-time, defaults). Regression fixtures for the sibling-history
+edge cases. Pest native mutation (>=90%), 100% type coverage, PHPStan max, Pint. The e2e demo adds
+real-HTTP round-trip proofs across the language boundary, plus a Playwright headless-Chrome suite that
+drives the full browser -> SPA -> generated client -> backend loop against a docker-compose stack.
+Current totals: 600+ package tests passing.
 
 ## Open questions (genuine design decisions)
 
@@ -187,11 +276,13 @@ totals: 580 package tests passing locally.
   unions hydrate at runtime, not just type-check. Currently the documented residual.
 - **Component request bodies / responses as typed params**: resolve `$ref` to
   `#/components/requestBodies/...` into a typed Data parameter instead of the `Request` fallback.
-- **additionalProperties empty-map** object-encoding cast (the e2e finding).
+- **Map-of-`$ref` value hydration**: a `$ref`-valued `additionalProperties` map is typed in the
+  docblock but not auto-hydrated into Data objects at runtime.
 - **Exact laravel-data v4 feature surface** for casts/transformers (dates, enums, nested + typed-map
   value hydration).
 
-Resolved: allOf, additionalProperties, oneOf/anyOf, the security surfaces, and the two
-sibling-history bugs are implemented. The cross-language contract loop is proven end to end over real
-HTTP, including the browser-driven Playwright suite; object-union runtime hydration is the remaining
-open case. Floors are PHP 8.2 + Laravel 11/12 + laravel-data v4.
+Resolved: allOf, additionalProperties (including empty-map `{}` encoding), oneOf/anyOf, non-object
+component aliasing, the silent-validation gaps, the parser boolean-items/OOM cases, the security
+surfaces, and the two sibling-history bugs are implemented. The cross-language contract loop is proven
+end to end over real HTTP, including the browser-driven Playwright suite; object-union runtime
+hydration is the remaining open case. Floors are PHP 8.2 + Laravel 11/12 + laravel-data v4.

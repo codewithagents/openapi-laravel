@@ -117,9 +117,16 @@ What the generator handles today:
 
 - **Objects** → `laravel-data` classes with promoted, readonly constructor properties
 - **Validation** → explicit `rules()` derived from the spec: `required`/`nullable`, types, string
-  `max`/`min`/`pattern`/`format` (email, uuid, date, url, ip), numeric `min`/`max`, array
-  `min`/`max` items, and `Rule::enum` / `Rule::in`
-- **Enums** → native PHP backed enums (string or int)
+  `max`/`min`/`pattern`/`format` (email, uuid, url, ip), numeric `min`/`max`, **exclusive bounds**
+  (`gt`/`lt` for `exclusiveMinimum`/`exclusiveMaximum`, both the 3.0 boolean and 3.1 numeric forms),
+  **`multipleOf`**, array `min`/`max` items and **`uniqueItems`** (`distinct`), and
+  `Rule::enum` / `Rule::in`
+- **Dates** → strict RFC3339 for `format: date-time` (accepts Z/offset/fractional, rejects a bare
+  date) and `date_format:Y-m-d` for `format: date`, the two kept distinct
+- **Defaults** → a scalar `default` seeds the constructor parameter and makes the property optional
+  (`sometimes`) on input
+- **Enums** → native PHP backed enums (string or int); a `number`/`float` enum (which cannot be a
+  backed enum) emits `Rule::in` over its values
 - **Naming** → StudlyCaps classes, camelCase properties, `#[MapName]` when the wire name differs,
   reserved-word and collision handling
 - **Nested objects** → nested Data classes; **arrays** → `#[DataCollectionOf]` typed collections
@@ -128,10 +135,16 @@ What the generator handles today:
 - **`allOf`** → merged into one flat class, members unioned, `required` deduped, conflicts resolved
   deterministically
 - **`additionalProperties`** → typed maps (`array<string, X>`) with per-value wildcard rules; a
-  pure-map component is inlined at its use sites instead of emitting an empty class
+  pure-map component is inlined at its use sites instead of emitting an empty class, and an empty map
+  serializes as `{}` (not `[]`)
 - **`oneOf` / `anyOf`** → native PHP union types plus a variant docblock when every member resolves
   to a scalar or a generated Data class (`string|int`, `CatData|DogData`), with a deterministic
   `mixed` fallback for messier members
+- **Multi-type scalars** → `type: ["string","integer"]` becomes a `string|int` union (`["x","null"]`
+  stays a nullable scalar)
+- **Non-object components** → a top-level component that is itself a scalar, an array, or a
+  `oneOf`/`anyOf` union is aliased to its underlying type at every `$ref` use site, instead of an
+  empty Data class that would silently fail to hydrate
 - **Server scaffold** (opt-in via `--controllers` / `--routes`) → an abstract controller per tag and
   a routes file, typed by the Data classes, so an unimplemented operation is a PHP fatal and
   path-level drift is structurally impossible
@@ -164,12 +177,13 @@ You write only the concrete `PetController extends AbstractPetController`. See t
 full walkthrough.
 
 A few OpenAPI features degrade gracefully rather than crash. An object union (`oneOf` of Data
-classes) does not auto-hydrate in laravel-data without a discriminator, an empty
-`additionalProperties` map currently serializes as `[]` rather than `{}` (a known issue), a request
-body referencing a component `$ref` falls back to `Illuminate\Http\Request` instead of a typed Data
-param, and tuple `prefixItems`, int64 literal bounds, and non-JSON responses are represented loosely.
-See the [limitations guide](https://openapi-laravel.codewithagents.de/guides/limitations) for the
-full, honest list.
+classes) does not auto-hydrate in laravel-data without a discriminator, a `$ref`-valued
+`additionalProperties` map is typed in the docblock but not auto-hydrated into Data objects at
+runtime, a request body referencing a component `$ref` falls back to `Illuminate\Http\Request`
+instead of a typed Data param, and tuple `prefixItems`, int64 literal bounds, and non-JSON responses
+are represented loosely. See the
+[limitations guide](https://openapi-laravel.codewithagents.de/guides/limitations) for the full,
+honest list.
 
 ---
 
@@ -261,12 +275,12 @@ where `null` stays `null`, an `additionalProperties` map that round-trips intact
 `oneOf: [string, integer]` scalar union with no coercion. A valid create returns `201`, an invalid
 one returns `422` from the spec-derived `rules()` surfaced in the browser, and a delete returns `204`.
 
-Running two independent generators against one contract surfaced two honest findings: an empty
-`additionalProperties` map serializes as `[]` rather than `{}` (the classic PHP empty-array
-ambiguity; non-empty maps and `null` are correct), and the generated openapi-zod-ts client omits the
-`Accept: application/json` header, which broke browser content-negotiation against Laravel until a
-small middleware was added in the demo backend (filed upstream as
-[openapi-zod-ts #289](https://github.com/codewithagents/openapi-zod-ts/issues/289)).
+Running two independent generators against one contract surfaced two honest findings, both since
+addressed: an empty `additionalProperties` map serialized as `[]` rather than `{}` (the classic PHP
+empty-array ambiguity), now fixed in 0.5.0 so empty maps serialize as `{}`; and the generated
+openapi-zod-ts client omits the `Accept: application/json` header, which broke browser
+content-negotiation against Laravel until a small middleware was added in the demo backend (filed
+upstream as [openapi-zod-ts #289](https://github.com/codewithagents/openapi-zod-ts/issues/289)).
 
 Use it two ways: as **proof** that both generated sides agree on the wire, and as a **template** a
 team can copy to bootstrap a spec-first project. See [`e2e/`](./e2e) for the full reference.
@@ -292,9 +306,13 @@ model and operator boundaries.
 A code generator has a wide blast radius: a subtle regression touches every project that runs it.
 These are the layers that catch problems before they reach you.
 
-- **128 real-world specs, three gates.** Every spec in the corpus (Stripe, GitHub, OpenAI, Slack,
+- **128 real-world specs, multiple gates.** Every spec in the corpus (Stripe, GitHub, OpenAI, Slack,
   Twilio, Adyen, and more) must *parse*, *generate syntactically valid model classes*, and
-  *generate syntactically valid controllers and routes* on every CI run.
+  *generate syntactically valid controllers and routes* on every CI run. A `php -l` compile gate
+  goes a step further than tokenizing and catches code that tokenizes cleanly yet cannot compile.
+- **OpenAPI 3.1 conformance fixture.** A synthetic spec exercises the full generator surface
+  (exclusive bounds, `multipleOf`, `uniqueItems`, float enums, multi-type unions, strict date-time,
+  defaults, non-object aliasing) so the comprehensive construct set is covered in one place.
 - **End-to-end round-trip.** Generated classes are loaded into a real Laravel app (Orchestra
   Testbench), hydrated from payloads, and validated. Valid payloads pass; a missing required field, a
   bad email, and an out-of-range number each throw `ValidationException`.
@@ -322,7 +340,7 @@ These are the layers that catch problems before they reach you.
 
 ## Roadmap
 
-**Current release: `0.4.0`** on Packagist.
+**Current release: `0.5.0`** on Packagist.
 
 - **0.1.x: models.** Spec → laravel-data classes + validation rules + enums, nested objects,
   collections, and the readOnly/writeOnly split.
@@ -330,8 +348,16 @@ These are the layers that catch problems before they reach you.
   models, so the routing table derives from the spec.
 - **0.3.0: composition + hardening.** `allOf` merge, `additionalProperties` typed maps, a full
   security pass (the spec treated as untrusted input), and edge-case fixes.
-- **0.4.0 (current): `oneOf` / `anyOf` union types** and the cross-language end-to-end demo.
-- **v3 (maybe): client generation** built on the `Http::` facade. A decide-later item, not a
+- **0.4.0: `oneOf` / `anyOf` union types** and the cross-language end-to-end demo.
+- **0.5.0 (current): hardening.** A silent-validation correctness pass (exclusive bounds,
+  `multipleOf`, `uniqueItems`, float enums, multi-type unions, strict date-time, defaults), non-object
+  component aliasing (no more empty Data classes), parser hardening (boolean `items`, clean OOM
+  message), empty-map `{}` encoding, a `--namespace` flag, and a `php -l` compile gate.
+- **0.6.0 (next): drift check.** A `php artisan openapi:check` command that regenerates and compares
+  against the committed output, failing CI on any drift, so the spec and the generated code cannot
+  silently diverge.
+- **v3 (maybe): client generation** for consuming a third-party or internal API (e.g. a typed
+  PayPal/Stripe/microservice client), built on the `Http::` facade. A decide-later item, not a
   commitment.
 
 The version stays in `0.x` while the generated output format is still evolving, and tags `1.0.0`
