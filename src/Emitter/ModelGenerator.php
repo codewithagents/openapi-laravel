@@ -49,6 +49,26 @@ final class ModelGenerator
     private array $writeClasses = [];
 
     /**
+     * Component schema name => resolved array type, for pure-map components
+     * (`type: object` with only `additionalProperties`, no named properties).
+     * Such a component is not emitted as its own Data class: a `$ref` to it
+     * inlines the typed array (`array<string, int>`) at the use site instead of
+     * pointing at an empty class. See resolveReference().
+     *
+     * @var array<string, ResolvedType>
+     */
+    private array $mapAliases = [];
+
+    /**
+     * Component schema name => the original Schema, for pure-map components.
+     * Kept separately from $registry (which holds emitted Data/enum classes)
+     * so a $ref to a pure-map component can recover its value schema for rules.
+     *
+     * @var array<string, Schema>
+     */
+    private array $mapSchemas = [];
+
+    /**
      * @var array<string, GeneratedFile>
      */
     private array $files = [];
@@ -67,18 +87,38 @@ final class ModelGenerator
         $this->names = new UniqueNames;
         $this->registry = [];
         $this->writeClasses = [];
+        $this->mapAliases = [];
+        $this->mapSchemas = [];
         $this->files = [];
 
         $schemas = $this->componentSchemas($document);
         ksort($schemas);
 
         foreach ($schemas as $name => $schema) {
+            // A pure-map component (only additionalProperties, no named
+            // properties) is not a Data class: it is a typed array. Record it as
+            // a map alias and skip emitting an empty class. References to it
+            // inline the array type at the use site.
+            if ($this->isPureMap($schema)) {
+                continue;
+            }
+
             $kind = $this->isEnum($schema) ? 'enum' : 'data';
             $base = PhpIdentifier::toClassName($name);
             $class = $kind === 'data' ? $this->withSuffix($base) : $base;
             $class = $this->names->reserve($class);
 
             $this->registry[$name] = ['class' => $class, 'kind' => $kind, 'schema' => $schema];
+        }
+
+        // Second classification pass: resolve each pure-map component to its
+        // array type. Done after the registry is built so a map whose value is a
+        // `$ref` resolves the referenced class. Sorted for determinism.
+        foreach ($schemas as $name => $schema) {
+            if ($this->isPureMap($schema)) {
+                $this->mapSchemas[$name] = $schema;
+                $this->mapAliases[$name] = $this->mapType($schema, PhpIdentifier::toClassName($name), 0, 'all');
+            }
         }
 
         foreach ($this->registry as $name => $entry) {
@@ -197,9 +237,17 @@ final class ModelGenerator
         $params = array_merge($paramsRequired, $paramsOptional);
         $imports = $this->collectImports($params, $usesRule);
 
+        // A mixed object (named properties AND additionalProperties) emits its
+        // named properties normally. laravel-data cannot route unknown keys into
+        // a designated property without a custom cast, so the dynamic overflow
+        // is documented, not silently dropped into a non-functional field.
+        $classDoc = $this->notEmptyArray($properties) && $this->additionalPropertiesSchema($schema) !== null
+            ? 'This schema also declares additionalProperties: dynamic keys beyond the named properties above are not captured by this class.'
+            : null;
+
         $this->files[$className] = new GeneratedFile(
             $className,
-            $this->renderDataClass($className, $params, $imports, $rules),
+            $this->renderDataClass($className, $params, $imports, $rules, $classDoc),
         );
     }
 
@@ -277,6 +325,16 @@ final class ModelGenerator
         $rules = $this->presenceRules($required, $type->nullable);
 
         if ($schema instanceof Reference) {
+            // A $ref to a pure-map component: the value is a typed array, so the
+            // property rule is 'array' plus a wildcard value rule derived from
+            // the map's value schema.
+            $mapSchema = $this->referencedMapSchema($schema);
+            if ($mapSchema !== null) {
+                [$valueRules, $valueUses] = $this->mapValueRules($mapSchema);
+
+                return [array_merge($rules, ["'array'"]), $valueRules, $valueUses];
+            }
+
             $enumClass = $this->referencedEnumClass($schema);
             if ($enumClass !== null) {
                 $rules[] = 'Rule::enum('.$enumClass.'::class)';
@@ -285,6 +343,13 @@ final class ModelGenerator
             }
 
             return [$rules, null, false];
+        }
+
+        // A pure-map property: 'array' plus a wildcard value rule.
+        if ($this->isPureMap($schema)) {
+            [$valueRules, $valueUses] = $this->mapValueRules($schema);
+
+            return [array_merge($rules, ["'array'"]), $valueRules, $valueUses];
         }
 
         // oneOf/anyOf stay presence-only (no variant enforcement). allOf is an
@@ -385,6 +450,72 @@ final class ModelGenerator
         };
 
         return [$rules === [] ? null : $rules, false];
+    }
+
+    /**
+     * Wildcard value rules for a pure-map property (`field.*`). The rules are
+     * derived from the map's `additionalProperties` value schema, reusing the
+     * same scalar-constraint logic as array items so a value schema of
+     * `{type: string, maxLength: 10}` yields `['string', 'max:10']`.
+     *
+     * A `$ref` value (map of objects) yields `['array']`: laravel-data will not
+     * auto-hydrate map values into Data instances (only DataCollection elements
+     * and typed params auto-cast), so the values arrive as raw arrays and we
+     * only assert that shape. An untyped map (`additionalProperties: true`)
+     * yields no value rule.
+     *
+     * @return array{0: ?list<string>, 1: bool} value rules, whether Rule:: is used
+     */
+    private function mapValueRules(Schema $schema): array
+    {
+        $value = $this->additionalPropertiesSchema($schema);
+
+        if ($value === true || $value === null) {
+            return [null, false];
+        }
+
+        if ($value instanceof Reference) {
+            $enumClass = $this->referencedEnumClass($value);
+            if ($enumClass !== null) {
+                return [['Rule::enum('.$enumClass.'::class)'], true];
+            }
+
+            // A $ref to another component: values arrive as raw arrays.
+            return [["'array'"], false];
+        }
+
+        if ($this->notEmptyArray($value->enum)) {
+            $values = $this->enumValues($value);
+            if ($values !== []) {
+                return [['Rule::in(['.implode(', ', array_map(fn (string|int $v): string => $this->scalarLiteral($v), $values)).'])'], true];
+            }
+        }
+
+        $primary = $this->normalizeTypes($value)[0] ?? null;
+
+        $rules = match ($primary) {
+            'string' => $this->stringRules($value),
+            'integer' => array_merge(["'integer'"], $this->numericRules($value)),
+            'number' => array_merge(["'numeric'"], $this->numericRules($value)),
+            'boolean' => ["'boolean'"],
+            'array' => array_merge(["'array'"], $this->arrayCountRules($value)),
+            'object' => ["'array'"],
+            default => [],
+        };
+
+        return [$rules === [] ? null : $rules, false];
+    }
+
+    /**
+     * If a reference points at a pure-map component, return that component's
+     * schema so the caller can derive the map value rules. Returns null when the
+     * reference is not a pure-map component.
+     */
+    private function referencedMapSchema(Reference $reference): ?Schema
+    {
+        $name = $this->refName($reference->getReference());
+
+        return $name !== null ? ($this->mapSchemas[$name] ?? null) : null;
     }
 
     /**
@@ -520,11 +651,13 @@ final class ModelGenerator
      * @param  list<string>  $imports
      * @param  array<string, list<string>>  $rules
      */
-    private function renderDataClass(string $className, array $params, array $imports, array $rules): string
+    private function renderDataClass(string $className, array $params, array $imports, array $rules, ?string $classDoc = null): string
     {
         $useBlock = implode("\n", array_map(static fn (string $fqcn): string => 'use '.$fqcn.';', $imports));
 
-        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->options->namespace.";\n\n".$useBlock."\n\nfinal class ".$className.' extends Data';
+        $docBlock = $classDoc !== null ? "/**\n * ".$classDoc."\n */\n" : '';
+
+        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->options->namespace.";\n\n".$useBlock."\n\n".$docBlock.'final class '.$className.' extends Data';
 
         if ($params === []) {
             return $header."\n{\n}\n";
@@ -581,6 +714,13 @@ final class ModelGenerator
             return $this->resolveArray($schema, $nameHint, $depth, $nullable, $variant);
         }
 
+        // A pure-map inline schema (only additionalProperties, no named
+        // properties) becomes a typed array<string, X> rather than a nested
+        // Data class.
+        if ($this->isPureMap($schema)) {
+            return $this->mapType($schema, $nameHint, $depth, $variant);
+        }
+
         // A merged schema is nullable if the composing schema OR any allOf
         // member is nullable (3.0 `nullable: true` or 3.1 `type: [..., null]`).
         $allOfNullable = $this->notEmptyArray($schema->allOf)
@@ -615,7 +755,17 @@ final class ModelGenerator
         $pointer = $reference->getReference();
         $name = $this->refName($pointer);
 
-        if ($name !== null && isset($this->registry[$name])) {
+        if ($name === null) {
+            return new ResolvedType('mixed');
+        }
+
+        // A reference to a pure-map component inlines the array type at the use
+        // site (the component itself has no Data class).
+        if (isset($this->mapAliases[$name])) {
+            return $this->mapAliases[$name];
+        }
+
+        if (isset($this->registry[$name]) && is_string($this->registry[$name]['class'])) {
             return new ResolvedType($this->registry[$name]['class']);
         }
 
@@ -790,6 +940,102 @@ final class ModelGenerator
         $raw = $schema->type;
 
         return is_array($raw) && in_array('null', $raw, true);
+    }
+
+    /**
+     * The explicit `additionalProperties` value schema for a map, or null when
+     * the schema is not an explicitly-declared map.
+     *
+     * cebe defaults `additionalProperties` to boolean `true` on every object, so
+     * the in-memory value cannot tell an explicit `additionalProperties: true`
+     * apart from a plain object that never declared it. getSerializableData()
+     * keeps only attributes the spec actually set, so its key presence is the
+     * honest signal of intent. We treat the map as present only when the spec
+     * set the key to a value other than `false`.
+     *
+     * Returns the value Schema/Reference for a typed map, or the schema itself
+     * (as a marker) for `additionalProperties: true`. Returns null otherwise.
+     */
+    private function additionalPropertiesSchema(Schema $schema): Schema|Reference|true|null
+    {
+        $serialized = (array) $schema->getSerializableData();
+        if (! array_key_exists('additionalProperties', $serialized)) {
+            return null;
+        }
+
+        $value = $schema->additionalProperties;
+
+        if ($value === false) {
+            return null;
+        }
+
+        if ($value instanceof Schema || $value instanceof Reference) {
+            return $value;
+        }
+
+        // additionalProperties: true (untyped map).
+        return true;
+    }
+
+    /**
+     * Whether a component schema is a pure map: an object whose only content is
+     * `additionalProperties` (a typed, ref, or untyped value), with no named
+     * `properties` and no composition keyword. Such a schema is a typed array,
+     * not a Data class. A mixed object (named properties AND
+     * additionalProperties) is NOT a pure map: its named properties are emitted
+     * normally and the dynamic overflow is documented as not captured.
+     */
+    private function isPureMap(Schema $schema): bool
+    {
+        if ($this->additionalPropertiesSchema($schema) === null) {
+            return false;
+        }
+
+        if ($this->notEmptyArray($schema->properties)) {
+            return false;
+        }
+
+        if ($this->notEmptyArray($schema->allOf)
+            || $this->notEmptyArray($schema->oneOf)
+            || $this->notEmptyArray($schema->anyOf)
+        ) {
+            return false;
+        }
+
+        if ($this->notEmptyArray($schema->enum)) {
+            return false;
+        }
+
+        $types = $this->normalizeTypes($schema);
+        $primary = $types[0] ?? null;
+
+        // Only an object (or an untyped schema that is map-shaped) is a map.
+        return $primary === 'object' || $primary === null;
+    }
+
+    /**
+     * Resolve a pure-map schema to its array type: `array<string, X>` where X is
+     * derived from the `additionalProperties` value schema. Scalar values map to
+     * their PHP type, a `$ref` value maps to the referenced Data class, and
+     * `true`/untyped maps to `mixed`.
+     */
+    private function mapType(Schema $schema, string $nameHint, int $depth, string $variant): ResolvedType
+    {
+        $value = $this->additionalPropertiesSchema($schema);
+        $nullable = $this->isNullable($schema);
+
+        if ($value === true || $value === null) {
+            return new ResolvedType('array', $nullable, 'array<string, mixed>');
+        }
+
+        $valueType = $this->resolveType($value, $nameHint.'Value', $depth + 1, $variant);
+
+        return new ResolvedType(
+            'array',
+            $nullable,
+            'array<string, '.$valueType->declaration.'>',
+            $valueType->imports,
+        );
     }
 
     /**

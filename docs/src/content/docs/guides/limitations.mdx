@@ -1,19 +1,19 @@
 ---
 title: Limitations
-description: What the generator does not yet represent. additionalProperties and the oneOf/anyOf composition keywords are not fully modelled yet. Honest about the gaps so you can plan around them.
+description: What the generator does not yet represent. The oneOf/anyOf composition keywords are not fully modelled yet. Honest about the gaps so you can plan around them.
 ---
 
 import { Aside } from '@astrojs/starlight/components'
 
-The generator targets the common case: object schemas, `$ref`s, `allOf` composition, enums,
-arrays, and scalar constraints, validated against 128 real-world specs. A few OpenAPI features are
-not yet fully represented. The generated code is always valid PHP, these are completeness gaps, not
-crashes, but for a schema that relies on them the generated class can be incomplete. This page is
-honest about where that happens so you can plan around it.
+The generator targets the common case: object schemas, `$ref`s, `allOf` composition,
+`additionalProperties` maps, enums, arrays, and scalar constraints, validated against 128 real-world
+specs. A few OpenAPI features are not yet fully represented. The generated code is always valid PHP,
+these are completeness gaps, not crashes, but for a schema that relies on them the generated class
+can be incomplete. This page is honest about where that happens so you can plan around it.
 
 <Aside type="caution" title="Scheduled for 0.3.0">
-  Representing `additionalProperties` and improving `oneOf`/`anyOf` are the remaining items for the
-  next release. See the [roadmap](/roadmap) for the plan.
+  Improving `oneOf`/`anyOf` is the remaining item for the next release. See the
+  [roadmap](/roadmap) for the plan.
 </Aside>
 
 ## allOf is merged
@@ -42,10 +42,15 @@ so on.
 A `$ref` member that is also a component in its own right keeps its standalone class. So `Price`
 above is still emitted as `PriceData` and is also merged into `ExtendedPriceData`.
 
-## additionalProperties is not represented yet
+## additionalProperties is represented as a typed map
 
-Map-style schemas, an object whose keys are dynamic and whose values share a type, are not
-modelled. The dynamic key/value shape is dropped.
+Map-style schemas, an object whose keys are dynamic and whose values share a type, are represented
+as a typed PHP `array`. laravel-data v4 has no first-class Map type, so an `array<string, X>` is the
+correct representation. There are three forms.
+
+**Typed scalar value.** A map whose values are a scalar schema becomes an `array` property with a
+`@var array<string, int>` docblock and a wildcard value rule derived from the value schema. This is
+the fully-enforceable case: the value constraints are validated per entry.
 
 ```yaml
 Language:
@@ -54,11 +59,54 @@ Language:
     type: integer
 ```
 
-Today this generates an empty `LanguageData` class with no way to hold the arbitrary
-string-to-integer entries.
+A property whose schema is `$ref: Language` generates:
 
-**Workaround for now:** treat such payloads as a plain `array` in your own code, or define the
-known keys explicitly as properties where that is possible.
+```php
+/** @var array<string, int> */
+public readonly ?array $language = null,
+```
+
+with rules `'language' => ['sometimes', 'array']` and `'language.*' => ['integer']`. A value schema
+of `{ type: string, maxLength: 10 }` yields `'language.*' => ['string', 'max:10']`, so the value
+constraints carry through verbatim.
+
+**Untyped map (`additionalProperties: true`).** Becomes `@var array<string, mixed>` with a single
+`['array']` rule and no per-value rule.
+
+**`$ref` value.** A map of objects (for example `additionalProperties: { $ref: Price }`) becomes
+`@var array<string, PriceData>` with `'field' => ['array']` and `'field.*' => ['array']`.
+
+<Aside type="caution" title="$ref map values arrive as raw arrays">
+  laravel-data only auto-hydrates `DataCollection` elements and typed constructor parameters. The
+  values of a `$ref`-valued map are typed in the docblock (`array<string, PriceData>`) but are
+  **not** cast into `PriceData` instances at runtime, they arrive as raw arrays. The generated
+  `'field.*' => ['array']` rule reflects this honestly. Hydrate the entries yourself
+  (`PriceData::from($value)`) if you need typed objects.
+</Aside>
+
+### Pure-map components
+
+A component that is a pure map (`type: object` with only `additionalProperties` and no named
+`properties`) is **not** emitted as its own Data class. Emitting an empty class would be a bug.
+Instead the array type is inlined wherever the component is referenced, so a property of type
+`$ref: Language` is generated directly as `array<string, int>`. The map is represented at every use
+site, deterministically, with no empty wrapper class.
+
+### Mixed objects (named properties + additionalProperties)
+
+When a schema declares both named `properties` and `additionalProperties`, the named properties are
+emitted normally with full rules. The dynamic overflow (keys beyond the named ones) is **not**
+captured: laravel-data cannot route unknown keys into a designated property without a custom cast, so
+rather than emit a non-functional overflow field that silently fails to hydrate, the generated class
+carries a docblock note that the dynamic keys are not captured. Read the known fields from the Data
+object, and reach into the original payload for the overflow if you need it.
+
+### additionalProperties: false
+
+Standard Laravel has no rule to reject unknown keys on a nested data structure, so
+`additionalProperties: false` is **not enforced** by the generated `rules()`. The named properties
+are generated as usual; extra keys simply are not rejected. Enforce closed objects in your own
+validation layer if you need that guarantee.
 
 ## oneOf and anyOf are typed as mixed
 
@@ -75,10 +123,10 @@ payload:
 
 Today this generates `public readonly mixed $payload` with `'payload' => ['required']`.
 
-This is a deeper limitation than the previous two: without a discriminator, PHP and Laravel
-validation cannot enforce "exactly one of these shapes" at request-validation time. A future
-release may emit a union type hint where the variants resolve cleanly, but runtime variant
-validation will always require a discriminator in the spec.
+This is a deeper limitation than maps: without a discriminator, PHP and Laravel validation cannot
+enforce "exactly one of these shapes" at request-validation time. A future release may emit a union
+type hint where the variants resolve cleanly, but runtime variant validation will always require a
+discriminator in the spec.
 
 **Workaround for now:** validate the variant shape in your own controller or service layer after
 the Data object is hydrated.
@@ -86,8 +134,9 @@ the Data object is hydrated.
 ## What is not affected
 
 Everything else generates fully: object schemas with `properties`, `$ref`s between schemas,
-`allOf` composition (merged into a flat class), nested objects and arrays (`DataCollection`),
-native enums, the read/write variant split, scalar constraints (`minLength`, `maxLength`,
-`pattern`, `format`, `minimum`/`maximum`, `enum`), and the server scaffold. If your schemas avoid
-the two features above (`additionalProperties` and `oneOf`/`anyOf`), the output is complete and the
-spec-derived validation is exact.
+`allOf` composition (merged into a flat class), `additionalProperties` maps (typed `array` with
+per-value rules), nested objects and arrays (`DataCollection`), native enums, the read/write variant
+split, scalar constraints (`minLength`, `maxLength`, `pattern`, `format`, `minimum`/`maximum`,
+`enum`), and the server scaffold. If your schemas avoid `oneOf`/`anyOf`, the output is complete and
+the spec-derived validation is exact, with the map caveats noted above (raw-array `$ref` map values,
+uncaptured mixed-object overflow, unenforced `additionalProperties: false`).

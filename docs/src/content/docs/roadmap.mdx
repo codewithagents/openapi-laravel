@@ -38,29 +38,32 @@ resolved deterministically (a later member overrides an earlier one, an own-leve
 every member). A `$ref` member keeps its standalone class as well. See the [limitations
 page](/guides/limitations) for details.
 
+**`additionalProperties` is a typed map.** A map-style schema becomes a typed `array`: a scalar
+value schema generates `array<string, int>` with a per-value wildcard rule (so value constraints are
+enforced), `additionalProperties: true` generates `array<string, mixed>`, and a `$ref` value
+generates `array<string, PriceData>`. A pure-map component is inlined at its use sites rather than
+emitted as an empty class. Caveats (raw-array `$ref` map values, uncaptured mixed-object overflow,
+unenforced `additionalProperties: false`) are on the [limitations page](/guides/limitations).
+
 ## Known limitations
 
-<Aside type="caution" title="Some composition keywords are not fully modelled yet">
+<Aside type="caution" title="oneOf / anyOf are not fully modelled yet">
 
-- **`additionalProperties`** is not represented yet: map-style schemas generate a class without
-  the dynamic key/value shape.
 - **`oneOf` / `anyOf`** are typed as `mixed` with presence-only validation; the variant types are
   not enforced.
 
 </Aside>
 
-The generated code is always valid PHP, these are completeness gaps rather than crashes, but for a
-schema that leans on those features the generated class can be incomplete. The [limitations
-page](/guides/limitations) has examples and workarounds for each.
+The generated code is always valid PHP, this is a completeness gap rather than a crash, but for a
+schema that leans on `oneOf`/`anyOf` the generated class can be incomplete. The [limitations
+page](/guides/limitations) has examples and a workaround.
 
 ## v0.3.0: composition keywords (planned)
 
-`allOf` merging has landed for 0.3.0. The remaining gaps close in order of real-world impact across
-the corpus:
+`allOf` merging and `additionalProperties` maps have landed for 0.3.0. The remaining gap closes in
+order of real-world impact across the corpus:
 
-1. **`additionalProperties`** (used by ~55% of the corpus): represent map-style schemas as a typed
-   `array` with per-value validation rules.
-2. **`oneOf` / `anyOf`** (~20%): improve beyond bare `mixed`, at minimum a docblock listing the
+1. **`oneOf` / `anyOf`** (~20%): improve beyond bare `mixed`, at minimum a docblock listing the
    variants, with union type hints where the members resolve cleanly. Runtime variant validation
    still depends on a discriminator being present in the spec.
 
