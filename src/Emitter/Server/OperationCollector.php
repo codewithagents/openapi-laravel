@@ -242,8 +242,17 @@ final class OperationCollector
 
         if (! $body instanceof RequestBody) {
             // No body, or an unresolved $ref body we cannot inspect: a Reference
-            // here means a component requestBody, which we treat as untyped.
-            return [null, $body instanceof Reference];
+            // here means a component requestBody, which we treat as untyped and
+            // therefore inject Request. The import must be pushed too, exactly
+            // like the other requiresRequest paths below, or the generated
+            // controller references Request without a matching use statement.
+            if ($body instanceof Reference) {
+                $imports[] = self::REQUEST_FQCN;
+
+                return [null, true];
+            }
+
+            return [null, false];
         }
 
         $schema = $this->jsonSchema($this->asArray($body->content));
