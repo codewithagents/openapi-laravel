@@ -6,6 +6,7 @@ use App\Data\CustomerData;
 use App\Data\CustomerStatus;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
+use Illuminate\Validation\ValidationException;
 
 /**
  * End-to-end: generate from a spec, load the emitted classes into a booted
@@ -57,6 +58,24 @@ it('treats absent optional properties as null', function () {
         ->and($customer->status)->toBeNull()
         ->and($customer->address)->toBeNull();
 });
+
+it('passes validation for a valid payload', function () {
+    CustomerData::validate(['id' => 1, 'name' => 'Ada', 'email_address' => 'ada@example.com']);
+
+    expect(true)->toBeTrue();
+});
+
+it('rejects a missing required field', function () {
+    CustomerData::validate(['name' => 'Ada']);
+})->throws(ValidationException::class);
+
+it('rejects an invalid email format', function () {
+    CustomerData::validate(['id' => 1, 'name' => 'Ada', 'email_address' => 'not-an-email']);
+})->throws(ValidationException::class);
+
+it('rejects a number below the minimum', function () {
+    CustomerData::validate(['id' => 0, 'name' => 'Ada']);
+})->throws(ValidationException::class);
 
 it('serialises back to the wire shape', function () {
     $array = CustomerData::from([

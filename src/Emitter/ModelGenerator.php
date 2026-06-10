@@ -116,6 +116,8 @@ final class ModelGenerator
 
         $paramsRequired = [];
         $paramsOptional = [];
+        $rules = [];
+        $usesRule = false;
 
         foreach ($properties as $rawName => $propertySchema) {
             // Numeric property names ("200") are coerced to int array keys by PHP.
@@ -133,23 +135,30 @@ final class ModelGenerator
             } else {
                 $paramsOptional[] = $rendered;
             }
+
+            // Validation rules are keyed by the wire (mapped input) name.
+            [$propertyRules, $itemRules, $uses] = $this->buildRules($propertySchema, $isRequired, $type);
+            $rules[$wireName] = $propertyRules;
+            if ($itemRules !== null && $itemRules !== []) {
+                $rules[$wireName.'.*'] = $itemRules;
+            }
+            $usesRule = $usesRule || $uses;
         }
 
         $params = array_merge($paramsRequired, $paramsOptional);
-        $imports = $this->collectImports($properties, $params);
+        $imports = $this->collectImports($params, $usesRule);
 
         $this->files[$className] = new GeneratedFile(
             $className,
-            $this->renderDataClass($className, $params, $imports),
+            $this->renderDataClass($className, $params, $imports, $rules),
         );
     }
 
     /**
-     * @param  array<string, Schema|Reference>  $properties
      * @param  list<array{code: string, imports: list<string>}>  $params
      * @return list<string>
      */
-    private function collectImports(array $properties, array $params): array
+    private function collectImports(array $params, bool $usesRule): array
     {
         $imports = ['Spatie\\LaravelData\\Data'];
 
@@ -157,6 +166,10 @@ final class ModelGenerator
             foreach ($param['imports'] as $import) {
                 $imports[] = $import;
             }
+        }
+
+        if ($usesRule) {
+            $imports[] = 'Illuminate\\Validation\\Rule';
         }
 
         $imports = array_values(array_unique($imports));
@@ -205,10 +218,257 @@ final class ModelGenerator
     }
 
     /**
+     * Derive Laravel validation rules for a property from its schema.
+     *
+     * @return array{0: list<string>, 1: ?list<string>, 2: bool} property rules,
+     *                                                           optional per-item rules (arrays), whether Rule:: is used
+     */
+    private function buildRules(Schema|Reference $schema, bool $required, ResolvedType $type): array
+    {
+        $rules = $this->presenceRules($required, $type->nullable);
+
+        if ($schema instanceof Reference) {
+            $enumClass = $this->referencedEnumClass($schema);
+            if ($enumClass !== null) {
+                $rules[] = 'Rule::enum('.$enumClass.'::class)';
+
+                return [$rules, null, true];
+            }
+
+            return [$rules, null, false];
+        }
+
+        if ($this->notEmptyArray($schema->oneOf) || $this->notEmptyArray($schema->anyOf) || $this->notEmptyArray($schema->allOf)) {
+            return [$rules, null, false];
+        }
+
+        if ($this->notEmptyArray($schema->enum)) {
+            $values = $this->enumValues($schema);
+            if ($values !== []) {
+                $rules[] = 'Rule::in(['.implode(', ', array_map(fn (string|int $value): string => $this->scalarLiteral($value), $values)).'])';
+
+                return [$rules, null, true];
+            }
+        }
+
+        $primary = $this->normalizeTypes($schema)[0] ?? null;
+
+        if ($primary === 'string') {
+            return [array_merge($rules, $this->stringRules($schema)), null, false];
+        }
+
+        if ($primary === 'integer') {
+            return [array_merge($rules, ["'integer'"], $this->numericRules($schema)), null, false];
+        }
+
+        if ($primary === 'number') {
+            return [array_merge($rules, ["'numeric'"], $this->numericRules($schema)), null, false];
+        }
+
+        if ($primary === 'boolean') {
+            return [array_merge($rules, ["'boolean'"]), null, false];
+        }
+
+        if ($primary === 'array') {
+            [$itemRules, $itemUses] = $this->itemRules($schema);
+
+            return [array_merge($rules, ["'array'"], $this->arrayCountRules($schema)), $itemRules, $itemUses];
+        }
+
+        return [$rules, null, false];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function presenceRules(bool $required, bool $nullable): array
+    {
+        if ($required && $nullable) {
+            return ["'present'", "'nullable'"];
+        }
+
+        if ($required) {
+            return ["'required'"];
+        }
+
+        if ($nullable) {
+            return ["'sometimes'", "'nullable'"];
+        }
+
+        return ["'sometimes'"];
+    }
+
+    /**
+     * @return array{0: ?list<string>, 1: bool}
+     */
+    private function itemRules(Schema $schema): array
+    {
+        $items = $schema->items;
+
+        if ($items instanceof Reference) {
+            $enumClass = $this->referencedEnumClass($items);
+
+            return $enumClass !== null ? [['Rule::enum('.$enumClass.'::class)'], true] : [null, false];
+        }
+
+        if (! $items instanceof Schema) {
+            return [null, false];
+        }
+
+        if ($this->notEmptyArray($items->enum)) {
+            $values = $this->enumValues($items);
+            if ($values !== []) {
+                return [['Rule::in(['.implode(', ', array_map(fn (string|int $value): string => $this->scalarLiteral($value), $values)).'])'], true];
+            }
+        }
+
+        $primary = $this->normalizeTypes($items)[0] ?? null;
+
+        $rules = match ($primary) {
+            'string' => $this->stringRules($items),
+            'integer' => array_merge(["'integer'"], $this->numericRules($items)),
+            'number' => array_merge(["'numeric'"], $this->numericRules($items)),
+            'boolean' => ["'boolean'"],
+            default => [],
+        };
+
+        return [$rules === [] ? null : $rules, false];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function stringRules(Schema $schema): array
+    {
+        $rules = ["'string'"];
+
+        $max = $schema->maxLength;
+        if (is_int($max)) {
+            $rules[] = "'max:".$max."'";
+        }
+
+        $min = $schema->minLength;
+        if (is_int($min)) {
+            $rules[] = "'min:".$min."'";
+        }
+
+        $format = $schema->format;
+        if (is_string($format)) {
+            $formatRule = $this->formatRule($format);
+            if ($formatRule !== null) {
+                $rules[] = $formatRule;
+            }
+        }
+
+        $pattern = $schema->pattern;
+        if (is_string($pattern)) {
+            $regexRule = $this->regexRule($pattern);
+            if ($regexRule !== null) {
+                $rules[] = $regexRule;
+            }
+        }
+
+        return $rules;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function numericRules(Schema $schema): array
+    {
+        $rules = [];
+
+        $min = $schema->minimum;
+        if (is_int($min) || is_float($min)) {
+            $rules[] = "'min:".$this->numberLiteral($min)."'";
+        }
+
+        $max = $schema->maximum;
+        if (is_int($max) || is_float($max)) {
+            $rules[] = "'max:".$this->numberLiteral($max)."'";
+        }
+
+        return $rules;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function arrayCountRules(Schema $schema): array
+    {
+        $rules = [];
+
+        $max = $schema->maxItems;
+        if (is_int($max)) {
+            $rules[] = "'max:".$max."'";
+        }
+
+        $min = $schema->minItems;
+        if (is_int($min)) {
+            $rules[] = "'min:".$min."'";
+        }
+
+        return $rules;
+    }
+
+    private function formatRule(string $format): ?string
+    {
+        return match ($format) {
+            'email', 'idn-email' => "'email'",
+            'uuid' => "'uuid'",
+            'date' => "'date'",
+            'date-time' => "'date'",
+            'uri', 'url', 'iri' => "'url'",
+            'ipv4' => "'ipv4'",
+            'ipv6' => "'ipv6'",
+            'ip' => "'ip'",
+            'hostname', 'idn-hostname' => "'string'",
+            default => null,
+        };
+    }
+
+    private function regexRule(string $pattern): ?string
+    {
+        if ($pattern === '') {
+            return null;
+        }
+
+        $delimiter = ! str_contains($pattern, '#') ? '#' : (! str_contains($pattern, '~') ? '~' : null);
+
+        if ($delimiter === null) {
+            return null;
+        }
+
+        return "'regex:".$this->escapeSingleQuoted($delimiter.$pattern.$delimiter)."'";
+    }
+
+    private function referencedEnumClass(Reference $reference): ?string
+    {
+        $name = $this->refName($reference->getReference());
+
+        if ($name !== null && isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'enum') {
+            return $this->registry[$name]['class'];
+        }
+
+        return null;
+    }
+
+    private function scalarLiteral(string|int $value): string
+    {
+        return is_int($value) ? (string) $value : "'".$this->escapeSingleQuoted($value)."'";
+    }
+
+    private function numberLiteral(int|float $value): string
+    {
+        return (string) $value;
+    }
+
+    /**
      * @param  list<array{code: string, imports: list<string>}>  $params
      * @param  list<string>  $imports
+     * @param  array<string, list<string>>  $rules
      */
-    private function renderDataClass(string $className, array $params, array $imports): string
+    private function renderDataClass(string $className, array $params, array $imports, array $rules): string
     {
         $useBlock = implode("\n", array_map(static fn (string $fqcn): string => 'use '.$fqcn.';', $imports));
 
@@ -219,8 +479,26 @@ final class ModelGenerator
         }
 
         $body = implode("\n", array_map(static fn (array $p): string => $p['code'], $params));
+        $constructor = "    public function __construct(\n".$body."\n    ) {}";
 
-        return $header."\n{\n    public function __construct(\n".$body."\n    ) {}\n}\n";
+        return $header."\n{\n".$constructor.$this->renderRules($rules)."\n}\n";
+    }
+
+    /**
+     * @param  array<string, list<string>>  $rules
+     */
+    private function renderRules(array $rules): string
+    {
+        if ($rules === []) {
+            return '';
+        }
+
+        $lines = [];
+        foreach ($rules as $key => $expressions) {
+            $lines[] = "            '".$this->escapeSingleQuoted((string) $key)."' => [".implode(', ', $expressions).'],';
+        }
+
+        return "\n\n    public static function rules(): array\n    {\n        return [\n".implode("\n", $lines)."\n        ];\n    }";
     }
 
     private function resolveType(Schema|Reference $schema, string $nameHint, int $depth): ResolvedType

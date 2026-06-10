@@ -47,6 +47,19 @@ it('emits a typed data collection for arrays of refs', function () {
         ->and($code)->toContain('/** @var array<int, TagData> */');
 });
 
+it('emits spec-derived validation rules keyed by wire name', function () {
+    $code = generateCustomer()['CustomerData']->code;
+
+    expect($code)->toContain("'id' => ['required', 'integer', 'min:1'],")
+        ->and($code)->toContain("'name' => ['required', 'string', 'max:255', 'min:1'],")
+        ->and($code)->toContain("'email_address' => ['sometimes', 'nullable', 'string', 'email'],")
+        ->and($code)->toContain("'website' => ['sometimes', 'string', 'url'],")
+        ->and($code)->toContain("'sku' => ['sometimes', 'string', 'regex:#^[A-Z]{3}-")
+        ->and($code)->toContain("'status' => ['sometimes', Rule::enum(CustomerStatus::class)],")
+        ->and($code)->toContain("'tags' => ['sometimes', 'array', 'max:10'],")
+        ->and($code)->toContain('use Illuminate\Validation\Rule;');
+});
+
 it('emits a native backed enum with studly case names', function () {
     $code = generateCustomer()['CustomerStatus']->code;
 

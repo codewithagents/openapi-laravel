@@ -12,6 +12,14 @@ final class CustomerAddressData extends Data
         public readonly ?string $city = null,
         public readonly ?string $zip = null,
     ) {}
+
+    public static function rules(): array
+    {
+        return [
+            'city' => ['sometimes', 'string'],
+            'zip' => ['sometimes', 'string'],
+        ];
+    }
 }
 
 <?php
@@ -20,6 +28,7 @@ declare(strict_types=1);
 
 namespace App\Data;
 
+use Illuminate\Validation\Rule;
 use Spatie\LaravelData\Attributes\DataCollectionOf;
 use Spatie\LaravelData\Attributes\MapName;
 use Spatie\LaravelData\Data;
@@ -31,12 +40,30 @@ final class CustomerData extends Data
         public readonly string $name,
         #[MapName('email_address')]
         public readonly ?string $emailAddress = null,
+        public readonly ?int $age = null,
+        public readonly ?string $website = null,
+        public readonly ?string $sku = null,
         public readonly ?CustomerStatus $status = null,
         /** @var array<int, TagData> */
         #[DataCollectionOf(TagData::class)]
         public readonly ?array $tags = null,
         public readonly ?CustomerAddressData $address = null,
     ) {}
+
+    public static function rules(): array
+    {
+        return [
+            'id' => ['required', 'integer', 'min:1'],
+            'name' => ['required', 'string', 'max:255', 'min:1'],
+            'email_address' => ['sometimes', 'nullable', 'string', 'email'],
+            'age' => ['sometimes', 'integer', 'min:0', 'max:120'],
+            'website' => ['sometimes', 'string', 'url'],
+            'sku' => ['sometimes', 'string', 'regex:#^[A-Z]{3}-\\d+$#'],
+            'status' => ['sometimes', Rule::enum(CustomerStatus::class)],
+            'tags' => ['sometimes', 'array', 'max:10'],
+            'address' => ['sometimes'],
+        ];
+    }
 }
 
 <?php
@@ -65,4 +92,11 @@ final class TagData extends Data
     public function __construct(
         public readonly string $label,
     ) {}
+
+    public static function rules(): array
+    {
+        return [
+            'label' => ['required', 'string', 'max:50'],
+        ];
+    }
 }
