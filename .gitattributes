@@ -6,6 +6,7 @@
 /.github                        export-ignore
 /.claude                        export-ignore
 /docs                           export-ignore
+/examples                       export-ignore
 /tests                          export-ignore
 /build                          export-ignore
 

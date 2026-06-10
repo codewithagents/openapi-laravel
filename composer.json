@@ -37,7 +37,8 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "CodeWithAgents\\OpenApiLaravel\\Tests\\": "tests/"
+            "CodeWithAgents\\OpenApiLaravel\\Tests\\": "tests/",
+            "CodeWithAgents\\OpenApiLaravel\\Examples\\Petstore\\": "examples/petstore/"
         }
     },
     "extra": {

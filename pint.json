@@ -1,5 +1,12 @@
 {
     "preset": "laravel",
+    "exclude": [
+        "examples/petstore/Data",
+        "examples/petstore/routes"
+    ],
+    "notName": [
+        "Abstract*Controller.php"
+    ],
     "rules": {
         "declare_strict_types": true,
         "ordered_imports": {
