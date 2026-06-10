@@ -42,6 +42,8 @@ final class GenerateCommand extends Command
         $suffix = $this->configString('openapi-laravel.output.suffix') ?? 'Data';
         $depth = config('openapi-laravel.max_depth');
         $maxDepth = is_int($depth) ? $depth : 64;
+        $bytes = config('openapi-laravel.max_bytes');
+        $maxBytes = is_int($bytes) ? $bytes : null;
         $prune = (bool) $this->option('prune') || (bool) config('openapi-laravel.output.prune');
 
         if ($spec === null || $spec === '') {
@@ -56,8 +58,21 @@ final class GenerateCommand extends Command
             return self::FAILURE;
         }
 
+        // Validate operator-supplied identifiers before any file is written, so a
+        // stray space or quote fails fast instead of emitting broken PHP (C-3).
         try {
-            $document = (new SpecParser)->parseFile($spec);
+            OptionValidator::namespace('output.namespace', $namespace);
+            OptionValidator::identifier('output.suffix', $suffix);
+            $controllerNamespace = $this->configString('openapi-laravel.controllers.namespace') ?? 'App\\Http\\Controllers\\Api';
+            OptionValidator::namespace('controllers.namespace', $controllerNamespace);
+        } catch (OptionException $e) {
+            $this->components->error($e->getMessage());
+
+            return self::FAILURE;
+        }
+
+        try {
+            $document = (new SpecParser($maxBytes))->parseFile($spec);
             $generator = new ModelGenerator(new GeneratorOptions($namespace, $suffix, $maxDepth));
             $files = $generator->generate($document);
         } catch (ParseException|GenerationException $e) {

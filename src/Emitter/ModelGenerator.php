@@ -610,19 +610,57 @@ final class ModelGenerator
         };
     }
 
+    /**
+     * Candidate PCRE delimiters, tried in order. The first one not present in the
+     * pattern is used so the pattern never needs internal escaping. None of these
+     * are alphanumeric, backslash, or whitespace, all of which PCRE forbids as
+     * delimiters.
+     *
+     * @var list<string>
+     */
+    private const REGEX_DELIMITERS = ['#', '~', '/', '!', '@', '%', '|', ';', ',', '=', '+'];
+
     private function regexRule(string $pattern): ?string
     {
         if ($pattern === '') {
             return null;
         }
 
-        $delimiter = ! str_contains($pattern, '#') ? '#' : (! str_contains($pattern, '~') ? '~' : null);
-
-        if ($delimiter === null) {
-            return null;
+        foreach (self::REGEX_DELIMITERS as $candidate) {
+            if (! str_contains($pattern, $candidate)) {
+                return "'regex:".$this->escapeSingleQuoted($candidate.$pattern.$candidate)."'";
+            }
         }
 
-        return "'regex:".$this->escapeSingleQuoted($delimiter.$pattern.$delimiter)."'";
+        // Every candidate appears in the pattern. Never drop the rule: fall back
+        // to a fixed delimiter and backslash-escape its unescaped occurrences so
+        // the resulting PCRE stays valid.
+        $delimiter = self::REGEX_DELIMITERS[0];
+        $escaped = $this->escapeDelimiter($pattern, $delimiter);
+
+        return "'regex:".$this->escapeSingleQuoted($delimiter.$escaped.$delimiter)."'";
+    }
+
+    /**
+     * Backslash-escape every unescaped occurrence of $delimiter in $pattern, so
+     * the pattern can be wrapped in that delimiter without prematurely closing
+     * it. An occurrence already preceded by an odd number of backslashes is
+     * already escaped and left untouched.
+     */
+    private function escapeDelimiter(string $pattern, string $delimiter): string
+    {
+        $result = '';
+        $backslashes = 0;
+
+        foreach (str_split($pattern) as $char) {
+            if ($char === $delimiter && $backslashes % 2 === 0) {
+                $result .= '\\';
+            }
+            $result .= $char;
+            $backslashes = $char === '\\' ? $backslashes + 1 : 0;
+        }
+
+        return $result;
     }
 
     private function referencedEnumClass(Reference $reference): ?string
@@ -1076,7 +1114,7 @@ final class ModelGenerator
      * earlier one, and an explicit own-level property overrides every member.
      * The first-seen position is kept even when a later source wins the value.
      *
-     * @param  list<string>  $seen  component names already being merged, guards ref cycles
+     * @param  array<string, true>  $seen  component names already being merged (keyed for O(1) cycle checks)
      * @return array{properties: array<string, Schema|Reference>, required: list<string>}
      */
     private function mergeAllOf(Schema $schema, array $seen = []): array
@@ -1140,7 +1178,7 @@ final class ModelGenerator
      * member (recursively) declares nullability. A single nullable member is
      * enough, matching how `allOf` constrains the combined value.
      *
-     * @param  list<string>  $seen  component names already visited, guards ref cycles
+     * @param  array<string, true>  $seen  component names already visited (keyed for O(1) cycle checks)
      */
     private function mergedNullable(Schema $schema, array $seen = []): bool
     {
@@ -1202,8 +1240,8 @@ final class ModelGenerator
      * through. A `$ref` to a component schema is looked up in the registry,
      * guarded against cycles by tracking the component names already in flight.
      *
-     * @param  list<string>  $seen
-     * @return array{0: Schema, 1: list<string>}|null resolved schema + updated cycle guard, or null if unresolvable
+     * @param  array<string, true>  $seen
+     * @return array{0: Schema, 1: array<string, true>}|null resolved schema + updated cycle guard, or null if unresolvable
      */
     private function resolveMemberSchema(Schema|Reference $member, array $seen): ?array
     {
@@ -1213,12 +1251,12 @@ final class ModelGenerator
 
         $name = $this->refName($member->getReference());
 
-        if ($name === null || in_array($name, $seen, true) || ! isset($this->registry[$name])) {
+        if ($name === null || isset($seen[$name]) || ! isset($this->registry[$name])) {
             return null;
         }
 
         $target = $this->registry[$name]['schema'];
-        $seen[] = $name;
+        $seen[$name] = true;
 
         return [$target, $seen];
     }

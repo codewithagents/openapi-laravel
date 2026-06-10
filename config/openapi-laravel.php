@@ -58,4 +58,14 @@ return [
      */
     'max_depth' => 64,
 
+    /*
+     * Maximum raw spec file size, in bytes, accepted before parsing. The spec is
+     * untrusted input fed to a YAML parser that expands anchors/aliases before we
+     * see it (an alias-bomb vector the parser cannot disable), so a pre-parse size
+     * guard caps the blast radius. The default (24 MiB) sits well above the
+     * largest real-world specs. Raise it only for trusted inputs, and prefer
+     * OS-level resource limits when running against untrusted specs.
+     */
+    'max_bytes' => 25_165_824,
+
 ];

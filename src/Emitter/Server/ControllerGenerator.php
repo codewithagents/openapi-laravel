@@ -75,10 +75,10 @@ final class ControllerGenerator
     private function renderMethod(OperationDescriptor $operation): string
     {
         $doc = ['    /**'];
-        $doc[] = '     * '.strtoupper($operation->httpMethod).' '.$operation->path;
+        $doc[] = '     * '.strtoupper($operation->httpMethod).' '.$this->docblockSafe($operation->path);
         if ($operation->summary !== null) {
             $doc[] = '     *';
-            $doc[] = '     * '.$operation->summary;
+            $doc[] = '     * '.$this->docblockSafe($operation->summary);
         }
         if ($operation->returnDoc !== null) {
             $doc[] = '     *';
@@ -90,6 +90,23 @@ final class ControllerGenerator
             .implode(', ', $this->parameters($operation)).'): '.$operation->returnType.';';
 
         return implode("\n", $doc)."\n".$signature;
+    }
+
+    /**
+     * Neutralize spec-derived free text before it is placed inside a `/** ... *\/`
+     * docblock. Two hazards: a literal `*\/` would close the comment early and let
+     * the rest of the value inject raw PHP, and newlines or other control
+     * characters would let a value forge extra doc lines or break out. We replace
+     * every `*\/` with `* /` and collapse all control characters (including
+     * newlines and tabs) to a single space. The threat model treats the OpenAPI
+     * spec as untrusted input.
+     */
+    private function docblockSafe(string $value): string
+    {
+        $value = str_replace('*/', '* /', $value);
+        $value = (string) preg_replace('/[\x00-\x1f\x7f]+/', ' ', $value);
+
+        return trim($value);
     }
 
     /**

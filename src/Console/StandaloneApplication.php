@@ -43,10 +43,25 @@ final class StandaloneApplication
         $namespace = $options['namespace'] ?? 'App\\Data';
         $suffix = $options['suffix'] ?? 'Data';
         $maxDepth = isset($options['max-depth']) ? (int) $options['max-depth'] : 64;
+        $maxBytes = isset($options['max-bytes']) ? (int) $options['max-bytes'] : null;
         $prune = isset($options['prune']);
 
+        // Validate operator-supplied identifiers before any file is written, so a
+        // stray space or quote fails fast instead of emitting broken PHP (C-3).
         try {
-            $document = (new SpecParser)->parseFile($spec);
+            OptionValidator::namespace('--namespace', $namespace);
+            OptionValidator::identifier('--suffix', $suffix);
+            if (isset($options['controller-namespace'])) {
+                OptionValidator::namespace('--controller-namespace', $options['controller-namespace']);
+            }
+        } catch (OptionException $e) {
+            fwrite(STDERR, $e->getMessage()."\n");
+
+            return 1;
+        }
+
+        try {
+            $document = (new SpecParser($maxBytes))->parseFile($spec);
             $generator = new ModelGenerator(new GeneratorOptions($namespace, $suffix, $maxDepth));
             $files = $generator->generate($document);
         } catch (ParseException|GenerationException $e) {
