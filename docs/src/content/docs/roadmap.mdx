@@ -5,9 +5,9 @@ description: What ships in v1 (models) and v2 (server scaffold), the known limit
 
 import { Aside } from '@astrojs/starlight/components'
 
-`openapi-laravel` has shipped **v1 (models)** and **v2 (server scaffold)**. This page is the honest account of what is in each version, what is deliberately basic, and what is planned next.
+`openapi-laravel` has shipped **v1 (models)** and **v2 (server scaffold)**. `0.3.0` is released on Packagist, and `0.4.0` is in progress. The version deliberately stays in `0.x` while the generated output format is still evolving, and tags `1.0.0` (the API-stability promise) only when the feature set settles. This page is the honest account of what is in each version, what is deliberately basic, and what is planned next.
 
-## v0.1.x: models
+## v1: models
 
 Spec in, generated `app/Data/*` out:
 
@@ -20,9 +20,9 @@ Spec in, generated `app/Data/*` out:
 - Two ways to run it: `php artisan openapi:generate` via the service provider, and a framework-free `vendor/bin/openapi-laravel` for non-Laravel CI.
 - Determinism: the same spec in produces byte-identical files out.
 
-## v0.2.0: server scaffold
+## v2: server scaffold
 
-The server scaffold feature is built and committed toward the 0.2.0 tag. It is opt-in (disabled by default):
+The server scaffold shipped in `0.2.0`. It is opt-in (disabled by default):
 
 - A generated abstract controller per tag: one abstract method per operation, typed by the v1 Data classes. An unimplemented operation is a PHP fatal, not silent drift.
 - A generated routes file (`routes/api.generated.php`): one `Route::` entry per spec operation, pointing at the concrete controller class the user writes.
@@ -70,13 +70,25 @@ Data-class `$ref`s as a Data-class union return, and otherwise keeps the `JsonRe
 The generated code is always valid PHP. The [limitations page](/guides/limitations) has examples,
 the fallback rules, and the object-union workaround.
 
-## v0.4.0: oneOf / anyOf union typing (landed)
+## Release history
 
-`allOf` merging and `additionalProperties` maps landed earlier. `oneOf` / `anyOf` union typing is
-the headline of 0.4.0: native PHP union type hints and variant docblocks where the members resolve
-cleanly, a deterministic `mixed` fallback otherwise, and Data-class union return types in the server
-scaffold. Runtime variant validation and object-union hydration still depend on a discriminator being
-present in the spec.
+- **0.2.0:** the server scaffold (abstract controllers per tag plus a routes file).
+- **0.3.0 (released on Packagist):** `allOf` merging, `additionalProperties` typed maps, and a full
+  security-hardening pass that treats the spec as untrusted input.
+- **0.4.0 (in progress):** `oneOf` / `anyOf` native union typing (union type hints and variant
+  docblocks where members resolve cleanly, a deterministic `mixed` fallback otherwise, Data-class
+  union return types in the server scaffold), plus the cross-language end-to-end demo below. Runtime
+  variant validation and object-union hydration still depend on a `discriminator` in the spec.
+
+## Proof: a cross-language end-to-end demo
+
+The repository carries a contract-first proof: one OpenAPI spec is the single source of truth,
+`openapi-laravel` generates a real Laravel backend (Data classes, abstract controllers, routes) and
+the sibling [openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts) generates a typed
+TypeScript client for a SPA, and a headless-Chrome end-to-end test drives the browser through real
+HTTP so both sides are proven to agree on the wire. The Laravel backend and the contract round trip
+are working today; the SPA, the Docker stack, and the browser suite are being finalized. See the
+[end-to-end demo page](/guides/end-to-end-demo).
 
 ## Later: v3 (maybe)
 

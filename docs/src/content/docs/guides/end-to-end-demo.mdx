@@ -1,0 +1,101 @@
+---
+title: End-to-end demo
+description: A cross-language contract-first proof. One OpenAPI spec drives a generated Laravel backend and a generated TypeScript client, proven to agree over real HTTP. Use it as proof and as a starting template.
+---
+
+import { Aside, CardGrid, Card } from '@astrojs/starlight/components'
+
+The strongest claim a generator can make is that its output actually interoperates with another implementation over the wire. The [`e2e/`](https://github.com/codewithagents/openapi-laravel/tree/main/e2e) directory in the repository proves exactly that, end to end, from a single spec.
+
+It is two things at once:
+
+- **Proof** that the generated code interoperates across languages over real HTTP.
+- A **template** a team can copy to bootstrap a spec-first project.
+
+## The architecture
+
+One OpenAPI document is the single source of truth. Two generators read it, in two different languages, and the two implementations are proven to agree on the wire.
+
+```
+                    e2e/spec/petstore.yaml   (one OpenAPI document, the source of truth)
+                    /                       \
+        openapi-laravel                      openapi-zod-ts
+        generates a real                     generates a typed
+        Laravel 12 backend                   TypeScript client
+        (Data classes +                      consumed by a SPA
+         abstract controllers + routes)
+                    \                       /
+                     real HTTP over the wire
+                              │
+                  a headless-Chrome E2E drives the browser:
+                  browser → SPA → generated client → backend
+```
+
+No hand-written request or response types exist on either side of the wire. The Laravel side derives its Data classes, abstract controllers, and routes from the spec via `openapi-laravel`. The TypeScript side derives its client from the same spec via the sibling [openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts). The only hand-written PHP is the glue: the concrete controllers and a small file-backed store.
+
+<Aside type="note" title="Status: being finalized">
+  The Laravel backend and the contract round trip are proven and working today. The SPA, the
+  Docker stack, and the headless-Chrome suite are being completed. Treat
+  [`e2e/`](https://github.com/codewithagents/openapi-laravel/tree/main/e2e) as the living reference,
+  and read its `README.md` for the current detail. Exact run-it-yourself commands will be published
+  here once the full stack is green, so this page describes the architecture and the proofs rather
+  than steps we cannot yet guarantee.
+</Aside>
+
+## The serialization seams it proves
+
+The shared spec is a "petstore-plus": the stock petstore with extra fields added, each one targeting a known place where a typed client and a `laravel-data` server can quietly disagree. Every one was proven to round-trip over real HTTP.
+
+| Field          | Spec trait                          | What it proves |
+|----------------|-------------------------------------|----------------|
+| `microchip_id` | `snake_case` wire name              | `#[MapName]` maps to the `microchipId` property and back, in both directions |
+| `secret_note`  | `writeOnly: true`                   | accepted on create, never returned in any read response |
+| `created_at`   | `format: date-time`, `readOnly`     | dropped from the write variant, set server-side, ignored if a client sends it |
+| `weight_kg`    | `number`, `nullable: true`          | a `null` is accepted and stays present as `null` in responses |
+| `attributes`   | `object` + `additionalProperties`   | a string-to-string map round-trips intact |
+| `external_id`  | `oneOf: [string, integer]`          | a scalar union: a string stays a string and an integer stays an integer, with no coercion |
+
+Because the spec uses `readOnly` and `writeOnly`, the generator emits the read/write split: `PetData` (the response shape, with `created_at` and without `secret_note`) and `PetWritableData` (the request shape, with `secret_note` and without `created_at`). The generated `AbstractPetController::addPet` therefore takes a `PetWritableData` and returns a `PetData`, exactly the typing described in the [server scaffold guide](/guides/server-scaffold).
+
+The `external_id` field exercises the `oneOf` / `anyOf` support. A scalar union is chosen deliberately: an object union cannot auto-hydrate in `laravel-data` without a `discriminator` (a documented residual), whereas a scalar union round-trips cleanly and proves the union path end to end.
+
+## A seam quirk it reports honestly
+
+An **empty** `additionalProperties` map round-trips as a JSON array `[]`, not an object `{}`:
+
+```bash
+# POST a pet with "attributes": {}
+# 201 -> "attributes":[]
+```
+
+This is the classic PHP ambiguity: an empty associative array is indistinguishable from an empty list, so `json_encode` emits `[]`. A non-empty map encodes correctly as an object, and a `null` stays `null`. A strict typed client expecting `Record<string, string>` would see an array for the empty case. The demo surfaces this rather than papering over it, and it is tracked as a candidate fix (a cast that forces object encoding) on the [limitations page](/guides/limitations#additionalproperties-is-represented-as-a-typed-map).
+
+This is exactly the class of bug that only a real cross-language round trip exposes, which is the whole point of running one.
+
+## How generation is wired
+
+The demo backend dogfoods the local package: it consumes `codewithagents/openapi-laravel` from the working tree through a Composer path repository, not from Packagist, so the demo always tests the current code. The published config points the generator at the shared spec and writes the Data classes, abstract controllers, and routes into the Laravel app. The generated files are committed on purpose, because they are the proof artifact.
+
+## Use it as a starting template
+
+If you are bootstrapping a spec-first project, the structure is the pattern to copy:
+
+<CardGrid>
+  <Card title="One spec, committed" icon="document">
+    Keep a single OpenAPI document as the source of truth and generate everything from it.
+  </Card>
+  <Card title="Generated backend types" icon="seti:php">
+    Run `openapi-laravel --controllers --routes` to derive Data classes, abstract controllers, and a
+    routes file. Write only the concrete controllers.
+  </Card>
+  <Card title="Generated client types" icon="seti:typescript">
+    Run the sibling [openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts) over the same
+    spec for a typed TypeScript client, so the frontend cannot drift from the contract either.
+  </Card>
+  <Card title="Round-trip tests" icon="approve-check-circle">
+    Drive the real stack over HTTP in CI so both sides are proven to agree on the wire, not just in
+    theory.
+  </Card>
+</CardGrid>
+
+See the [`e2e/` directory](https://github.com/codewithagents/openapi-laravel/tree/main/e2e) for the full, current reference.

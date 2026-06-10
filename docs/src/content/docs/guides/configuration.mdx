@@ -52,6 +52,14 @@ return [
     'max_depth' => 64,
 
     /*
+     * Maximum raw spec file size, in bytes, accepted before parsing. The spec is
+     * untrusted input fed to a YAML parser that expands anchors/aliases before we
+     * see it, so a pre-parse size guard caps the alias-bomb blast radius. The
+     * default (24 MiB) sits well above the largest real-world specs.
+     */
+    'max_bytes' => 25_165_824,
+
+    /*
      * Server scaffold: generate one abstract controller per OpenAPI tag,
      * with one abstract method per operation, typed by the generated Data classes.
      * Disabled by default. Enable with 'enabled' => true or pass --controllers.
@@ -112,6 +120,10 @@ When `true`, deletes existing `*.php` files in the output directory before writi
 ### `max_depth`
 
 Maximum schema nesting depth the parser follows before it bails out. Defaults to `64`. This guards against pathological or maliciously deep specs that would otherwise recurse without bound. Raise it only if you have a legitimately deeply nested spec and trust its source.
+
+### `max_bytes`
+
+Maximum raw spec file size, in bytes, accepted before parsing. Defaults to `25_165_824` (24 MiB). The spec is untrusted input fed to a YAML parser that expands anchors and aliases before the generator sees the data, a classic alias-bomb vector the underlying parser cannot disable. This pre-parse size guard caps the blast radius and sits well above the largest real-world specs. Overridden by the `--max-bytes` flag. Raise it only for trusted inputs, and prefer OS-level resource limits when running against genuinely untrusted specs. See the [limitations page](/guides/limitations#security-specs-are-untrusted-input) for the full threat model.
 
 ### `controllers`
 

@@ -14,7 +14,7 @@ export default defineConfig({
     starlight({
       title: 'openapi-laravel',
       description:
-        'Generate Laravel models from your OpenAPI spec. Spatie laravel-data classes, spec-derived validation rules, and native PHP enums. The spec is the source of truth.',
+        'Generate Laravel models and a server scaffold from your OpenAPI spec. Spatie laravel-data classes, spec-derived validation rules, native PHP enums, abstract controllers, and routes. The spec is the source of truth.',
       head: [
         {
           tag: 'meta',
@@ -71,6 +71,7 @@ export default defineConfig({
             { label: 'Configuration', slug: 'guides/configuration' },
             { label: 'Generated output', slug: 'guides/generated-output' },
             { label: 'Server scaffold', slug: 'guides/server-scaffold' },
+            { label: 'End-to-end demo', slug: 'guides/end-to-end-demo' },
             { label: 'Limitations', slug: 'guides/limitations' },
           ],
         },

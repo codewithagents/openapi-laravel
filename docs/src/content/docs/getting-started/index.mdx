@@ -31,6 +31,7 @@ When the spec changes, you re-run the generator and review the diff. There is no
 - **Nested objects** become nested Data classes; **arrays** become `#[DataCollectionOf]` typed collections.
 - **Nullability** is handled for both 3.0 `nullable` and 3.1 `type: [..., 'null']`.
 - **readOnly / writeOnly** produce a read variant and a write variant, only when the spec uses the flags.
+- **Composition** is handled: `allOf` is merged into one flat class, `additionalProperties` becomes a typed map (`array<string, X>`) with per-value rules, and `oneOf` / `anyOf` emit native PHP union types (`string|int`, `CatData|DogData`) with a deterministic `mixed` fallback. See the [limitations guide](/guides/limitations) for the exact behaviour and residuals.
 
 ### Server scaffold (v2, opt-in)
 
@@ -55,6 +56,10 @@ See the [server scaffold guide](/guides/server-scaffold) for the full walkthroug
   </Card>
   <Card title="Server scaffold" icon="right-arrow">
     Generate abstract controllers and a routes file. [Server scaffold](/guides/server-scaffold)
+  </Card>
+  <Card title="End-to-end demo" icon="approve-check-circle">
+    One spec, a generated Laravel backend and a generated TypeScript client, proven over real HTTP.
+    [End-to-end demo](/guides/end-to-end-demo)
   </Card>
   <Card title="How it compares" icon="random">
     Spec-first vs code-first tools. [Comparison](/comparison)

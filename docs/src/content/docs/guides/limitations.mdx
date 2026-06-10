@@ -110,6 +110,15 @@ Standard Laravel has no rule to reject unknown keys on a nested data structure, 
 are generated as usual; extra keys simply are not rejected. Enforce closed objects in your own
 validation layer if you need that guarantee.
 
+### Empty map encoding (a known issue)
+
+An **empty** `additionalProperties` map currently serializes as a JSON array `[]`, not an object
+`{}`. PHP cannot distinguish an empty associative array from an empty list, so `json_encode([])`
+emits an array. Non-empty maps encode correctly as objects, and a `null` value stays `null`. A strict
+client expecting `Record<string, string>` would receive an array for the empty case. This was
+surfaced by the cross-language [end-to-end demo](/guides/end-to-end-demo) and is tracked as a
+candidate fix (a cast that forces object encoding even when the map is empty).
+
 ## oneOf and anyOf emit union types
 
 A property whose schema uses `oneOf` or `anyOf` emits a native PHP union type hint plus a `@var`
