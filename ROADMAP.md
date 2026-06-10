@@ -1,27 +1,122 @@
 # Roadmap
 
-Status: **0.2.0 released on Packagist; 0.3.0 in progress on main (unreleased).** The v1 models
-generator is shipped end to end. 0.2.0 added the **v2 server scaffold** (abstract controllers +
-routes generated from the spec) plus production-ready polish. 0.3.0 starts the composition
-keywords: **`allOf` merging is implemented** (member schemas flattened into the composed class),
-committed and gated green but not yet tagged. `additionalProperties` and `oneOf`/`anyOf` remain
-the open 0.3.0 items.
+Status: **0.2.0 released on Packagist; 0.3.0 in progress on main (unreleased, a large local
+commit stack, nothing pushed).** The v1 models generator and the v2 server scaffold are shipped.
+0.3.0 has grown well beyond its original "composition keywords" scope into a correctness and
+security hardening release. Done and committed locally toward 0.3.0:
 
-Done and committed toward 0.2.0:
-- Server scaffold generator (`src/Emitter/Server/`): one `Abstract{Tag}Controller` per tag typed
-  by the v1 Data classes, plus `routes/api.generated.php`. Opt-in via `--controllers`/`--routes`.
-  Reuses the model registry (`ModelGenerator::registry()`) so signatures reference real classes.
-  A third corpus gate asserts valid controllers + routes for all 128 specs.
-- End-to-end petstore demo (`examples/petstore/`, export-ignored): generated Data + abstract
-  controllers + routes, hand-written concrete controllers, Testbench feature tests (invalid body
-  to 422 from generated `rules()`), and a drift test asserting byte-identical regeneration.
-- `.gitattributes` (0.1.1): dist ships only runtime code (~28 KB) instead of the full repo.
-- Generated `rules()` now carries `@return array<string, list<string|object>>` so host projects
-  pass PHPStan max over their own `app/Data`.
-- README accuracy: Pest native mutation (not Infection), three corpus gates.
+- **`allOf` merging** (member schemas flattened into the composed class), plus a hardening pass.
+- **`additionalProperties`** represented as typed maps with per-value rules.
+- **Security hardening** of the whole generator against untrusted spec input (8 findings fixed).
+- **Edge-case fixes mined from the openapi-zod-ts sibling history** (two real bugs the 128-spec
+  corpus never exercised), plus a stronger corpus gate that catches that whole bug class.
+- **Repo governance**: branch protection on `main`, `FUNDING.yml`.
 
-The remaining "Road to production-ready" items below are the path to tagging 0.2.0. This file is
-the resume point for the next session.
+The only original-scope 0.3.0 item still open is **`oneOf`/`anyOf`** (still typed as `mixed` by
+design). This file is the resume point for the next session.
+
+## Done and committed toward 0.3.0 (unreleased, local on `main`)
+
+### Composition keywords
+
+- **allOf merge.** Member schemas are merged into a single flat Data class: inline objects and
+  `$ref`s are resolved recursively (including nested allOf and the schema's own `properties`),
+  `properties` unioned, `required[]` concatenated and deduped, `rules()` covering the combined
+  shape. Conflict rule: later member overrides earlier, own-level property overrides every member,
+  first-seen position kept for ordering. A `$ref` member still emits its own standalone class too.
+  The single-`$ref`-wrapped-in-allOf alias pattern resolves to the referenced class, which also
+  breaks self-referential allOf cycles (found in jira.json). Impact: 863 classes that were empty
+  due to allOf across 25 corpus specs are now populated.
+- **allOf hardening (review-driven).** Nullable is unioned across the composing schema and all
+  members (was a real bug: nullability read only the top-level schema). Read/write variant
+  detection scans properties contributed by allOf members recursively, so a `writeOnly`/`readOnly`
+  flag on a base schema correctly drives the write-variant split and the server scaffold's
+  write-class wiring. A corpus non-empty guard (`tests/Corpus/AllOfNonEmptyTest.php`) asserts
+  curated allOf-composed classes carry a constructor, so a regression cannot silently re-empty
+  them.
+- **additionalProperties as typed maps.** Three value forms: scalar value schema ->
+  `array<string, int>` plus a `'field.*'` wildcard value rule reusing the rule logic; `true` ->
+  `array<string, mixed>`, no value rule; `$ref` value -> `array<string, FooData>` plus
+  `'field.*' => ['array']` (values arrive as raw arrays, documented honestly). Pure-map components
+  (object with only `additionalProperties`) are not emitted as a class; the array type is inlined
+  at every `$ref` use site, which kills the empty-class bug deterministically. Mixed objects
+  (named `properties` plus `additionalProperties`) emit the named properties correctly with a
+  documented note that dynamic overflow keys are not captured (laravel-data cannot route unknown
+  keys without a custom cast). `additionalProperties: false` is not enforced (Laravel has no
+  reject-unknown-keys rule), documented. Impact: 128 pure-map components across 20 corpus specs
+  that previously emitted empty classes are now represented.
+
+### Security hardening (spec treated as untrusted input)
+
+A security review modelled the OpenAPI spec as untrusted input (the generator writes PHP source
+the host then loads and executes). All findings fixed:
+
+- **Docblock code injection (HIGH).** Operation `summary` and `path` were written raw into a
+  generated controller docblock, so a `*/` in the spec closed the comment and injected live PHP.
+  Fixed with a `docblockSafe()` helper that rewrites `*/` to `* /` and collapses control chars,
+  applied to every spec string placed in a comment.
+- **Namespace/suffix injection (MED).** `--namespace` / `--suffix` / `--controller-namespace`
+  (and config equivalents) flowed unvalidated into generated `namespace` declarations. Now
+  validated against legal-PHP-identifier regexes before any file is written, non-zero exit on bad
+  input (`OptionValidator`).
+- **regexRule silently dropped patterns (MED).** A `pattern` containing both `#` and `~` produced
+  no regex rule at all (silent under-validation). Now iterates a candidate-delimiter list with a
+  fixed-delimiter-plus-escaping fallback, so a rule is never dropped.
+- **Non-OpenAPI doc accepted silently (the "invalid spec" answer).** A Swagger 2.0 or non-OpenAPI
+  document parsed to an empty result and exited 0. Now a lightweight post-parse check requires an
+  `openapi: 3.x` version and a present `info`, with a clear error naming what was found. Malformed
+  YAML and missing/unreadable files already failed cleanly via `ParseException`; this closes the
+  structurally-wrong-but-valid-YAML hole. Stays on `validate: false` so the corpus is unaffected.
+- **YAML alias bombs (MED).** Symfony YAML expands anchors before we see the data. Added a
+  configurable input-size guard (`--max-bytes` / config), default 24 MiB, comfortably above the
+  largest fixture (github.json, ~11.1 MiB). Residual documented: untrusted specs still warrant
+  OS-level resource limits.
+- **Quadratic allOf cycle guard (LOW).** The `seen` set is now an associative array (O(1)).
+- **Hostile-input tests.** A dedicated suite feeds comment-breaking names, quoted/backslashed enum
+  values, `*/`-laden summaries/paths, and `#`+`~` patterns, asserting generated files parse, no
+  unneutralized `*/` survives, the injected payload is only ever inside comment tokens, and the
+  option validators reject hostile input. Path traversal via schema names was already defended by
+  the `PhpIdentifier` whitelist; the `--prune` glob is confined; enum values / wire names /
+  defaults were already single-quote escaped.
+
+### Edge-case fixes mined from openapi-zod-ts history
+
+The sibling TypeScript generator's git history holds years of fixes for cases the shared corpus
+never exercised. Mining it surfaced two real bugs in this generator that the syntax-only corpus
+gates were blind to:
+
+- **`$ref` request body missing import (HIGH, corpus-present).** When a request body was a `$ref`
+  to `#/components/requestBodies/...`, the operation emitted `Request $request` but did not import
+  `Illuminate\Http\Request`, so 72 generated controllers across 14 corpus specs (bitbucket, slack,
+  square, xero, zoom, sendgrid, docusign, and more; 331 operations) referenced a non-existent
+  class. Fixed by adding the import on that path.
+- **Property named `this` (HIGH, latent).** A property literally named `this` produced
+  `public readonly $this`, a hard PHP fatal. `this` is the one reserved name forbidden as a
+  parameter. Now remapped to `_this` with `#[MapName('this')]` preserving the wire key.
+- **`const` ignored (LOW/MED).** A schema `const` is now treated as a single-value enum
+  (`Rule::in([value])`), with type inferred for a bare const. Previously dropped to `mixed`.
+
+### Corpus gate strengthening (highest-leverage)
+
+Both bugs above were invisible because the corpus gates only ran `token_get_all(..., TOKEN_PARSE)`,
+which passes on syntactically-valid-but-unresolvable class references and on the `$this` fatal.
+Added an **import-resolution gate**: for every generated file it collects `use` imports and the
+class names defined across the generated set, then asserts every class short-name used in a
+signature is imported, defined locally, or a scalar/pseudo-type from a minimal allowlist (framework
+classes like `Request`/`JsonResponse`/`DataCollection` are deliberately NOT allowlisted, so the
+gate genuinely catches the unimported-class bug class). Verified adversarially: reverting the
+import fix makes the gate fail loudly, the fix makes it green across all 128 specs. Wired into both
+the model and server corpus gates (256 corpus cases). Regression-guard fixtures also pin the
+already-correct behaviour for 204-co-existing-with-200, nullable enums, and non-JSON responses.
+
+### Repo governance
+
+- **Branch protection on `main`** (live): required status checks (the PHP test matrix + static
+  analysis), force-push and deletion blocked, push restricted to the maintainer, conversation
+  resolution required. Deliberately `enforce_admins: false` with no required PR reviews yet, so the
+  pre-1.0.0 direct-push workflow keeps working. See "Repo and release governance" below for the
+  1.0.0 flip.
+- **`FUNDING.yml`** added (GitHub Sponsors: `codewithagents`).
 
 ## Vision
 
@@ -48,142 +143,124 @@ specs in `tests/Fixtures/specs/` before anything ships.
    idiomatic distribution (`composer require`, artisan command). Accepted cost: own parser layer
    and own test harness in PHP.
 2. **Parser: do not write one.** Use `devizzent/cebe-php-openapi` (maintained fork of
-   cebe/php-openapi): parses OpenAPI 3.0/3.1 from YAML/JSON, validates, resolves $refs.
-   Wrap it behind our own `Parser` namespace so it stays swappable.
-3. **Output style: spatie/laravel-data classes** (the de-facto Laravel DTO standard, 12M+ DLs)
-   with **explicit, spec-derived `rules()` methods** so OpenAPI constraints (maxLength, pattern,
-   format, enum) are enforced verbatim, not inferred from property types. Plus native PHP 8.1+
-   backed enums for spec enums. Plain-PHP-classes output = possible later config flag, not v1.
-4. **Spec fixtures are duplicated** from openapi-zod-ts (they are public artifacts, not a contract).
-   A shared public spec-fixture repo is a maybe-later idea. Future: accept spec contributions from
-   Laravel shops that publish OpenAPI specs.
-5. **Targets**: PHP 8.2+, Laravel 11/12, laravel-data v4. (Confirm exact floors in phase 1.)
+   cebe/php-openapi). Wrap it behind our own `Parser` namespace so it stays swappable. We parse
+   with `validate: false` and lazy `$ref` resolution (no eager resolution, DoS-safe) plus our own
+   lightweight structural check.
+3. **Output style: spatie/laravel-data classes** with **explicit, spec-derived `rules()` methods**
+   so OpenAPI constraints (maxLength, pattern, format, enum) are enforced verbatim, not inferred
+   from property types. Plus native PHP backed enums for spec enums.
+4. **Spec fixtures are duplicated** from openapi-zod-ts (public artifacts, not a contract). Future:
+   accept spec contributions from Laravel shops that publish OpenAPI specs.
+5. **Targets**: PHP 8.2+, Laravel 11/12, laravel-data v4.
 6. Package name: `codewithagents/openapi-laravel` on Packagist.
+7. **The sibling history is a test oracle.** openapi-zod-ts's fixed bugs are a checklist of
+   real-world edge cases to verify against this generator, independent of the corpus.
 
 ## Versions
 
-### v1: Models (the package)
+### v1: Models (the package) [shipped]
 
 Spec in -> generated `app/Data/*` (configurable namespace/path):
 
-- One laravel-data class per `components.schemas` entry + per inline request/response shape.
+- One laravel-data class per `components.schemas` entry plus per inline request/response shape.
 - Explicit `rules()` per class, derived from spec constraints (required, nullable, minLength,
-  maxLength, pattern, format: email/uuid/date-time, minimum/maximum, enum via `Rule::enum`).
+  maxLength, pattern, format, minimum/maximum, enum via `Rule::enum`/`Rule::in`, `const`).
 - Native backed enums for string/int enums.
-- readOnly/writeOnly handling: split read/write variants like openapi-zod-ts does
-  (`Customer` vs `CustomerWritable`) only when the spec actually uses the flags.
-- Nested objects -> nested Data classes; arrays -> `DataCollection`/typed arrays with docblocks.
-- Naming layer: StudlyCaps classes, camelCase properties with `#[MapName]` attributes when the
-  wire name differs (snake_case etc.), collision handling, PHP reserved-word escaping.
-- Invocation: `php artisan openapi:generate` (via service provider) AND a plain `vendor/bin`
-  entry so non-Laravel CI can run it. Config file: `openapi-laravel.php` (publishable).
-- Determinism: same spec in, byte-identical output (stable ordering everywhere).
+- readOnly/writeOnly read/write variant split, only when the spec uses the flags.
+- Nested objects, typed collections, allOf merge, additionalProperties maps.
+- Naming layer: StudlyCaps classes, camelCase properties with `#[MapName]`, collision handling,
+  PHP reserved-word escaping (including the `this` special case).
+- Invocation: `php artisan openapi:generate` and a framework-free `vendor/bin/openapi-laravel`.
+- Determinism: same spec in, byte-identical output.
 
-### v2: Server scaffold (the differentiator, nothing credible exists in the ecosystem)
+### v2: Server scaffold [shipped in 0.2.0]
 
-- Generated routes file (`routes/api.generated.php`): one `Route::` entry per spec operation,
-  pointing at controller classes by tag + operationId.
-- Generated abstract controller per tag: one abstract method per operation, typed by the v1 Data
-  classes (params + request body in, Data response out). User extends with concrete controllers,
-  delegates business logic to services. Unimplemented = PHP fatal, not silent drift.
-- This makes path-level spec/code drift structurally impossible: the routing table derives from
-  the spec. (Spring-generator pattern, translated to idiomatic Laravel.)
+- Generated `routes/api.generated.php`: one `Route::` entry per operation, pointing at controllers
+  by tag + operationId.
+- Generated abstract controller per tag, one abstract method per operation, typed by the v1 Data
+  classes. Unimplemented = PHP fatal, not silent drift. Path-level drift is structurally
+  impossible.
 
-**Known limitation (v2):** request bodies expressed as a component reference
-(`$ref: '#/components/requestBodies/...'`) are left unresolved by the parser and fall back to a
-plain `Illuminate\Http\Request` parameter instead of a typed Data class. Inline `content` bodies
-that reference a schema `$ref` directly are typed as expected. Resolving component request bodies
-is a candidate follow-up; for now, reference the schema under `content` to get a typed parameter.
+**Remaining v2 limitation:** a request body expressed as a component reference
+(`$ref: '#/components/requestBodies/...'`) falls back to a plain `Illuminate\Http\Request`
+parameter (now correctly imported, the missing-import bug is fixed) instead of a typed Data class.
+Resolving component request bodies to a typed parameter is a candidate follow-up; referencing the
+schema under `content` already yields a typed parameter.
 
 ### v3 (maybe): client generation (`Http::` facade based). Less differentiated, decide later.
 
-## Phase plan for v1 (all shipped in 0.1.0 / 0.1.1)
+## Remaining work toward tagging 0.3.0
 
-1. **Skeleton compiles** [done]: composer.json deps resolve, Pest runs, PHPStan max, CI matrix
-   (php 8.2/8.3/8.4 x lowest/highest). Floors: PHP 8.2, Laravel 11/12, laravel-data v4.
-2. **Parser layer** [done]: wraps cebe (`devizzent/cebe-php-openapi`), lazy refs (no eager
-   resolution, DoS-safe), depth bound, format detection. All 128 fixtures parse.
-3. **Naming layer** [done]: StudlyCaps classes, camelCase properties, `#[MapName]`, reserved-word
-   escaping, collision suffixing, nested-name de-duplication.
-4. **Models emitter** [done]: schemas -> Data classes + native enums + nested + collections.
-   Snapshot tests per feature; corpus generate gate (128) with `php -l` + PHPStan max on output.
-5. **rules() emitter** [done]: required/nullable, string/numeric/array constraints, format rules,
-   regex, `Rule::enum` / `Rule::in`, readOnly/writeOnly read+write variants.
-6. **Artisan command + config + docs** [done]: `openapi:generate`, publishable config, standalone
-   bin, README with comparison table, docs site live at https://openapi-laravel.codewithagents.de.
-7. **Release** [done]: release-please (`release-type: php`), Packagist webhook + explicit CI
-   notify, conventional commits. v0.1.0 then v0.1.1 published.
+1. **oneOf / anyOf** (28 / 24 specs): the last original-scope composition item. Still typed as
+   `mixed` with presence-only rules. Plan: emit union type hints where all members resolve to known
+   PHP types (`AData|BData`, `string|int`) and a docblock listing variants; keep presence rules.
+   Honest residual: enforcing "exactly one of these shapes" at request-validation time requires a
+   spec `discriminator`. Without one, PHP and Laravel cannot select among overlapping object
+   variants, and laravel-data cannot know which Data class to hydrate. That residual is the spec
+   author's responsibility, not a generator gap. This is the headline remaining design item.
+2. **DX on bad input**: a `--dry-run` summary of what would be written, and richer error messages
+   (which schema, which property, what was wrong). The structural validation and option validation
+   already give clear failures; this is the polish layer.
+3. **Lower-severity lossy cases (document or improve, not blockers):** tuple `prefixItems`
+   collapses to `array<int, mixed>`; int64/bignum bounds are emitted as literal strings; non-JSON
+   responses fall back to `JsonResponse`; `$ref`-valued map values are typed in the docblock but
+   arrive as raw arrays; mixed-object overflow keys are not captured. All are deterministic and
+   documented.
+4. **Published-artifact CI job**: `composer require` the published Packagist release (not the local
+   checkout) and run a smoke generate, to catch packaging-only breakage.
+5. **Tag 0.3.0** via release-please once the above settle. The local stack is conventional-commit
+   clean, so the changelog and version bump are automatic on push + merge.
 
-## Road to production-ready (0.2.0)
+## Security posture
 
-The generator works on all 128 corpus specs, but "generates valid PHP" is not the same as "a
-Laravel team can adopt it without surprises". 0.2.0 closes that gap. Roughly in priority order:
+The spec is untrusted input; generated PHP is loaded and executed by the host. Current defenses:
 
-1. **Packaging hygiene** [done in 0.1.1]: `.gitattributes export-ignore` so the dist ships only
-   runtime code. Verified: published dist is ~28 KB, src+bin+config only.
-2. **Verified getting-started path** [mostly done]: the `examples/petstore/` demo boots a Testbench
-   app, loads the generated routes, and drives the full HTTP chain (generated models + rules() +
-   abstract controllers + hand-written concrete controllers), with a drift test proving the demo
-   is genuine generator output. A second example under `tests/Feature/Example/Writable/` proves
-   the readOnly/writeOnly write-variant body param validates over real HTTP (missing writeOnly
-   required field to 422 from the writable variant's rules()). Still open: a CI job that
-   `composer require`s the *published* Packagist artifact (not the local checkout).
-3. **Composition keywords** [allOf done toward 0.3.0; additionalProperties + oneOf/anyOf remain]:
-   an audit found these were lossy or broken, not just unsatisfying. Corpus impact and status:
-   - **allOf** (46 specs, 36%): **DONE (0.3.0, unreleased).** Member schemas are now merged into a
-     single flat Data class: inline objects and `$ref`s are resolved (recursively, including nested
-     allOf and the schema's own `properties`), `properties` unioned, `required[]` concatenated and
-     deduped, rules() covering the combined shape. Conflict rule: later member overrides earlier,
-     own-level property overrides every member; first-seen position kept for ordering. A `$ref`
-     member still emits its own standalone class too. The single-`$ref`-wrapped-in-allOf alias
-     pattern resolves to the referenced class (which also breaks self-referential allOf cycles).
-     Impact measured: 863 classes that were empty due to allOf across 25 corpus specs are now
-     populated. All 128 corpus specs still generate valid PHP.
-   - **additionalProperties** (71 specs, 55%): not represented at all; map-style schemas generate
-     an empty class. Still a gap.
-   - **oneOf / anyOf** (28 / 24 specs): typed as `mixed` with presence-only rules, no variant
-     enforcement. Still a gap.
-   Decision: 0.2.0 documented these honestly and shipped the server scaffold without touching the
-   generator. 0.3.0 implements them in impact order: allOf [done]; additionalProperties -> typed
-   array + per-value rules [next]; oneOf/anyOf -> docblock variants + union hints where members
-   resolve, runtime variant validation needs a spec discriminator [after].
-4. **Generator resilience on hostile/odd specs**: empty schemas, `$ref` to a missing component,
-   circular refs beyond the depth bound, properties named like PHP keywords/magic methods, unicode
-   property names. Each should produce a clear error or documented output, never a fatal or a
-   silent-wrong file. (Overlaps with the composition work above.)
-5. **DX on bad input**: actionable error messages (which schema, which property, what was wrong),
-   a `--dry-run` summary of what would be written, and a non-zero exit on partial failure.
-6. **Docs completeness** [done]: the site covers config reference, generated output, the server
-   scaffold (`--controllers`/`--routes`), and a dedicated `guides/limitations` page. The roadmap
-   page now states the composition gaps accurately (it previously overstated `allOf` as merged).
-7. **README accuracy pass** [done]: corrected Infection -> Pest native mutation and two -> three
-   corpus gates so the README matches what the pipeline actually runs.
-8. **Generated rules() typing** [done]: emit `@return array<string, list<string|object>>` so host
-   projects pass PHPStan max over their generated `app/Data`.
-9. **Server scaffold hardening** [done]: review-driven fixes (non-zero exit on misconfig, no unused
-   imports in generated controllers, readable `Untagged` fallback, single descriptor collection),
-   plus the writable-variant HTTP test under item 2.
+- Docblock injection neutralized; spec strings in comments are sanitized.
+- Identifier whitelist (`PhpIdentifier`) prevents path traversal and identifier injection via
+  schema/property/tag names; the `this` fatal is handled.
+- Enum values, wire names, defaults, and regex patterns are escaped into PHP literals.
+- Namespace/suffix options validated before any write.
+- Structural validation rejects non-OpenAPI documents with a clear error.
+- Input-size guard plus documented OS-level-limit guidance for the YAML-alias-bomb residual.
+- Output paths are operator-controlled by design and documented as such (never derive them from
+  untrusted input).
+- A hostile-input regression suite locks all of the above.
 
-Stretch (could be 0.2.x or later, not blockers): a committed showcase-subset of generated output
-diff-checked in CI (drift guard), and accepting community spec fixtures.
+Residual (documented, not code-fixable here): a determined attacker who fully controls the CLI
+invocation or config can still choose hostile output paths; and YAML alias expansion happens inside
+the vendored parser, so the size guard plus OS limits are the mitigation, not a hard cap.
 
-## Test strategy (mirror what worked in openapi-zod-ts)
+## Repo and release governance
 
-- Unit: Pest snapshot tests per emitter feature (`makeSpec()`-style minimal spec builder helper).
-- Corpus: all 128 fixtures must generate without errors; output must pass `php -l` and PHPStan max.
-  13-spec showcase subset with committed output, diff-checked in CI (drift guard on the generator).
-- Later: mutation testing (Infection, the PHP Stryker), runtime round-trip tests
-  (instantiate generated Data from fixture payloads inside an Orchestra Testbench app).
+- **Now (pre-1.0.0):** direct commits to `main`, push on maintainer approval. Branch protection
+  blocks force-push/deletion, restricts push to the maintainer, and requires the CI status checks,
+  but `enforce_admins` is off and PR reviews are not required, so the direct-push flow works.
+- **At 1.0.0 (the cutover):** flip `enforce_admins: true`, add `required_pull_request_reviews`
+  (1 approval), set required status checks `strict: true` (up-to-date branches), and move to a
+  PR + review workflow. This is a one-command protection change when we get there.
 
-## Open questions (genuine design decisions, mostly for 0.2.0)
+## Test strategy
 
-- **oneOf/anyOf representation in PHP**: union types? abstract base + variants? a documented
-  `mixed` + discriminator note? laravel-data has partial union support, research first. This is
-  the headline 0.2.0 design question (item 4 above).
-- **additionalProperties policy**: `false` -> Laravel has no native "reject unknown keys" on nested
-  arrays; `true`/schema -> how to type it. Decide ignore vs explicit prohibition vs typed bag.
+- Unit: Pest tests per emitter feature using a minimal in-memory spec builder, plus snapshot tests.
+- Corpus: all 128 fixtures must parse and generate valid PHP, now also passing the import-resolution
+  gate (256 corpus cases across the model and server gates). Plus the allOf and additionalProperties
+  non-empty guards.
+- Hostile-input suite for the security surfaces; regression fixtures for the sibling-history edge
+  cases (204+200, nullable enum, non-JSON response, `$ref` request body, `const`, `this`).
+- Pest native mutation testing (>=90%), 100% type coverage, PHPStan max, Pint.
+- Current totals: 563 tests passing locally.
+
+## Open questions (genuine design decisions)
+
+- **oneOf/anyOf representation in PHP**: union types where members resolve, a docblock variant list,
+  and a documented discriminator requirement for runtime selection. laravel-data has partial union
+  support, confirm the exact surface. This is the headline remaining 0.3.0 design question.
+- **Component request bodies / responses as typed params**: resolve `$ref` to
+  `#/components/requestBodies/...` into a typed Data parameter instead of the `Request` fallback.
 - **Exact laravel-data v4 feature surface** for casts/transformers we should lean on vs emit by
-  hand (dates, enums, nested hydration edge cases).
+  hand (dates, enums, nested hydration, typed-map value hydration).
 
-Resolved since the first draft: floors are PHP 8.2 + Laravel 11/12 + laravel-data v4; the standalone
-`vendor/bin` mode uses a slim framework-free `StandaloneApplication` (no illuminate/console needed).
+Resolved: allOf merging, additionalProperties representation, the security surfaces, and the two
+sibling-history bugs are all implemented (local on `main`, unreleased). Floors are PHP 8.2 +
+Laravel 11/12 + laravel-data v4; the standalone `vendor/bin` mode uses a slim framework-free
+`StandaloneApplication`.
