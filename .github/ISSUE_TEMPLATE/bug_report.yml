@@ -1,0 +1,69 @@
+name: Bug report
+description: Something generated wrong, crashed, or behaved unexpectedly
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: input
+    id: package-version
+    attributes:
+      label: Package version
+      description: Output of `composer show codewithagents/openapi-laravel | grep versions`
+      placeholder: "0.4.0"
+    validations:
+      required: true
+  - type: input
+    id: php-version
+    attributes:
+      label: PHP version
+      placeholder: "8.3.12"
+    validations:
+      required: true
+  - type: input
+    id: laravel-version
+    attributes:
+      label: Laravel version
+      description: Or "none" if you use the framework-free `vendor/bin/openapi-laravel` binary.
+      placeholder: "12.x"
+    validations:
+      required: true
+  - type: textarea
+    id: spec-snippet
+    attributes:
+      label: Minimal OpenAPI spec snippet
+      description: The smallest spec (or schema fragment) that reproduces the problem.
+      render: yaml
+      placeholder: |
+        openapi: 3.0.3
+        info: { title: repro, version: 1.0.0 }
+        paths: {}
+        components:
+          schemas:
+            Thing:
+              type: object
+              properties:
+                name: { type: string }
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Command run
+      placeholder: "php artisan openapi:generate --spec=openapi.yaml --output=app/Data"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected generated output
+      description: What you expected the generator to emit.
+      render: php
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual generated output
+      description: What it actually emitted (or the error message).
+      render: php
+    validations:
+      required: true
