@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.0](https://github.com/codewithagents/openapi-laravel/compare/v0.1.1...v0.2.0) (2026-06-10)
+
+
+### Features
+
+* generate abstract controllers and routes from the spec (v2 server scaffold) ([cc79a76](https://github.com/codewithagents/openapi-laravel/commit/cc79a7696850309c531fd4339d8e8d065667524e))
+
+
+### Bug Fixes
+
+* harden server scaffold per review (exit codes, output, naming, single collect) ([34a9d78](https://github.com/codewithagents/openapi-laravel/commit/34a9d780c0b3ab25631c713b88a26ef801f4fcae))
+* type generated rules() with a [@return](https://github.com/return) docblock for PHPStan max ([890373a](https://github.com/codewithagents/openapi-laravel/commit/890373a9a85cd00660b45e8698d337090b206b8b))
+
+
+### Miscellaneous Chores
+
+* pin pest memory to 512M so composer test/test:type do not OOM locally ([f625121](https://github.com/codewithagents/openapi-laravel/commit/f62512121361572a3576a485c38af97d9d7f9a98))
+
 ## [0.1.1](https://github.com/codewithagents/openapi-laravel/compare/v0.1.0...v0.1.1) (2026-06-10)
 
 
