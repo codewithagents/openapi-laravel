@@ -2,7 +2,9 @@
     "preset": "laravel",
     "exclude": [
         "examples/petstore/Data",
-        "examples/petstore/routes"
+        "examples/petstore/routes",
+        "tests/Feature/Example/Writable/Data",
+        "tests/Feature/Example/Writable/routes"
     ],
     "notName": [
         "Abstract*Controller.php"

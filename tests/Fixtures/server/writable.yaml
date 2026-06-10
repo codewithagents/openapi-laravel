@@ -1,0 +1,60 @@
+openapi: 3.0.3
+info:
+  title: Writable Variant Demo
+  version: 1.0.0
+paths:
+  /widgets:
+    post:
+      tags:
+        - widgets
+      summary: Create a widget.
+      operationId: createWidget
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Widget'
+      responses:
+        '201':
+          description: The created widget.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Widget'
+  /widgets/{widgetId}:
+    get:
+      tags:
+        - widgets
+      summary: Get a widget by id.
+      operationId: getWidgetById
+      parameters:
+        - name: widgetId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: The widget.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Widget'
+components:
+  schemas:
+    Widget:
+      type: object
+      required:
+        - name
+        - secret
+      properties:
+        id:
+          type: integer
+          format: int64
+          readOnly: true
+        name:
+          type: string
+        secret:
+          type: string
+          writeOnly: true
