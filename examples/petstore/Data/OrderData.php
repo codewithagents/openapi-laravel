@@ -18,6 +18,9 @@ final class OrderData extends Data
         public readonly ?bool $complete = null,
     ) {}
 
+    /**
+     * @return array<string, list<string|object>>
+     */
     public static function rules(): array
     {
         return [

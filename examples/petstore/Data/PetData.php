@@ -22,6 +22,9 @@ final class PetData extends Data
         public readonly ?string $status = null,
     ) {}
 
+    /**
+     * @return array<string, list<string|object>>
+     */
     public static function rules(): array
     {
         return [

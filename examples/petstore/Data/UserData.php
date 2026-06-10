@@ -19,6 +19,9 @@ final class UserData extends Data
         public readonly ?int $userStatus = null,
     ) {}
 
+    /**
+     * @return array<string, list<string|object>>
+     */
     public static function rules(): array
     {
         return [

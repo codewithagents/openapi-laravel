@@ -13,6 +13,9 @@ final class CustomerAddressData extends Data
         public readonly ?string $zip = null,
     ) {}
 
+    /**
+     * @return array<string, list<string|object>>
+     */
     public static function rules(): array
     {
         return [
@@ -50,6 +53,9 @@ final class CustomerData extends Data
         public readonly ?CustomerAddressData $address = null,
     ) {}
 
+    /**
+     * @return array<string, list<string|object>>
+     */
     public static function rules(): array
     {
         return [
@@ -93,6 +99,9 @@ final class TagData extends Data
         public readonly string $label,
     ) {}
 
+    /**
+     * @return array<string, list<string|object>>
+     */
     public static function rules(): array
     {
         return [

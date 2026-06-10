@@ -13,6 +13,9 @@ final class TagData extends Data
         public readonly ?string $name = null,
     ) {}
 
+    /**
+     * @return array<string, list<string|object>>
+     */
     public static function rules(): array
     {
         return [

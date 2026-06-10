@@ -14,6 +14,9 @@ final class ApiResponseData extends Data
         public readonly ?string $message = null,
     ) {}
 
+    /**
+     * @return array<string, list<string|object>>
+     */
     public static function rules(): array
     {
         return [
