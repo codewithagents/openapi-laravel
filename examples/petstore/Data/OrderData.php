@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data;
 
+use CodeWithAgents\OpenApiLaravel\Support\Rfc3339DateTimeRule;
 use Illuminate\Validation\Rule;
 use Spatie\LaravelData\Data;
 
@@ -27,7 +28,7 @@ final class OrderData extends Data
             'id' => ['sometimes', 'integer'],
             'petId' => ['sometimes', 'integer'],
             'quantity' => ['sometimes', 'integer'],
-            'shipDate' => ['sometimes', 'string', 'date'],
+            'shipDate' => ['sometimes', 'string', new Rfc3339DateTimeRule],
             'status' => ['sometimes', Rule::in(['placed', 'approved', 'delivered'])],
             'complete' => ['sometimes', 'boolean'],
         ];

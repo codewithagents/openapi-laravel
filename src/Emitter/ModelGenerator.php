@@ -190,6 +190,17 @@ final class ModelGenerator
     {
         $properties = $this->objectProperties($schema);
         $required = $this->requiredNames($schema);
+
+        // A scalar component (no named properties) that is an enum PHP cannot
+        // back as a native enum (a float enum) must still carry its constraint:
+        // wrap it in a single `value` property typed by the scalar with the
+        // `Rule::in` membership rule. Without this it would emit an empty,
+        // useless Data class that silently accepts any value.
+        if ($properties === [] && $this->isScalarEnumComponent($schema)) {
+            $properties = ['value' => $schema];
+            $required = ['value'];
+        }
+
         $base = $this->stripSuffix($className);
         $propertyNames = new UniqueNames;
 
@@ -214,10 +225,19 @@ final class ModelGenerator
             // Distinct wire names can collapse to the same identifier
             // (first_name + firstName); suffix collisions to avoid duplicate params.
             $propertyName = $propertyNames->reserve(PhpIdentifier::toPropertyName($wireName));
-            $isRequired = in_array($wireName, $required, true);
+            $listedRequired = in_array($wireName, $required, true);
             $type = $this->resolveType($propertySchema, $base.PhpIdentifier::toClassName($wireName), $depth + 1, $variant);
 
-            $rendered = $this->renderProperty($wireName, $propertyName, $type, $isRequired);
+            // A scalar `default` makes the property optional on input even when
+            // the spec lists it as required: an omitted value is filled by the
+            // default, so the input rule is `sometimes`, not `required`. The
+            // default also seeds the constructor parameter (`= 5`) instead of the
+            // hardcoded `= null`, and a property carrying a default never sits in
+            // the required-parameter group (PHP defaulted params must come last).
+            $default = $this->defaultValue($propertySchema, $type);
+            $isRequired = $listedRequired && $default === null;
+
+            $rendered = $this->renderProperty($wireName, $propertyName, $type, $isRequired, $default);
 
             if ($isRequired) {
                 $paramsRequired[] = $rendered;
@@ -235,7 +255,7 @@ final class ModelGenerator
         }
 
         $params = array_merge($paramsRequired, $paramsOptional);
-        $imports = $this->collectImports($params, $usesRule);
+        $imports = $this->collectImports($params, $usesRule, $rules);
 
         // A mixed object (named properties AND additionalProperties) emits its
         // named properties normally. laravel-data cannot route unknown keys into
@@ -252,10 +272,23 @@ final class ModelGenerator
     }
 
     /**
+     * Support-rule classes referenced by name inside emitted rule expressions
+     * (`new MultipleOfRule(...)`, `new Rfc3339DateTimeRule`). Keyed by the short
+     * class name the generated code uses; the value is the FQCN to import.
+     *
+     * @var array<string, string>
+     */
+    private const RULE_CLASS_IMPORTS = [
+        'MultipleOfRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\MultipleOfRule',
+        'Rfc3339DateTimeRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\Rfc3339DateTimeRule',
+    ];
+
+    /**
      * @param  list<array{code: string, imports: list<string>}>  $params
+     * @param  array<string, list<string>>  $rules
      * @return list<string>
      */
-    private function collectImports(array $params, bool $usesRule): array
+    private function collectImports(array $params, bool $usesRule, array $rules): array
     {
         $imports = ['Spatie\\LaravelData\\Data'];
 
@@ -269,6 +302,18 @@ final class ModelGenerator
             $imports[] = 'Illuminate\\Validation\\Rule';
         }
 
+        // A custom Rule class (`new MultipleOfRule(...)`) appears as a bare short
+        // name in the rule expression; import its FQCN so the reference resolves.
+        $ruleText = '';
+        foreach ($rules as $expressions) {
+            $ruleText .= implode(' ', $expressions).' ';
+        }
+        foreach (self::RULE_CLASS_IMPORTS as $shortName => $fqcn) {
+            if (str_contains($ruleText, 'new '.$shortName)) {
+                $imports[] = $fqcn;
+            }
+        }
+
         $imports = array_values(array_unique($imports));
         sort($imports);
 
@@ -276,9 +321,10 @@ final class ModelGenerator
     }
 
     /**
+     * @param  array{0: string}|null  $default  the rendered scalar default expression, wrapped, or null for "no default"
      * @return array{code: string, imports: list<string>}
      */
-    private function renderProperty(string $wireName, string $propertyName, ResolvedType $type, bool $isRequired): array
+    private function renderProperty(string $wireName, string $propertyName, ResolvedType $type, bool $isRequired, ?array $default = null): array
     {
         $imports = $type->imports;
         $lines = [];
@@ -307,12 +353,95 @@ final class ModelGenerator
             $lines[] = "        #[MapName('".$this->escapeSingleQuoted($wireName)."')]";
         }
 
-        $declaration = $isRequired ? $type->declaration() : $this->optionalDeclaration($type);
-        $default = $isRequired ? '' : ' = null';
+        if ($isRequired) {
+            $declaration = $type->declaration();
+            $defaultExpr = '';
+        } elseif ($default !== null) {
+            // A scalar default seeds the parameter. The declaration stays non-null
+            // when the schema is not nullable (the default makes null impossible);
+            // a nullable schema keeps its nullable declaration.
+            $declaration = $type->nullable ? $this->optionalDeclaration($type) : $type->declaration;
+            $defaultExpr = ' = '.$default[0];
+        } else {
+            $declaration = $this->optionalDeclaration($type);
+            $defaultExpr = ' = null';
+        }
 
-        $lines[] = '        public readonly '.$declaration.' $'.$propertyName.$default.',';
+        $lines[] = '        public readonly '.$declaration.' $'.$propertyName.$defaultExpr.',';
 
         return ['code' => implode("\n", $lines), 'imports' => array_values($imports)];
+    }
+
+    /**
+     * The scalar `default` of a property, rendered as a PHP literal expression
+     * wrapped in a single-element list, or null when there is no usable default.
+     *
+     * Only a scalar default (string/int/float/bool) on a scalar-typed property is
+     * emitted: the constructor parameter must accept the literal, so a default on
+     * an enum-typed, Data-class-typed, array-typed, or `mixed` property is skipped
+     * (it keeps the `= null` default and is still optional). The schema's own
+     * `getSerializableData()` is read so an explicit `default: null`/`false`/`0`
+     * is distinguished from "no default at all".
+     *
+     * @return array{0: string}|null
+     */
+    private function defaultValue(Schema|Reference $schema, ResolvedType $type): ?array
+    {
+        if (! $schema instanceof Schema) {
+            return null;
+        }
+
+        $serialized = (array) $schema->getSerializableData();
+        if (! array_key_exists('default', $serialized)) {
+            return null;
+        }
+
+        $value = $serialized['default'];
+
+        // The parameter type must be able to hold the literal: only emit a scalar
+        // default on a scalar (or scalar-union) declaration. Enum/Data-class/array
+        // and `mixed` declarations keep the null default.
+        if (! $this->isScalarDeclaration($type)) {
+            return null;
+        }
+
+        if (is_bool($value)) {
+            return [$value ? 'true' : 'false'];
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return [$this->numberLiteral($value)];
+        }
+
+        if (is_string($value)) {
+            return ["'".$this->escapeSingleQuoted($value)."'"];
+        }
+
+        // An array/object/null default is not a scalar literal we seed here.
+        return null;
+    }
+
+    /**
+     * Whether a resolved type is a scalar (or a union of scalars), so a scalar
+     * literal is a valid constructor default for it. A union built from scalars
+     * (`string|int`) qualifies; a union or single type that names a class
+     * (`CustomerStatus`, `TagData`) does not.
+     */
+    private function isScalarDeclaration(ResolvedType $type): bool
+    {
+        $members = explode('|', $type->declaration);
+
+        foreach ($members as $member) {
+            $member = ltrim($member, '?');
+            if ($member === 'null') {
+                continue;
+            }
+            if (! in_array($member, self::SCALARS, true)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function optionalDeclaration(ResolvedType $type): string
@@ -379,7 +508,7 @@ final class ModelGenerator
         if ($this->notEmptyArray($schema->enum)) {
             $values = $this->enumValues($schema);
             if ($values !== []) {
-                $rules[] = 'Rule::in(['.implode(', ', array_map(fn (string|int $value): string => $this->scalarLiteral($value), $values)).'])';
+                $rules[] = 'Rule::in(['.implode(', ', array_map(fn (string|int|float $value): string => $this->scalarLiteral($value), $values)).'])';
 
                 return [$rules, null, true];
             }
@@ -394,7 +523,16 @@ final class ModelGenerator
             return [$rules, null, true];
         }
 
-        $primary = $this->normalizeTypes($schema)[0] ?? null;
+        $types = $this->normalizeTypes($schema);
+
+        // A multi-type union (`type: ["string", "integer"]`) stays presence-only:
+        // a single type rule (`'string'`) would wrongly reject the other valid
+        // members. This mirrors the presence-only handling of oneOf/anyOf unions.
+        if (count($types) > 1) {
+            return [$rules, null, false];
+        }
+
+        $primary = $types[0] ?? null;
 
         if ($primary === 'string') {
             return [array_merge($rules, $this->stringRules($schema)), null, false];
@@ -414,6 +552,14 @@ final class ModelGenerator
 
         if ($primary === 'array') {
             [$itemRules, $itemUses] = $this->itemRules($schema);
+
+            // `uniqueItems: true` requires every element to be distinct. Laravel
+            // expresses that with a `distinct` rule on the `field.*` wildcard, so
+            // append it to the item rules (creating them if the items carried
+            // none of their own).
+            if ($schema->uniqueItems === true) {
+                $itemRules = array_merge($itemRules ?? [], ["'distinct'"]);
+            }
 
             return [array_merge($rules, ["'array'"], $this->arrayCountRules($schema)), $itemRules, $itemUses];
         }
@@ -461,7 +607,7 @@ final class ModelGenerator
         if ($this->notEmptyArray($items->enum)) {
             $values = $this->enumValues($items);
             if ($values !== []) {
-                return [['Rule::in(['.implode(', ', array_map(fn (string|int $value): string => $this->scalarLiteral($value), $values)).'])'], true];
+                return [['Rule::in(['.implode(', ', array_map(fn (string|int|float $value): string => $this->scalarLiteral($value), $values)).'])'], true];
             }
         }
 
@@ -513,7 +659,7 @@ final class ModelGenerator
         if ($this->notEmptyArray($value->enum)) {
             $values = $this->enumValues($value);
             if ($values !== []) {
-                return [['Rule::in(['.implode(', ', array_map(fn (string|int $v): string => $this->scalarLiteral($v), $values)).'])'], true];
+                return [['Rule::in(['.implode(', ', array_map(fn (string|int|float $v): string => $this->scalarLiteral($v), $values)).'])'], true];
             }
         }
 
@@ -581,20 +727,53 @@ final class ModelGenerator
     }
 
     /**
+     * Numeric constraints: minimum/maximum (inclusive -> min:/max:), the
+     * exclusive forms (strictly greater/less -> gt:/lt:), and multipleOf.
+     *
+     * Exclusive bounds come in two spec flavours. OpenAPI 3.0 uses a boolean
+     * companion: `minimum: N` plus `exclusiveMinimum: true` means strictly
+     * greater, so emit `gt:N` instead of `min:N`. OpenAPI 3.1 uses a numeric
+     * keyword: `exclusiveMinimum: N` (a number) means strictly greater than N,
+     * so emit `gt:N` on its own. cebe defaults the boolean companion to `false`
+     * when `minimum` is present, so we read getSerializableData() to tell an
+     * explicit `exclusiveMinimum: false` (inclusive) apart from the default.
+     *
      * @return list<string>
      */
     private function numericRules(Schema $schema): array
     {
         $rules = [];
 
+        $serialized = (array) $schema->getSerializableData();
+        $exclusiveMin = $serialized['exclusiveMinimum'] ?? null;
+        $exclusiveMax = $serialized['exclusiveMaximum'] ?? null;
+
+        // 3.1 numeric exclusiveMinimum: a strict lower bound on its own.
+        if (is_int($exclusiveMin) || is_float($exclusiveMin)) {
+            $rules[] = "'gt:".$this->numberLiteral($exclusiveMin)."'";
+        }
+        if (is_int($exclusiveMax) || is_float($exclusiveMax)) {
+            $rules[] = "'lt:".$this->numberLiteral($exclusiveMax)."'";
+        }
+
         $min = $schema->minimum;
         if (is_int($min) || is_float($min)) {
-            $rules[] = "'min:".$this->numberLiteral($min)."'";
+            // 3.0 boolean exclusiveMinimum: true upgrades the bound to strict.
+            $rules[] = $exclusiveMin === true
+                ? "'gt:".$this->numberLiteral($min)."'"
+                : "'min:".$this->numberLiteral($min)."'";
         }
 
         $max = $schema->maximum;
         if (is_int($max) || is_float($max)) {
-            $rules[] = "'max:".$this->numberLiteral($max)."'";
+            $rules[] = $exclusiveMax === true
+                ? "'lt:".$this->numberLiteral($max)."'"
+                : "'max:".$this->numberLiteral($max)."'";
+        }
+
+        $multipleOf = $schema->multipleOf;
+        if ((is_int($multipleOf) || is_float($multipleOf)) && $multipleOf > 0) {
+            $rules[] = 'new MultipleOfRule('.$this->numberLiteral($multipleOf).')';
         }
 
         return $rules;
@@ -625,8 +804,13 @@ final class ModelGenerator
         return match ($format) {
             'email', 'idn-email' => "'email'",
             'uuid' => "'uuid'",
-            'date' => "'date'",
-            'date-time' => "'date'",
+            // A `date` is a calendar date with no time: pin it to Y-m-d so a
+            // timestamp is rejected. A `date-time` is an RFC3339 timestamp: a
+            // dedicated rule accepts the Z/offset and fractional-second forms and
+            // rejects a bare date, which the old shared 'date' rule wrongly let
+            // through (and also accepted many non-RFC3339 strings).
+            'date' => "'date_format:Y-m-d'",
+            'date-time' => 'new Rfc3339DateTimeRule',
             'uri', 'url', 'iri' => "'url'",
             'ipv4' => "'ipv4'",
             'ipv6' => "'ipv6'",
@@ -700,9 +884,13 @@ final class ModelGenerator
         return null;
     }
 
-    private function scalarLiteral(string|int $value): string
+    private function scalarLiteral(string|int|float $value): string
     {
-        return is_int($value) ? (string) $value : "'".$this->escapeSingleQuoted($value)."'";
+        if (is_int($value) || is_float($value)) {
+            return $this->numberLiteral($value);
+        }
+
+        return "'".$this->escapeSingleQuoted($value)."'";
     }
 
     private function numberLiteral(int|float $value): string
@@ -772,6 +960,19 @@ final class ModelGenerator
         $types = $this->normalizeTypes($schema);
         $nullable = $this->isNullable($schema);
         $primary = $types[0] ?? null;
+
+        // A multi-type schema (`type: ["string", "integer"]`, the JSON Schema
+        // type array with more than one non-null member) is a union, not just its
+        // first type. Emit a native PHP union (string|int) so a valid integer is
+        // not rejected. A single non-null member plus `null` is a nullable scalar
+        // and is handled by the single-scalar path below (normalizeTypes already
+        // dropped the `null`).
+        if (count($types) > 1) {
+            $union = $this->resolveScalarTypeUnion($types, $nullable);
+            if ($union !== null) {
+                return $union;
+            }
+        }
 
         if ($primary !== null && isset(self::SCALARS[$primary])) {
             return new ResolvedType(self::SCALARS[$primary], $nullable);
@@ -901,6 +1102,54 @@ final class ModelGenerator
             $nullable,
             $docType,
             $imports,
+            null,
+            true,
+        );
+    }
+
+    /**
+     * Build a native PHP union from a JSON Schema multi-type array
+     * (`type: ["string", "integer"]`). Each member must be a known scalar; the
+     * PHP types are deduplicated in source order (so `["string","integer"]`
+     * becomes `string|int`). Returns null when any member is not a plain scalar
+     * (for example `array` or `object`), letting the caller fall back to its
+     * existing first-type handling rather than emit an unsound union.
+     *
+     * Mirrors the oneOf/anyOf union machinery (resolveUnion): isUnion is set so
+     * the declaration renders nullability as a trailing `|null` member, and a
+     * `@var` docType lists the variants.
+     *
+     * @param  list<string>  $types  non-null type members, in source order
+     */
+    private function resolveScalarTypeUnion(array $types, bool $nullable): ?ResolvedType
+    {
+        $declarations = [];
+
+        foreach ($types as $type) {
+            if (! isset(self::SCALARS[$type])) {
+                return null;
+            }
+
+            $declaration = self::SCALARS[$type];
+            if (! in_array($declaration, $declarations, true)) {
+                $declarations[] = $declaration;
+            }
+        }
+
+        // A single distinct PHP type after dedupe (e.g. `["integer","number"]`
+        // both map to scalars but stay distinct; only a true single type lands
+        // here) is not a union: let the normal scalar path handle it.
+        if (count($declarations) < 2) {
+            return null;
+        }
+
+        $docType = implode('|', $nullable ? array_merge($declarations, ['null']) : $declarations);
+
+        return new ResolvedType(
+            implode('|', $declarations),
+            $nullable,
+            $docType,
+            [],
             null,
             true,
         );
@@ -1050,7 +1299,16 @@ final class ModelGenerator
 
     private function emitEnum(string $className, Schema $schema): void
     {
-        $values = $this->enumValues($schema);
+        // emitEnum only runs for a backed-enum component (isEnum), whose values
+        // are all int or string; filtering floats here also narrows the type for
+        // the backing/case helpers, which a native PHP enum cannot back on a float.
+        $values = [];
+        foreach ($this->enumValues($schema) as $value) {
+            if (is_int($value) || is_string($value)) {
+                $values[] = $value;
+            }
+        }
+
         $backing = $this->enumBacking($values);
         $cases = new UniqueNames;
         $lines = [];
@@ -1097,13 +1355,19 @@ final class ModelGenerator
     }
 
     /**
-     * @return list<string|int>
+     * The usable scalar values of an `enum`: strings, ints, and floats. Floats
+     * are included so a `{type: number, enum: [1.5, 2.5]}` schema still emits a
+     * `Rule::in([1.5, 2.5])` constraint instead of silently accepting any number.
+     * A float-bearing enum cannot become a native backed enum (PHP enums only
+     * back int/string), so isBackedEnum() screens floats out separately.
+     *
+     * @return list<string|int|float>
      */
     private function enumValues(Schema $schema): array
     {
         $result = [];
         foreach ($this->asArray($schema->enum) as $value) {
-            if (is_string($value) || is_int($value)) {
+            if (is_string($value) || is_int($value) || is_float($value)) {
                 $result[] = $value;
             }
         }
@@ -1111,6 +1375,14 @@ final class ModelGenerator
         return $result;
     }
 
+    /**
+     * Whether a component schema should become a native PHP backed enum. It must
+     * be an enum with usable values, no named properties, and crucially every
+     * value must be int or string: PHP backed enums cannot back a float. A
+     * float-bearing enum is therefore NOT a backed enum here; it falls through to
+     * a Data class that carries the `Rule::in` constraint instead (see
+     * scalarEnumValueProperty / emitData).
+     */
     private function isEnum(Schema $schema): bool
     {
         if (! $this->notEmptyArray($schema->enum)) {
@@ -1118,6 +1390,41 @@ final class ModelGenerator
         }
 
         if ($this->notEmptyArray($schema->properties)) {
+            return false;
+        }
+
+        $values = $this->enumValues($schema);
+        if ($values === []) {
+            return false;
+        }
+
+        foreach ($values as $value) {
+            if (is_float($value)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Whether a schema is a scalar enum that has no named properties and did
+     * NOT qualify as a native backed enum (isEnum). The only such case is an
+     * enum carrying a float value, which a backed enum cannot represent. Such a
+     * component is wrapped in a single-`value` Data class so the `Rule::in`
+     * constraint is still enforced rather than emitting an empty class.
+     */
+    private function isScalarEnumComponent(Schema $schema): bool
+    {
+        if (! $this->notEmptyArray($schema->enum)) {
+            return false;
+        }
+
+        if ($this->notEmptyArray($schema->properties)) {
+            return false;
+        }
+
+        if ($this->isEnum($schema)) {
             return false;
         }
 

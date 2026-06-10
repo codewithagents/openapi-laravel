@@ -42,6 +42,12 @@ final readonly class ResolvedType
             return $this->declaration;
         }
 
+        // `mixed` already includes null: PHP fatals on `?mixed`, so never add the
+        // nullable prefix to it.
+        if ($this->declaration === 'mixed') {
+            return 'mixed';
+        }
+
         // A union encodes null as a trailing member ('string|int|null'); a plain
         // type uses the nullable shorthand ('?string').
         return $this->isUnion ? $this->declaration.'|null' : '?'.$this->declaration;
