@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel;
 
+use CodeWithAgents\OpenApiLaravel\Console\CheckCommand;
 use CodeWithAgents\OpenApiLaravel\Console\GenerateCommand;
 use Illuminate\Support\ServiceProvider;
 
@@ -23,6 +24,7 @@ final class OpenApiLaravelServiceProvider extends ServiceProvider
 
             $this->commands([
                 GenerateCommand::class,
+                CheckCommand::class,
             ]);
         }
     }

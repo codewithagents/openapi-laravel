@@ -4,17 +4,8 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Console;
 
-use cebe\openapi\spec\OpenApi;
-use CodeWithAgents\OpenApiLaravel\Emitter\FileWriter;
 use CodeWithAgents\OpenApiLaravel\Emitter\GenerationException;
-use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
-use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
-use CodeWithAgents\OpenApiLaravel\Emitter\Server\ControllerGenerator;
-use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
-use CodeWithAgents\OpenApiLaravel\Emitter\Server\RouteGenerator;
-use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
 use CodeWithAgents\OpenApiLaravel\Parser\ParseException;
-use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 use Illuminate\Console\Command;
 
 final class GenerateCommand extends Command
@@ -37,142 +28,41 @@ final class GenerateCommand extends Command
 
     public function handle(): int
     {
-        $spec = $this->stringOption('spec') ?? $this->configString('openapi-laravel.spec');
-        $output = $this->stringOption('output') ?? $this->configString('openapi-laravel.output.path');
-        // A --namespace option overrides the configured output namespace; the
-        // standalone binary already works this way, so the artisan command
-        // mirrors it. The legal-PHP-namespace check below applies either way.
-        $namespace = $this->stringOption('namespace')
-            ?? $this->configString('openapi-laravel.output.namespace')
-            ?? 'App\\Data';
-        $suffix = $this->configString('openapi-laravel.output.suffix') ?? 'Data';
-        $depth = config('openapi-laravel.max_depth');
-        $maxDepth = is_int($depth) ? $depth : 64;
-        $bytes = config('openapi-laravel.max_bytes');
-        $maxBytes = is_int($bytes) ? $bytes : null;
-        $prune = (bool) $this->option('prune') || (bool) config('openapi-laravel.output.prune');
+        $request = (new CommandRequestFactory)->fromCommand($this);
 
-        if ($spec === null || $spec === '') {
-            $this->components->error('No OpenAPI spec configured. Pass --spec or set openapi-laravel.spec.');
-
-            return self::FAILURE;
-        }
-
-        if ($output === null || $output === '') {
-            $this->components->error('No output path configured. Pass --output or set openapi-laravel.output.path.');
-
-            return self::FAILURE;
-        }
-
-        // Validate operator-supplied identifiers before any file is written, so a
-        // stray space or quote fails fast instead of emitting broken PHP (C-3).
         try {
-            OptionValidator::namespace('output.namespace', $namespace);
-            OptionValidator::identifier('output.suffix', $suffix);
-            $controllerNamespace = $this->configString('openapi-laravel.controllers.namespace') ?? 'App\\Http\\Controllers\\Api';
-            OptionValidator::namespace('controllers.namespace', $controllerNamespace);
-        } catch (OptionException $e) {
+            $plan = (new GenerationPlanner)->plan($request);
+        } catch (PlanException|OptionException $e) {
             $this->components->error($e->getMessage());
 
             return self::FAILURE;
-        }
-
-        try {
-            $document = (new SpecParser($maxBytes))->parseFile($spec);
-            $generator = new ModelGenerator(new GeneratorOptions($namespace, $suffix, $maxDepth));
-            $files = $generator->generate($document);
         } catch (ParseException|GenerationException $e) {
             $this->components->error($e->getMessage());
 
             return self::FAILURE;
         }
 
-        if ($files === []) {
+        $prune = (bool) $this->option('prune') || (bool) config('openapi-laravel.output.prune');
+        $writer = new PlanWriter;
+
+        if ($plan->noModelSchemas) {
             $this->components->warn('No component schemas found; nothing to generate.');
         } else {
-            $written = (new FileWriter($output))->write($files, $prune);
-            $this->components->info(sprintf('Generated %d %s into %s', count($written), count($written) === 1 ? 'class' : 'classes', $output));
+            $written = $writer->write($plan, PlannedFile::CATEGORY_DATA, $prune ? $request->output : null);
+            $this->components->info(sprintf('Generated %d %s into %s', count($written), count($written) === 1 ? 'class' : 'classes', $request->output));
         }
 
-        if (! $this->generateServer($document, $generator->registry(), $namespace)) {
-            return self::FAILURE;
+        if ($request->controllers) {
+            $written = $writer->write($plan, PlannedFile::CATEGORY_CONTROLLER);
+            $this->components->info(sprintf('Generated %d abstract %s into %s', count($written), count($written) === 1 ? 'controller' : 'controllers', $request->controllerPath));
+        }
+
+        if ($request->routes) {
+            $written = $writer->write($plan, PlannedFile::CATEGORY_ROUTES);
+            $count = count($written);
+            $this->components->info(sprintf('Generated %d %s into %s', $count, $count === 1 ? 'route file' : 'route files', $request->routesPath));
         }
 
         return self::SUCCESS;
-    }
-
-    /**
-     * @param  array<string, array{dataClass: string, writeClass: ?string, kind: 'data'|'enum'}>  $registry
-     * @return bool false when a requested server target is misconfigured
-     */
-    private function generateServer(OpenApi $document, array $registry, string $dataNamespace): bool
-    {
-        $controllers = (bool) $this->option('controllers') || (bool) config('openapi-laravel.controllers.enabled');
-        $routes = (bool) $this->option('routes') || (bool) config('openapi-laravel.routes.enabled');
-
-        if (! $controllers && ! $routes) {
-            return true;
-        }
-
-        $controllerNamespace = $this->configString('openapi-laravel.controllers.namespace') ?? 'App\\Http\\Controllers\\Api';
-        $serverOptions = new ServerOptions($controllerNamespace, $dataNamespace);
-
-        // Collect descriptors once and feed the same list to both generators so
-        // controller method names and route targets can never drift apart.
-        $descriptors = (new OperationCollector($serverOptions, $registry))->collect($document);
-
-        $ok = true;
-
-        if ($controllers) {
-            $controllerPath = $this->configString('openapi-laravel.controllers.path');
-            if ($controllerPath === null || $controllerPath === '') {
-                $this->components->error('No controllers path configured. Set openapi-laravel.controllers.path.');
-                $ok = false;
-            } else {
-                $controllerFiles = (new ControllerGenerator($serverOptions))->generate($descriptors);
-                // Never prune: only ever (over)write the Abstract* files, leaving
-                // the user's concrete controllers untouched.
-                $writtenControllers = (new FileWriter($controllerPath))->write($controllerFiles, false);
-                $this->components->info(sprintf('Generated %d abstract %s into %s', count($writtenControllers), count($writtenControllers) === 1 ? 'controller' : 'controllers', $controllerPath));
-            }
-        }
-
-        if ($routes) {
-            $routesPath = $this->configString('openapi-laravel.routes.path');
-            if ($routesPath === null || $routesPath === '') {
-                $this->components->error('No routes path configured. Set openapi-laravel.routes.path.');
-                $ok = false;
-            } else {
-                $routeFile = (new RouteGenerator($serverOptions))->generate($descriptors);
-                $this->writeRoutesFile($routesPath, $routeFile->code);
-                $this->components->info(sprintf('Generated %d %s into %s', count($descriptors), count($descriptors) === 1 ? 'route' : 'routes', $routesPath));
-            }
-        }
-
-        return $ok;
-    }
-
-    private function writeRoutesFile(string $path, string $code): void
-    {
-        $directory = dirname($path);
-        if (! is_dir($directory)) {
-            mkdir($directory, 0755, true);
-        }
-
-        file_put_contents($path, $code);
-    }
-
-    private function stringOption(string $name): ?string
-    {
-        $value = $this->option($name);
-
-        return is_string($value) ? $value : null;
-    }
-
-    private function configString(string $key): ?string
-    {
-        $value = config($key);
-
-        return is_string($value) ? $value : null;
     }
 }

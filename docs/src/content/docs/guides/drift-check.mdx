@@ -1,0 +1,166 @@
+---
+title: Drift check
+description: Verify the committed generated code is in sync with the spec, and fail CI when it drifts. The enforcement mechanism behind "drift is structurally impossible".
+---
+
+import { Tabs, TabItem, Steps, Aside } from '@astrojs/starlight/components'
+
+The generated Data classes, abstract controllers, and routes file are deterministic: the same spec in produces byte-identical files out. `openapi:check` turns that property into an enforceable guarantee. It computes exactly what `openapi:generate` would write, then compares it against the files on disk. If anything is missing or different, the command fails.
+
+This is the enforcement mechanism behind the project's promise that spec/code drift is structurally impossible. Generation makes drift easy to remove; the drift check makes drift impossible to merge.
+
+## The concept
+
+A generator only prevents drift if someone reruns it. `openapi:check` removes the "if". Run it in CI on every pull request and a stale Data class, a hand-edited routes file, or a forgotten regenerate all fail the build before they reach `main`.
+
+```
+openapi.yaml ──► openapi:generate ──► files written to disk   (you commit these)
+openapi.yaml ──► openapi:check    ──► compares plan vs disk    (CI gate, writes nothing)
+```
+
+`openapi:check` never writes anything. It plans the same file set `openapi:generate` would produce, in memory, and compares each expected file byte-for-byte against the file currently on disk.
+
+<Aside type="note">
+Because generation is deterministic, the comparison is an exact match. There is no normalization, no whitespace tolerance, and no formatting pass. A single changed byte is drift.
+</Aside>
+
+## What it checks
+
+`openapi:check` only compares **generator-owned** files:
+
+- the generated Data classes and enums,
+- the abstract controllers (`Abstract*Controller.php`), when `--controllers` is on,
+- the generated routes file, when `--routes` is on.
+
+It never inspects your hand-written concrete controllers or any unrelated file. A file is reported as drifted when it is either:
+
+- **missing**, no file exists at the path the generator would write, or
+- **changed**, a file exists but its content differs from the freshly generated content.
+
+Stale-file detection (files on disk that the generator would no longer produce) is out of scope: the check focuses on the expected file set.
+
+## Usage
+
+`openapi:check` honours the same config and the same flags as `openapi:generate` (`--spec`, `--output`, `--namespace`, `--controllers`, `--routes`), so it always checks exactly what generate would produce.
+
+<Tabs>
+<TabItem label="Laravel (artisan)">
+
+```bash
+# Models only (uses config/openapi-laravel.php)
+php artisan openapi:check
+
+# Override the spec and output, and include the server scaffold
+php artisan openapi:check \
+  --spec=openapi.yaml \
+  --output=app/Data \
+  --controllers \
+  --routes
+```
+
+</TabItem>
+<TabItem label="Standalone binary">
+
+```bash
+# Models only
+vendor/bin/openapi-laravel check \
+  --spec=openapi.yaml \
+  --output=app/Data
+
+# With the server scaffold
+vendor/bin/openapi-laravel check \
+  --spec=openapi.yaml \
+  --output=app/Data \
+  --controllers --controller-output=app/Http/Controllers/Api \
+  --routes --routes-output=routes/api.generated.php
+```
+
+</TabItem>
+</Tabs>
+
+When everything matches, the command prints:
+
+```
+Generated code is in sync with the spec.
+```
+
+When something has drifted, it lists each affected file with a status tag:
+
+```
+Drift detected in 2 file(s):
+  [changed] app/Data/PetData.php
+  [missing] app/Data/TagData.php
+```
+
+## Exit codes
+
+The exit code is what makes the command a CI gate.
+
+| Code | Meaning |
+| ---- | ------- |
+| `0`  | Every generator-owned file on disk matches the spec. In sync. |
+| `1`  | Drift detected. One or more files are missing or changed. |
+| `2`  | Configuration or spec error (no spec configured, an unparseable spec, a missing output path, an illegal namespace). |
+
+Exit code `2` is distinct on purpose: a broken spec or misconfiguration is a different failure than genuine drift, and CI logs make that distinction clear.
+
+## Seeing what changed: `--diff`
+
+By default the command lists the drifted files. Add `--diff` to print a concise unified diff (expected versus on-disk) for each **changed** file, so you can see precisely what regenerating would do.
+
+```bash
+php artisan openapi:check --diff
+```
+
+```
+Drift detected in 1 file(s):
+  [changed] app/Data/PetData.php
+     public readonly int $id,
+    -public readonly string $name,
+    +public readonly ?string $name,
+     public readonly ?string $tag,
+```
+
+Lines prefixed with `-` are what the generator would write; lines prefixed with `+` are what is currently on disk. The diff is line-based and bounded, so a wholesale rewrite will not flood your terminal. Missing files are not diffed (there is nothing on disk to compare).
+
+## Enforcing it in CI
+
+Add a step that regenerates nothing and simply checks. If the spec and the committed code have drifted, the step exits non-zero and fails the build.
+
+```yaml
+# .github/workflows/ci.yml
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  drift-check:
+    name: Spec/code drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+      - run: composer install --no-interaction --no-progress
+      - name: Verify generated code is in sync with the spec
+        run: php artisan openapi:check --controllers --routes
+```
+
+The standalone binary works the same way for non-Laravel projects:
+
+```yaml
+      - name: Verify generated code is in sync with the spec
+        run: |
+          vendor/bin/openapi-laravel check \
+            --spec=openapi.yaml \
+            --output=src/Data
+```
+
+<Aside type="tip">
+Run `openapi:check` on every pull request, not just on `main`. The whole point is to catch drift before it merges, so contributors get a fast, unambiguous signal: rerun `openapi:generate` and commit the result.
+</Aside>
+
+## Why this matters
+
+Code generators tend to rot: someone edits a generated file "just this once", or changes the spec and forgets to regenerate, and the committed code quietly stops matching the contract. `openapi:check` closes that gap. Combined with deterministic generation, it makes the spec the single enforceable source of truth: the only way to change the generated code is to change the spec and regenerate, and CI proves it.

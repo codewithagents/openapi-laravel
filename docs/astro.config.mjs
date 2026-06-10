@@ -71,6 +71,7 @@ export default defineConfig({
             { label: 'Configuration', slug: 'guides/configuration' },
             { label: 'Generated output', slug: 'guides/generated-output' },
             { label: 'Server scaffold', slug: 'guides/server-scaffold' },
+            { label: 'Drift check', slug: 'guides/drift-check' },
             { label: 'End-to-end demo', slug: 'guides/end-to-end-demo' },
             { label: 'Limitations', slug: 'guides/limitations' },
           ],
