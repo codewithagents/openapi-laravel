@@ -15,8 +15,13 @@ plan, and the open questions. Do not re-litigate decided items without new infor
 
 ## Current state
 
-Scaffolding only. No working code. Next step: phase 1 of the v1 plan in ROADMAP.md
-(composer skeleton that resolves, Pest + PHPStan max wired, CI matrix).
+v1 models generator working end to end. Parser (lazy refs, 128 specs parse), naming layer,
+models emitter (laravel-data classes, enums, nested objects, collections, nullable, MapName,
+readOnly/writeOnly split), rules() emitter (spec constraints to Laravel validation), the
+`openapi:generate` artisan command, and a standalone `vendor/bin/openapi-laravel`. Full test
+pyramid green: unit, snapshot, corpus parse + generate gates (128), Testbench round-trip and
+validation round-trip. PHPStan max, Pint, 100% type coverage. Remaining before the 0.1.0 tag:
+dependency hygiene + Infection thresholds, docs site, release. See ROADMAP.md.
 
 ## Layout
 

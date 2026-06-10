@@ -1,6 +1,10 @@
 # Roadmap
 
-Status: scaffolding only. No working code yet. This file is the resume point for the next session.
+Status: v1 models generator working end to end. Phases 1-5 plus the artisan command, the
+standalone bin, and the readOnly/writeOnly split are done and committed; all 128 corpus specs
+parse and generate valid PHP, with PHPStan max, 100% type coverage, and Testbench round-trip
+tests green. Remaining before the 0.1.0 tag: dependency-hygiene + mutation thresholds, the docs
+site, and the release itself. This file is the resume point for the next session.
 
 ## Vision
 
