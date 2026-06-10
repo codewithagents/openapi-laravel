@@ -140,7 +140,7 @@ abstract class AbstractPetController
      *
      * @return DataCollection<int, PetData>
      */
-    abstract public function findPetsByStatus(): \Spatie\LaravelData\DataCollection;
+    abstract public function findPetsByStatus(): DataCollection;
 
     /**
      * GET /pet/findByTags
@@ -149,7 +149,7 @@ abstract class AbstractPetController
      *
      * @return DataCollection<int, PetData>
      */
-    abstract public function findPetsByTags(): \Spatie\LaravelData\DataCollection;
+    abstract public function findPetsByTags(): DataCollection;
 
     /**
      * GET /pet/{petId}
@@ -170,7 +170,7 @@ abstract class AbstractPetController
      *
      * Deletes a pet.
      */
-    abstract public function deletePet(int $petId): \Illuminate\Http\JsonResponse;
+    abstract public function deletePet(int $petId): JsonResponse;
 
     /**
      * POST /pet/{petId}/uploadImage
@@ -305,6 +305,11 @@ The generator resolves the type of each parameter and return value from the spec
 
   Array bodies and non-JSON content types fall back to a plain `Illuminate\Http\Request` parameter,
   because there is no single Data class to type them against.
+
+  Request bodies expressed as a component reference (`$ref: '#/components/requestBodies/...'`) are
+  also left untyped today and fall back to `Illuminate\Http\Request`, because the parser does not
+  resolve component request bodies. Reference the schema directly under `content` if you want a typed
+  Data parameter.
 </Aside>
 
 ## Pruning

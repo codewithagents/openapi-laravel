@@ -87,6 +87,12 @@ Spec in -> generated `app/Data/*` (configurable namespace/path):
 - This makes path-level spec/code drift structurally impossible: the routing table derives from
   the spec. (Spring-generator pattern, translated to idiomatic Laravel.)
 
+**Known limitation (v2):** request bodies expressed as a component reference
+(`$ref: '#/components/requestBodies/...'`) are left unresolved by the parser and fall back to a
+plain `Illuminate\Http\Request` parameter instead of a typed Data class. Inline `content` bodies
+that reference a schema `$ref` directly are typed as expected. Resolving component request bodies
+is a candidate follow-up; for now, reference the schema under `content` to get a typed parameter.
+
 ### v3 (maybe): client generation (`Http::` facade based). Less differentiated, decide later.
 
 ## Phase plan for v1 (all shipped in 0.1.0 / 0.1.1)
