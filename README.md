@@ -7,14 +7,14 @@ classes with explicit, spec-derived validation rules, plus native PHP enums. Rea
 owned output: the generated code lives in your repo and looks like code you would have written yourself.
 
 ```php
-// generated from components.schemas.Patient
-final class PatientData extends Data
+// generated from components.schemas.Customer
+final class CustomerData extends Data
 {
     public function __construct(
         public readonly int $id,
         public readonly string $name,
         public readonly ?string $email,
-        public readonly PatientStatus $status,
+        public readonly CustomerStatus $status,
     ) {}
 
     public static function rules(): array
@@ -22,7 +22,7 @@ final class PatientData extends Data
         return [
             'name'   => ['required', 'string', 'max:255'],
             'email'  => ['nullable', 'email'],
-            'status' => ['required', Rule::enum(PatientStatus::class)],
+            'status' => ['required', Rule::enum(CustomerStatus::class)],
         ];
     }
 }
