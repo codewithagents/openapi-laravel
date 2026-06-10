@@ -1,0 +1,41 @@
+{
+    "openapi": "3.0.3",
+    "info": { "title": "Customer API", "version": "1.0.0" },
+    "paths": {},
+    "components": {
+        "schemas": {
+            "Customer": {
+                "type": "object",
+                "required": ["id", "name"],
+                "properties": {
+                    "id": { "type": "integer" },
+                    "name": { "type": "string" },
+                    "email_address": { "type": "string", "nullable": true },
+                    "status": { "$ref": "#/components/schemas/CustomerStatus" },
+                    "tags": {
+                        "type": "array",
+                        "items": { "$ref": "#/components/schemas/Tag" }
+                    },
+                    "address": {
+                        "type": "object",
+                        "properties": {
+                            "city": { "type": "string" },
+                            "zip": { "type": "string" }
+                        }
+                    }
+                }
+            },
+            "CustomerStatus": {
+                "type": "string",
+                "enum": ["active", "inactive", "pending-review"]
+            },
+            "Tag": {
+                "type": "object",
+                "required": ["label"],
+                "properties": {
+                    "label": { "type": "string" }
+                }
+            }
+        }
+    }
+}

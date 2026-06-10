@@ -6,3 +6,7 @@ parameters:
     paths:
         - src
     tmpDir: build/phpstan
+    # cebe spec objects expose attributes via optimistic @property docblocks
+    # (e.g. Schema::$type is "string|string[]" but null when absent). Do not
+    # treat those PHPDoc types as certain, so defensive runtime checks are kept.
+    treatPhpDocTypesAsCertain: false

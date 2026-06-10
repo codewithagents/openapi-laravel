@@ -1,0 +1,68 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data;
+
+use Spatie\LaravelData\Data;
+
+final class CustomerAddressData extends Data
+{
+    public function __construct(
+        public readonly ?string $city = null,
+        public readonly ?string $zip = null,
+    ) {}
+}
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data;
+
+use Spatie\LaravelData\Attributes\DataCollectionOf;
+use Spatie\LaravelData\Attributes\MapName;
+use Spatie\LaravelData\Data;
+
+final class CustomerData extends Data
+{
+    public function __construct(
+        public readonly int $id,
+        public readonly string $name,
+        #[MapName('email_address')]
+        public readonly ?string $emailAddress = null,
+        public readonly ?CustomerStatus $status = null,
+        /** @var array<int, TagData> */
+        #[DataCollectionOf(TagData::class)]
+        public readonly ?array $tags = null,
+        public readonly ?CustomerAddressData $address = null,
+    ) {}
+}
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data;
+
+enum CustomerStatus: string
+{
+    case Active = 'active';
+    case Inactive = 'inactive';
+    case PendingReview = 'pending-review';
+}
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data;
+
+use Spatie\LaravelData\Data;
+
+final class TagData extends Data
+{
+    public function __construct(
+        public readonly string $label,
+    ) {}
+}
