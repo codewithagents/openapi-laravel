@@ -1,0 +1,24 @@
+# Keep the published Composer package lean. Everything below stays in the git
+# repo but is stripped from the Packagist "dist" archive that users download on
+# `composer require`. Only runtime code (src, bin, config, composer.json,
+# LICENSE, README, CHANGELOG) ships.
+
+/.github                        export-ignore
+/.claude                        export-ignore
+/docs                           export-ignore
+/tests                          export-ignore
+/build                          export-ignore
+
+/.gitattributes                 export-ignore
+/.gitignore                     export-ignore
+/.release-please-manifest.json  export-ignore
+/release-please-config.json     export-ignore
+
+/phpunit.xml                    export-ignore
+/phpstan.neon                   export-ignore
+/pint.json                      export-ignore
+/composer-unused.php            export-ignore
+/composer-require-checker.json  export-ignore
+
+/CLAUDE.md                      export-ignore
+/ROADMAP.md                     export-ignore
