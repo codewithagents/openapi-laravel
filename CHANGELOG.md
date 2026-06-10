@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/codewithagents/openapi-laravel/compare/v0.1.0...v0.1.1) (2026-06-10)
+
+
+### Bug Fixes
+
+* exclude tests, docs, and dev tooling from the published package ([0bf8c13](https://github.com/codewithagents/openapi-laravel/commit/0bf8c131f1090a2187811e596a5d273db866eecb))
+
 ## 0.1.0 (2026-06-10)
 
 
