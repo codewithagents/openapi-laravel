@@ -11,10 +11,14 @@
         "spatie/laravel-data": "^4.0"
     },
     "require-dev": {
-        "pestphp/pest": "^3.0",
-        "phpstan/phpstan": "^2.0",
+        "infection/infection": "^0.29",
+        "larastan/larastan": "^3.0",
+        "laravel/pint": "^1.0",
         "orchestra/testbench": "^9.0|^10.0",
-        "laravel/pint": "^1.0"
+        "pestphp/pest": "^3.0",
+        "pestphp/pest-plugin-type-coverage": "^3.0",
+        "phpstan/phpstan": "^2.0",
+        "spatie/pest-plugin-snapshots": "^2.0"
     },
     "autoload": {
         "psr-4": {
@@ -33,11 +37,29 @@
             ]
         }
     },
+    "scripts": {
+        "pint": "pint",
+        "lint": "pint --test",
+        "stan": "phpstan analyse",
+        "test": "pest",
+        "test:type": "pest --type-coverage --min=100",
+        "test:mutate": "infection --threads=max",
+        "qa": [
+            "@lint",
+            "@stan",
+            "@test"
+        ]
+    },
     "config": {
         "sort-packages": true,
+        "platform": {
+            "php": "8.2.0"
+        },
         "allow-plugins": {
-            "pestphp/pest-plugin": true
+            "pestphp/pest-plugin": true,
+            "infection/extension-installer": true
         }
     },
-    "minimum-stability": "stable"
+    "minimum-stability": "stable",
+    "prefer-stable": true
 }

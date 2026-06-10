@@ -1,0 +1,16 @@
+{
+    "$schema": "vendor/infection/infection/resources/schema.json",
+    "source": {
+        "directories": ["src"]
+    },
+    "mutators": {
+        "@default": true
+    },
+    "logs": {
+        "stryker": {
+            "report": "0-100"
+        }
+    },
+    "minMsi": 0,
+    "minCoveredMsi": 0
+}
