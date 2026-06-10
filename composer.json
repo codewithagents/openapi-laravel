@@ -3,7 +3,14 @@
     "description": "Generate Laravel models (spatie/laravel-data classes, validation rules, enums) from an OpenAPI spec. The spec is the source of truth.",
     "type": "library",
     "license": "MIT",
-    "keywords": ["openapi", "laravel", "codegen", "laravel-data", "spec-first", "contract-first"],
+    "keywords": [
+        "openapi",
+        "laravel",
+        "codegen",
+        "laravel-data",
+        "spec-first",
+        "contract-first"
+    ],
     "require": {
         "php": "^8.2",
         "ext-ctype": "*",
@@ -20,7 +27,9 @@
         "phpstan/phpstan": "^2.0",
         "spatie/pest-plugin-snapshots": "^2.0"
     },
-    "bin": ["bin/openapi-laravel"],
+    "bin": [
+        "bin/openapi-laravel"
+    ],
     "autoload": {
         "psr-4": {
             "CodeWithAgents\\OpenApiLaravel\\": "src/"
