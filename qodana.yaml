@@ -26,3 +26,13 @@ exclude:
       - tests/Fixtures
       - build
       - docs
+      # composer-unused.php references the composer-unused tool's own
+      # Configuration and NamedFilter classes, which are not in this project's
+      # autoload. Qodana reports them as PhpUndefinedClass / PhpUndefinedNamespace
+      # false positives, so exclude the file from all inspections.
+      - composer-unused.php
+  # Always-bracing string interpolation ("{$x}") is our deliberate house style.
+  # This inspection is purely cosmetic, so disable it project-wide.
+  - name: PhpUnnecessaryCurlyVarSyntaxInspection
+  # Pure noise: flags explicit (bool) casts we keep for readability.
+  - name: PhpUnnecessaryBoolCastInspection
