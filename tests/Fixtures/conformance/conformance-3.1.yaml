@@ -1,0 +1,928 @@
+# openapi-laravel conformance spec (OpenAPI 3.1.0)
+#
+# This is NOT a realistic API. It is a deliberate kitchen-sink document whose
+# only purpose is to exercise every construct the generator must handle, so it
+# can become a single golden regression fixture.
+#
+# Every named component schema and every operation carries a comment naming the
+# construct it exercises, and where relevant the generator issue number it
+# covers. Issue legend:
+#   #8  ?mixed non-compiling (nullable+required oneOf resolving to mixed)
+#   #9  non-object component aliases ($ref to a scalar/array/oneOf alias)
+#   #10 exclusive bounds (numeric exclusiveMinimum/exclusiveMaximum)
+#   #11 float/number enums
+#   #12 multi-type arrays with two real types
+#   #13 date-time rule emission
+#   #14 multipleOf / uniqueItems
+#   #15 defaults (incl. nullable default)
+#   #18 documented no-op string formats
+#
+# Style: no em dashes anywhere by project rule.
+openapi: 3.1.0
+info:
+  title: openapi-laravel Conformance Spec
+  version: 1.0.0
+  description: >-
+    Synthetic conformance document covering the full generator surface. One
+    named component schema or operation per construct, so generated output is
+    individually assertable.
+servers:
+  - url: https://conformance.example.test/v1
+
+# ---------------------------------------------------------------------------
+# PATHS / OPERATIONS (server scaffold surface)
+# ---------------------------------------------------------------------------
+paths:
+
+  # Path + query + header + cookie params, including an integer PATH param.
+  # 200 JSON response, default response.
+  /widgets/{widgetId}:
+    get:
+      operationId: getWidget
+      summary: Mixed parameter locations including an integer path parameter
+      tags: [widgets, read]
+      parameters:
+        - name: widgetId          # integer PATH parameter
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: expand            # QUERY parameter (array)
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+        - name: X-Trace-Id        # HEADER parameter
+          in: header
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: session           # COOKIE parameter
+          in: cookie
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A single widget as JSON
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Widget'
+        default:                  # default response
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorObject'
+
+  # requestBody as INLINE schema. 201 created. 204 no content on delete.
+  /widgets:
+    post:
+      operationId: createWidget
+      summary: requestBody as an inline schema, returns 201
+      tags: [widgets, write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:                # INLINE request body schema
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                weight:
+                  type: number
+                  format: double
+      responses:
+        '201':                    # 201 Created
+          description: Widget created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Widget'
+    delete:
+      operationId: deleteAllWidgets
+      summary: 204 No Content response (no body)
+      tags: [widgets, write]
+      responses:
+        '204':                    # 204 No Content
+          description: All widgets deleted
+
+  # requestBody as a $ref to a COMPONENT SCHEMA.
+  # Response is a oneOf of $ref objects. 422 with NO content schema.
+  /gadgets:
+    post:
+      operationId: createGadget
+      summary: requestBody $ref to a component schema, oneOf response, empty 422
+      tags: [gadgets, write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:               # request body via $ref to component schema
+              $ref: '#/components/schemas/GadgetInput'
+      responses:
+        '200':
+          description: A gadget result that is a union of object shapes
+          content:
+            application/json:
+              schema:             # response schema is a oneOf of $ref objects
+                oneOf:
+                  - $ref: '#/components/schemas/GadgetAlpha'
+                  - $ref: '#/components/schemas/GadgetBeta'
+        '422':                    # 422 with NO content schema (validation error, body-less)
+          description: Validation failed (no response body schema)
+
+  # requestBody as a $ref to a COMPONENT REQUESTBODY (the Request-fallback case).
+  /gizmos:
+    post:
+      operationId: createGizmo
+      summary: requestBody $ref to a component requestBody object
+      tags: [gizmos]
+      requestBody:                # $ref to components.requestBodies (Request fallback)
+        $ref: '#/components/requestBodies/GizmoBody'
+      responses:
+        '200':
+          description: Created gizmo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Gizmo'
+
+  # Non-JSON response (application/octet-stream binary download).
+  /widgets/{widgetId}/blob:
+    get:
+      operationId: downloadWidgetBlob
+      summary: Non-JSON response (application/octet-stream)
+      tags: [widgets, read]
+      parameters:
+        - name: widgetId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Raw binary blob
+          content:
+            application/octet-stream:   # non-JSON binary response
+              schema:
+                type: string
+                format: binary
+
+  # multipart/form-data and application/x-www-form-urlencoded request bodies.
+  /uploads:
+    post:
+      operationId: uploadStuff
+      summary: multipart/form-data and x-www-form-urlencoded bodies
+      tags: [uploads]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:        # multipart form body with a binary file part
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                caption:
+                  type: string
+          application/x-www-form-urlencoded:   # urlencoded form body
+            schema:
+              type: object
+              properties:
+                field_a:
+                  type: string
+                field_b:
+                  type: integer
+      responses:
+        '200':
+          description: Upload accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Widget'
+
+  # Operation with NO operationId, and multiple tags.
+  /pingless:
+    get:
+      summary: Operation deliberately missing an operationId, multiple tags
+      tags: [misc, read, diagnostics]   # multiple tags
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+
+  # operationId COLLISION part 1: "duplicateOp" defined here ...
+  /collide/first:
+    get:
+      operationId: duplicateOp          # same operationId as /collide/second (collision)
+      summary: First of two operations sharing an operationId
+      tags: [misc]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  which:
+                    const: first
+
+  # operationId COLLISION part 2: ... and again here with the SAME id.
+  /collide/second:
+    get:
+      operationId: duplicateOp          # duplicate operationId across paths
+      summary: Second of two operations sharing an operationId
+      tags: [misc]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  which:
+                    const: second
+
+# ---------------------------------------------------------------------------
+# COMPONENTS
+# ---------------------------------------------------------------------------
+components:
+
+  requestBodies:
+
+    # Component requestBody, referenced by /gizmos (Request-fallback case).
+    GizmoBody:
+      description: Reusable request body referenced by $ref
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GizmoInput'
+
+  schemas:
+
+    # =====================================================================
+    # SECTION 1: SCALARS
+    # =====================================================================
+
+    # Every scalar type, int32/int64, float/double, boolean.
+    Scalars:
+      type: object
+      description: Every primitive scalar and numeric format
+      properties:
+        aString:
+          type: string             # string
+        anInt32:
+          type: integer
+          format: int32            # integer int32
+        anInt64:
+          type: integer
+          format: int64            # integer int64
+        aFloat:
+          type: number
+          format: float            # number float
+        aDouble:
+          type: number
+          format: double           # number double
+        aBoolean:
+          type: boolean            # boolean
+
+    # =====================================================================
+    # SECTION 2: STRING FORMATS (incl. documented no-ops, issue #18)
+    # =====================================================================
+
+    # All standard string formats plus one unknown/custom format. Several of
+    # these are intentionally no-ops in rule emission (issue #18).
+    StringFormats:
+      type: object
+      description: Every string format including a custom/unknown one (issue #18)
+      properties:
+        aDate:
+          type: string
+          format: date             # date
+        aDateTime:
+          type: string
+          format: date-time        # date-time (rule emission, issue #13)
+        aTime:
+          type: string
+          format: time             # time
+        aDuration:
+          type: string
+          format: duration         # duration
+        anEmail:
+          type: string
+          format: email            # email
+        aUuid:
+          type: string
+          format: uuid             # uuid
+        aUri:
+          type: string
+          format: uri              # uri
+        aHostname:
+          type: string
+          format: hostname         # hostname
+        anIpv4:
+          type: string
+          format: ipv4             # ipv4
+        anIpv6:
+          type: string
+          format: ipv6             # ipv6
+        aByte:
+          type: string
+          format: byte             # byte (base64)
+        aBinary:
+          type: string
+          format: binary           # binary
+        aPassword:
+          type: string
+          format: password         # password (no-op, issue #18)
+        aCustomFormat:
+          type: string
+          format: x-license-plate  # unknown/custom format (no-op, issue #18)
+
+    # =====================================================================
+    # SECTION 3: STRING CONSTRAINTS
+    # =====================================================================
+
+    # minLength, maxLength, and a pattern containing both '#' and '~'.
+    StringConstraints:
+      type: object
+      description: String length and pattern constraints (pattern with '#' and '~')
+      properties:
+        bounded:
+          type: string
+          minLength: 3             # minLength
+          maxLength: 12            # maxLength
+        patterned:
+          type: string
+          pattern: '^#[A-Fa-f0-9]{6}~tag$'   # pattern containing both '#' and '~'
+
+    # =====================================================================
+    # SECTION 4: NUMERIC CONSTRAINTS (issues #10, #14)
+    # =====================================================================
+
+    # minimum, maximum, 3.1 NUMERIC exclusive bounds, multipleOf.
+    NumericConstraints:
+      type: object
+      description: Numeric constraints incl. 3.1 numeric exclusive bounds (issues #10, #14)
+      properties:
+        inclusive:
+          type: integer
+          minimum: 0               # minimum
+          maximum: 100             # maximum
+        exclusive:
+          type: number
+          format: double
+          exclusiveMinimum: 0      # exclusiveMinimum, 3.1 NUMERIC form (issue #10)
+          exclusiveMaximum: 1      # exclusiveMaximum, 3.1 NUMERIC form (issue #10)
+        stepped:
+          type: integer
+          multipleOf: 5            # multipleOf (issue #14)
+
+    # =====================================================================
+    # SECTION 5: ARRAYS (issue #14)
+    # =====================================================================
+
+    # items (scalar), minItems, maxItems, uniqueItems.
+    ArrayScalar:
+      type: array
+      description: Array of scalars with min/max/uniqueItems (issue #14)
+      items:
+        type: string             # scalar items
+      minItems: 1                # minItems
+      maxItems: 10               # maxItems
+      uniqueItems: true          # uniqueItems (issue #14)
+
+    # items is a $ref.
+    ArrayOfRef:
+      type: array
+      description: Array whose items are a $ref to an object schema
+      items:
+        $ref: '#/components/schemas/Widget'   # $ref items
+
+    # prefixItems / tuple (3.1).
+    # NOTE: the canonical "closed tuple" spelling adds `items: false`, but the
+    # vendored cebe parser cannot instantiate a boolean schema value and rejects
+    # it (see conformance README, parser-gap finding). prefixItems alone parses,
+    # so the tuple construct is still covered without the boolean schema.
+    TupleSchema:
+      type: array
+      description: Tuple via 3.1 prefixItems (items:false omitted, parser gap)
+      prefixItems:                # prefixItems tuple positions
+        - type: string
+        - type: integer
+        - type: boolean
+
+    # Array of array.
+    ArrayOfArray:
+      type: array
+      description: Nested array (array of array of integers)
+      items:
+        type: array              # array-of-array
+        items:
+          type: integer
+
+    # Array of union.
+    ArrayOfUnion:
+      type: array
+      description: Array whose items are a union
+      items:
+        oneOf:                   # array-of-union items
+          - $ref: '#/components/schemas/GadgetAlpha'
+          - $ref: '#/components/schemas/GadgetBeta'
+
+    # =====================================================================
+    # SECTION 6: OBJECTS + additionalProperties
+    # =====================================================================
+
+    # properties + required, minProperties/maxProperties.
+    ObjectWithRequired:
+      type: object
+      description: Object with required properties and min/max property counts
+      required: [id, name]        # required
+      minProperties: 2            # minProperties
+      maxProperties: 8            # maxProperties
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        note:
+          type: string
+
+    # additionalProperties: false (closed object).
+    AdditionalPropsFalse:
+      type: object
+      description: additionalProperties false (closed object)
+      properties:
+        known:
+          type: string
+      additionalProperties: false   # additionalProperties false
+
+    # additionalProperties: true (open object).
+    AdditionalPropsTrue:
+      type: object
+      description: additionalProperties true (open object)
+      properties:
+        known:
+          type: string
+      additionalProperties: true    # additionalProperties true
+
+    # additionalProperties with a scalar-value schema (map of string).
+    AdditionalPropsScalar:
+      type: object
+      description: additionalProperties as a scalar schema (map of string)
+      additionalProperties:         # additionalProperties scalar-value schema
+        type: string
+
+    # additionalProperties with a $ref-value schema (map of Widget).
+    AdditionalPropsRef:
+      type: object
+      description: additionalProperties as a $ref schema (map of object)
+      additionalProperties:         # additionalProperties $ref-value schema
+        $ref: '#/components/schemas/Widget'
+
+    # Mixed object: named properties PLUS additionalProperties.
+    MixedObject:
+      type: object
+      description: Named properties together with additionalProperties
+      properties:                   # named properties ...
+        id:
+          type: integer
+        label:
+          type: string
+      additionalProperties:         # ... PLUS additionalProperties
+        type: number
+
+    # Map of objects.
+    MapOfObjects:
+      type: object
+      description: Map (dictionary) of object values
+      additionalProperties:         # map-of-objects
+        $ref: '#/components/schemas/Widget'
+
+    # =====================================================================
+    # SECTION 7: NULLABILITY (3.1 type arrays, issue #12)
+    # =====================================================================
+
+    Nullability:
+      type: object
+      description: 3.1 type-array nullability and multi-type arrays (issue #12)
+      properties:
+        nullableString:
+          type: [string, "null"]    # 3.1 nullable via type array
+        stringOrInteger:
+          type: [string, integer]   # multi-type array, TWO real types (issue #12)
+        stringIntOrNull:
+          type: [string, integer, "null"]   # two real types plus null (issue #12)
+
+    # =====================================================================
+    # SECTION 8: ENUMS (issues #11)
+    # =====================================================================
+
+    StringEnum:
+      type: string
+      description: String enum
+      enum: [red, green, blue]      # string enum
+
+    IntegerEnum:
+      type: integer
+      description: Integer enum
+      enum: [1, 2, 3]               # integer enum
+
+    FloatEnum:
+      type: number
+      format: float
+      description: Float/number enum (issue #11)
+      enum: [0.5, 1.5, 2.5]         # number/float enum (issue #11)
+
+    BooleanEnum:
+      type: boolean
+      description: Boolean enum
+      enum: [true, false]           # boolean enum
+
+    MixedTypeEnum:
+      description: Mixed-type enum (heterogeneous values)
+      enum: ["one", 2, true, 3.5]   # mixed-type enum
+
+    EnumWithNull:
+      type: [string, "null"]
+      description: Enum containing null
+      enum: [active, inactive, null]   # enum containing null
+
+    SingleValueEnum:
+      type: string
+      description: Single-value enum
+      enum: [only]                  # single-value enum
+
+    ConstSchema:
+      description: const keyword (single allowed value)
+      const: pinned                 # const
+
+    # =====================================================================
+    # SECTION 9: COMPOSITION (issues #8, scalar union)
+    # =====================================================================
+
+    # Pure allOf.
+    AllOfPure:
+      description: Pure allOf merge of two object schemas
+      allOf:                        # pure allOf
+        - $ref: '#/components/schemas/ObjectWithRequired'
+        - type: object
+          properties:
+            extra:
+              type: string
+
+    # allOf + own sibling properties.
+    AllOfWithSiblings:
+      type: object
+      description: allOf together with own sibling properties
+      allOf:                        # allOf branch ...
+        - $ref: '#/components/schemas/ObjectWithRequired'
+      properties:                   # ... PLUS sibling properties
+        sibling:
+          type: string
+      required: [sibling]
+
+    # Nested allOf.
+    AllOfNested:
+      description: Nested allOf (allOf containing an allOf)
+      allOf:                        # nested allOf
+        - allOf:
+            - $ref: '#/components/schemas/ObjectWithRequired'
+            - type: object
+              properties:
+                inner:
+                  type: string
+        - type: object
+          properties:
+            outer:
+              type: string
+
+    # allOf with a $ref (single-branch allOf wrapping a ref).
+    AllOfWithRef:
+      description: allOf with a single $ref branch
+      allOf:                        # allOf with a $ref
+        - $ref: '#/components/schemas/Widget'
+
+    # oneOf of scalars (scalar union).
+    OneOfScalars:
+      description: oneOf of scalar types (scalar union)
+      oneOf:                        # scalar oneOf union
+        - type: string
+        - type: integer
+        - type: boolean
+
+    # oneOf of $ref objects WITH a discriminator + mapping.
+    OneOfDiscriminated:
+      description: oneOf of $ref objects with discriminator and mapping
+      oneOf:                        # discriminated union
+        - $ref: '#/components/schemas/GadgetAlpha'
+        - $ref: '#/components/schemas/GadgetBeta'
+      discriminator:
+        propertyName: kind
+        mapping:
+          alpha: '#/components/schemas/GadgetAlpha'
+          beta: '#/components/schemas/GadgetBeta'
+
+    # oneOf objects WITHOUT a discriminator.
+    OneOfNoDiscriminator:
+      description: oneOf of $ref objects without a discriminator
+      oneOf:                        # undiscriminated object union
+        - $ref: '#/components/schemas/GadgetAlpha'
+        - $ref: '#/components/schemas/GadgetBeta'
+
+    # nullable + required oneOf resolving to mixed (the ?mixed case, issue #8).
+    NullableMixedOneOf:
+      type: object
+      description: Required+nullable oneOf that resolves to mixed (issue #8)
+      required: [value]
+      properties:
+        value:                      # required AND nullable union -> ?mixed (issue #8)
+          oneOf:
+            - type: string
+            - type: integer
+            - type: object
+            - type: "null"
+
+    # anyOf.
+    AnyOfSchema:
+      description: anyOf union
+      anyOf:                        # anyOf
+        - $ref: '#/components/schemas/GadgetAlpha'
+        - type: object
+          properties:
+            loose:
+              type: string
+
+    # =====================================================================
+    # SECTION 10: $ref TARGETS (issue #9, non-object aliases)
+    # =====================================================================
+
+    # Top-level SCALAR alias (non-object component, issue #9).
+    ScalarAlias:
+      type: string                  # top-level scalar alias (issue #9)
+      description: A component that is itself a scalar (non-object alias)
+      minLength: 1
+
+    # Top-level ARRAY alias (non-object component, issue #9).
+    ArrayAlias:
+      type: array                   # top-level array alias (issue #9)
+      description: A component that is itself an array (non-object alias)
+      items:
+        type: string
+
+    # Top-level oneOf alias (non-object component, issue #9).
+    OneOfAlias:
+      description: A component that is itself a oneOf (non-object alias, issue #9)
+      oneOf:                        # top-level oneOf alias (issue #9)
+        - type: string
+        - type: integer
+
+    # Recursive / self-referential schema.
+    TreeNode:
+      type: object
+      description: Recursive self-referential schema
+      properties:
+        value:
+          type: string
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/TreeNode'   # self-reference (recursion)
+
+    # Deeply nested chain: ChainA -> ChainB -> ChainC -> scalar.
+    ChainA:
+      type: object
+      description: Deep ref chain, level A
+      properties:
+        next:
+          $ref: '#/components/schemas/ChainB'       # deep chain A -> B
+    ChainB:
+      type: object
+      description: Deep ref chain, level B
+      properties:
+        next:
+          $ref: '#/components/schemas/ChainC'       # deep chain B -> C
+    ChainC:
+      type: object
+      description: Deep ref chain, level C (terminates at a scalar)
+      properties:
+        leaf:
+          type: string
+
+    # =====================================================================
+    # SECTION 11: readOnly / writeOnly
+    # =====================================================================
+
+    ReadWriteOnly:
+      type: object
+      description: readOnly/writeOnly at top level, nested, and on array items
+      required: [id]
+      properties:
+        id:
+          type: integer
+          readOnly: true            # top-level readOnly property
+        password:
+          type: string
+          writeOnly: true           # top-level writeOnly property
+        nested:
+          type: object
+          properties:
+            createdAt:
+              type: string
+              format: date-time
+              readOnly: true        # readOnly on a NESTED object property
+            secret:
+              type: string
+              writeOnly: true       # writeOnly on a nested property
+        tokens:
+          type: array
+          items:                    # readOnly/writeOnly on ARRAY ITEMS
+            type: object
+            properties:
+              issued:
+                type: string
+                readOnly: true
+              raw:
+                type: string
+                writeOnly: true
+
+    # =====================================================================
+    # SECTION 12: DEFAULTS (issue #15)
+    # =====================================================================
+
+    Defaults:
+      type: object
+      description: Default values incl. on required and nullable fields (issue #15)
+      required: [withDefaultAndRequired]
+      properties:
+        optionalWithDefault:
+          type: string
+          default: "fallback"       # scalar default on an optional field (issue #15)
+        withDefaultAndRequired:
+          type: integer
+          default: 0                # default on a field also listed in required (issue #15)
+        enumWithDefault:
+          type: string
+          enum: [a, b, c]
+          default: b                # default on an enum (issue #15)
+        nullableWithDefault:
+          type: [string, "null"]
+          default: null             # nullable default (issue #15)
+
+    # =====================================================================
+    # SECTION 13: NAMING TORTURE
+    # =====================================================================
+
+    # Property-name torture cases.
+    NamingTortureProps:
+      type: object
+      description: Property names that stress the naming/sanitizing layer
+      properties:
+        snake_case_name:
+          type: string             # snake_case wire name
+        class:
+          type: string             # PHP reserved word as a property name
+        this:
+          type: string             # the name 'this'
+        "2fast":
+          type: string             # numeric-leading name
+        "naïve_café":
+          type: string             # unicode name
+        "user.name":
+          type: string             # dotted name
+        foo_bar:
+          type: string             # collides with fooBar after sanitizing
+        fooBar:
+          type: string             # collides with foo_bar after sanitizing
+
+    # Schema-name torture: a snake_case component name.
+    snake_case_schema:
+      type: object                  # snake_case schema NAME
+      description: Schema name in snake_case (naming layer, schema-name path)
+      properties:
+        ok:
+          type: boolean
+
+    # Schema-name torture: a dotted component name.
+    dotted.schema.name:
+      type: object                  # dotted schema NAME
+      description: Schema name containing dots (naming layer)
+      properties:
+        ok:
+          type: boolean
+
+    # Schema-name torture: a numeric-leading component name.
+    "9lives":
+      type: object                  # numeric-leading schema NAME
+      description: Schema name starting with a digit (naming layer)
+      properties:
+        ok:
+          type: boolean
+
+    # =====================================================================
+    # SUPPORTING SCHEMAS referenced above
+    # =====================================================================
+
+    # Plain object used as a $ref target in many places.
+    Widget:
+      type: object
+      description: Plain object, common $ref target
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+
+    # Discriminated-union member alpha (carries the discriminator property).
+    GadgetAlpha:
+      type: object
+      description: Discriminated union member (alpha)
+      required: [kind, alphaField]
+      properties:
+        kind:
+          type: string
+          const: alpha
+        alphaField:
+          type: string
+
+    # Discriminated-union member beta.
+    GadgetBeta:
+      type: object
+      description: Discriminated union member (beta)
+      required: [kind, betaField]
+      properties:
+        kind:
+          type: string
+          const: beta
+        betaField:
+          type: integer
+
+    # Input body for createGadget.
+    GadgetInput:
+      type: object
+      description: Request body schema for createGadget
+      required: [kind]
+      properties:
+        kind:
+          $ref: '#/components/schemas/StringEnum'
+        payload:
+          type: object
+          additionalProperties: true
+
+    # Input body referenced by the GizmoBody component requestBody.
+    GizmoInput:
+      type: object
+      description: Request body schema referenced via a component requestBody
+      required: [serial]
+      properties:
+        serial:
+          type: string
+          format: uuid
+
+    # Gizmo response object.
+    Gizmo:
+      type: object
+      description: Gizmo response object
+      properties:
+        serial:
+          type: string
+          format: uuid
+        ready:
+          type: boolean
+
+    # Generic error object for the default response.
+    ErrorObject:
+      type: object
+      description: Error payload for default responses
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+          format: int32
+        message:
+          type: string

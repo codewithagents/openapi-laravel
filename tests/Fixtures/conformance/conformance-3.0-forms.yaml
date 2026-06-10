@@ -1,0 +1,74 @@
+# openapi-laravel conformance companion (OpenAPI 3.0.x)
+#
+# Minimal, focused companion to conformance-3.1.yaml. It covers ONLY the
+# 3.0-specific spellings that cannot legally appear in a 3.1 document, so the
+# divergent code paths still get a fixture:
+#   * nullable: true  (on a scalar, on an object, on an enum)
+#   * the BOOLEAN exclusiveMinimum/exclusiveMaximum form paired with
+#     minimum/maximum (in 3.1 these are numeric, here they are booleans)
+#
+# Everything else belongs in the 3.1 spec. Keep this file minimal.
+# Style: no em dashes anywhere by project rule.
+openapi: 3.0.3
+info:
+  title: openapi-laravel Conformance Companion (3.0 forms)
+  version: 1.0.0
+  description: >-
+    Covers only the 3.0-divergent spellings (nullable, boolean exclusive
+    bounds) that cannot appear in the 3.1 conformance spec.
+paths:
+  # Single trivial operation so the document is structurally complete.
+  /ping:
+    get:
+      operationId: ping30
+      summary: Trivial operation to make the 3.0 document well-formed
+      tags: [misc]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullableScalar'
+
+components:
+  schemas:
+
+    # 3.0 nullable: true on a SCALAR.
+    NullableScalar:
+      type: string
+      nullable: true              # 3.0 nullable scalar (no 3.1 type-array equivalent here)
+      description: Scalar with 3.0 nullable true
+
+    # 3.0 nullable: true on an OBJECT.
+    NullableObject:
+      type: object
+      nullable: true              # 3.0 nullable object
+      description: Object with 3.0 nullable true
+      properties:
+        id:
+          type: integer
+        label:
+          type: string
+
+    # 3.0 nullable: true on an ENUM.
+    NullableEnum:
+      type: string
+      nullable: true              # 3.0 nullable enum
+      description: Enum with 3.0 nullable true
+      enum: [red, green, blue]
+
+    # 3.0 BOOLEAN exclusiveMinimum/exclusiveMaximum paired with minimum/maximum.
+    BooleanExclusiveBounds:
+      type: object
+      description: 3.0 boolean exclusive-bound form (diverges from 3.1 numeric form)
+      properties:
+        exclusiveLow:
+          type: integer
+          minimum: 0
+          exclusiveMinimum: true  # 3.0 BOOLEAN exclusiveMinimum paired with minimum
+        exclusiveHigh:
+          type: number
+          format: double
+          maximum: 1
+          exclusiveMaximum: true  # 3.0 BOOLEAN exclusiveMaximum paired with maximum

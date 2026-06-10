@@ -1,0 +1,179 @@
+# Conformance fixtures
+
+Single golden regression corpus for the openapi-laravel generator. These specs
+are NOT realistic APIs. They are kitchen-sink conformance documents whose only
+job is to exercise every construct the generator must handle, so generated
+output can be asserted construct by construct in one place.
+
+Two files:
+
+- `conformance-3.1.yaml` , the main document. OpenAPI 3.1.0. One named component
+  schema or operation per construct.
+- `conformance-3.0-forms.yaml` , a small OpenAPI 3.0.x companion covering ONLY
+  the 3.0-specific spellings that cannot legally appear in a 3.1 document
+  (`nullable: true`, boolean `exclusiveMinimum`/`exclusiveMaximum`).
+
+These files are deliberately NOT in the `tests/Fixtures/specs/` corpus glob, so
+they do not auto-run through the existing 128-spec parse and generate gates. The
+golden snapshot test that consumes them is a later capstone, landing after the
+in-flight generator fixes.
+
+## Issue legend
+
+| Issue | Meaning |
+|-------|---------|
+| #8  | `?mixed` non-compiling (required + nullable oneOf resolving to mixed) |
+| #9  | Non-object component aliases ($ref to a scalar/array/oneOf alias) |
+| #10 | Exclusive bounds (numeric exclusiveMinimum/exclusiveMaximum) |
+| #11 | Float/number enums |
+| #12 | Multi-type arrays with two real types |
+| #13 | date-time rule emission |
+| #14 | multipleOf / uniqueItems |
+| #15 | Defaults (including nullable default) |
+| #18 | Documented no-op string formats |
+
+## Parser-gap finding
+
+The vendored cebe parser (`devizzent/cebe-php-openapi`) cannot instantiate a
+boolean schema value, so the canonical closed-tuple spelling `items: false`
+(and `items: true`) is rejected with `Unable to instantiate Schema Object with
+data ''`. This is valid OpenAPI 3.1, so it is a real parser gap rather than an
+invalid construct. `TupleSchema` therefore uses `prefixItems` alone and omits
+`items: false`; the tuple construct is still covered. Note: boolean
+`additionalProperties: true|false` IS accepted (cebe special-cases that path),
+so those constructs remain in the spec unchanged.
+
+Both files otherwise parse cleanly through `SpecParser` (and pass cebe's
+optional `validate()` pass): `conformance-3.1.yaml` -> 54 schemas, 9 paths;
+`conformance-3.0-forms.yaml` -> 4 schemas, 1 path.
+
+## conformance-3.1.yaml manifest
+
+### Scalars and formats
+
+| Schema | Constructs | Issues |
+|--------|-----------|--------|
+| `Scalars` | string, integer int32, integer int64, number float, number double, boolean | |
+| `StringFormats` | date, date-time, time, duration, email, uuid, uri, hostname, ipv4, ipv6, byte, binary, password, custom/unknown format | #13, #18 |
+| `StringConstraints` | minLength, maxLength, pattern containing both `#` and `~` | |
+| `NumericConstraints` | minimum, maximum, numeric exclusiveMinimum/exclusiveMaximum (3.1), multipleOf | #10, #14 |
+
+### Arrays
+
+| Schema | Constructs | Issues |
+|--------|-----------|--------|
+| `ArrayScalar` | scalar items, minItems, maxItems, uniqueItems | #14 |
+| `ArrayOfRef` | items via $ref | |
+| `TupleSchema` | prefixItems tuple (items:false omitted, parser gap) | |
+| `ArrayOfArray` | array of array | |
+| `ArrayOfUnion` | array whose items are a oneOf union | |
+
+### Objects and additionalProperties
+
+| Schema | Constructs | Issues |
+|--------|-----------|--------|
+| `ObjectWithRequired` | properties, required, minProperties, maxProperties | |
+| `AdditionalPropsFalse` | additionalProperties false | |
+| `AdditionalPropsTrue` | additionalProperties true | |
+| `AdditionalPropsScalar` | additionalProperties scalar-value schema (map of string) | |
+| `AdditionalPropsRef` | additionalProperties $ref-value schema (map of object) | |
+| `MixedObject` | named properties PLUS additionalProperties | |
+| `MapOfObjects` | map of objects | |
+
+### Nullability
+
+| Schema | Constructs | Issues |
+|--------|-----------|--------|
+| `Nullability` | 3.1 type-array `[string,null]`; two-real-type `[string,integer]`; `[string,integer,null]` | #12 |
+
+### Enums
+
+| Schema | Constructs | Issues |
+|--------|-----------|--------|
+| `StringEnum` | string enum | |
+| `IntegerEnum` | integer enum | |
+| `FloatEnum` | number/float enum | #11 |
+| `BooleanEnum` | boolean enum | |
+| `MixedTypeEnum` | mixed-type enum | |
+| `EnumWithNull` | enum containing null | |
+| `SingleValueEnum` | single-value enum | |
+| `ConstSchema` | const | |
+
+### Composition
+
+| Schema | Constructs | Issues |
+|--------|-----------|--------|
+| `AllOfPure` | pure allOf | |
+| `AllOfWithSiblings` | allOf plus own sibling properties | |
+| `AllOfNested` | nested allOf | |
+| `AllOfWithRef` | allOf with a $ref branch | |
+| `OneOfScalars` | oneOf of scalars (scalar union) | |
+| `OneOfDiscriminated` | oneOf of $ref objects with discriminator + mapping | |
+| `OneOfNoDiscriminator` | oneOf of $ref objects without discriminator | |
+| `NullableMixedOneOf` | required + nullable oneOf resolving to mixed (`?mixed`) | #8 |
+| `AnyOfSchema` | anyOf | |
+
+### $ref targets
+
+| Schema | Constructs | Issues |
+|--------|-----------|--------|
+| `ScalarAlias` | top-level scalar alias (non-object component) | #9 |
+| `ArrayAlias` | top-level array alias (non-object component) | #9 |
+| `OneOfAlias` | top-level oneOf alias (non-object component) | #9 |
+| `TreeNode` | recursive / self-referential schema | |
+| `ChainA` / `ChainB` / `ChainC` | deeply nested ref chain | |
+| `Widget` | plain object, common $ref target | |
+
+### readOnly / writeOnly
+
+| Schema | Constructs | Issues |
+|--------|-----------|--------|
+| `ReadWriteOnly` | readOnly/writeOnly at top level, on a nested object property, and on array items | |
+
+### Defaults
+
+| Schema | Constructs | Issues |
+|--------|-----------|--------|
+| `Defaults` | default on optional field, default on a required field, default on an enum, nullable default | #15 |
+
+### Naming torture
+
+| Schema | Constructs | Issues |
+|--------|-----------|--------|
+| `NamingTortureProps` | property names: snake_case, PHP reserved word (`class`), `this`, numeric-leading (`2fast`), unicode (`naïve_café`), dotted (`user.name`), and a `foo_bar`/`fooBar` collide-after-sanitize pair | |
+| `snake_case_schema` | snake_case schema NAME | |
+| `dotted.schema.name` | dotted schema NAME | |
+| `9lives` | numeric-leading schema NAME | |
+
+### Supporting schemas
+
+`GadgetAlpha`, `GadgetBeta` (discriminated union members), `GadgetInput`,
+`GizmoInput`, `Gizmo`, `ErrorObject` support the operations and unions above.
+
+### Operations
+
+| Operation (path) | Constructs | Issues |
+|------------------|-----------|--------|
+| `getWidget` (`GET /widgets/{widgetId}`) | integer path param, query param, header param, cookie param, 200 JSON, default response | |
+| `createWidget` (`POST /widgets`) | requestBody inline schema, 201 created | |
+| `deleteAllWidgets` (`DELETE /widgets`) | 204 no content | |
+| `createGadget` (`POST /gadgets`) | requestBody $ref to component schema, response oneOf of $ref objects, 422 with no content schema | |
+| `createGizmo` (`POST /gizmos`) | requestBody $ref to a component requestBody (Request fallback) | |
+| `downloadWidgetBlob` (`GET /widgets/{widgetId}/blob`) | non-JSON response (application/octet-stream binary) | |
+| `uploadStuff` (`POST /uploads`) | multipart/form-data body, application/x-www-form-urlencoded body | |
+| (no id) (`GET /pingless`) | operation with no operationId, multiple tags | |
+| `duplicateOp` (`GET /collide/first`) | operationId collision part 1 | |
+| `duplicateOp` (`GET /collide/second`) | operationId collision part 2 (same id, different path) | |
+
+## conformance-3.0-forms.yaml manifest
+
+| Schema | Constructs | Issues |
+|--------|-----------|--------|
+| `NullableScalar` | 3.0 `nullable: true` on a scalar | |
+| `NullableObject` | 3.0 `nullable: true` on an object | |
+| `NullableEnum` | 3.0 `nullable: true` on an enum | |
+| `BooleanExclusiveBounds` | 3.0 boolean `exclusiveMinimum: true` with `minimum`, boolean `exclusiveMaximum: true` with `maximum` | #10 |
+
+| Operation (path) | Constructs |
+|------------------|-----------|
+| `ping30` (`GET /ping`) | trivial operation so the 3.0 document is structurally complete |
