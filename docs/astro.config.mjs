@@ -70,6 +70,7 @@ export default defineConfig({
           items: [
             { label: 'Configuration', slug: 'guides/configuration' },
             { label: 'Generated output', slug: 'guides/generated-output' },
+            { label: 'Server scaffold', slug: 'guides/server-scaffold' },
           ],
         },
         {

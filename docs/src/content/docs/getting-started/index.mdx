@@ -20,7 +20,9 @@ openapi.yaml  →  openapi-laravel  →  app/Data/*.php
 
 When the spec changes, you re-run the generator and review the diff. There is no second source of truth to keep aligned by hand.
 
-## What it generates today (v1)
+## What it generates
+
+### Models (v1)
 
 - **Objects** become `laravel-data` classes with promoted, readonly constructor properties.
 - **Validation** becomes an explicit `rules()` method derived from the spec: `required` / `nullable`, types, string `max` / `min` / `pattern` / `format` (email, uuid, date, url, ip), numeric `min` / `max`, array `min` / `max` items, and `Rule::enum` / `Rule::in`.
@@ -30,10 +32,14 @@ When the spec changes, you re-run the generator and review the diff. There is no
 - **Nullability** is handled for both 3.0 `nullable` and 3.1 `type: [..., 'null']`.
 - **readOnly / writeOnly** produce a read variant and a write variant, only when the spec uses the flags.
 
-<Aside type="note">
-  v1 is models only. Server scaffolding (routes plus abstract controllers per tag) is planned for
-  v2. See the [roadmap](/roadmap) for what is in scope now and what is not.
-</Aside>
+### Server scaffold (v2, opt-in)
+
+Pass `--controllers --routes` and the generator also produces:
+
+- **One abstract controller per tag**, with one abstract method per operation typed by the Data classes. An unimplemented operation is a PHP fatal, not silent drift.
+- **A routes file** (`routes/api.generated.php`): one `Route::` entry per operation, pointing at the concrete controller you extend.
+
+See the [server scaffold guide](/guides/server-scaffold) for the full walkthrough.
 
 ## Next steps
 
@@ -46,6 +52,9 @@ When the spec changes, you re-run the generator and review the diff. There is no
   </Card>
   <Card title="Configuration" icon="setting">
     Every option in `config/openapi-laravel.php`. [Configuration](/guides/configuration)
+  </Card>
+  <Card title="Server scaffold" icon="right-arrow">
+    Generate abstract controllers and a routes file. [Server scaffold](/guides/server-scaffold)
   </Card>
   <Card title="How it compares" icon="random">
     Spec-first vs code-first tools. [Comparison](/comparison)

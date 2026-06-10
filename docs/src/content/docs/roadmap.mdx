@@ -1,13 +1,13 @@
 ---
 title: Roadmap & limitations
-description: What v0.1.0 ships, the known limitations in v1, and what is planned for v2 (server scaffold) and beyond.
+description: What ships in v1 (models) and v2 (server scaffold), the known limitations, and what is planned beyond that.
 ---
 
 import { Aside } from '@astrojs/starlight/components'
 
-`openapi-laravel` is at **v1: models**. This page is the honest account of what is in scope now, what is deliberately basic, and what is planned next.
+`openapi-laravel` has shipped **v1 (models)** and **v2 (server scaffold)**. This page is the honest account of what is in each version, what is deliberately basic, and what is planned next.
 
-## Now: v0.1.0 (models)
+## v0.1.x: models
 
 Spec in, generated `app/Data/*` out:
 
@@ -20,27 +20,26 @@ Spec in, generated `app/Data/*` out:
 - Two ways to run it: `php artisan openapi:generate` via the service provider, and a framework-free `vendor/bin/openapi-laravel` for non-Laravel CI.
 - Determinism: the same spec in produces byte-identical files out.
 
-## Known limitations in v1
+## v0.2.0: server scaffold
 
-<Aside type="caution" title="Basic in v1">
+The server scaffold feature is built and committed toward the 0.2.0 tag. It is opt-in (disabled by default):
+
+- A generated abstract controller per tag: one abstract method per operation, typed by the v1 Data classes. An unimplemented operation is a PHP fatal, not silent drift.
+- A generated routes file (`routes/api.generated.php`): one `Route::` entry per spec operation, pointing at the concrete controller class the user writes.
+
+Pass `--controllers` and/or `--routes` to enable it, or set `controllers.enabled` and `routes.enabled` in the config file. See the [server scaffold guide](/guides/server-scaffold) for the full walkthrough.
+
+## Known limitations
+
+<Aside type="caution" title="Basic in v1 and v2">
 
 - **`oneOf` / `anyOf`** are handled in a basic way. PHP's union-type and `laravel-data` support for unions is partial, so complex polymorphic schemas may need a manual touch. Discriminator-driven dispatch is not generated for you yet.
 - **`additionalProperties`** is handled in a basic way. Laravel validation has no native way to reject unknown keys on nested arrays, so `additionalProperties: false` does not currently generate a strict rejection rule.
 - **`allOf`** is merged into a single shape. Deep or conflicting compositions may not merge cleanly.
-- **Server scaffolding is not in v1.** No routes file and no controllers. That is v2.
 
 </Aside>
 
 These are areas where the generator produces something reasonable but not exhaustive. The 128-spec corpus keeps the common cases honest, and these edges are tracked for refinement.
-
-## Next: v2 (server scaffold)
-
-The differentiator. Nothing credible exists in the Laravel ecosystem for this yet.
-
-- A generated routes file (`routes/api.generated.php`): one `Route::` entry per spec operation, pointing at controller classes by tag and `operationId`.
-- A generated abstract controller per tag: one abstract method per operation, typed by the v1 Data classes (params and request body in, Data response out). You extend it with concrete controllers and delegate business logic to services. An unimplemented operation is a PHP fatal, not silent drift.
-
-This makes path-level spec/code drift structurally impossible: the routing table derives from the spec. It is the Spring-generator pattern, translated to idiomatic Laravel.
 
 ## Later: v3 (maybe)
 

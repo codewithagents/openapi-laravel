@@ -1,0 +1,323 @@
+---
+title: Server scaffold
+description: Generate abstract controllers and a routes file from your OpenAPI spec. One abstract method per operation, typed by your generated Data classes. Spec/code drift becomes structurally impossible.
+---
+
+import { Tabs, TabItem, Steps, Aside, Card, CardGrid } from '@astrojs/starlight/components'
+
+The server scaffold feature generates two things from your OpenAPI spec: one **abstract controller per tag**, with one abstract method per operation, and a **routes file** that maps every operation to the concrete controller the user writes. The routing table derives from the spec, so path-level drift between spec and code is structurally impossible.
+
+## The concept
+
+An unimplemented operation in your concrete controller is a PHP fatal at class-definition time, not a silent gap discovered in production. The abstract layer enforces completeness; the routes file enforces that every operation has a registered handler.
+
+```
+openapi.yaml
+  └── openapi-laravel --controllers --routes
+        ├── app/Http/Controllers/Api/AbstractPetController.php   (generated, overwritten each run)
+        ├── app/Http/Controllers/Api/AbstractStoreController.php
+        └── routes/api.generated.php                             (generated, overwritten each run)
+
+You write:
+        ├── app/Http/Controllers/Api/PetController.php           (extends AbstractPetController)
+        └── app/Http/Controllers/Api/StoreController.php         (extends AbstractStoreController)
+```
+
+The abstract files are overwritten on every generator run. Your concrete controllers are never touched.
+
+## Enabling the scaffold
+
+The scaffold is opt-in. Both the config file and the command-line flags give you control.
+
+### Via config
+
+Publish the config if you have not already, then enable the sections you want:
+
+```bash
+php artisan vendor:publish --tag=openapi-laravel-config
+```
+
+```php
+// config/openapi-laravel.php
+
+'controllers' => [
+    'enabled'   => true,
+    'path'      => app_path('Http/Controllers/Api'),
+    'namespace' => 'App\\Http\\Controllers\\Api',
+],
+
+'routes' => [
+    'enabled' => true,
+    'path'    => base_path('routes/api.generated.php'),
+],
+```
+
+Then run the generator with no extra flags:
+
+```bash
+php artisan openapi:generate
+```
+
+### Via flags
+
+Pass `--controllers` and/or `--routes` on the command line without touching the config:
+
+```bash
+php artisan openapi:generate --controllers --routes
+```
+
+Additional flags for the artisan command:
+
+| Flag                          | Description                                                    |
+| ----------------------------- | -------------------------------------------------------------- |
+| `--controllers`               | Generate abstract controllers                                  |
+| `--routes`                    | Generate the routes file                                       |
+| `--spec=<path>`               | OpenAPI document to read (overrides config)                    |
+| `--output=<path>`             | Directory for Data classes (overrides config)                  |
+| `--prune`                     | Delete stale `*.php` files in the Data output directory        |
+
+### Standalone binary
+
+The standalone binary accepts the same flags plus two extra ones for controller output:
+
+```bash
+vendor/bin/openapi-laravel \
+  --spec=openapi.yaml \
+  --controllers \
+  --routes \
+  --controller-namespace="App\\Http\\Controllers\\Api" \
+  --controller-output=app/Http/Controllers/Api \
+  --routes-output=routes/api.generated.php
+```
+
+| Flag                        | Description                                                    |
+| --------------------------- | -------------------------------------------------------------- |
+| `--controllers`             | Generate abstract controllers                                  |
+| `--routes`                  | Generate the routes file                                       |
+| `--controller-namespace`    | PHP namespace for the generated abstract controllers           |
+| `--controller-output`       | Directory the abstract controller files are written to         |
+| `--routes-output`           | Path the routes file is written to                             |
+
+## A worked example: Petstore
+
+The Petstore spec has three tags (`pet`, `store`, `user`), so the generator writes three abstract controllers. Here is what the pet tag produces.
+
+### Generated abstract controller
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Controllers\Api;
+
+use App\Data\ApiResponseData;
+use App\Data\PetData;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Spatie\LaravelData\DataCollection;
+
+abstract class AbstractPetController
+{
+    /**
+     * POST /pet
+     *
+     * Add a new pet to the store.
+     */
+    abstract public function addPet(PetData $pet): PetData;
+
+    /**
+     * PUT /pet
+     *
+     * Update an existing pet.
+     */
+    abstract public function updatePet(PetData $pet): PetData;
+
+    /**
+     * GET /pet/findByStatus
+     *
+     * Finds Pets by status.
+     *
+     * @return DataCollection<int, PetData>
+     */
+    abstract public function findPetsByStatus(): \Spatie\LaravelData\DataCollection;
+
+    /**
+     * GET /pet/findByTags
+     *
+     * Finds Pets by tags.
+     *
+     * @return DataCollection<int, PetData>
+     */
+    abstract public function findPetsByTags(): \Spatie\LaravelData\DataCollection;
+
+    /**
+     * GET /pet/{petId}
+     *
+     * Find pet by ID.
+     */
+    abstract public function getPetById(int $petId): PetData;
+
+    /**
+     * POST /pet/{petId}
+     *
+     * Updates a pet in the store with form data.
+     */
+    abstract public function updatePetWithForm(int $petId): PetData;
+
+    /**
+     * DELETE /pet/{petId}
+     *
+     * Deletes a pet.
+     */
+    abstract public function deletePet(int $petId): \Illuminate\Http\JsonResponse;
+
+    /**
+     * POST /pet/{petId}/uploadImage
+     *
+     * Uploads an image.
+     */
+    abstract public function uploadFile(Request $request, int $petId): ApiResponseData;
+}
+```
+
+### What you write: the concrete controller
+
+You extend the abstract class and implement every method. PHP will refuse to instantiate the class if any abstract method is missing, so there is no way to silently leave an operation unhandled.
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Controllers\Api;
+
+use App\Data\PetData;
+use App\Services\PetService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Spatie\LaravelData\DataCollection;
+
+final class PetController extends AbstractPetController
+{
+    public function __construct(private readonly PetService $petService) {}
+
+    public function findPetsByStatus(): DataCollection
+    {
+        $status = request()->query('status', 'available');
+        return PetData::collect($this->petService->findByStatus($status), DataCollection::class);
+    }
+
+    public function addPet(PetData $pet): PetData
+    {
+        return $this->petService->create($pet);
+    }
+
+    public function getPetById(int $petId): PetData
+    {
+        return $this->petService->findOrFail($petId);
+    }
+
+    public function deletePet(int $petId): JsonResponse
+    {
+        $this->petService->delete($petId);
+        return response()->json(null, 204);
+    }
+
+    // ... implement remaining abstract methods
+}
+```
+
+### Generated routes file
+
+```php
+<?php
+
+declare(strict_types=1);
+
+/*
+ * GENERATED by openapi-laravel. Do not edit.
+ * Re-run the generator to refresh routes from the spec.
+ */
+
+use App\Http\Controllers\Api\PetController;
+use App\Http\Controllers\Api\StoreController;
+use App\Http\Controllers\Api\UserController;
+use Illuminate\Support\Facades\Route;
+
+Route::post('/pet', [PetController::class, 'addPet']);
+Route::put('/pet', [PetController::class, 'updatePet']);
+Route::get('/pet/findByStatus', [PetController::class, 'findPetsByStatus']);
+Route::get('/pet/findByTags', [PetController::class, 'findPetsByTags']);
+Route::get('/pet/{petId}', [PetController::class, 'getPetById']);
+Route::post('/pet/{petId}', [PetController::class, 'updatePetWithForm']);
+Route::delete('/pet/{petId}', [PetController::class, 'deletePet']);
+Route::post('/pet/{petId}/uploadImage', [PetController::class, 'uploadFile']);
+Route::get('/store/inventory', [StoreController::class, 'getInventory']);
+Route::post('/store/order', [StoreController::class, 'placeOrder']);
+Route::get('/store/order/{orderId}', [StoreController::class, 'getOrderById']);
+Route::delete('/store/order/{orderId}', [StoreController::class, 'deleteOrder']);
+// ... user routes follow
+```
+
+### Registering the routes in Laravel
+
+Include the generated file from your application's route service provider or from `routes/api.php`:
+
+```php
+// routes/api.php
+require base_path('routes/api.generated.php');
+```
+
+Or from `bootstrap/app.php` in Laravel 11+:
+
+```php
+->withRouting(
+    api: __DIR__.'/../routes/api.php',
+    apiPrefix: 'api',
+)
+```
+
+<Aside type="note" title="Commit the generated file">
+  The routes file and the abstract controllers are deterministic: the same spec in produces
+  byte-identical output. Commit them alongside your concrete controllers so your repo is the full
+  source of truth. Re-run the generator when the spec changes and review the diff the same way
+  you would review any code change.
+</Aside>
+
+## Method signatures in detail
+
+The generator resolves the type of each parameter and return value from the spec:
+
+| Spec element                                                          | Generated type                                          |
+| --------------------------------------------------------------------- | ------------------------------------------------------- |
+| Request body referencing a component `$ref` (non-readOnly schema)     | Typed Data param, e.g. `PetData $pet`                   |
+| Request body referencing a component `$ref` (schema with writeOnly fields) | Write-variant Data param, e.g. `PetWritableData $pet` |
+| Request body that is an array schema or non-JSON content type         | `Illuminate\Http\Request $request`                      |
+| Response that is a single object `$ref`                               | Data class, e.g. `PetData`                              |
+| Response that is an array of objects                                  | `Spatie\LaravelData\DataCollection` with `@return DataCollection<int, PetData>` docblock |
+| Response with no structured body (204, 4xx, 5xx, etc.)               | `Illuminate\Http\JsonResponse`                          |
+
+<Aside type="note" title="Request body typing and the write variant">
+  When a request body references a schema that splits fields with `readOnly` and `writeOnly`, the
+  generated method uses the write variant (`...WritableData`). This is the same variant the model
+  generator produces. See [generated output](/guides/generated-output) for how the split works.
+
+  Array bodies and non-JSON content types fall back to a plain `Illuminate\Http\Request` parameter,
+  because there is no single Data class to type them against.
+</Aside>
+
+## Pruning
+
+The `--prune` flag and `output.prune: true` config key apply to the **Data classes** directory only. Abstract controller files are always overwritten (they are fully generated output). Your concrete controllers in the same directory are never deleted, with or without pruning enabled.
+
+## Next
+
+<CardGrid>
+  <Card title="Configuration" icon="setting">
+    The full list of config keys including `controllers` and `routes`. [Configuration](/guides/configuration)
+  </Card>
+  <Card title="Generated output" icon="document">
+    How Data classes, enums, and the read/write variant split work. [Generated output](/guides/generated-output)
+  </Card>
+</CardGrid>

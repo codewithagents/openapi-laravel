@@ -51,6 +51,26 @@ return [
      */
     'max_depth' => 64,
 
+    /*
+     * Server scaffold: generate one abstract controller per OpenAPI tag,
+     * with one abstract method per operation, typed by the generated Data classes.
+     * Disabled by default. Enable with 'enabled' => true or pass --controllers.
+     */
+    'controllers' => [
+        'enabled'   => false,
+        'path'      => app_path('Http/Controllers/Api'),
+        'namespace' => 'App\\Http\\Controllers\\Api',
+    ],
+
+    /*
+     * Server scaffold: generate a routes file with one Route:: entry per operation.
+     * Disabled by default. Enable with 'enabled' => true or pass --routes.
+     */
+    'routes' => [
+        'enabled' => false,
+        'path'    => base_path('routes/api.generated.php'),
+    ],
+
 ];
 ```
 
@@ -92,6 +112,41 @@ When `true`, deletes existing `*.php` files in the output directory before writi
 ### `max_depth`
 
 Maximum schema nesting depth the parser follows before it bails out. Defaults to `64`. This guards against pathological or maliciously deep specs that would otherwise recurse without bound. Raise it only if you have a legitimately deeply nested spec and trust its source.
+
+### `controllers`
+
+Controls the server scaffold: abstract controller generation. All three sub-keys are optional.
+
+| Key         | Default                            | Description                                                                 |
+| ----------- | ---------------------------------- | --------------------------------------------------------------------------- |
+| `enabled`   | `false`                            | Generate abstract controllers. Overridden by the `--controllers` flag.      |
+| `path`      | `app_path('Http/Controllers/Api')` | Directory the abstract controller files are written to.                     |
+| `namespace` | `'App\\Http\\Controllers\\Api'`   | PHP namespace for the generated abstract controllers.                       |
+
+When `enabled` is `true`, the generator writes one `Abstract{Tag}Controller` file per OpenAPI tag into `path`. Each file is overwritten on every run. Your concrete controllers (which extend the abstract classes) are never touched.
+
+<Aside type="note">
+  The `--controllers` flag on the artisan command and the standalone binary enables controller
+  generation regardless of the `enabled` value in the config file.
+</Aside>
+
+### `routes`
+
+Controls the server scaffold: routes file generation.
+
+| Key       | Default                                     | Description                                                           |
+| --------- | ------------------------------------------- | --------------------------------------------------------------------- |
+| `enabled` | `false`                                     | Generate the routes file. Overridden by the `--routes` flag.          |
+| `path`    | `base_path('routes/api.generated.php')`     | Path the generated routes file is written to.                         |
+
+The generated file contains one `Route::{method}(...)` call per operation, referencing the concrete controller class by tag name. It is overwritten on every run.
+
+<Aside type="note">
+  The `--routes` flag on the artisan command and the standalone binary enables routes generation
+  regardless of the `enabled` value in the config file.
+</Aside>
+
+See the [server scaffold guide](/guides/server-scaffold) for a complete worked example.
 
 ## Precedence
 

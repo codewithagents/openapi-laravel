@@ -66,6 +66,16 @@ app/Data/CustomerStatus.php    native backed enum
 
 If the spec marks fields with `readOnly` or `writeOnly`, you also get a write variant such as `CustomerWritableData.php`. See [generated output](/guides/generated-output) for full examples.
 
+## Also scaffold controllers and routes
+
+Once you have Data classes in place, you can generate abstract controllers and a routes file from the same spec. Pass `--controllers --routes` to the command:
+
+```bash
+php artisan openapi:generate --controllers --routes
+```
+
+This writes one `Abstract{Tag}Controller` per OpenAPI tag and a `routes/api.generated.php` file. You then extend each abstract controller with your own concrete implementation. See the [server scaffold guide](/guides/server-scaffold) for the full walkthrough.
+
 ## Next
 
 <CardGrid>
@@ -75,5 +85,8 @@ If the spec marks fields with `readOnly` or `writeOnly`, you also get a write va
   <Card title="Generated output" icon="document">
     See a full Data class, a backed enum, and the read/write split. [Generated
     output](/guides/generated-output)
+  </Card>
+  <Card title="Server scaffold" icon="right-arrow">
+    Generate abstract controllers and a routes file. [Server scaffold](/guides/server-scaffold)
   </Card>
 </CardGrid>
