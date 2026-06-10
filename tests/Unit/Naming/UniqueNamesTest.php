@@ -27,3 +27,15 @@ it('tracks reserved names', function () {
     expect($names->taken('Pet'))->toBeTrue()
         ->and($names->taken('Order'))->toBeFalse();
 });
+
+it('pre-reserves constructor names so a clashing candidate is suffixed (#21)', function () {
+    // The model emitter pre-reserves the framework short-names it imports (Data,
+    // ...) so a schema named `Data` cannot shadow the imported base class.
+    $names = new UniqueNames(['Data', 'Optional']);
+
+    expect($names->taken('Data'))->toBeTrue()
+        ->and($names->taken('Optional'))->toBeTrue()
+        ->and($names->reserve('Data'))->toBe('Data_2')
+        ->and($names->reserve('Optional'))->toBe('Optional_2')
+        ->and($names->reserve('Customer'))->toBe('Customer');
+});

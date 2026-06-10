@@ -31,6 +31,28 @@ final class ModelGenerator
         'boolean' => 'bool',
     ];
 
+    /**
+     * Short-names the emitter imports into every (or many) generated Data files.
+     * A component schema must never take one as its class name: `Data` is the
+     * Spatie base class every Data class `extends`, so a schema named `Data`
+     * would emit `final class Data extends Data` (a fatal self-redeclaration);
+     * the rest are framework types the constructors reference by short name.
+     * Reserving them up front routes such a schema onto the suffix path
+     * (`Data` -> `Data_2`), leaving the imports unshadowed.
+     *
+     * @var list<string>
+     */
+    private const RESERVED_CLASS_NAMES = [
+        'Data',
+        'DataCollection',
+        'DataCollectionOf',
+        'Optional',
+        'MapName',
+        'WithTransformer',
+        'MapObjectTransformer',
+        'Rule',
+    ];
+
     private UniqueNames $names;
 
     /**
@@ -100,7 +122,7 @@ final class ModelGenerator
     public function __construct(
         private readonly GeneratorOptions $options = new GeneratorOptions,
     ) {
-        $this->names = new UniqueNames;
+        $this->names = new UniqueNames(self::RESERVED_CLASS_NAMES);
     }
 
     /**
@@ -108,7 +130,7 @@ final class ModelGenerator
      */
     public function generate(OpenApi $document): array
     {
-        $this->names = new UniqueNames;
+        $this->names = new UniqueNames(self::RESERVED_CLASS_NAMES);
         $this->registry = [];
         $this->writeClasses = [];
         $this->mapAliases = [];
@@ -463,20 +485,57 @@ final class ModelGenerator
             return null;
         }
 
+        // The literal's PHP type must also match a member of the declared type.
+        // Specs routinely carry a mistyped default (xero gives a `bool` property
+        // the string `"false"`); emitting it verbatim produces `bool $x = 'false'`,
+        // a fatal "Cannot use string as default value". When the type does not
+        // match, fall through to the `= null`/optional default instead.
+        $members = $this->scalarMembers($type);
+
         if (is_bool($value)) {
-            return [$value ? 'true' : 'false'];
+            return in_array('bool', $members, true) ? [$value ? 'true' : 'false'] : null;
         }
 
         if (is_int($value) || is_float($value)) {
-            return [$this->numberLiteral($value)];
+            // An int literal also satisfies a `float` parameter (PHP widens it);
+            // a float literal needs a `float` member.
+            $accepts = is_int($value)
+                ? (in_array('int', $members, true) || in_array('float', $members, true))
+                : in_array('float', $members, true);
+
+            return $accepts ? [$this->numberLiteral($value)] : null;
         }
 
         if (is_string($value)) {
-            return ["'".$this->escapeSingleQuoted($value)."'"];
+            return in_array('string', $members, true)
+                ? ["'".$this->escapeSingleQuoted($value)."'"]
+                : null;
         }
 
         // An array/object/null default is not a scalar literal we seed here.
         return null;
+    }
+
+    /**
+     * The PHP scalar member names of a resolved type's declaration (`?bool` ->
+     * `['bool']`, `string|int|null` -> `['string', 'int']`). Used to confirm a
+     * default literal's type matches the parameter before seeding it.
+     *
+     * @return list<string>
+     */
+    private function scalarMembers(ResolvedType $type): array
+    {
+        $members = [];
+
+        foreach (explode('|', $type->declaration) as $member) {
+            $member = ltrim($member, '?');
+            if ($member === 'null' || $member === '') {
+                continue;
+            }
+            $members[] = $member;
+        }
+
+        return $members;
     }
 
     /**

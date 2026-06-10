@@ -210,25 +210,23 @@ function definedClassNames(iterable $files): array
 /**
  * Corpus specs the `php -l` gate deliberately exempts, with the reason.
  *
- * These are pre-existing generator residuals: `php -l` (a real compile, unlike
- * the in-process token_get_all syntax check) rejects them, but the fix lives in
- * src/ and is out of scope for the test layer. They are listed by name here so
- * the exemption is auditable rather than silent: when the generator stops
- * emitting these constructs, drop the entry and the spec rejoins the gate.
+ * Reserved for pre-existing generator residuals that `php -l` (a real compile,
+ * unlike the in-process token_get_all syntax check) rejects while the fix lives
+ * in src/. Exemptions are listed by name so they are auditable rather than
+ * silent: when the generator stops emitting an offending construct, the entry is
+ * dropped and the spec rejoins the gate.
  *
- *  - bbc.json, here_tracking.json: a component literally named `Data` emits
- *    `final class Data extends Data`, which `use Spatie\LaravelData\Data;` turns
- *    into a self-redeclaration ("Cannot redeclare class App\\Data\\Data").
- *  - xero.json: several schemas give a `bool` property a string default
- *    ("Cannot use string as default value for parameter $hasAttachments").
+ * Currently empty: the two historic residuals are fixed in the emitter.
+ *  - bbc.json, here_tracking.json: a component literally named `Data` used to
+ *    emit `final class Data extends Data` (a self-redeclaration). Fixed by
+ *    reserving the imported framework short-names in the naming layer (#21).
+ *  - xero.json: schemas that give a `bool` property a string default used to
+ *    emit `bool $x = 'false'`. Fixed by guarding the default's type against the
+ *    property's declared scalar type in ModelGenerator::defaultValue() (#22).
  *
  * @var array<string, true>
  */
-const PHP_LINT_EXEMPT_SPECS = [
-    'bbc.json' => true,
-    'here_tracking.json' => true,
-    'xero.json' => true,
-];
+const PHP_LINT_EXEMPT_SPECS = [];
 
 /**
  * Compile-level gate over generated PHP, complementing the in-process

@@ -24,9 +24,11 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  *      (deterministic, ksorted) of each, as a regression tripwire across real
  *      diversity without paying for all ~36k files.
  *
- * A handful of specs are exempted (see PHP_LINT_EXEMPT_SPECS in Pest.php): they
- * trip pre-existing generator residuals whose fix lives in src/, out of scope
- * for the test layer; the exemption is by name so it is auditable, not silent.
+ * Specs can be exempted by name (see PHP_LINT_EXEMPT_SPECS in Pest.php) when a
+ * pre-existing generator residual trips the compiler and its fix lives in src/,
+ * out of scope for the test layer. The list is empty today: the two historic
+ * residuals (a `Data`-named component, a bool property with a string default)
+ * are fixed in the emitter, so every corpus spec is back under the gate.
  */
 
 /**

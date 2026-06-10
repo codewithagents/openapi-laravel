@@ -308,6 +308,86 @@ it('keeps a nullable property with a default nullable but seeded', function () {
     expect($files['HolderData']->code)->toContain('public readonly ?int $n = 7');
 });
 
+// FIX 6b (#22): a default whose PHP type does not match the property's declared
+// scalar type must NOT be seeded. Specs routinely carry a mistyped default (xero
+// gives a `bool` property the string "false"); emitting it verbatim produces
+// `bool $x = 'false'`, a fatal "Cannot use string as default value". The guard
+// drops the bad default and falls back to the `= null`/optional behaviour.
+
+it('does not seed a string default on a bool property and stays compilable', function () {
+    $files = generateConstraintSchemas([
+        'Holder' => [
+            'type' => 'object',
+            'properties' => [
+                // The xero shape: a boolean property with the string default "false".
+                'hasAttachments' => ['type' => 'boolean', 'default' => 'false'],
+            ],
+        ],
+    ]);
+
+    $code = $files['HolderData']->code;
+
+    expect($code)->toContain('public readonly ?bool $hasAttachments = null,')
+        ->and($code)->not->toContain("= 'false'")
+        ->and(phpLintFailures($files, 'mistyped-bool-default'))->toBe([]);
+});
+
+it('does not seed a non-numeric string default on an int property', function () {
+    $files = generateConstraintSchemas([
+        'Holder' => [
+            'type' => 'object',
+            'properties' => [
+                'limit' => ['type' => 'integer', 'default' => 'lots'],
+            ],
+        ],
+    ]);
+
+    $code = $files['HolderData']->code;
+
+    expect($code)->toContain('public readonly ?int $limit = null,')
+        ->and($code)->not->toContain("= 'lots'")
+        ->and(phpLintFailures($files, 'mistyped-int-default'))->toBe([]);
+});
+
+it('does not seed a string default on a numeric property and stays compilable', function () {
+    $files = generateConstraintSchemas([
+        'Holder' => [
+            'type' => 'object',
+            'properties' => [
+                'ratio' => ['type' => 'number', 'default' => '1.5'],
+            ],
+        ],
+    ]);
+
+    $code = $files['HolderData']->code;
+
+    expect($code)->toContain('public readonly ?float $ratio = null,')
+        ->and($code)->not->toContain("= '1.5'")
+        ->and(phpLintFailures($files, 'mistyped-number-default'))->toBe([]);
+});
+
+it('still seeds correctly-typed scalar defaults (bool, int, float, string)', function () {
+    $files = generateConstraintSchemas([
+        'Holder' => [
+            'type' => 'object',
+            'properties' => [
+                'active' => ['type' => 'boolean', 'default' => true],
+                'limit' => ['type' => 'integer', 'default' => 10],
+                'ratio' => ['type' => 'number', 'default' => 1.5],
+                'label' => ['type' => 'string', 'default' => 'hi'],
+            ],
+        ],
+    ]);
+
+    $code = $files['HolderData']->code;
+
+    expect($code)->toContain('public readonly bool $active = true')
+        ->and($code)->toContain('public readonly int $limit = 10')
+        ->and($code)->toContain('public readonly float $ratio = 1.5')
+        ->and($code)->toContain("public readonly string \$label = 'hi'")
+        ->and(phpLintFailures($files, 'correct-defaults'))->toBe([]);
+});
+
 // FIX 7: date vs date-time.
 
 it('emits date_format:Y-m-d for format date', function () {
