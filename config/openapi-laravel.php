@@ -15,6 +15,18 @@ return [
     'output' => [
         'path' => app_path('Data'),
         'namespace' => 'App\\Data',
+
+        /*
+         * Suffix appended to generated Data class names (e.g. Customer ->
+         * CustomerData). Enums are never suffixed. Set to '' to disable.
+         */
+        'suffix' => 'Data',
+
+        /*
+         * Delete existing *.php files in the output directory before writing,
+         * so a removed schema does not leave a stale class behind.
+         */
+        'prune' => false,
     ],
 
     /*
