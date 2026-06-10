@@ -1,60 +1,94 @@
 ---
 title: End-to-end demo
-description: A contract-first demo. One OpenAPI spec drives a generated Laravel backend, verified over real HTTP with curl, with a generated TypeScript client and SPA being finalized. Use it as proof and as a starting template.
+description: A contract-first demo, fully proven. One OpenAPI spec drives a generated Laravel backend and a generated TypeScript client and SPA, verified end to end over real HTTP by a Playwright headless-Chrome suite. Use it as proof and as a starting template.
 ---
 
 import { Aside, CardGrid, Card } from '@astrojs/starlight/components'
 
-The strongest claim a generator can make is that its output actually behaves correctly over the wire. The [`e2e/`](https://github.com/codewithagents/openapi-laravel/tree/main/e2e) directory in the repository works toward that from a single spec. The generated Laravel backend is proven over real HTTP today; the generated TypeScript client and SPA that close the full cross-language loop are being finalized.
+The strongest claim a generator can make is that its output actually behaves correctly over the wire. The [`e2e/`](https://github.com/codewithagents/openapi-laravel/tree/main/e2e) directory in the repository proves exactly that from a single spec, and the full cross-language loop is now green: a Playwright headless-Chrome suite drives the SPA in a real browser, through the generated TypeScript client, over real HTTP, against the generated Laravel backend.
 
 It is two things at once:
 
-- **Proof** that the generated Laravel backend behaves correctly over real HTTP, against a spec that deliberately stresses the cross-language serialization seams.
+- **Proof** that two implementations, in two languages, both generated from one spec, agree on the wire against a spec that deliberately stresses the cross-language serialization seams.
 - A **template** a team can copy to bootstrap a spec-first project.
 
 ## The architecture
 
-One OpenAPI document is the single source of truth. The goal is two implementations, in two languages, proven to agree on the wire. The diagram is split deliberately into what is proven today and what is still being finalized, so nothing is shown as done before it is.
-
-### Proven today (curl-verified over real HTTP)
+One OpenAPI document is the single source of truth. From it, two implementations in two languages are generated and proven to agree on the wire, with a browser-driven suite closing the loop:
 
 ```
   e2e/spec/petstore.yaml          (one OpenAPI document, the source of truth)
         │
-        └── openapi-laravel  →  a real Laravel 12 backend
-                                (Data classes + abstract controllers + routes)
-                                      │
-                                real HTTP, verified with curl
-```
-
-The Laravel side derives its Data classes, abstract controllers, and routes from the spec via `openapi-laravel`. The only hand-written PHP is the glue: the concrete controllers and a small file-backed store. Every seam in the table below was exercised with `curl` against this running backend.
-
-### Being finalized (not yet proven, in progress)
-
-```
-  e2e/spec/petstore.yaml
+        ├── openapi-laravel  →  a real Laravel 12 backend
+        │                       (Data classes + abstract controllers + routes)
         │
-        └── openapi-zod-ts  →  a typed TypeScript client  →  a SPA
+        └── openapi-zod-ts   →  a typed TypeScript client  →  a SPA
                                                                 │
-                          docker-compose stack + Playwright headless-Chrome E2E:
-                          browser → SPA → generated client → backend
+            Playwright headless-Chrome E2E, over real HTTP:
+            browser → SPA → generated client → Laravel backend
 ```
 
-The TypeScript side will derive its client from the same spec via the sibling [openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts), consumed by a SPA, with a docker-compose stack and a Playwright headless-Chrome suite driving the browser end to end. This half is not proven yet.
+The Laravel side derives its Data classes, abstract controllers, and routes from the spec via `openapi-laravel`. The only hand-written PHP is the glue: the concrete controllers and a small file-backed store. The TypeScript side derives its client from the same spec via the sibling [openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts), consumed by a SPA. A docker-compose stack boots both, and a Playwright headless-Chrome suite drives the browser through the whole stack over real HTTP.
 
-<Aside type="note" title="Status: being finalized">
-  The Laravel backend and its contract round trip are proven and working today. The TypeScript SPA,
-  the Docker stack, and the headless-Chrome suite that would close the full cross-language loop are
-  still being completed. Treat
-  [`e2e/`](https://github.com/codewithagents/openapi-laravel/tree/main/e2e) as the living reference,
-  and read its `README.md` for the current detail. Exact run-it-yourself commands will be published
-  here once the full stack is green, so this page describes the architecture and the proofs rather
-  than steps we cannot yet guarantee.
+<Aside type="tip" title="Status: proven and runnable">
+  The full loop is green. The backend, the SPA, the Docker stack, and the headless-Chrome suite all
+  pass against each other over real HTTP. The
+  [`e2e/`](https://github.com/codewithagents/openapi-laravel/tree/main/e2e) directory is the living
+  reference, and you can run all of it yourself with the commands below.
 </Aside>
+
+## Run it yourself
+
+You need Docker Desktop running and Node.js 18 or newer.
+
+The fastest path is the one-command runner. From the repository root it brings the stack up, runs the headless-Chrome suite, and tears the stack down again:
+
+```bash
+cd e2e/e2e-tests
+npm install
+./run.sh
+```
+
+If you would rather bring the stack up by hand and poke at it (curl, a browser, anything), use docker-compose directly:
+
+```bash
+docker compose -f e2e/docker-compose.yml up -d --build
+# backend:  http://localhost:8088   (API under /api, health at /up)
+# frontend: http://localhost:8080   (the built SPA)
+```
+
+The SPA is at `http://localhost:8080` and the API is at `http://localhost:8088/api`. With the stack already up, you can run just the Playwright suite against it:
+
+```bash
+cd e2e/e2e-tests
+./run.sh --no-docker
+```
+
+Tear everything down when you are finished:
+
+```bash
+docker compose -f e2e/docker-compose.yml down
+```
+
+After a run, open `e2e/e2e-tests/playwright-report/index.html` for the full HTML report.
+
+### Verified outcomes
+
+The suite drives the SPA in headless Chromium and asserts the full round trip, `browser → SPA → generated openapi-zod-ts client → real HTTP → generated Laravel backend`. The verified behaviors are:
+
+- the seeded pets load (the generated client GETs, the SPA renders);
+- a valid create returns `201` and the generated backend stores it;
+- an invalid create (an empty name, a bad enum) returns `422` from the spec-derived `rules()`, surfaced in the browser;
+- `created_at` (a `readOnly` field) is server-set and returned, while `secret_note` (a `writeOnly` field) is never returned;
+- a string `external_id` and a numeric `external_id` each round-trip with their JSON type intact, proving the `oneOf` scalar union;
+- an explicit `null` for `weight_kg` round-trips as `null`;
+- the `attributes` map round-trips through the full stack;
+- a delete removes the pet from the list (the generated client `DELETE`s, then the list re-fetches), and the underlying call returns `204`;
+- the status filter tabs drive `findPetsByStatus` over real HTTP and filter correctly.
 
 ## The serialization seams it proves
 
-The shared spec is a "petstore-plus": the stock petstore with extra fields added, each one targeting a known place where a typed client and a `laravel-data` server can quietly disagree. Every one was proven to round-trip over real HTTP.
+The shared spec is a "petstore-plus": the stock petstore with extra fields added, each one targeting a known place where a typed client and a `laravel-data` server can quietly disagree. Every one is proven to round-trip end to end, both over `curl` against the backend and through the browser via the generated client.
 
 | Field          | Spec trait                          | What it proves |
 |----------------|-------------------------------------|----------------|
@@ -69,9 +103,11 @@ Because the spec uses `readOnly` and `writeOnly`, the generator emits the read/w
 
 The `external_id` field exercises the `oneOf` / `anyOf` support. A scalar union is chosen deliberately: an object union cannot auto-hydrate in `laravel-data` without a `discriminator` (a documented residual), whereas a scalar union round-trips cleanly and proves the union path end to end.
 
-## A seam quirk it reports honestly
+## What the demo found
 
-An **empty** `additionalProperties` map round-trips as a JSON array `[]`, not an object `{}`:
+Running both generators together against one spec is not just a victory lap. It surfaced two real, honest findings that only a live cross-language round trip exposes, which is the whole point of running one.
+
+**1. An empty map serializes as `[]`, not `{}` (an openapi-laravel finding).** An **empty** `additionalProperties` map round-trips as a JSON array `[]`, not an object `{}`:
 
 ```bash
 # POST a pet with "attributes": {}
@@ -80,11 +116,15 @@ An **empty** `additionalProperties` map round-trips as a JSON array `[]`, not an
 
 This is the classic PHP ambiguity: an empty associative array is indistinguishable from an empty list, so `json_encode` emits `[]`. A non-empty map encodes correctly as an object, and a `null` stays `null`. A strict typed client expecting `Record<string, string>` would see an array for the empty case. The demo surfaces this rather than papering over it, and it is tracked as a candidate fix (a cast that forces object encoding) on the [limitations page](/guides/limitations#additionalproperties-is-represented-as-a-typed-map).
 
-This is exactly the class of bug that only a real cross-language round trip exposes, which is the whole point of running one.
+**2. The generated client omits the `Accept` header (an openapi-zod-ts finding).** The generated openapi-zod-ts client does not send an `Accept: application/json` header. When a browser fetch carries no explicit `Accept`, the browser default is `text/html,...`, so Laravel's `$request->wantsJson()` returns false and its error path returns an HTML redirect instead of a `422` JSON response. That broke every state-changing request (POST, PUT, DELETE) in the browser until the demo backend added a small `ForceJsonAccept` middleware that sets `Accept: application/json` on every inbound API request.
+
+This is not a bug in the generated Laravel code: the generated controllers, routes, and validation rules are correct. It is a gap in the openapi-zod-ts client generator, which should emit `Accept: application/json` alongside the `Content-Type` it already sends. It is filed upstream as [openapi-zod-ts issue #289](https://github.com/codewithagents/openapi-zod-ts/issues/289).
+
+Both findings are the value of running two independent generators against one contract: each side checks the other, and the seams that only break across a real wire come out into the open.
 
 ## How generation is wired
 
-The demo backend dogfoods the local package: it consumes `codewithagents/openapi-laravel` from the working tree through a Composer path repository, not from Packagist, so the demo always tests the current code. The published config points the generator at the shared spec and writes the Data classes, abstract controllers, and routes into the Laravel app. The generated files are committed on purpose, because they are the proof artifact.
+The demo backend dogfoods the local package: it consumes `codewithagents/openapi-laravel` from the working tree through a Composer path repository, not from Packagist, so the demo always tests the current code. The published config points the generator at the shared spec and writes the Data classes, abstract controllers, and routes into the Laravel app. The generated files are committed on purpose, because they are the proof artifact. The Docker images boot the committed generated code as-is, without regenerating, so what ships in the repo is exactly what the suite proves.
 
 ## Use it as a starting template
 

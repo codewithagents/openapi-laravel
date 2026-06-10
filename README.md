@@ -230,52 +230,46 @@ laravel-data classes, so your app takes on that dependency and its conventions.
 ## Proof: a full contract-first round trip
 
 The strongest claim a generator can make is that its output actually interoperates over the wire. The
-[`e2e/`](./e2e) directory works toward exactly that from a single spec. The Laravel half is proven
-today; the TypeScript SPA half is being finalized.
-
-**Proven today** (curl-verified over real HTTP):
+[`e2e/`](./e2e) directory proves exactly that from a single spec, and the full cross-language loop is
+green: one spec drives a generated Laravel backend and a generated TypeScript client and SPA, and a
+Playwright headless-Chrome suite drives the browser through the whole stack over real HTTP.
 
 ```
   e2e/spec/petstore.yaml          (one OpenAPI document, the source of truth)
         │
-        └── openapi-laravel  →  a real Laravel 12 backend
-                                (Data classes + abstract controllers + routes)
-                                      │
-                                real HTTP, verified with curl
-```
-
-**Being finalized** (not yet proven, in progress):
-
-```
-  e2e/spec/petstore.yaml
+        ├── openapi-laravel  →  a real Laravel 12 backend
+        │                       (Data classes + abstract controllers + routes)
         │
-        └── openapi-zod-ts  →  a typed TypeScript client  →  a SPA
+        └── openapi-zod-ts   →  a typed TypeScript client  →  a SPA
                                                                 │
-                          docker-compose stack + Playwright headless-Chrome E2E:
-                          browser → SPA → generated client → backend
+            Playwright headless-Chrome E2E, over real HTTP:
+            browser → SPA → generated client → Laravel backend
 ```
 
-One spec, two languages, no hand-written types on either side of the wire. The demo deliberately
-stresses the cross-language serialization seams where a typed client and a `laravel-data` server can
-disagree. The following are proven to round-trip over real HTTP against the generated Laravel backend
-today:
+One spec, two languages, no hand-written types on either side of the wire. Run the whole thing
+yourself (you need Docker Desktop and Node.js 18+); the runner brings the stack up, runs the
+headless-Chrome suite, and tears it down:
 
-- a `snake_case` wire field forcing `#[MapName]`, mapped in both directions
-- a `writeOnly` field accepted on write and never returned on read
-- a `readOnly` `date-time` set server-side and ignored when the client sends it
-- a `nullable` number where `null` stays present as `null`
-- an `additionalProperties` string-to-string map that round-trips intact
-- a `oneOf: [string, integer]` scalar union where a string stays a string and an integer stays an
-  integer, with no coercion
+```bash
+cd e2e/e2e-tests && npm install && ./run.sh
+```
 
-It honestly reports the one seam quirk it surfaced: an empty `additionalProperties` map serializes as
-`[]` rather than `{}` (the classic PHP empty-array ambiguity). Non-empty maps and `null` are correct.
+The suite proves the cross-language serialization seams round-trip over real HTTP: a `snake_case`
+wire field forcing `#[MapName]` (mapped both directions), a `writeOnly` field accepted on write and
+never read back, a `readOnly` `date-time` set server-side and ignored on input, a `nullable` number
+where `null` stays `null`, an `additionalProperties` map that round-trips intact, and a
+`oneOf: [string, integer]` scalar union with no coercion. A valid create returns `201`, an invalid
+one returns `422` from the spec-derived `rules()` surfaced in the browser, and a delete returns `204`.
 
-Use it two ways: as **proof** that the generated Laravel backend behaves correctly over real HTTP,
-and as a **template** a team can copy to bootstrap a spec-first project. The Laravel backend and its
-contract round trip are proven and working today; the TypeScript SPA, the Docker stack, and the
-headless-Chrome suite that close the full cross-language loop are being finalized, so [`e2e/`](./e2e)
-is the living reference. Exact run-it-yourself commands land once the demo is fully green.
+Running two independent generators against one contract surfaced two honest findings: an empty
+`additionalProperties` map serializes as `[]` rather than `{}` (the classic PHP empty-array
+ambiguity; non-empty maps and `null` are correct), and the generated openapi-zod-ts client omits the
+`Accept: application/json` header, which broke browser content-negotiation against Laravel until a
+small middleware was added in the demo backend (filed upstream as
+[openapi-zod-ts #289](https://github.com/codewithagents/openapi-zod-ts/issues/289)).
+
+Use it two ways: as **proof** that both generated sides agree on the wire, and as a **template** a
+team can copy to bootstrap a spec-first project. See [`e2e/`](./e2e) for the full reference.
 
 ---
 

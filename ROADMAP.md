@@ -1,15 +1,14 @@
 # Roadmap
 
-Status: **0.3.0 released on Packagist; 0.4.0 in progress on main (unreleased local stack, nothing
-pushed).** The v1 models generator and v2 server scaffold are shipped. 0.3.0 added composition
-keywords (allOf merge, additionalProperties maps), a full security-hardening pass, and edge-case
-fixes mined from the openapi-zod-ts sibling history. 0.4.0 so far adds **oneOf/anyOf union types**
-and a **cross-language end-to-end demo** (`e2e/`) that proves the contract-first loop over real
-HTTP. The version target is deliberately 0.4.0, not 1.0.0: we stay in 0.x while the generated
-output format is still evolving, and tag 1.0.0 (the API-stability promise) only when the feature
-set settles.
+Status: **0.4.0 released on Packagist.** The v1 models generator and v2 server scaffold are shipped.
+0.3.0 added composition keywords (allOf merge, additionalProperties maps), a full security-hardening
+pass, and edge-case fixes mined from the openapi-zod-ts sibling history. 0.4.0 ships **oneOf/anyOf
+union types** and a **cross-language end-to-end demo** (`e2e/`) that proves the contract-first loop
+end to end over real HTTP, with a Docker stack and a Playwright headless-Chrome suite, all green. The
+version target is deliberately 0.4.0, not 1.0.0: we stay in 0.x while the generated output format is
+still evolving, and tag 1.0.0 (the API-stability promise) only when the feature set settles.
 
-## Done and committed toward 0.4.0 (unreleased, local on `main`)
+## Done in 0.4.0 (released)
 
 ### oneOf / anyOf union types
 
@@ -42,22 +41,36 @@ A contract-first proof living inside the repo (never shipped in the dist):
   separate worker processes of php artisan serve and Docker).
 - The petstore-plus spec deliberately stresses the cross-language serialization seams: a snake_case
   wire name forcing `#[MapName]`, a writeOnly field, a readOnly date-time, a nullable number, an
-  additionalProperties map, and a oneOf scalar union. Every one was proven to round-trip over real
+  additionalProperties map, and a oneOf scalar union. Every one is proven to round-trip over real
   HTTP, including: writeOnly never returned, readOnly server-set and ignored on input, enum 422
   from the generated rules(), MapName mapping both directions, and the `string|int` union
   preserving its JSON type with no coercion.
-- Next e2e milestones (in progress): a containerized SPA consuming the published
-  openapi-zod-ts@1.0.1 generated client, a docker-compose stack, and a Playwright headless-Chrome
-  suite driving the browser -> SPA -> generated client -> backend.
+- **The full cross-language loop is complete and green.** A containerized SPA consumes the generated
+  openapi-zod-ts client, a docker-compose stack (`e2e/docker-compose.yml`) boots the generated
+  backend on `:8088` and the SPA on `:8080`, and a Playwright headless-Chrome suite
+  (`e2e/e2e-tests`, run with `./run.sh`) drives the browser -> SPA -> generated client -> backend
+  over real HTTP. Verified in the browser: seeded pets load, a valid create -> 201, an invalid
+  create -> 422 from the generated rules(), readOnly/writeOnly variant behavior, the oneOf scalar
+  union round-trip (string and integer), nullable null, the attributes map, status-filter tabs, and
+  a delete -> 204. The Docker images boot the committed generated code as-is, so what ships in the
+  repo is exactly what the suite proves.
 
-### Bug found by the e2e push (a real generator finding)
+### Findings from the e2e push (real cross-language findings)
 
-**An empty `additionalProperties` map serializes as `[]`, not `{}`.** PHP cannot distinguish an
-empty associative array from an empty list, so `json_encode([])` emits an array. Non-empty maps and
-null are correct; only the empty case is wrong. A strict client expecting `Record<string,string>`
-would receive an array and reject it. Candidate 0.4.0 fix: emit a cast/transformer on generated map
-properties that forces object encoding even when empty, or document it as a known limitation. This
-is exactly the class of bug only a real cross-language round-trip exposes.
+**An empty `additionalProperties` map serializes as `[]`, not `{}` (openapi-laravel).** PHP cannot
+distinguish an empty associative array from an empty list, so `json_encode([])` emits an array.
+Non-empty maps and null are correct; only the empty case is wrong. A strict client expecting
+`Record<string,string>` would receive an array and reject it. Candidate fix: emit a cast/transformer
+on generated map properties that forces object encoding even when empty, or keep it documented as a
+known limitation. This is exactly the class of bug only a real cross-language round-trip exposes.
+
+**The openapi-zod-ts client omits the `Accept: application/json` header (openapi-zod-ts, cross-repo
+follow-up).** The generated TypeScript client sends `Content-Type` but not `Accept`. A browser fetch
+with no explicit `Accept` defaults to `text/html,...`, so Laravel's `wantsJson()` returns false and
+the error path returns an HTML redirect instead of a 422 JSON response. That broke every
+state-changing browser request until the demo backend added a `ForceJsonAccept` middleware. This is
+not a bug in the generated Laravel code; it is a gap in the openapi-zod-ts client generator, filed
+upstream as openapi-zod-ts #289 (https://github.com/codewithagents/openapi-zod-ts/issues/289).
 
 ## Done in 0.3.0 (released)
 
@@ -119,20 +132,21 @@ body falls back to `Illuminate\Http\Request` (now correctly imported) instead of
 
 ### v3 (maybe): client generation (`Http::` based). Decide later.
 
-## Remaining work toward tagging 0.4.0
+## Next work (post-0.4.0)
 
-1. **additionalProperties empty-map encoding**: fix the `[]` vs `{}` serialization (cast/transformer
-   to force object encoding) or document it. Surfaced by the e2e demo.
-2. **Finish the e2e demo**: SPA container + docker-compose + Playwright headless-Chrome E2E, green.
-3. **Quality tooling (under consideration)**: add cheap high-value free tools as CI/PR jobs and
-   local scripts. Candidates, additive to the current PHPStan-max / Pint / type-coverage / mutation
-   / composer-unused stack: `composer audit` (vulnerable deps), Deptrac (enforce the
-   Parser/Naming/Emitter/Console layering), Psalm taint-analysis (security, given the untrusted-spec
-   threat model), and optionally SonarCloud or Qodana (free for the public repo, PR decoration).
-4. **DX on bad input**: a `--dry-run` summary and richer error messages.
-5. **Published-artifact CI job**: install the published Packagist release and smoke-generate.
-6. **CI maintenance**: bump `actions/checkout` off the deprecated Node 20.
-7. **Tag 0.4.0** via release-please once the above settle.
+0.4.0 is released and the cross-language e2e demo is complete (Docker stack + Playwright
+headless-Chrome, green). The open items are:
+
+1. **additionalProperties empty-map encoding**: fix the `[]` vs `{}` serialization (a cast/transformer
+   that forces object encoding even when empty) or keep it documented. Surfaced by the e2e demo.
+2. **Object-union runtime hydration**: emit a discriminator-driven cast so a `oneOf` of Data classes
+   hydrates at runtime, not just type-checks. Currently the documented residual.
+3. **Artisan DX**: a `--namespace` flag and a `--dry-run` summary, plus richer error messages on bad
+   input.
+4. **Published-artifact CI smoke job**: install the published Packagist release and smoke-generate.
+5. **CI maintenance**: bump `actions/checkout` off the deprecated Node 20.
+6. **Cross-repo follow-up**: the openapi-zod-ts `Accept: application/json` gap (issue #289), surfaced
+   by the demo. Fix lives in the sibling repo, not here.
 
 Lower-severity lossy cases (document or improve, not blockers): tuple `prefixItems`
 (`array<int, mixed>`), int64/bignum literal bounds, non-JSON responses (JsonResponse fallback),
@@ -163,7 +177,9 @@ fixtures parse and generate valid PHP, passing the import-resolution gate (256 c
 the model and server gates), plus the allOf/additionalProperties/oneOf non-empty guards. Hostile-
 input suite for the security surfaces. Regression fixtures for the sibling-history edge cases.
 Pest native mutation (>=90%), 100% type coverage, PHPStan max, Pint. The e2e demo adds real-HTTP
-round-trip proofs across the language boundary. Current totals: 580 package tests passing locally.
+round-trip proofs across the language boundary, plus a Playwright headless-Chrome suite that drives
+the full browser -> SPA -> generated client -> backend loop against a docker-compose stack. Current
+totals: 580 package tests passing locally.
 
 ## Open questions (genuine design decisions)
 
@@ -176,5 +192,6 @@ round-trip proofs across the language boundary. Current totals: 580 package test
   value hydration).
 
 Resolved: allOf, additionalProperties, oneOf/anyOf, the security surfaces, and the two
-sibling-history bugs are implemented. The cross-language contract loop is proven over real HTTP for
-the scalar cases. Floors are PHP 8.2 + Laravel 11/12 + laravel-data v4.
+sibling-history bugs are implemented. The cross-language contract loop is proven end to end over real
+HTTP, including the browser-driven Playwright suite; object-union runtime hydration is the remaining
+open case. Floors are PHP 8.2 + Laravel 11/12 + laravel-data v4.
