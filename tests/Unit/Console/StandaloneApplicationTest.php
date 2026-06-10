@@ -34,3 +34,27 @@ it('exits non-zero when the spec cannot be read', function () use ($tempOut) {
 
     expect($exit)->toBe(1);
 });
+
+it('generates controllers and routes from the server flags', function () use ($tempOut) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+    $controllerOut = $out.'/controllers';
+    $routesOut = $out.'/routes/api.generated.php';
+
+    $exit = (new StandaloneApplication)->run([
+        'bin',
+        '--spec='.$serverSpec,
+        '--output='.$out.'/data',
+        '--controllers',
+        '--controller-output='.$controllerOut,
+        '--controller-namespace=Acme\\Http\\Controllers',
+        '--routes',
+        '--routes-output='.$routesOut,
+    ]);
+
+    expect($exit)->toBe(0)
+        ->and(is_file($controllerOut.'/AbstractPetController.php'))->toBeTrue()
+        ->and(file_get_contents($controllerOut.'/AbstractPetController.php'))->toContain('namespace Acme\Http\Controllers;')
+        ->and(is_file($routesOut))->toBeTrue()
+        ->and(file_get_contents($routesOut))->toContain('use Acme\Http\Controllers\PetController;');
+});

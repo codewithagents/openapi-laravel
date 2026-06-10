@@ -36,6 +36,49 @@ it('fails clearly when the spec cannot be read', function () use ($tempOut) {
     $this->artisan('openapi:generate')->assertFailed();
 });
 
+it('generates abstract controllers and a routes file when asked', function () use ($tempOut) {
+    $spec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+    $controllerOut = $out.'/Http/Controllers/Api';
+    $routesOut = $out.'/routes/api.generated.php';
+
+    config()->set('openapi-laravel.controllers.path', $controllerOut);
+    config()->set('openapi-laravel.controllers.namespace', 'App\\Http\\Controllers\\Api');
+    config()->set('openapi-laravel.routes.path', $routesOut);
+
+    $this->artisan('openapi:generate', [
+        '--spec' => $spec,
+        '--output' => $out,
+        '--controllers' => true,
+        '--routes' => true,
+    ])->assertSuccessful();
+
+    expect(is_file($controllerOut.'/AbstractPetController.php'))->toBeTrue()
+        ->and(is_file($routesOut))->toBeTrue()
+        ->and(file_get_contents($routesOut))->toContain("Route::get('/pets'");
+});
+
+it('never prunes concrete controllers, only overwrites the Abstract files', function () use ($tempOut) {
+    $spec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+    $controllerOut = $out.'/Http/Controllers/Api';
+    mkdir($controllerOut, 0755, true);
+    file_put_contents($controllerOut.'/PetController.php', '<?php // hand-written');
+
+    config()->set('openapi-laravel.controllers.path', $controllerOut);
+    config()->set('openapi-laravel.routes.path', $out.'/routes/api.generated.php');
+
+    $this->artisan('openapi:generate', [
+        '--spec' => $spec,
+        '--output' => $out,
+        '--controllers' => true,
+    ])->assertSuccessful();
+
+    expect(is_file($controllerOut.'/PetController.php'))->toBeTrue()
+        ->and(file_get_contents($controllerOut.'/PetController.php'))->toBe('<?php // hand-written')
+        ->and(is_file($controllerOut.'/AbstractPetController.php'))->toBeTrue();
+});
+
 it('prunes stale files when asked', function () use ($customerSpec, $tempOut) {
     $out = $tempOut();
     mkdir($out, 0755, true);

@@ -41,6 +41,14 @@ final class ModelGenerator
     private array $registry = [];
 
     /**
+     * Component schema name => writable variant class name, for schemas that
+     * split into read/write variants. Used by the public registry() accessor.
+     *
+     * @var array<string, string>
+     */
+    private array $writeClasses = [];
+
+    /**
      * @var array<string, GeneratedFile>
      */
     private array $files = [];
@@ -58,6 +66,7 @@ final class ModelGenerator
     {
         $this->names = new UniqueNames;
         $this->registry = [];
+        $this->writeClasses = [];
         $this->files = [];
 
         $schemas = $this->componentSchemas($document);
@@ -72,7 +81,7 @@ final class ModelGenerator
             $this->registry[$name] = ['class' => $class, 'kind' => $kind, 'schema' => $schema];
         }
 
-        foreach ($this->registry as $entry) {
+        foreach ($this->registry as $name => $entry) {
             if ($entry['kind'] === 'enum') {
                 $this->emitEnum($entry['class'], $entry['schema']);
             } elseif ($this->hasReadWriteFlags($entry['schema'])) {
@@ -80,6 +89,7 @@ final class ModelGenerator
                 // variant (drops writeOnly) and a write variant (drops readOnly).
                 $this->emitData($entry['class'], $entry['schema'], 0, 'read');
                 $writeClass = $this->names->reserve($this->withSuffix($this->stripSuffix($entry['class']).'Writable'));
+                $this->writeClasses[$name] = $writeClass;
                 $this->emitData($writeClass, $entry['schema'], 0, 'write');
             } else {
                 $this->emitData($entry['class'], $entry['schema'], 0, 'all');
@@ -89,6 +99,29 @@ final class ModelGenerator
         ksort($this->files);
 
         return $this->files;
+    }
+
+    /**
+     * The component-schema registry after a generate() run, for downstream
+     * emitters (server scaffold) that need to map a $ref to the class it became.
+     * Each entry carries the read/data class, the writable variant (when the
+     * spec split read/write), and whether the schema became a Data class or enum.
+     *
+     * @return array<string, array{dataClass: string, writeClass: ?string, kind: 'data'|'enum'}>
+     */
+    public function registry(): array
+    {
+        $result = [];
+
+        foreach ($this->registry as $name => $entry) {
+            $result[$name] = [
+                'dataClass' => $entry['class'],
+                'writeClass' => $this->writeClasses[$name] ?? null,
+                'kind' => $entry['kind'],
+            ];
+        }
+
+        return $result;
     }
 
     /**
