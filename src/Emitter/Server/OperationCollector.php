@@ -38,7 +38,11 @@ final class OperationCollector
 
     private const JSON_RESPONSE_FQCN = 'Illuminate\\Http\\JsonResponse';
 
+    private const JSON_RESPONSE_SHORT = 'JsonResponse';
+
     private const DATA_COLLECTION_FQCN = 'Spatie\\LaravelData\\DataCollection';
+
+    private const DATA_COLLECTION_SHORT = 'DataCollection';
 
     /**
      * @param  array<string, array{dataClass: string, writeClass: ?string, kind: 'data'|'enum'}>  $registry
@@ -141,7 +145,9 @@ final class OperationCollector
             }
         }
 
-        return 'Default';
+        // 'Untagged' is not a reserved word, so it survives toClassName intact
+        // (unlike 'Default', which would escape to _Default).
+        return 'Untagged';
     }
 
     private function methodName(Operation $operation, string $method, string $path): string
@@ -287,7 +293,7 @@ final class OperationCollector
         if (! $response instanceof Response) {
             $imports[] = self::JSON_RESPONSE_FQCN;
 
-            return ['\\'.self::JSON_RESPONSE_FQCN, null];
+            return [self::JSON_RESPONSE_SHORT, null];
         }
 
         $schema = $this->jsonSchema($this->asArray($response->content));
@@ -308,13 +314,13 @@ final class OperationCollector
                 $imports[] = self::DATA_COLLECTION_FQCN;
                 $imports[] = $this->dataFqcn($collectionOf);
 
-                return ['\\'.self::DATA_COLLECTION_FQCN, 'DataCollection<int, '.$collectionOf.'>'];
+                return [self::DATA_COLLECTION_SHORT, 'DataCollection<int, '.$collectionOf.'>'];
             }
         }
 
         $imports[] = self::JSON_RESPONSE_FQCN;
 
-        return ['\\'.self::JSON_RESPONSE_FQCN, null];
+        return [self::JSON_RESPONSE_SHORT, null];
     }
 
     private function arrayItemDataClass(Schema $schema): ?string

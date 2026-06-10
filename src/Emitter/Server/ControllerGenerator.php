@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Emitter\Server;
 
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
 
 /**
@@ -23,21 +22,16 @@ use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
  */
 final class ControllerGenerator
 {
-    /**
-     * @param  array<string, array{dataClass: string, writeClass: ?string, kind: 'data'|'enum'}>  $registry
-     */
     public function __construct(
         private readonly ServerOptions $options,
-        private readonly array $registry,
     ) {}
 
     /**
+     * @param  list<OperationDescriptor>  $descriptors  already collected once by the caller and shared with RouteGenerator
      * @return array<string, GeneratedFile> abstract class name => file
      */
-    public function generate(OpenApi $document): array
+    public function generate(array $descriptors): array
     {
-        $descriptors = (new OperationCollector($this->options, $this->registry))->collect($document);
-
         /** @var array<string, list<OperationDescriptor>> $byController */
         $byController = [];
         foreach ($descriptors as $descriptor) {

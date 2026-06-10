@@ -21,8 +21,8 @@ it('matches the committed server-scaffold snapshot for petstore-3.0', function (
     $registry = $generator->registry();
     $options = new ServerOptions;
 
-    $controllers = (new ControllerGenerator($options, $registry))->generate($doc);
     $descriptors = (new OperationCollector($options, $registry))->collect($doc);
+    $controllers = (new ControllerGenerator($options))->generate($descriptors);
     $routes = (new RouteGenerator($options))->generate($descriptors);
 
     $combined = implode("\n", array_map(fn ($f) => $f->code, $controllers))."\n".$routes->code;

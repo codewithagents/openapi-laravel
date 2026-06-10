@@ -73,32 +73,42 @@ final class GenerateCommand extends Command
             $this->components->info(sprintf('Generated %d %s into %s', count($written), count($written) === 1 ? 'class' : 'classes', $output));
         }
 
-        $this->generateServer($document, $generator->registry(), $namespace);
+        if (! $this->generateServer($document, $generator->registry(), $namespace)) {
+            return self::FAILURE;
+        }
 
         return self::SUCCESS;
     }
 
     /**
      * @param  array<string, array{dataClass: string, writeClass: ?string, kind: 'data'|'enum'}>  $registry
+     * @return bool false when a requested server target is misconfigured
      */
-    private function generateServer(OpenApi $document, array $registry, string $dataNamespace): void
+    private function generateServer(OpenApi $document, array $registry, string $dataNamespace): bool
     {
         $controllers = (bool) $this->option('controllers') || (bool) config('openapi-laravel.controllers.enabled');
         $routes = (bool) $this->option('routes') || (bool) config('openapi-laravel.routes.enabled');
 
         if (! $controllers && ! $routes) {
-            return;
+            return true;
         }
 
         $controllerNamespace = $this->configString('openapi-laravel.controllers.namespace') ?? 'App\\Http\\Controllers\\Api';
         $serverOptions = new ServerOptions($controllerNamespace, $dataNamespace);
 
+        // Collect descriptors once and feed the same list to both generators so
+        // controller method names and route targets can never drift apart.
+        $descriptors = (new OperationCollector($serverOptions, $registry))->collect($document);
+
+        $ok = true;
+
         if ($controllers) {
             $controllerPath = $this->configString('openapi-laravel.controllers.path');
             if ($controllerPath === null || $controllerPath === '') {
                 $this->components->error('No controllers path configured. Set openapi-laravel.controllers.path.');
+                $ok = false;
             } else {
-                $controllerFiles = (new ControllerGenerator($serverOptions, $registry))->generate($document);
+                $controllerFiles = (new ControllerGenerator($serverOptions))->generate($descriptors);
                 // Never prune: only ever (over)write the Abstract* files, leaving
                 // the user's concrete controllers untouched.
                 $writtenControllers = (new FileWriter($controllerPath))->write($controllerFiles, false);
@@ -110,13 +120,15 @@ final class GenerateCommand extends Command
             $routesPath = $this->configString('openapi-laravel.routes.path');
             if ($routesPath === null || $routesPath === '') {
                 $this->components->error('No routes path configured. Set openapi-laravel.routes.path.');
+                $ok = false;
             } else {
-                $descriptors = (new OperationCollector($serverOptions, $registry))->collect($document);
                 $routeFile = (new RouteGenerator($serverOptions))->generate($descriptors);
                 $this->writeRoutesFile($routesPath, $routeFile->code);
                 $this->components->info(sprintf('Generated %d %s into %s', count($descriptors), count($descriptors) === 1 ? 'route' : 'routes', $routesPath));
             }
         }
+
+        return $ok;
     }
 
     private function writeRoutesFile(string $path, string $code): void

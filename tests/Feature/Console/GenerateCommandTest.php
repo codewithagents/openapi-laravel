@@ -58,6 +58,30 @@ it('generates abstract controllers and a routes file when asked', function () us
         ->and(file_get_contents($routesOut))->toContain("Route::get('/pets'");
 });
 
+it('fails when --controllers is requested but the controllers path is unset', function () use ($tempOut) {
+    $spec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+
+    config()->set('openapi-laravel.controllers.path', '');
+
+    $this->artisan('openapi:generate', [
+        '--spec' => $spec,
+        '--output' => $tempOut(),
+        '--controllers' => true,
+    ])->assertFailed();
+});
+
+it('fails when --routes is requested but the routes path is unset', function () use ($tempOut) {
+    $spec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+
+    config()->set('openapi-laravel.routes.path', '');
+
+    $this->artisan('openapi:generate', [
+        '--spec' => $spec,
+        '--output' => $tempOut(),
+        '--routes' => true,
+    ])->assertFailed();
+});
+
 it('never prunes concrete controllers, only overwrites the Abstract files', function () use ($tempOut) {
     $spec = __DIR__.'/../../Fixtures/server/petstore.yaml';
     $out = $tempOut();

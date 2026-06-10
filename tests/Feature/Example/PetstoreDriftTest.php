@@ -32,8 +32,9 @@ function regenerateDemo(): array
     $registry = $modelGenerator->registry();
 
     $serverOptions = new ServerOptions(CONTROLLER_NAMESPACE, DATA_NAMESPACE);
-    $controllerFiles = (new ControllerGenerator($serverOptions, $registry))->generate($document);
+    // Collect once, share with both generators (mirrors the command/standalone wiring).
     $descriptors = (new OperationCollector($serverOptions, $registry))->collect($document);
+    $controllerFiles = (new ControllerGenerator($serverOptions))->generate($descriptors);
     $routeFile = (new RouteGenerator($serverOptions))->generate($descriptors);
 
     return [
@@ -68,18 +69,34 @@ it('regenerates the routes file byte-identical to the committed demo', function 
     expect(file_get_contents($committed))->toBe($routeFile->code);
 });
 
+/**
+ * List the basenames matching a glob, failing loudly if the directory is
+ * missing or unreadable rather than passing vacuously on an empty result.
+ *
+ * @return list<string>
+ */
+function demoBasenames(string $dir, string $pattern): array
+{
+    expect(is_dir($dir))->toBeTrue("Demo directory missing or unreadable: {$dir}");
+
+    $matches = glob($dir.'/'.$pattern);
+    expect($matches)->toBeArray("glob failed for {$dir}/{$pattern}");
+
+    return array_values(array_map('basename', $matches));
+}
+
 it('has no committed generated file that the generator would not produce', function () {
     $regenerated = regenerateDemo();
 
     $expectedData = array_map(fn ($f) => $f->filename(), $regenerated['data']);
-    $actualData = array_map('basename', glob(DEMO_DIR.'/Data/*.php') ?: []);
+    $actualData = demoBasenames(DEMO_DIR.'/Data', '*.php');
     sort($expectedData);
     sort($actualData);
     expect($actualData)->toBe($expectedData);
 
     // Abstract* files only: concrete controllers and the store are hand-written.
     $expectedAbstract = array_map(fn ($f) => $f->filename(), $regenerated['controllers']);
-    $actualAbstract = array_map('basename', glob(DEMO_DIR.'/Http/Controllers/Api/Abstract*.php') ?: []);
+    $actualAbstract = demoBasenames(DEMO_DIR.'/Http/Controllers/Api', 'Abstract*.php');
     sort($expectedAbstract);
     sort($actualAbstract);
     expect($actualAbstract)->toBe($expectedAbstract);

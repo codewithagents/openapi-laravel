@@ -62,7 +62,9 @@ final class StandaloneApplication
             fwrite(STDOUT, sprintf("Generated %d %s into %s\n", count($written), count($written) === 1 ? 'class' : 'classes', $output));
         }
 
-        $this->generateServer($document, $generator->registry(), $namespace, $options);
+        if (! $this->generateServer($document, $generator->registry(), $namespace, $options)) {
+            return 1;
+        }
 
         return 0;
     }
@@ -70,8 +72,9 @@ final class StandaloneApplication
     /**
      * @param  array<string, array{dataClass: string, writeClass: ?string, kind: 'data'|'enum'}>  $registry
      * @param  array<string, string>  $options
+     * @return bool false when a requested server target is misconfigured
      */
-    private function generateServer(OpenApi $document, array $registry, string $dataNamespace, array $options): void
+    private function generateServer(OpenApi $document, array $registry, string $dataNamespace, array $options): bool
     {
         $controllerOutput = $options['controller-output'] ?? null;
         $routesOutput = $options['routes-output'] ?? null;
@@ -80,16 +83,23 @@ final class StandaloneApplication
         $routes = isset($options['routes']) || $routesOutput !== null;
 
         if (! $controllers && ! $routes) {
-            return;
+            return true;
         }
 
         $controllerNamespace = $options['controller-namespace'] ?? 'App\\Http\\Controllers\\Api';
         $serverOptions = new ServerOptions($controllerNamespace, $dataNamespace);
 
+        // Collect descriptors once and feed the same list to both generators so
+        // controller method names and route targets can never drift apart.
+        $descriptors = (new OperationCollector($serverOptions, $registry))->collect($document);
+
+        $ok = true;
+
         if ($controllers && ($controllerOutput === null || $controllerOutput === '')) {
             fwrite(STDERR, "--controllers requires --controller-output=<dir>.\n");
+            $ok = false;
         } elseif ($controllers) {
-            $controllerFiles = (new ControllerGenerator($serverOptions, $registry))->generate($document);
+            $controllerFiles = (new ControllerGenerator($serverOptions))->generate($descriptors);
             // Never prune: only ever (over)write the Abstract* files.
             $writtenControllers = (new FileWriter($controllerOutput))->write($controllerFiles, false);
             fwrite(STDOUT, sprintf("Generated %d abstract %s into %s\n", count($writtenControllers), count($writtenControllers) === 1 ? 'controller' : 'controllers', $controllerOutput));
@@ -97,8 +107,8 @@ final class StandaloneApplication
 
         if ($routes && ($routesOutput === null || $routesOutput === '')) {
             fwrite(STDERR, "--routes requires --routes-output=<file>.\n");
+            $ok = false;
         } elseif ($routes) {
-            $descriptors = (new OperationCollector($serverOptions, $registry))->collect($document);
             $routeFile = (new RouteGenerator($serverOptions))->generate($descriptors);
             $directory = dirname($routesOutput);
             if (! is_dir($directory)) {
@@ -107,6 +117,8 @@ final class StandaloneApplication
             file_put_contents($routesOutput, $routeFile->code);
             fwrite(STDOUT, sprintf("Generated %d %s into %s\n", count($descriptors), count($descriptors) === 1 ? 'route' : 'routes', $routesOutput));
         }
+
+        return $ok;
     }
 
     /**

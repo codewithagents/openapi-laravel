@@ -46,14 +46,14 @@ it('emits one Route line per operation pointing at the concrete controller', fun
         ->and($code)->toContain("Route::post('/pets', [PetController::class, 'createPet']);")
         ->and($code)->toContain("Route::get('/pets/{petId}', [PetController::class, 'getPetById']);")
         ->and($code)->toContain("Route::delete('/pets/{petId}', [PetController::class, 'deletePet']);")
-        ->and($code)->toContain("Route::get('/health', [_DefaultController::class, 'getHealth']);");
+        ->and($code)->toContain("Route::get('/health', [UntaggedController::class, 'getHealth']);");
 });
 
 it('imports the concrete controllers (not the abstracts), sorted and unique', function () {
     $code = generateRoutes();
 
     expect($code)->toContain('use App\Http\Controllers\Api\PetController;')
-        ->and($code)->toContain('use App\Http\Controllers\Api\_DefaultController;')
+        ->and($code)->toContain('use App\Http\Controllers\Api\UntaggedController;')
         ->and($code)->not->toContain('AbstractPetController')
         ->and(substr_count($code, 'use App\Http\Controllers\Api\PetController;'))->toBe(1);
 });

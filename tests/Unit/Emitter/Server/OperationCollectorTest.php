@@ -41,12 +41,12 @@ it('groups operations under a controller derived from the first tag', function (
         ->and($get->abstractClass)->toBe('AbstractPetController');
 });
 
-it('falls back to a Default controller when an operation has no tag', function () {
+it('falls back to an Untagged controller when an operation has no tag', function () {
     $health = descriptorFor(collectPetstore(), 'get', '/health');
 
-    // "Default" is a reserved word, so the identifier is escaped to _Default.
-    expect($health->controllerClass)->toBe('_DefaultController')
-        ->and($health->abstractClass)->toBe('Abstract_DefaultController');
+    // "Untagged" is not reserved, so it stays readable (unlike "Default").
+    expect($health->controllerClass)->toBe('UntaggedController')
+        ->and($health->abstractClass)->toBe('AbstractUntaggedController');
 });
 
 it('uses the operationId for the method name when present', function () {
@@ -85,7 +85,8 @@ it('returns the Data class for a $ref response', function () {
 it('returns a DataCollection for an array-of-ref response', function () {
     $list = descriptorFor(collectPetstore(), 'get', '/pets');
 
-    expect($list->returnType)->toBe('\\Spatie\\LaravelData\\DataCollection')
+    // Short return type matches the use import so the import is never unused.
+    expect($list->returnType)->toBe('DataCollection')
         ->and($list->returnDoc)->toBe('DataCollection<int, PetData>')
         ->and($list->imports)->toContain('Spatie\\LaravelData\\DataCollection')
         ->and($list->imports)->toContain('App\\Data\\PetData');
@@ -94,7 +95,8 @@ it('returns a DataCollection for an array-of-ref response', function () {
 it('falls back to JsonResponse when the success response has no typed body', function () {
     $delete = descriptorFor(collectPetstore(), 'delete', '/pets/{petId}');
 
-    expect($delete->returnType)->toBe('\\Illuminate\\Http\\JsonResponse')
+    // Short return type matches the use import so the import is never unused.
+    expect($delete->returnType)->toBe('JsonResponse')
         ->and($delete->imports)->toContain('Illuminate\\Http\\JsonResponse');
 });
 
@@ -117,4 +119,25 @@ it('is deterministic: same spec in, identical descriptors out', function () {
     $second = array_map(fn (OperationDescriptor $d): string => $d->methodName, collectPetstore());
 
     expect($first)->toBe($second);
+});
+
+it('produces a writable variant whose rules() still enforce required non-readOnly fields', function () {
+    // The createPet body param is typed PetWritableData (see the writable-variant
+    // body test above). This proves that variant is real and that its generated
+    // rules() would validate a request: a missing required name fails, the
+    // readOnly id is absent. Full HTTP coverage of the writable body is a
+    // follow-up (B1); this asserts the generated validation surface directly.
+    $doc = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/server/petstore.yaml');
+    $generator = new ModelGenerator;
+    $files = $generator->generate($doc);
+    $registry = $generator->registry();
+
+    // (a) The writable variant is genuinely produced and recorded in the registry.
+    expect($registry['Pet']['writeClass'])->toBe('PetWritableData')
+        ->and($files)->toHaveKey('PetWritableData');
+
+    // (b) Its rules() require the non-readOnly required field and omit readOnly id.
+    $writableCode = $files['PetWritableData']->code;
+    expect($writableCode)->toContain("'name' => ['required', 'string']")
+        ->and($writableCode)->not->toContain("'id' =>");
 });

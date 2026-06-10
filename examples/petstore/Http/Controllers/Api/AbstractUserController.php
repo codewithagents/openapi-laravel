@@ -29,14 +29,14 @@ abstract class AbstractUserController
      *
      * Logs user into the system.
      */
-    abstract public function loginUser(): \Illuminate\Http\JsonResponse;
+    abstract public function loginUser(): JsonResponse;
 
     /**
      * GET /user/logout
      *
      * Logs out current logged in user session.
      */
-    abstract public function logoutUser(): \Illuminate\Http\JsonResponse;
+    abstract public function logoutUser(): JsonResponse;
 
     /**
      * GET /user/{username}
@@ -50,12 +50,12 @@ abstract class AbstractUserController
      *
      * Update user resource.
      */
-    abstract public function updateUser(UserData $user, string $username): \Illuminate\Http\JsonResponse;
+    abstract public function updateUser(UserData $user, string $username): JsonResponse;
 
     /**
      * DELETE /user/{username}
      *
      * Delete user resource.
      */
-    abstract public function deleteUser(string $username): \Illuminate\Http\JsonResponse;
+    abstract public function deleteUser(string $username): JsonResponse;
 }

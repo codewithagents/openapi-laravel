@@ -33,7 +33,7 @@ abstract class AbstractPetController
      *
      * @return DataCollection<int, PetData>
      */
-    abstract public function findPetsByStatus(): \Spatie\LaravelData\DataCollection;
+    abstract public function findPetsByStatus(): DataCollection;
 
     /**
      * GET /pet/findByTags
@@ -42,7 +42,7 @@ abstract class AbstractPetController
      *
      * @return DataCollection<int, PetData>
      */
-    abstract public function findPetsByTags(): \Spatie\LaravelData\DataCollection;
+    abstract public function findPetsByTags(): DataCollection;
 
     /**
      * GET /pet/{petId}
@@ -63,7 +63,7 @@ abstract class AbstractPetController
      *
      * Deletes a pet.
      */
-    abstract public function deletePet(int $petId): \Illuminate\Http\JsonResponse;
+    abstract public function deletePet(int $petId): JsonResponse;
 
     /**
      * POST /pet/{petId}/uploadImage

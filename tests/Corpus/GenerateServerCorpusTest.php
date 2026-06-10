@@ -24,8 +24,9 @@ it('generates valid controllers and routes for every corpus spec', function (str
     $registry = $generator->registry();
     $options = new ServerOptions;
 
-    $controllers = (new ControllerGenerator($options, $registry))->generate($document);
+    // Collect once, share with both generators (mirrors the command/standalone wiring).
     $descriptors = (new OperationCollector($options, $registry))->collect($document);
+    $controllers = (new ControllerGenerator($options))->generate($descriptors);
     $routes = (new RouteGenerator($options))->generate($descriptors);
 
     $files = $controllers;

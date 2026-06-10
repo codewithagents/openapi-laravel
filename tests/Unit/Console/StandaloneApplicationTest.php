@@ -58,3 +58,29 @@ it('generates controllers and routes from the server flags', function () use ($t
         ->and(is_file($routesOut))->toBeTrue()
         ->and(file_get_contents($routesOut))->toContain('use Acme\Http\Controllers\PetController;');
 });
+
+it('exits non-zero when --controllers is set without --controller-output', function () use ($tempOut) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+
+    $exit = (new StandaloneApplication)->run([
+        'bin',
+        '--spec='.$serverSpec,
+        '--output='.$tempOut(),
+        '--controllers',
+    ]);
+
+    expect($exit)->toBe(1);
+});
+
+it('exits non-zero when --routes is set without --routes-output', function () use ($tempOut) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+
+    $exit = (new StandaloneApplication)->run([
+        'bin',
+        '--spec='.$serverSpec,
+        '--output='.$tempOut(),
+        '--routes',
+    ]);
+
+    expect($exit)->toBe(1);
+});

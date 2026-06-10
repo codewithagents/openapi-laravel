@@ -14,7 +14,7 @@ abstract class AbstractStoreController
      *
      * Returns pet inventories by status.
      */
-    abstract public function getInventory(): \Illuminate\Http\JsonResponse;
+    abstract public function getInventory(): JsonResponse;
 
     /**
      * POST /store/order
@@ -35,5 +35,5 @@ abstract class AbstractStoreController
      *
      * Delete purchase order by identifier.
      */
-    abstract public function deleteOrder(int $orderId): \Illuminate\Http\JsonResponse;
+    abstract public function deleteOrder(int $orderId): JsonResponse;
 }
