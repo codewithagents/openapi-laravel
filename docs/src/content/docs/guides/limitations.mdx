@@ -131,6 +131,30 @@ discriminator in the spec.
 **Workaround for now:** validate the variant shape in your own controller or service layer after
 the Data object is hydrated.
 
+## const is a single-value enum
+
+A schema with `const` (OpenAPI 3.1 / JSON Schema) pins a value to one literal. The generator treats
+it as a one-value enum: the property keeps its concrete type and gains a single-value `Rule::in`
+constraint.
+
+```yaml
+version:
+  type: string
+  const: v1
+```
+
+This generates `public readonly ?string $version` with `'version' => ['sometimes', Rule::in(['v1'])]`.
+A bare `const` with no declared `type` infers its PHP type from the literal (`const: v1` is a
+`string`, `const: 3` is an `int`). Only scalar `const` values (string and integer) are enforced this
+way; an array, object, boolean, or null `const` falls back to the normal type handling.
+
+## this is the one renamed property
+
+PHP allows every reserved word (`for`, `class`, `list`, `match`, ...) as a parameter variable name,
+so a property named after a keyword keeps that name. The single exception is `this`: `$this` is
+illegal as a parameter. A property literally named `this` is emitted as `$_this` with a
+`#[MapName('this')]` attribute, so the original wire key still round-trips on (de)serialization.
+
 ## Security: specs are untrusted input
 
 The generator reads an OpenAPI spec and writes PHP source that your application then loads and

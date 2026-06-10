@@ -37,6 +37,8 @@ it('builds camelCase property names', function (string $input, string $expected)
     'pascal' => ['FirstName', 'firstName'],
     'leading digit' => ['2fa_enabled', '_2faEnabled'],
     'reserved ok as variable' => ['class', 'class'],
+    // `$this` is the one identifier PHP forbids as a parameter; it is escaped.
+    'this is escaped' => ['this', '_this'],
     'empty fallback' => ['***', 'value'],
 ]);
 

@@ -96,6 +96,15 @@ final class PhpIdentifier
             return '_'.$camel;
         }
 
+        // `$this` is the one identifier PHP forbids as a parameter variable
+        // ("Cannot use $this as parameter"). Every other reserved word (for,
+        // class, list, match, ...) is legal as a parameter name, so this is the
+        // single special case. Map it to `_this`; the emitter's wire-name drift
+        // check then adds #[MapName('this')] so (de)serialization round-trips.
+        if (strtolower($camel) === 'this') {
+            return '_'.$camel;
+        }
+
         return $camel;
     }
 
