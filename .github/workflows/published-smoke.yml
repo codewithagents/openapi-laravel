@@ -1,0 +1,77 @@
+# Smoke-tests the PUBLISHED Packagist artifact, not this checkout.
+#
+# `composer require codewithagents/openapi-laravel` pulls the shipped release into
+# a clean temp project, then the installed vendor/bin/openapi-laravel is run
+# against a tiny inline spec and the generated PHP is php-lint checked. This
+# catches packaging-only breakage (a missing file in the dist, a bad bin path, a
+# wrong autoload map) that the in-repo test suite cannot see.
+#
+# Intentionally NOT a required status check: it runs on demand and on a weekly
+# schedule, never on push or pull_request, so it can never block a merge or a
+# release. A red run is a signal to investigate the published package, not a gate.
+name: Published artifact smoke test
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Mondays at 06:00 UTC.
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Require published package and generate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          tools: composer:v2
+
+      - name: Require the published package in a clean project
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          cd "$work"
+          composer init --no-interaction --name="smoke/published" --stability=stable
+          # Pull the PUBLISHED Packagist release, not this checkout.
+          composer require codewithagents/openapi-laravel --no-interaction --no-progress
+          test -x vendor/bin/openapi-laravel || { echo "vendor/bin/openapi-laravel missing or not executable"; exit 1; }
+          echo "WORK=$work" >> "$GITHUB_ENV"
+
+      - name: Write a tiny inline OpenAPI spec
+        run: |
+          set -euo pipefail
+          cd "$WORK"
+          cat > spec.yaml <<'YAML'
+          openapi: 3.0.3
+          info:
+            title: Smoke
+            version: 1.0.0
+          paths: {}
+          components:
+            schemas:
+              Widget:
+                type: object
+                required: [id]
+                properties:
+                  id:
+                    type: integer
+                  name:
+                    type: string
+          YAML
+
+      - name: Generate and php-lint the output
+        run: |
+          set -euo pipefail
+          cd "$WORK"
+          vendor/bin/openapi-laravel --spec=spec.yaml --output=out --namespace="Smoke\\Data"
+          # At least one Data class must have been generated.
+          count="$(find out -name '*.php' | wc -l)"
+          test "$count" -ge 1 || { echo "no PHP classes generated"; exit 1; }
+          # Every generated file must be valid PHP.
+          find out -name '*.php' -print0 | xargs -0 -n1 php -l
+          echo "Smoke test passed: generated $count PHP file(s) from the published artifact."
