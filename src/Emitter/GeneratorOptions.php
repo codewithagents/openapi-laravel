@@ -9,11 +9,11 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter;
  * Kept as a plain value object so the generator is testable without booting
  * a Laravel container.
  */
-final class GeneratorOptions
+final readonly class GeneratorOptions
 {
     public function __construct(
-        public readonly string $namespace = 'App\\Data',
-        public readonly string $dataSuffix = 'Data',
-        public readonly int $maxDepth = 64,
+        public string $namespace = 'App\\Data',
+        public string $dataSuffix = 'Data',
+        public int $maxDepth = 64,
     ) {}
 }

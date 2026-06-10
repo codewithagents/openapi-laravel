@@ -9,10 +9,10 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter;
  * Optionally prunes previously generated *.php files first so a removed schema
  * does not leave a stale class behind.
  */
-final class FileWriter
+final readonly class FileWriter
 {
     public function __construct(
-        private readonly string $directory,
+        private string $directory,
     ) {}
 
     /**

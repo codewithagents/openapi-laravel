@@ -14,7 +14,7 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter\Server;
  * A plain immutable value object: no behaviour, just resolved data, so both
  * downstream generators stay trivial and deterministic.
  */
-final class OperationDescriptor
+final readonly class OperationDescriptor
 {
     /**
      * @param  list<array{name: string, phpType: string}>  $pathParams
@@ -22,17 +22,17 @@ final class OperationDescriptor
      * @param  list<string>  $imports  FQCNs the controller file must `use`
      */
     public function __construct(
-        public readonly string $httpMethod,
-        public readonly string $path,
-        public readonly string $controllerClass,
-        public readonly string $abstractClass,
-        public readonly string $methodName,
-        public readonly array $pathParams,
-        public readonly ?array $bodyParam,
-        public readonly bool $bodyRequiresRequest,
-        public readonly string $returnType,
-        public readonly ?string $returnDoc,
-        public readonly ?string $summary,
-        public readonly array $imports,
+        public string $httpMethod,
+        public string $path,
+        public string $controllerClass,
+        public string $abstractClass,
+        public string $methodName,
+        public array $pathParams,
+        public ?array $bodyParam,
+        public bool $bodyRequiresRequest,
+        public string $returnType,
+        public ?string $returnDoc,
+        public ?string $summary,
+        public array $imports,
     ) {}
 }

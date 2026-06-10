@@ -20,10 +20,10 @@ use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
  * Output is deterministic: controllers keyed and ordered by abstract class
  * name, methods ordered by path then HTTP method, imports sorted.
  */
-final class ControllerGenerator
+final readonly class ControllerGenerator
 {
     public function __construct(
-        private readonly ServerOptions $options,
+        private ServerOptions $options,
     ) {}
 
     /**

@@ -10,12 +10,12 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter\Server;
  * a Laravel container. `dataNamespace` must match the namespace the model
  * generator wrote its Data classes under, so imports in controllers resolve.
  */
-final class ServerOptions
+final readonly class ServerOptions
 {
     public function __construct(
-        public readonly string $controllerNamespace = 'App\\Http\\Controllers\\Api',
-        public readonly string $dataNamespace = 'App\\Data',
-        public readonly string $abstractPrefix = 'Abstract',
-        public readonly string $controllerSuffix = 'Controller',
+        public string $controllerNamespace = 'App\\Http\\Controllers\\Api',
+        public string $dataNamespace = 'App\\Data',
+        public string $abstractPrefix = 'Abstract',
+        public string $controllerSuffix = 'Controller',
     ) {}
 }

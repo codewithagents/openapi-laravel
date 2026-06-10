@@ -15,10 +15,10 @@ use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
  * Output is deterministic: imports sorted and unique, route lines in the
  * descriptor order (already path then HTTP method).
  */
-final class RouteGenerator
+final readonly class RouteGenerator
 {
     public function __construct(
-        private readonly ServerOptions $options,
+        private ServerOptions $options,
     ) {}
 
     /**

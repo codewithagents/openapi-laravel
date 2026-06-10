@@ -17,18 +17,18 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter;
  * its nullability as a trailing `|null` member, never the `?` shorthand, since
  * PHP forbids `?A|B`.
  */
-final class ResolvedType
+final readonly class ResolvedType
 {
     /**
      * @param  list<string>  $imports
      */
     public function __construct(
-        public readonly string $declaration,
-        public readonly bool $nullable = false,
-        public readonly ?string $docType = null,
-        public readonly array $imports = [],
-        public readonly ?string $dataCollectionOf = null,
-        public readonly bool $isUnion = false,
+        public string $declaration,
+        public bool $nullable = false,
+        public ?string $docType = null,
+        public array $imports = [],
+        public ?string $dataCollectionOf = null,
+        public bool $isUnion = false,
     ) {}
 
     public function declaration(): string
