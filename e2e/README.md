@@ -139,6 +139,68 @@ php artisan serve --port=8088
 The generated routes are mounted under `/api` (see `bootstrap/app.php`), so the
 endpoints are real HTTP routes. `php artisan route:list` shows them all.
 
+## Run the whole stack in Docker
+
+One command brings up the generated backend and the SPA together, reachable so a
+real browser can drive the SPA which calls the backend over real HTTP:
+
+```bash
+docker compose -f e2e/docker-compose.yml up -d --build
+# backend:  http://localhost:8088   (API under /api, health at /up)
+# frontend: http://localhost:8080   (the built SPA)
+docker compose -f e2e/docker-compose.yml down
+```
+
+Both services run the committed code as-is: the containers do NOT regenerate the
+backend Data classes or the frontend client. The generated artifacts that ship
+in the repo are the proof, and the images just boot them.
+
+### How the path-repo problem is solved (backend)
+
+The local dev setup consumes `codewithagents/openapi-laravel` through a Composer
+PATH repository pointing at `../..` (the package working tree, symlinked). That
+path does not exist inside a container. The key insight: the package is a
+GENERATION-TIME tool (the `openapi:generate` command); it is NOT needed at
+runtime. The generated `app/Data` classes depend only on `spatie/laravel-data`,
+and the controllers/routes are plain Laravel.
+
+So in `backend/composer.json`:
+
+- `codewithagents/openapi-laravel` lives in `require-dev` (behind the path repo).
+- `spatie/laravel-data` is a direct runtime `require` (the generated Data classes
+  extend `Spatie\LaravelData\Data`, so it is a genuine runtime dependency of the
+  committed generated code, independent of the generator tool).
+
+The backend image then runs `composer install --no-dev`, which never resolves the
+dev-only generator and therefore never touches the missing `../..` path. Local
+development is unchanged: a normal `composer install` still symlinks the package
+in, and `php artisan openapi:generate --controllers --routes` still regenerates
+byte-identical output.
+
+### Image structure and port wiring
+
+- `backend/Dockerfile`: `php:8.3-cli`, the extra Laravel extensions (`bcmath`,
+  `intl`, `zip`; the rest are bundled), Composer, `composer install --no-dev
+  --optimize-autoloader`, an APP_KEY generated at build time, writable
+  `storage/` + the `storage/app` file-store dir, and `php artisan serve` on 8088.
+  It ships `backend/.env.docker` (array/file session/cache/queue drivers, no
+  database server: the demo is fully file-backed via `storage/app/petstore.json`)
+  and seeds the deterministic store (`petstore:reset`) on container start.
+- `frontend/Dockerfile`: multi-stage. Node 20 + pnpm to `pnpm install
+  --frozen-lockfile` and `pnpm build` (the generated client in `src/api` is
+  committed, so the build only typechecks and bundles it), then nginx serves the
+  static `dist/`.
+- `docker-compose.yml`: `backend` (host `8088`) and `frontend` (host `8080`) on a
+  shared bridge network, each with a healthcheck; the frontend waits for the
+  backend to be healthy.
+
+The load-bearing detail is `VITE_API_BASE`. The SPA's `fetch` runs in the user's
+BROWSER, not inside a container, so the API base must be a HOST-reachable URL, not
+the internal compose service name. The frontend image therefore bakes
+`VITE_API_BASE=http://localhost:8088/api` (the host-mapped backend port) at build
+time via a build arg. The backend's permissive demo CORS lets the cross-origin
+call (`localhost:8080` -> `localhost:8088`) through.
+
 ## The seam proofs (real HTTP, port 8088)
 
 Each block below was captured live. IDs assume a fresh `petstore:reset` (seeds

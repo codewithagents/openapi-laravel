@@ -1,0 +1,21 @@
+# Keep the build context small and deterministic. Anything regenerated or
+# machine-local must NOT be shipped into the image.
+vendor
+node_modules
+.git
+.env
+.env.backup
+.env.production
+storage/app/petstore.json
+storage/logs/*
+storage/framework/cache/data/*
+storage/framework/sessions/*
+storage/framework/views/*
+bootstrap/cache/*
+database/database.sqlite
+public/build
+public/hot
+*.log
+.DS_Store
+.phpunit.result.cache
+.phpunit.cache

@@ -1,0 +1,52 @@
+# End-to-end demo stack: the generated Laravel backend plus the SPA that drives
+# it through the generated openapi-zod-ts client, over real HTTP.
+#
+# Port wiring (the load-bearing detail): the SPA's fetch runs in the user's
+# browser, so VITE_API_BASE must be a HOST-reachable URL, not the internal
+# compose service name. The frontend bundle is therefore built against
+# http://localhost:8088/api (the host-mapped backend port), and the backend
+# already ships fully permissive CORS for the demo so the cross-origin call
+# (localhost:8080 -> localhost:8088) is allowed.
+
+services:
+  backend:
+    build:
+      context: ./backend
+    image: openapi-laravel-e2e-backend
+    ports:
+      - "8088:8088"
+    healthcheck:
+      # Laravel's built-in /up health endpoint.
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1:8088/up') !== false ? 0 : 1);"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - e2e
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # The URL the BROWSER will hit (host-mapped backend port), inlined into
+        # the bundle by Vite at build time.
+        VITE_API_BASE: http://localhost:8088/api
+    image: openapi-laravel-e2e-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    networks:
+      - e2e
+
+networks:
+  e2e:
+    driver: bridge
