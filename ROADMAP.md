@@ -50,7 +50,7 @@ Spec in -> generated `app/Data/*` (configurable namespace/path):
   maxLength, pattern, format: email/uuid/date-time, minimum/maximum, enum via `Rule::enum`).
 - Native backed enums for string/int enums.
 - readOnly/writeOnly handling: split read/write variants like openapi-zod-ts does
-  (`Patient` vs `PatientWritable`) only when the spec actually uses the flags.
+  (`Customer` vs `CustomerWritable`) only when the spec actually uses the flags.
 - Nested objects -> nested Data classes; arrays -> `DataCollection`/typed arrays with docblocks.
 - Naming layer: StudlyCaps classes, camelCase properties with `#[MapName]` attributes when the
   wire name differs (snake_case etc.), collision handling, PHP reserved-word escaping.
