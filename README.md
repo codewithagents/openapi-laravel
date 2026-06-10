@@ -162,10 +162,20 @@ These are the layers that catch problems before they reach you.
 - **Mutation testing** with [Pest's native mutation testing](https://pestphp.com/docs/mutation-testing)
   (`composer test:mutate`, a dedicated CI job) deliberately introduces bugs into covered code and
   fails if the suite does not catch them, with a minimum score of 90%.
-- **Dependency hygiene**: `composer-unused` and `composer-require-checker` keep the dependency
-  surface honest.
+- **Dependency hygiene**: `composer-unused`, `composer-require-checker`, and `composer audit`
+  (known-advisory scan) keep the dependency surface honest.
+- **Architecture boundaries** enforced with [Deptrac](https://github.com/deptrac/deptrac)
+  (`composer deptrac`, a dedicated CI job): Parser and Naming depend on nothing internal, and the
+  dependency direction flows inward from Console toward those leaf layers.
+- **Static code quality** via [Qodana](https://www.jetbrains.com/qodana/) (JetBrains), reported to
+  the GitHub Security tab. This check is informational and does not block merges.
 - **Committed snapshots** of generated output, diff-checked so any change to the generator is
   visible in review.
+
+> Qodana Cloud dashboard (optional, maintainer only): create a project at
+> [qodana.cloud](https://qodana.cloud) and add its token as the `QODANA_TOKEN` repository secret.
+> The Qodana workflow already runs and reports to GitHub without it; the token only adds the Cloud
+> dashboard upload.
 
 ---
 

@@ -1,0 +1,28 @@
+# Qodana: JetBrains code quality analysis for openapi-laravel.
+# https://www.jetbrains.com/help/qodana/qodana-yaml.html
+#
+# Runs in CI (see .github/workflows/qodana.yml) in informational mode: it reports
+# findings to the GitHub Security tab via SARIF and, when a QODANA_TOKEN secret is
+# present, to the Qodana Cloud dashboard. It does not block merges on the first run.
+version: "1.0"
+
+# PHP linter image. Pin or float as needed; latest tracks the current release.
+linter: jetbrains/qodana-php:latest
+
+# A sensible default profile for a first pass.
+profile:
+  name: qodana.recommended
+
+# Limit analysis to our own source. Everything else is noise for this package.
+include:
+  - name: src
+
+# Keep generated, vendored, and fixture noise out of the report.
+exclude:
+  - name: All
+    paths:
+      - vendor
+      - e2e
+      - tests/Fixtures
+      - build
+      - docs

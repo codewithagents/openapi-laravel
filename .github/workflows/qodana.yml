@@ -1,0 +1,55 @@
+# Qodana code quality (JetBrains) for openapi-laravel.
+#
+# Informational only: this workflow reports findings to the GitHub Security tab
+# (via SARIF) and is NOT part of the required status checks, so it never blocks a
+# merge. continue-on-error keeps the job green even when Qodana reports problems.
+#
+# MAINTAINER, one-time manual step to unlock the Qodana Cloud dashboard:
+#   1. Create a project at https://qodana.cloud
+#   2. Copy the project token and add it as a repository secret named QODANA_TOKEN
+#      (Settings -> Secrets and variables -> Actions -> New repository secret).
+# Without the token the workflow still runs and reports to GitHub; it just skips
+# the Qodana Cloud upload.
+name: Qodana
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  qodana:
+    name: Qodana code quality
+    runs-on: ubuntu-latest
+    # Informational gate: do not fail the build or block merges on findings.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A full history lets Qodana attribute findings and diff against the base.
+          fetch-depth: 0
+
+      - name: Qodana scan
+        uses: JetBrains/qodana-action@v2026.1
+        with:
+          use-caches: true
+          upload-result: true
+          # Permissive: never let the analysis itself fail the step.
+          args: --fail-threshold,1000000
+        env:
+          # Optional. If the secret is unset the action runs without Cloud upload.
+          QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
+
+      - name: Upload SARIF to GitHub code scanning
+        # Surface findings in the Security tab. Guarded so a missing SARIF (for
+        # example if the scan was skipped) does not hard-fail the workflow.
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ runner.temp }}/qodana/results/qodana.sarif.json
