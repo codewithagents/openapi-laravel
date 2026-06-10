@@ -31,7 +31,7 @@ jobs:
     # Informational gate: do not fail the build or block merges on findings.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # Check out the actual PR commit, not the synthetic merge commit.
           ref: ${{ github.event.pull_request.head.sha }}
