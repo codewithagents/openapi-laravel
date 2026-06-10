@@ -246,6 +246,7 @@ final class PetData extends Data
         public readonly string $name,
         /** @var array<int, string> */
         public readonly array $photoUrls,
+        public readonly ?int $id = null,
         public readonly ?CategoryData $category = null,        // nested $ref
         /** @var array<int, TagData> */
         #[DataCollectionOf(TagData::class)]

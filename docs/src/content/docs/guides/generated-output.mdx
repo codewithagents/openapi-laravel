@@ -263,6 +263,7 @@ final class PetData extends Data
         public readonly string $name,
         /** @var array<int, string> */
         public readonly array $photoUrls,
+        public readonly ?int $id = null,
         public readonly ?CategoryData $category = null,        // nested $ref
         /** @var array<int, TagData> */
         #[DataCollectionOf(TagData::class)]
@@ -308,10 +309,12 @@ final class PetWritableData extends Data
         public readonly string $name,
         /** @var array<int, string> */
         public readonly array $photoUrls,
-        // ... same shared fields as PetData ...
+        public readonly ?int $id = null,
+        // ... shared fields as in PetData, trimmed ...
         #[MapName('secret_note')]
         public readonly ?string $secretNote = null,   // writeOnly: write shape only
-        // no createdAt here: readOnly fields never appear in the write variant
+        // ... more shared fields, trimmed; no createdAt here: readOnly fields
+        // never appear in the write variant
     ) {}
 }
 ```
