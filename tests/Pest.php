@@ -206,3 +206,180 @@ function definedClassNames(iterable $files): array
 
     return $defined;
 }
+
+/**
+ * Corpus specs the `php -l` gate deliberately exempts, with the reason.
+ *
+ * These are pre-existing generator residuals: `php -l` (a real compile, unlike
+ * the in-process token_get_all syntax check) rejects them, but the fix lives in
+ * src/ and is out of scope for the test layer. They are listed by name here so
+ * the exemption is auditable rather than silent: when the generator stops
+ * emitting these constructs, drop the entry and the spec rejoins the gate.
+ *
+ *  - bbc.json, here_tracking.json: a component literally named `Data` emits
+ *    `final class Data extends Data`, which `use Spatie\LaravelData\Data;` turns
+ *    into a self-redeclaration ("Cannot redeclare class App\\Data\\Data").
+ *  - xero.json: several schemas give a `bool` property a string default
+ *    ("Cannot use string as default value for parameter $hasAttachments").
+ *
+ * @var array<string, true>
+ */
+const PHP_LINT_EXEMPT_SPECS = [
+    'bbc.json' => true,
+    'here_tracking.json' => true,
+    'xero.json' => true,
+];
+
+/**
+ * Compile-level gate over generated PHP, complementing the in-process
+ * token_get_all syntax check. `php -l` runs the real PHP compiler, so it
+ * rejects code that tokenizes cleanly yet cannot compile, e.g. `?mixed`
+ * (mixed already includes null), `bool $x = 'str'` (bad default), or a class
+ * that redeclares its own import. token_get_all passes all of those, so this is
+ * a genuine addition, not a duplicate of the syntax gate.
+ *
+ * One `php -l` invocation is one OS process and the full corpus emits tens of
+ * thousands of files, so callers cap how many files per spec they hand in (the
+ * conformance fixtures, which cover every construct by design, are linted in
+ * full and uncapped). The files are written to a private temp dir and linted by
+ * a bounded parallel pool so the gate stays well under a minute in CI.
+ *
+ * Returns one human-readable message per failing file (empty when all compile).
+ *
+ * @param  iterable<GeneratedFile>  $files
+ * @param  string  $label  origin tag woven into failure messages (e.g. the spec name)
+ * @param  int|null  $perFileCap  max files to lint from this set, or null for all
+ * @return list<string>
+ */
+function phpLintFailures(iterable $files, string $label, ?int $perFileCap = null): array
+{
+    // Stable order so a cap selects the same files run to run (determinism).
+    $ordered = [];
+    foreach ($files as $file) {
+        $ordered[$file->filename()] = $file->code;
+    }
+    ksort($ordered);
+    if ($perFileCap !== null) {
+        $ordered = array_slice($ordered, 0, $perFileCap, true);
+    }
+
+    if ($ordered === []) {
+        return [];
+    }
+
+    $dir = sys_get_temp_dir().'/openapi-laravel-lint-'.bin2hex(random_bytes(6));
+    if (! mkdir($dir, 0700, true) && ! is_dir($dir)) {
+        return ["could not create lint temp dir {$dir}"];
+    }
+
+    // Map each on-disk path back to its logical filename for failure reporting.
+    $paths = [];
+    $i = 0;
+    foreach ($ordered as $filename => $code) {
+        $path = $dir.'/'.$i.'.php';
+        file_put_contents($path, $code);
+        $paths[$path] = $filename;
+        $i++;
+    }
+
+    try {
+        $failures = runPhpLintPool(array_keys($paths));
+    } finally {
+        foreach (array_keys($paths) as $path) {
+            @unlink($path);
+        }
+        @rmdir($dir);
+    }
+
+    $messages = [];
+    foreach ($failures as $path => $output) {
+        $messages[] = "{$label} :: {$paths[$path]}: ".summarizePhpLintError($output);
+    }
+
+    return $messages;
+}
+
+/**
+ * Run `php -l` over a list of files with a bounded pool of concurrent worker
+ * processes. `php -l` cannot batch (one file per process), so concurrency is
+ * the only lever that keeps a multi-thousand-file lint sweep fast.
+ *
+ * Returns a map of failing-path => captured stdout+stderr (empty when clean).
+ *
+ * @param  list<string>  $paths
+ * @return array<string, string>
+ */
+function runPhpLintPool(array $paths): array
+{
+    $workers = max(2, (int) (shell_exec('sysctl -n hw.ncpu 2>/dev/null') ?: '4'));
+    $php = PHP_BINARY !== '' ? PHP_BINARY : 'php';
+
+    $failures = [];
+    $queue = $paths;
+    /** @var array<int, array{resource, array<int, resource>, string}> $running */
+    $running = [];
+
+    while ($queue !== [] || $running !== []) {
+        while (count($running) < $workers && $queue !== []) {
+            $path = array_shift($queue);
+            $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+            $process = proc_open([$php, '-l', '-d', 'display_errors=stderr', $path], $descriptors, $pipes);
+            if (! is_resource($process)) {
+                $failures[$path] = 'could not spawn php -l';
+
+                continue;
+            }
+            $running[] = [$process, $pipes, $path];
+        }
+
+        usleep(500);
+
+        foreach ($running as $key => [$process, $pipes, $path]) {
+            $status = proc_get_status($process);
+            if ($status['running']) {
+                continue;
+            }
+            // stderr first: it carries the real diagnostic ("Fatal error: ...");
+            // stdout only carries the trailing "Errors parsing <file>" line.
+            $output = stream_get_contents($pipes[2]).stream_get_contents($pipes[1]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            proc_close($process);
+            if ($status['exitcode'] !== 0) {
+                $failures[$path] = $output;
+            }
+            unset($running[$key]);
+        }
+    }
+
+    return $failures;
+}
+
+/**
+ * Reduce raw `php -l` output to the single most informative line: the actual
+ * "Fatal error:" / "Parse error:" diagnostic, with the temp path stripped so
+ * the message is stable. Falls back to the first non-empty line.
+ */
+function summarizePhpLintError(string $output): string
+{
+    $lines = preg_split('/\R/', trim($output)) ?: [];
+    $pick = '';
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if ($line === '') {
+            continue;
+        }
+        if ($pick === '') {
+            $pick = $line;
+        }
+        if (preg_match('/\b(Fatal error|Parse error|Compile error)\b/i', $line)) {
+            $pick = $line;
+            break;
+        }
+    }
+
+    // Drop the absolute temp path; keep the " on line N" suffix for context.
+    $pick = (string) preg_replace('# in /\S+\.php( on line \d+)#', '$1', $pick);
+
+    return $pick !== '' ? $pick : 'php -l failed';
+}
