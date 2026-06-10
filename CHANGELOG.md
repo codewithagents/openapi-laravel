@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.5.0](https://github.com/codewithagents/openapi-laravel/compare/v0.4.0...v0.5.0) (2026-06-10)
+
+
+### Features
+
+* **console:** add --namespace option to openapi:generate ([4441c3b](https://github.com/codewithagents/openapi-laravel/commit/4441c3b2ca272e755092ebd86ee9c049c4f50fbc))
+
+
+### Bug Fixes
+
+* **emitter:** alias non-object components instead of empty Data classes ([b8ed19c](https://github.com/codewithagents/openapi-laravel/commit/b8ed19c7fc927a683bd83727a7776bd5fe7a6621))
+* **emitter:** close eight silent-validation gaps in generated rules ([34c3ccc](https://github.com/codewithagents/openapi-laravel/commit/34c3cccbac5d5666d67e0908fe2f8b57208de682))
+* **emitter:** guard against Data-name collision and mistyped scalar defaults ([e5ac8be](https://github.com/codewithagents/openapi-laravel/commit/e5ac8bee019e12e444db021c22ae27eea3998f16))
+* **emitter:** serialize empty additionalProperties maps as {} not [] ([ef0eb64](https://github.com/codewithagents/openapi-laravel/commit/ef0eb64c6d104d32b9358febd20dd950fb688a27))
+* **parser:** normalize boolean items and surface OOM cleanly ([ea90a02](https://github.com/codewithagents/openapi-laravel/commit/ea90a02d5ae1e3a6e0478648cb5155be2ed5660f))
+
+
+### Miscellaneous Chores
+
+* marketing launch prep (packagist metadata, badges, community files) ([#6](https://github.com/codewithagents/openapi-laravel/issues/6)) ([d398c27](https://github.com/codewithagents/openapi-laravel/commit/d398c27405c1768a5e0871de85a927a17e1323b3))
+
 ## [0.4.0](https://github.com/codewithagents/openapi-laravel/compare/v0.3.0...v0.4.0) (2026-06-10)
 
 
