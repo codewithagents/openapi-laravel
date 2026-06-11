@@ -155,7 +155,8 @@ By issue #9 a top-level non-object component (a scalar, an array, a map, a
 oneOf union) is inlined at its use site rather than emitted as its own (empty)
 Data class. Its generated shape (typed maps with the `MapObjectTransformer`,
 `DataCollection`s, the uniqueItems `distinct` rule, tuple/array element types,
-scalar-alias rules, native scalar/object unions) is therefore only observable
+scalar-alias rules, native scalar unions, and the `mixed`-typed object union with
+its variant docblock per issue #31) is therefore only observable
 where it is REFERENCED. `Exerciser` references one of each so the golden test
 can assert that inlined output on real generated code; it is a construct
 exerciser, not a realistic payload.

@@ -47,7 +47,7 @@ it('emits a native union plus a variant docblock for a scalar oneOf', function (
         ->and($code)->toContain("'value' => ['sometimes']");
 });
 
-it('emits a Data-class union for a oneOf of two $refs', function () {
+it('types an undiscriminated object union as mixed, keeping the variant docblock (issue #31)', function () {
     $files = generateUnionSchemas([
         'Cat' => ['type' => 'object', 'properties' => ['meow' => ['type' => 'string']]],
         'Dog' => ['type' => 'object', 'properties' => ['bark' => ['type' => 'string']]],
@@ -64,11 +64,17 @@ it('emits a Data-class union for a oneOf of two $refs', function () {
 
     $code = $files['PetData']->code;
 
+    // A native `CatData|DogData` property type makes laravel-data infer nested
+    // rules from the union and, lacking a discriminator, validate every payload
+    // against the FIRST variant, false-rejecting a valid non-first variant
+    // (issue #31). The interim fix types the property `mixed` (presence-only, no
+    // false-reject) while preserving the variant union in the `@var` docblock.
     expect($code)->toContain('/** @var CatData|DogData */')
-        ->and($code)->toContain('public readonly CatData|DogData|null $animal = null');
+        ->and($code)->toContain('public readonly mixed $animal = null')
+        ->and($code)->not->toContain('CatData|DogData $animal');
 });
 
-it('emits a mixed scalar+object union (string plus a Data class)', function () {
+it('types a mixed scalar+object union as mixed, keeping the variant docblock (issue #31)', function () {
     $files = generateUnionSchemas([
         'Cat' => ['type' => 'object', 'properties' => ['meow' => ['type' => 'string']]],
         'Holder' => [
@@ -84,8 +90,11 @@ it('emits a mixed scalar+object union (string plus a Data class)', function () {
 
     $code = $files['HolderData']->code;
 
+    // A union that includes any Data-class member triggers the same nested-rule
+    // inference, so it is typed `mixed` too. Scalar-only unions are unaffected.
     expect($code)->toContain('/** @var string|CatData */')
-        ->and($code)->toContain('public readonly string|CatData|null $value = null');
+        ->and($code)->toContain('public readonly mixed $value = null')
+        ->and($code)->not->toContain('string|CatData $value');
 });
 
 it('adds null to the union when a member is the null type', function () {
@@ -209,8 +218,10 @@ it('treats anyOf identically to oneOf for typing', function () {
 
     $code = $files['PetData']->code;
 
+    // anyOf of object refs is the same undiscriminated object union: mixed type,
+    // variant docblock preserved (issue #31).
     expect($code)->toContain('/** @var CatData|DogData */')
-        ->and($code)->toContain('public readonly CatData|DogData|null $animal = null');
+        ->and($code)->toContain('public readonly mixed $animal = null');
 });
 
 it('dedupes repeated members in the union, keeping source order', function () {

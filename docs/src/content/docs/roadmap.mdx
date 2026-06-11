@@ -45,10 +45,14 @@ generates `array<string, PriceData>`. A pure-map component is inlined at its use
 emitted as an empty class. Caveats (raw-array `$ref` map values, uncaptured mixed-object overflow,
 unenforced `additionalProperties: false`) are on the [limitations page](/guides/limitations).
 
-**`oneOf` / `anyOf` emit union types.** A property typed via `oneOf` or `anyOf` emits a native PHP
-union type hint plus a `@var` variant docblock, whenever every member resolves to a scalar or a
-generated Data class: `oneOf: [string, integer]` becomes `string|int`, and
-`oneOf: [Cat, Dog]` becomes `CatData|DogData`. `null` is folded into the union (with a `= null`
+**`oneOf` / `anyOf` typing.** A **scalar** union emits a native PHP union type hint plus a `@var`
+variant docblock: `oneOf: [string, integer]` becomes `string|int`. An **object** union
+(`oneOf: [Cat, Dog]`) is typed `mixed` and validated for presence only, keeping the variant union in
+the `@var` docblock (`/** @var CatData|DogData */`). This is the interim fix for issue #31: a native
+`CatData|DogData` property type makes spatie/laravel-data infer nested rules from the union and,
+lacking a discriminator, validate every payload against the first variant, false-rejecting a valid
+non-first variant. Typing the property `mixed` accepts every valid variant; full discriminator-aware
+variant validation and hydration is 1.0.0 work. `null` is folded into a scalar union (with a `= null`
 default) when a member is the null type, a member is nullable, or the property is nullable. Messier
 unions (a nested `oneOf`, an array, a map, an untyped or enum member) fall back deterministically to
 `mixed` with presence-only rules. The server scaffold types a response that is a `oneOf`/`anyOf` of
@@ -61,15 +65,16 @@ at runtime due to operator precedence. Fixed in 0.6.0 (bug #24).
 
 ## Known limitations
 
-<Aside type="note" title="oneOf / anyOf object-union hydration needs a discriminator">
+<Aside type="note" title="object unions are presence-only pending discriminator support">
 
-- **`oneOf` / `anyOf`** now emit union type hints and variant docblocks with presence rules. The
-  rules stay presence-only (no variant enforcement): standard Laravel cannot assert "exactly one
-  shape" without a discriminator.
-- **Object-union runtime hydration** (`CatData|DogData`) still needs a discriminator or a custom
-  cast. The union type hint is a typing, IDE, and PHPStan improvement; scalar unions hydrate fine,
-  but an object union arrives as a raw array at runtime without a discriminator-aware cast.
-- **Array-of-union** (an array whose `items` are a `oneOf`/`anyOf`) now emits a plain
+- **Scalar `oneOf` / `anyOf`** emit native union type hints and variant docblocks with presence rules.
+  The rules stay presence-only (no per-variant type rule).
+- **Object unions** (`oneOf`/`anyOf` of Data classes) are typed `mixed` and validated for presence
+  only, so every valid variant is accepted and no valid payload is false-rejected (issue #31). They
+  keep the variant union in the `@var` docblock for IDE and PHPStan. The interim tradeoff: any object
+  is currently accepted, the variant is neither enforced nor auto-hydrated. Full discriminator-aware
+  variant validation and hydration is 1.0.0 work.
+- **Array-of-union** (an array whose `items` are a `oneOf`/`anyOf`) emits a plain
   `array<int, A|B>` with a docblock, not `#[DataCollectionOf(A|B::class)]`. The broken attribute
   form is fixed as of 0.6.0 (bug #24).
 
@@ -85,10 +90,12 @@ page](/guides/limitations) has examples, the fallback rules, and the object-unio
 - **0.2.0:** the server scaffold (abstract controllers per tag plus a routes file).
 - **0.3.0:** `allOf` merging, `additionalProperties` typed maps, and a full security-hardening pass
   that treats the spec as untrusted input.
-- **0.4.0:** `oneOf` / `anyOf` native union typing (union type hints and variant docblocks where
-  members resolve cleanly, a deterministic `mixed` fallback otherwise, Data-class union return types
-  in the server scaffold), plus the cross-language end-to-end demo. Runtime variant validation and
-  object-union hydration still depend on a `discriminator` in the spec.
+- **0.4.0:** `oneOf` / `anyOf` native union typing (scalar union type hints and variant docblocks
+  where members resolve cleanly, a deterministic `mixed` fallback otherwise, Data-class union return
+  types in the server scaffold), plus the cross-language end-to-end demo. Object unions were typed
+  `mixed` for presence-only validation (issue #31): a native `CatData|DogData` property type made
+  laravel-data false-reject valid non-first variants. Full discriminator-aware variant validation and
+  object-union hydration is 1.0.0 work.
 - **0.5.0:** silent-validation correctness pass (exclusive bounds, `multipleOf`, `uniqueItems`,
   float enums, multi-type unions, strict date-time, defaults), non-object component aliasing (no
   more empty Data classes that silently failed to hydrate), parser hardening (boolean `items` and

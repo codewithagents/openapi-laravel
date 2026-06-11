@@ -173,11 +173,14 @@ What the generator handles today:
 - **`additionalProperties`** → typed maps (`array<string, X>`) with per-value wildcard rules; a
   pure-map component is inlined at its use sites instead of emitting an empty class, and an empty map
   serializes as `{}` (not `[]`)
-- **`oneOf` / `anyOf`** → native PHP union types plus a variant docblock when every member resolves
-  to a scalar or a generated Data class (`string|int`, `CatData|DogData`), with a deterministic
-  `mixed` fallback for messier members. An array whose `items` are a union emits a plain typed
-  `array<int, A|B>` with a docblock, not `#[DataCollectionOf(A|B::class)]`: that attribute is
-  syntactically accepted by PHP but resolves wrongly at runtime due to operator precedence (bug #24,
+- **`oneOf` / `anyOf`** → a **scalar** union emits a native PHP union type plus a variant docblock
+  (`string|int`); an **object** union (Data-class members) is typed `mixed` and validated for
+  presence only, with the variant union kept in the `@var` docblock (`/** @var CatData|DogData */`).
+  Object unions are presence-only so every valid variant is accepted, no valid payload is
+  false-rejected (issue #31); full discriminator-aware variant validation and hydration is 1.0.0 work.
+  Messier members fall back deterministically to `mixed`. An array whose `items` are a union emits a
+  plain typed `array<int, A|B>` with a docblock, not `#[DataCollectionOf(A|B::class)]`: that attribute
+  is syntactically accepted by PHP but resolves wrongly at runtime due to operator precedence (bug #24,
   fixed in 0.6.0)
 - **Multi-type scalars** → `type: ["string","integer"]` becomes a `string|int` union (`["x","null"]`
   stays a nullable scalar)
@@ -216,7 +219,9 @@ You write only the concrete `PetController extends AbstractPetController`. See t
 full walkthrough.
 
 A few OpenAPI features degrade gracefully rather than crash. An object union (`oneOf` of Data
-classes) does not auto-hydrate in laravel-data without a discriminator, a `$ref`-valued
+classes) is typed `mixed` and validated for presence only: every valid variant is accepted (no valid
+payload is false-rejected, issue #31), but the variant is neither enforced nor auto-hydrated in
+laravel-data without a discriminator (1.0.0 work). A `$ref`-valued
 `additionalProperties` map is typed in the docblock but not auto-hydrated into Data objects at
 runtime, a request body referencing a component `$ref` falls back to `Illuminate\Http\Request`
 instead of a typed Data param, and tuple `prefixItems`, int64 literal bounds, and non-JSON responses
@@ -365,7 +370,7 @@ Those are excellent if your code is the source of truth. This tool is for the ot
 | Native PHP enums | **Yes** | No | No | You do |
 | Server scaffold (abstract controllers + routes) | **Yes** (opt-in) | No | Yes | You do |
 | `allOf` / `additionalProperties` | **Yes** | n/a | Partial | You do |
-| `oneOf` / `anyOf` | **Union type hints** (object unions need a discriminator at runtime) | n/a | Partial | You do |
+| `oneOf` / `anyOf` | **Scalar union type hints**; object unions presence-only, no false-reject (discriminator validation/hydration is 1.0.0 work) | n/a | Partial | You do |
 | Minimum Laravel version | **11** | 9+ | 10+ | n/a |
 | Runtime peer dependency | `spatie/laravel-data` v4 | none | own DTO layer | none |
 | Standard OpenAPI (no custom extensions) | **Yes** | Yes | No (custom OAS) | n/a |

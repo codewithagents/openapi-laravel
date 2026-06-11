@@ -1336,6 +1336,7 @@ final class ModelGenerator
         $nullable = $this->isNullable($schema);
         $declarations = [];
         $imports = [];
+        $hasObjectMember = false;
 
         foreach ($members as $member) {
             // A `{type: null}` member contributes nullability, not a type.
@@ -1358,6 +1359,10 @@ final class ModelGenerator
                 $nullable = true;
             }
 
+            if ($this->isDataClass($resolved)) {
+                $hasObjectMember = true;
+            }
+
             // Dedupe by PHP type while keeping first-seen (source) order.
             if (! in_array($resolved->declaration, $declarations, true)) {
                 $declarations[] = $resolved->declaration;
@@ -1375,6 +1380,27 @@ final class ModelGenerator
 
         $imports = array_values(array_unique($imports));
         $docType = implode('|', $nullable ? array_merge($declarations, ['null']) : $declarations);
+
+        // An object union (`CatData|DogData`) is undiscriminated: this generator
+        // does not yet emit discriminator-aware validation or hydration (1.0.0
+        // work). A native `CatData|DogData` property type makes spatie/laravel-data
+        // infer nested rules from the union and, lacking a discriminator, validate
+        // EVERY payload against the FIRST variant, so a valid non-first variant
+        // (a Dog where Cat is first) is false-rejected (issue #31). False-rejecting
+        // valid data is worse than under-validating, so type the property as
+        // `mixed` to suppress that nested-rule inference: presence-only rules,
+        // accept any object, no false-reject. The variant union is preserved in the
+        // `@var` docblock for IDE/PHPStan and the member imports are kept so the
+        // referenced Data classes still resolve. Scalar-only unions (`string|int`)
+        // are unaffected and keep their native union type, which validates soundly.
+        if ($hasObjectMember) {
+            return new ResolvedType(
+                'mixed',
+                $nullable,
+                $docType,
+                $imports,
+            );
+        }
 
         return new ResolvedType(
             implode('|', $declarations),
@@ -1589,10 +1615,19 @@ final class ModelGenerator
             ? $itemType->declaration
             : null;
 
+        // An undiscriminated object-union item declares as `mixed` (so laravel-data
+        // does not infer nested rules from a `A|B` type, issue #31) but keeps the
+        // variant union in its docType. Surface that union in the array docblock so
+        // it reads `array<int, GadgetAlphaData|GadgetBetaData>` rather than the
+        // lossy `array<int, mixed>`. Every other item type uses its declaration.
+        $itemDoc = $itemType->declaration === 'mixed' && $itemType->docType !== null
+            ? $itemType->docType
+            : $itemType->declaration;
+
         return new ResolvedType(
             'array',
             $nullable,
-            'array<int, '.$itemType->declaration.'>',
+            'array<int, '.$itemDoc.'>',
             $itemType->imports,
             $dataCollectionOf,
         );

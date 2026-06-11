@@ -6,6 +6,7 @@ use App\ConstraintData\DatedData;
 use App\ConstraintData\HostedData;
 use App\ConstraintData\NestedData;
 use App\ConstraintData\NumberedData;
+use App\ConstraintData\PetHolderData;
 use cebe\openapi\Reader;
 use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
@@ -65,6 +66,31 @@ function bootConstraintClasses(): void
                         'items' => ['type' => 'integer', 'minimum' => 0],
                     ],
                 ],
+            ],
+        ],
+        // Undiscriminated object union (issue #31): Cat is the FIRST variant,
+        // Dog the second. A native `CatData|DogData` property type would make
+        // laravel-data validate every payload against Cat, false-rejecting a
+        // valid Dog. The interim fix types `pet` as `mixed` (presence-only) so
+        // both variants are accepted.
+        'Cat' => [
+            'type' => 'object',
+            'required' => ['meow'],
+            'properties' => ['meow' => ['type' => 'string']],
+        ],
+        'Dog' => [
+            'type' => 'object',
+            'required' => ['bark'],
+            'properties' => ['bark' => ['type' => 'string']],
+        ],
+        'PetHolder' => [
+            'type' => 'object',
+            'required' => ['pet'],
+            'properties' => [
+                'pet' => ['oneOf' => [
+                    ['$ref' => '#/components/schemas/Cat'],
+                    ['$ref' => '#/components/schemas/Dog'],
+                ]],
             ],
         ],
     ];
@@ -197,3 +223,16 @@ it('rejects an inner value below the minimum in a nested array (#28)', function 
 it('rejects a non-array inner element in a nested array (#28)', function () {
     NestedData::validate(['matrix' => ['not-an-array']]);
 })->throws(ValidationException::class);
+
+it('accepts the first variant of an undiscriminated object union (Cat) (#31)', function () {
+    PetHolderData::validate(['pet' => ['meow' => 'mrr']]);
+    expect(true)->toBeTrue();
+});
+
+it('accepts a non-first variant of an undiscriminated object union without false-reject (Dog) (#31)', function () {
+    // Before the interim fix this was false-rejected with "pet.meow is required"
+    // because laravel-data validated the Dog payload against the first variant
+    // (Cat). Presence-only typing accepts every valid variant.
+    PetHolderData::validate(['pet' => ['bark' => 'woof']]);
+    expect(true)->toBeTrue();
+});

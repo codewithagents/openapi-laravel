@@ -1,6 +1,6 @@
 ---
 title: Limitations
-description: What the generator does not yet represent. oneOf/anyOf now emit native union type hints where the members resolve, with an honest note on object-union runtime hydration. Honest about the gaps so you can plan around them.
+description: What the generator does not yet represent. Scalar oneOf/anyOf emit native union type hints; object unions are presence-only (no false-reject) pending discriminator support. Honest about the gaps so you can plan around them.
 ---
 
 import { Aside } from '@astrojs/starlight/components'
@@ -11,11 +11,13 @@ specs. A few OpenAPI features are not yet fully represented. Even degraded const
 that parses and compiles, these are completeness gaps, not crashes, but for a schema that relies on
 them the generated class can be incomplete. This page is honest about where that happens so you can plan around it.
 
-<Aside type="note" title="oneOf / anyOf now emit union types">
-  As of 0.4.0, `oneOf`/`anyOf` emit native PHP union type hints (and a variant
-  docblock) wherever the members resolve to scalars or generated Data classes.
-  The residual gap is object-union runtime hydration, which still needs a
-  discriminator. See [oneOf and anyOf](#oneof-and-anyof-emit-union-types) below.
+<Aside type="note" title="oneOf / anyOf typing and object unions">
+  Scalar `oneOf`/`anyOf` emit native PHP union type hints (and a variant docblock).
+  An **object union** (a `oneOf`/`anyOf` of Data classes) is typed `mixed` and
+  validated for presence only, so every valid variant is accepted, no valid
+  payload is false-rejected (issue #31). It keeps the variant union in its `@var`
+  docblock. Full discriminator-aware variant validation and hydration is 1.0.0
+  work. See [oneOf and anyOf](#oneof-and-anyof-emit-union-types) below.
 </Aside>
 
 ## allOf is merged
@@ -143,10 +145,11 @@ candidate fix (a cast that forces object encoding even when the map is empty).
 
 ## oneOf and anyOf emit union types
 
-A property whose schema uses `oneOf` or `anyOf` emits a native PHP union type hint plus a `@var`
-docblock listing the variants, whenever every member resolves to a clean PHP type: a scalar
-(`string`, `int`, `float`, `bool`) or a generated Data class. `oneOf` and `anyOf` are handled
-identically for typing, since PHP cannot distinguish "exactly one" from "at least one" shape.
+A property whose schema uses `oneOf` or `anyOf` of **scalars** emits a native PHP union type hint
+plus a `@var` docblock listing the variants. A union that contains an **object** member (a generated
+Data class) is typed `mixed` with the variant union preserved in the `@var` docblock (see the object
+union note below). `oneOf` and `anyOf` are handled identically for typing, since PHP cannot
+distinguish "exactly one" from "at least one" shape.
 
 ```yaml
 animal:
@@ -159,13 +162,19 @@ This generates:
 
 ```php
 /** @var CatData|DogData */
-public readonly CatData|DogData|null $animal = null,
+public readonly mixed $animal = null,
 ```
 
-The union is built in source order, deduplicated, with `null` forced to the end. `null` is added to
-the union (and the property defaults to `= null`) when any member is the `null` type, any member is
-itself nullable, or the property is nullable. A scalar union such as `oneOf: [string, integer]`
-becomes `string|int`.
+A scalar union such as `oneOf: [string, integer]` keeps its native union type hint:
+
+```php
+/** @var string|int */
+public readonly string|int|null $value = null,
+```
+
+The scalar union is built in source order, deduplicated, with `null` forced to the end. `null` is
+added to the union (and the property defaults to `= null`) when any member is the `null` type, any
+member is itself nullable, or the property is nullable.
 
 ### Fallback to mixed
 
@@ -189,17 +198,25 @@ A field whose only constraint is being one of several scalar types is therefore 
 presence only. If you need to reject, say, a boolean on a `string|int` field at the validation layer,
 add a rule for it yourself.
 
-### Object-union runtime hydration still needs a discriminator
+### Object unions are presence-only (no false-reject), full validation needs a discriminator
 
-The union type hint and docblock are a typing, IDE, and PHPStan improvement. Scalar unions
-(`string|int`) hydrate fine through spatie/laravel-data. An **object union** (`CatData|DogData`),
-however, does not auto-hydrate: spatie/laravel-data cannot pick which Data class to instantiate from
-a raw payload without a discriminator or a custom cast. So while the type hint is correct and useful
-for static analysis, at runtime an object-union property arrives as a raw array unless you supply a
-discriminator-aware cast yourself.
+An **object union** (`oneOf`/`anyOf` of Data classes, `CatData|DogData`) is typed `mixed` rather than
+the native union, and validated for **presence only**. This is deliberate (issue #31). A native
+`CatData|DogData` property type makes spatie/laravel-data infer nested validation rules from the
+union and, lacking a discriminator, validate **every** payload against the **first** variant. With
+`oneOf: [Cat, Dog]` where `Cat` requires `meow`, a valid `Dog` payload (`{"bark": "woof"}`) was then
+**false-rejected** with "meow is required". False-rejecting valid data is worse than under-validating,
+so the property is typed `mixed`: every valid variant is now accepted, and the variant union stays in
+the `@var` docblock for IDE and PHPStan.
 
-**Workaround for object unions.** Hydrate the chosen variant yourself after the Data object is
-constructed, keyed off a discriminator field your spec already carries. Given a spec like:
+The interim tradeoff is honest: an object union currently accepts **any** object (presence-only), it
+does **not** yet enforce "the value is exactly one of these variants". Full discriminator-aware
+variant validation and auto-hydration is dedicated 1.0.0 work. Scalar unions (`string|int`) are
+unaffected: they keep their native union type and hydrate directly.
+
+**Hydrating object unions today.** Because the property is `mixed`, an object-union value arrives as
+a raw array at runtime. Hydrate the chosen variant yourself, keyed off a discriminator field your
+spec already carries. Given a spec like:
 
 ```yaml
 animal:
@@ -210,8 +227,7 @@ animal:
     propertyName: kind   # each variant carries a "kind" field: "cat" or "dog"
 ```
 
-the generated property is typed `CatData|DogData|null`, but at runtime `$pet->animal` arrives as a
-raw `array`. Dispatch on the discriminator in your controller or service:
+`$pet->animal` arrives as a raw `array`. Dispatch on the discriminator in your controller or service:
 
 ```php
 $raw = $pet->animal;                        // raw array, e.g. ['kind' => 'cat', 'lives' => 9]
@@ -359,7 +375,8 @@ Everything else generates fully: object schemas with `properties`, `$ref`s betwe
 `allOf` composition (merged into a flat class), `additionalProperties` maps (typed `array` with
 per-value rules), nested objects and arrays (`DataCollection`), native enums, the read/write variant
 split, scalar constraints (`minLength`, `maxLength`, `pattern`, `format`, `minimum`/`maximum`,
-`enum`), the server scaffold, and `oneOf`/`anyOf` union type hints where the members resolve. The
-spec-derived validation is presence-exact, with the caveats noted above: object-union runtime
-hydration needs a discriminator, and the map caveats apply (raw-array `$ref` map values, uncaptured
-mixed-object overflow, unenforced `additionalProperties: false`).
+`enum`), the server scaffold, and scalar `oneOf`/`anyOf` union type hints. The spec-derived
+validation is presence-exact, with the caveats noted above: object unions are presence-only (any
+object is accepted, no variant enforced) pending discriminator-aware validation and hydration in
+1.0.0, and the map caveats apply (raw-array `$ref` map values, uncaptured mixed-object overflow,
+unenforced `additionalProperties: false`).

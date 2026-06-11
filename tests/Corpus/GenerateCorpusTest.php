@@ -45,15 +45,17 @@ it('generates syntactically valid PHP for every corpus spec', function (string $
 })->with('corpus_specs');
 
 /**
- * Corpus guard for the oneOf/anyOf union-typing feature: a curated real-world
- * spec must now emit a native PHP union type (not a bare `mixed`) where the
- * variant members resolve to generated Data classes. ably_control.json declares
- * an `authentication` property as `oneOf: [AwsAccessKeys, AwsAssumeRole]`, which
- * resolves to an object union. This is the analogue of the non-empty guards the
- * allOf and additionalProperties features carry: proof the feature fires on real
- * input, not just hand-built fixtures.
+ * Corpus guard for the oneOf/anyOf union-typing feature on real input:
+ * ably_control.json declares an `authentication` property as
+ * `oneOf: [AwsAccessKeys, AwsAssumeRole]`, an undiscriminated object union. The
+ * interim fix for issue #31 types such a property `mixed` (presence-only, so a
+ * valid non-first variant is not false-rejected by laravel-data's nested-rule
+ * inference) while preserving the variant union in the `@var` docblock for
+ * IDE/PHPStan. This is the analogue of the non-empty guards the allOf and
+ * additionalProperties features carry: proof the feature fires on real input,
+ * not just hand-built fixtures.
  */
-it('emits a Data-class union for a curated corpus oneOf (ably_control)', function () {
+it('types a curated corpus object-union oneOf as mixed with a variant docblock (issue #31, ably_control)', function () {
     $path = __DIR__.'/../Fixtures/specs/ably_control.json';
     $document = (new SpecParser)->parseFile($path);
     $files = (new ModelGenerator)->generate($document);
@@ -62,9 +64,10 @@ it('emits a Data-class union for a curated corpus oneOf (ably_control)', functio
 
     $code = $files['AwsLambdaRulePostTargetData']->code;
 
-    // The property is a native union of the two authentication Data classes,
-    // not the old bare `mixed` fallback.
-    expect($code)->toContain('public readonly AwsAccessKeysData|AwsAssumeRoleData')
-        ->and($code)->toContain('/** @var AwsAccessKeysData|AwsAssumeRoleData')
-        ->and($code)->not->toContain('public readonly mixed $authentication');
+    // The variant union is preserved in the docblock, but the property declares
+    // as `mixed` so laravel-data does not infer nested rules and false-reject a
+    // valid non-first variant.
+    expect($code)->toContain('/** @var AwsAccessKeysData|AwsAssumeRoleData')
+        ->and($code)->toContain('public readonly mixed $authentication')
+        ->and($code)->not->toContain('public readonly AwsAccessKeysData|AwsAssumeRoleData');
 });

@@ -348,11 +348,17 @@ it('inlines a oneOf-of-scalars alias to a native scalar union (Exerciser)', func
         ->and($code)->toContain("'oneOfAlias' => ['sometimes'],");
 });
 
-it('inlines a oneOf of $ref objects to a native Data-class union (Exerciser)', function () {
+it('types an undiscriminated oneOf of $ref objects as mixed, keeping the variant docblock (issue #31, Exerciser)', function () {
     $code = conformanceCode('ExerciserData');
 
+    // A native `GadgetAlphaData|GadgetBetaData` property type makes laravel-data
+    // infer nested rules from the union and validate every payload against the
+    // first variant, false-rejecting a valid non-first variant (issue #31). The
+    // interim fix types the property `mixed` (presence-only, accept any object)
+    // while keeping the variant union in the `@var` docblock for IDE/PHPStan.
     expect($code)->toContain('/** @var GadgetAlphaData|GadgetBetaData */')
-        ->and($code)->toContain('public readonly GadgetAlphaData|GadgetBetaData|null $objectUnion = null');
+        ->and($code)->toContain('public readonly mixed $objectUnion = null')
+        ->and($code)->not->toContain('GadgetAlphaData|GadgetBetaData $objectUnion');
 });
 
 it('resolves a required+nullable mixed oneOf to bare mixed, never ?mixed (#8, NullableMixedOneOf)', function () {

@@ -112,7 +112,7 @@ function differentialKnownGaps(): array
 {
     return [
         ['construct' => 'ObjAddlPropsFalse', 'expected' => 'reject', 'actual' => 'accept', 'issue' => '#30', 'reason' => 'additionalProperties: false is not enforced; unknown keys are accepted.'],
-        ['construct' => 'PetHolder', 'expected' => 'accept', 'actual' => 'reject', 'issue' => '#31', 'reason' => 'Undiscriminated oneOf object-union false-rejects non-first variants (1.0.0 hydration work).'],
+        ['construct' => 'PetHolder', 'expected' => 'reject', 'actual' => 'accept', 'issue' => '#31', 'reason' => 'Undiscriminated object-union is presence-only pending discriminator support: any object is accepted, no variant is enforced (1.0.0 hydration work). The interim fix traded variant enforcement for not false-rejecting valid variants.'],
     ];
 }
 

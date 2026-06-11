@@ -10,12 +10,12 @@ Each row is a payload whose generated-validator outcome disagrees with the spec.
 | # | construct | group | violates | label | expected | actual | payload |
 | - | --------- | ----- | -------- | ----- | -------- | ------ | ------- |
 | 1 | ObjAddlPropsFalse | object | additionalProperties:false | extra undeclared property must be rejected | reject | accept | `{"known":"x","extra":"y"}` |
-| 2 | PetHolder | union | (valid payload) | matches Dog variant | accept | reject | `{"pet":{"bark":"woof"}}` |
+| 2 | PetHolder | union | oneOf.no-match | matches neither variant must be rejected | reject | accept | `{"pet":{"quack":"q"}}` |
 
 ## Tracked known gaps
 
 These constructs are documented limitations with an open issue. The oracle tolerates them (they do not fail the suite) but fails if they are silently fixed without removing the entry, or if any new, unlisted construct drifts.
 
 - **ObjAddlPropsFalse** (#30): additionalProperties: false is not enforced; unknown keys are accepted.
-- **PetHolder** (#31): Undiscriminated oneOf object-union false-rejects non-first variants (1.0.0 hydration work).
+- **PetHolder** (#31): Undiscriminated object-union is presence-only pending discriminator support: any object is accepted, no variant is enforced (1.0.0 hydration work). The interim fix traded variant enforcement for not false-rejecting valid variants.
 
