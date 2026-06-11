@@ -112,7 +112,9 @@ Laravel config, with the same flag-over-config precedence. Controllers and route
 vendor/bin/openapi-laravel --spec=openapi.yaml --output=src/Data --namespace="Acme\\Dto"
 ```
 
-![openapi-laravel generating typed Data classes from an OpenAPI spec](https://openapi-laravel.codewithagents.de/media/openapi-laravel-demo.gif)
+![Full flow: generate models, rules, controllers and routes from an OpenAPI spec, catch drift in CI, regenerate without touching hand-written code](https://openapi-laravel.codewithagents.de/media/openapi-laravel-full-flow.gif)
+
+*One spec drives models, validation rules, controllers and routes; the drift gate fails CI when they disagree, and regeneration never touches your code.*
 
 *The same flow powers the [cross-language e2e demo](./e2e): one spec, a generated Laravel backend, and a TypeScript SPA.*
 
