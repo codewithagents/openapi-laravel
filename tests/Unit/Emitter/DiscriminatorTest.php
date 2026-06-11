@@ -120,6 +120,35 @@ it('emits each variant extending the base, forwarding the discriminator', functi
         ->and($cat)->not->toContain("'petType'");
 });
 
+it('pins a variant discriminator const with a membership rule (#disc-const)', function () {
+    // Each variant declares its discriminator with a const, fixing its value.
+    $schemas = petUnionSchemas();
+    $schemas['Cat']['properties']['petType'] = ['type' => 'string', 'const' => 'cat'];
+    $schemas['Dog']['properties']['petType'] = ['type' => 'string', 'const' => 'dog'];
+
+    $files = generateDiscriminatorSchemas($schemas);
+
+    // The variant pins its own discriminator value so a standalone validate()
+    // rejects a mismatched discriminator, while not redeclaring the property.
+    expect($files['CatData']->code)->toContain("'petType' => [Rule::in(['cat'])],")
+        ->and($files['CatData']->code)->toContain('use Illuminate\Validation\Rule;')
+        ->and($files['CatData']->code)->not->toContain('public readonly string $petType');
+    expect($files['DogData']->code)->toContain("'petType' => [Rule::in(['dog'])],");
+
+    // The base still enforces the discriminator presence-only (it must morph
+    // across every value), so it carries no pinning rule.
+    expect($files['PetData']->code)->not->toContain('Rule::in');
+});
+
+it('pins a variant discriminator declared as a single-value enum', function () {
+    $schemas = petUnionSchemas();
+    $schemas['Cat']['properties']['petType'] = ['type' => 'string', 'enum' => ['cat']];
+
+    $files = generateDiscriminatorSchemas($schemas);
+
+    expect($files['CatData']->code)->toContain("'petType' => [Rule::in(['cat'])],");
+});
+
 it('types a $ref to the base as the abstract base class', function () {
     $code = generateDiscriminatorSchemas(petUnionSchemas())['HolderData']->code;
 

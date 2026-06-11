@@ -9,7 +9,7 @@ named conformance schema driven through the generated validate()/from() with the
 real Laravel validator: valid payloads must be accepted (and round-trip without
 data loss or retyping), invalid payloads must be rejected.
 
-**Headline:** 21 construct(s) FULLY ENFORCED, 3 tracked KNOWN-GAP, out of 24 total.
+**Headline:** 22 construct(s) FULLY ENFORCED, 2 tracked KNOWN-GAP, out of 24 total.
 
 ## Fully enforced
 
@@ -34,6 +34,7 @@ Valid payloads accepted, invalid payloads rejected, round-trips clean.
 | NullableMixedOneOf | 2 | 1 |
 | ReadWriteOnly (read view) | 1 | 1 |
 | ReadWriteOnly (writable view) | 1 | 0 |
+| OneOfDiscriminated (variant GadgetAlpha) | 1 | 2 |
 | TreeNode (recursion) | 1 | 1 |
 | ChainA (deep ref chain) | 2 | 0 |
 | 3.0 BooleanExclusiveBounds | 1 | 2 |
@@ -47,7 +48,6 @@ fixed without removing its entry, or if any new construct drifts.
 
 - **AdditionalPropsFalse** (#30), AdditionalPropsFalseData: expected `reject`, actual `accept`. additionalProperties: false is not enforced; unknown keys are silently accepted.
 - **OneOfNoDiscriminator** (#31), ExerciserData: expected `reject`, actual `accept`. An undiscriminated object union is presence-only: any object is accepted, no variant shape is enforced. The interim fix traded variant enforcement for not false-rejecting a valid non-first variant.
-- **OneOfDiscriminated (variant const discriminator)** (#disc-const), GadgetAlphaData: expected `reject`, actual `accept`. When a discriminated-union variant is validated standalone, the discriminator property (kind, declared const: alpha) is enforced presence-only (string), not pinned to its const value, so a mismatched discriminator value is accepted. Variant selection via the morph base still routes by the mapping; this only affects validating a single variant class directly.
 
 ## Observed mismatches this run
 
@@ -56,7 +56,6 @@ Any row NOT covered by a tracked known gap above fails the suite.
 
 | # | construct | class | violates | label | expected | actual | payload |
 | - | --------- | ----- | -------- | ----- | -------- | ------ | ------- |
-| 1 | OneOfDiscriminated (variant GadgetAlpha) | GadgetAlphaData | discriminator.const | a variant whose discriminator const does not match its own value must be rejected | reject | accept | `{"kind":"beta","alphaField":"x"}` |
-| 2 | Exerciser (maps/arrays/aliases) | ExerciserData | oneOf.no-match | an object matching no union variant must be rejected (objectUnion) | reject | accept | `{"objectUnion":{"nope":1}}` |
-| 3 | AdditionalPropsFalse | AdditionalPropsFalseData | additionalProperties:false | an undeclared extra property must be rejected | reject | accept | `{"known":"x","extra":"y"}` |
+| 1 | Exerciser (maps/arrays/aliases) | ExerciserData | oneOf.no-match | an object matching no union variant must be rejected (objectUnion) | reject | accept | `{"objectUnion":{"nope":1}}` |
+| 2 | AdditionalPropsFalse | AdditionalPropsFalseData | additionalProperties:false | an undeclared extra property must be rejected | reject | accept | `{"known":"x","extra":"y"}` |
 

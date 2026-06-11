@@ -371,9 +371,10 @@ final class GoldenFidelityCatalog
                 ],
                 [
                     ['label' => 'a missing variant-required field is rejected', 'payload' => ['kind' => 'alpha'], 'violates' => 'variant.required'],
-                    // KNOWN-GAP probe: the discriminator const (kind: alpha) is not
-                    // pinned when validating the variant standalone, so a mismatched
-                    // discriminator value is accepted.
+                    // The variant now pins its own discriminator const (kind:
+                    // alpha) with a Rule::in, so validating the variant standalone
+                    // rejects a mismatched discriminator value (the #disc-const
+                    // fix). Morph routing via the base is unaffected.
                     ['label' => 'a variant whose discriminator const does not match its own value must be rejected', 'payload' => ['kind' => 'beta', 'alphaField' => 'x'], 'violates' => 'discriminator.const'],
                 ],
             ),
@@ -520,15 +521,6 @@ final class GoldenFidelityCatalog
                 'actual' => 'accept',
                 'issue' => '#31',
                 'reason' => 'An undiscriminated object union is presence-only: any object is accepted, no variant shape is enforced. The interim fix traded variant enforcement for not false-rejecting a valid non-first variant.',
-            ],
-            [
-                'construct' => 'OneOfDiscriminated (variant const discriminator)',
-                'class' => 'GadgetAlphaData',
-                'label' => 'a variant whose discriminator const does not match its own value must be rejected',
-                'expected' => 'reject',
-                'actual' => 'accept',
-                'issue' => '#disc-const',
-                'reason' => 'When a discriminated-union variant is validated standalone, the discriminator property (kind, declared const: alpha) is enforced presence-only (string), not pinned to its const value, so a mismatched discriminator value is accepted. Variant selection via the morph base still routes by the mapping; this only affects validating a single variant class directly.',
             ],
         ];
     }

@@ -584,8 +584,21 @@ final class ModelGenerator
         foreach ($properties as $rawName => $propertySchema) {
             $wireName = (string) $rawName;
 
-            // The discriminator itself lives on the base, not the variant.
+            // The discriminator property lives on the base, so the variant never
+            // redeclares it. But when this variant pins its own discriminator
+            // value via a `const` (or a single-value enum), emit a membership rule
+            // for the inherited discriminator key so validating this variant
+            // STANDALONE rejects a payload whose discriminator does not match this
+            // variant's value. Routing via the morph base is unaffected: morph
+            // selects the variant by the discriminator first, so this variant's
+            // rules() only runs once the value already matches.
             if ($wireName === $discriminatorWire) {
+                $pinned = $this->discriminatorConstRule($propertySchema);
+                if ($pinned !== null) {
+                    $rules[$wireName] = $pinned;
+                    $usesRule = true;
+                }
+
                 continue;
             }
 
@@ -650,6 +663,38 @@ final class ModelGenerator
         }
 
         return $this->resolveType($schema, $this->stripSuffix($className).PhpIdentifier::toClassName($wireName), 1, 'all');
+    }
+
+    /**
+     * The membership rule pinning a variant's own discriminator value, or null
+     * when the variant does not constrain it. A discriminated-union variant often
+     * declares its discriminator with a `const` (`kind: {const: alpha}`) or a
+     * single-value enum (`kind: {enum: [alpha]}`); that fixes the discriminator
+     * to one value for this variant. The base only enforces the discriminator
+     * presence-only (it must morph across all values), so without this a variant
+     * validated standalone would accept any discriminator value. The rule is a
+     * single `Rule::in([value])`, reusing the enum/const literal escaping.
+     *
+     * @return list<string>|null
+     */
+    private function discriminatorConstRule(Schema|Reference $schema): ?array
+    {
+        if (! $schema instanceof Schema) {
+            return null;
+        }
+
+        $const = $this->constValue($schema);
+        if ($const !== null) {
+            return ['Rule::in(['.$this->scalarLiteral($const[0]).'])'];
+        }
+
+        // A single-value enum pins the value just like a const.
+        $values = $this->enumValues($schema);
+        if (count($values) === 1) {
+            return ['Rule::in(['.$this->scalarLiteral($values[0]).'])'];
+        }
+
+        return null;
     }
 
     /**
