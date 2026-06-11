@@ -361,15 +361,19 @@ it('types an undiscriminated oneOf of $ref objects as mixed, keeping the variant
         ->and($code)->not->toContain('GadgetAlphaData|GadgetBetaData $objectUnion');
 });
 
-it('resolves a required+nullable mixed oneOf to bare mixed, never ?mixed (#8, NullableMixedOneOf)', function () {
+it('resolves a required+nullable mixed oneOf to bare mixed with present+nullable rules (#8, NullableMixedOneOf)', function () {
     $code = conformanceCode('NullableMixedOneOfData');
 
     // The whole point of issue #8: `?mixed` does not compile, so a nullable
     // mixed-fallback must stay bare `mixed`. The php -l layer above also proves
-    // it compiles, but pin the declaration here so a regression is loud.
+    // it compiles, but pin the declaration here so a regression is loud. Because
+    // the oneOf includes a type:"null" member, the property is required AND
+    // nullable, so the rule is `present` + `nullable` (a present null is
+    // accepted, a missing key is still rejected) rather than a bare `required`
+    // that would false-reject a spec-valid present null.
     expect($code)->toContain('public readonly mixed $value')
         ->and($code)->not->toContain('?mixed')
-        ->and($code)->toContain("'value' => ['required'],");
+        ->and($code)->toContain("'value' => ['present', 'nullable'],");
 });
 
 // --- Composition: allOf merge ----------------------------------------------
