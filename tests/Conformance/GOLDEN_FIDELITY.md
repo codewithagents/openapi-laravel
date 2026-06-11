@@ -9,7 +9,7 @@ named conformance schema driven through the generated validate()/from() with the
 real Laravel validator: valid payloads must be accepted (and round-trip without
 data loss or retyping), invalid payloads must be rejected.
 
-**Headline:** 22 construct(s) FULLY ENFORCED, 2 tracked KNOWN-GAP, out of 24 total.
+**Headline:** 24 construct(s) FULLY ENFORCED, 2 tracked KNOWN-GAP, out of 26 total.
 
 ## Fully enforced
 
@@ -35,6 +35,8 @@ Valid payloads accepted, invalid payloads rejected, round-trips clean.
 | ReadWriteOnly (read view) | 1 | 1 |
 | ReadWriteOnly (writable view) | 1 | 0 |
 | OneOfDiscriminated (variant GadgetAlpha) | 1 | 2 |
+| InlineDiscriminatedUnion (inline form #38) | 2 | 4 |
+| Vehicle (allOf-inheritance form #38) | 3 | 3 |
 | TreeNode (recursion) | 1 | 1 |
 | ChainA (deep ref chain) | 2 | 0 |
 | 3.0 BooleanExclusiveBounds | 1 | 2 |

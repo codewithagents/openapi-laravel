@@ -188,6 +188,16 @@ final class ModelGenerator
             $this->warnings[$warning] = true;
         }
 
+        // The inline-union form (#38) has no named component per variant: the
+        // registry synthesized a deterministic, collision-safe name and schema for
+        // each inline member. Merge those into the schema map so the rest of the
+        // pipeline (registration, emission, $ref resolution) treats them exactly
+        // like a named variant component. Sorted keys keep output deterministic.
+        foreach ($this->discriminators->syntheticVariants() as $variantName => $variantSchema) {
+            $schemas[$variantName] = $variantSchema;
+        }
+        ksort($schemas);
+
         foreach ($schemas as $name => $schema) {
             // A discriminated-union base is a Data class (an abstract
             // PropertyMorphableData), even though it is structurally a
@@ -623,6 +633,15 @@ final class ModelGenerator
         $properties = $this->objectProperties($schema);
         $required = $this->requiredNames($schema);
 
+        // For the allOf-inheritance form (#38) the variant's allOf composes the
+        // base via `$ref`, so objectProperties() above merged the base's OWN
+        // properties into the variant too. The base abstract class declares ONLY
+        // the discriminator (the morph routing property), so a variant redeclares
+        // every other property (its own plus any base-shared field) as a promoted
+        // readonly param. Only the discriminator is forwarded to the parent. This
+        // keeps the named-component and inline forms unchanged (their base also
+        // declares only the discriminator) and gives the allOf form correct
+        // per-variant validation of the full merged shape.
         $base = $this->stripSuffix($className);
         $propertyNames = new UniqueNames;
         // The discriminator property name is owned by the base; reserve it so a

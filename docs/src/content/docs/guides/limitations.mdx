@@ -222,11 +222,14 @@ add a rule for it yourself.
 
 ### Discriminated object unions are validated and hydrated
 
-When a named `oneOf`/`anyOf` component carries a `discriminator` and every member is a `$ref` to an
-object schema, the generator emits a real discriminated union: an **abstract morphable base** plus
-one **variant class** per member. spatie/laravel-data reads the discriminator value from the payload,
-selects the concrete variant, and validates and hydrates **that** variant, so per-variant validation
-and polymorphic hydration both work at runtime, with no custom cast.
+When a `oneOf`/`anyOf` carries a `discriminator`, the generator emits a real discriminated union: an
+**abstract morphable base** plus one **variant class** per member. spatie/laravel-data reads the
+discriminator value from the payload, selects the concrete variant, and validates and hydrates
+**that** variant, so per-variant validation and polymorphic hydration both work at runtime, with no
+custom cast. **All three discriminator forms are supported** (issue #38): the named-component form
+(members are `$ref`s, shown below), the inline-union form (members are inline object schemas), and
+the allOf-inheritance form (a base object declares the discriminator and variants compose it via
+`allOf`). The inline and allOf forms are described after the named-component example.
 
 Given:
 
@@ -303,13 +306,50 @@ discriminator is rejected. An **array** of a discriminated union (`items: { $ref
 each element morphs to its own variant and is validated per variant. The mapping is optional, when it
 is omitted, the implicit discriminator value for each member is its component schema name.
 
+**Inline-union form.** A `oneOf`/`anyOf` + `discriminator` whose members are **inline** object
+schemas (not `$ref`s) is handled too. Since the variants have no component name, the generator
+synthesizes a deterministic, collision-safe Data class per member from its discriminator value:
+
+```yaml
+Shape:
+  oneOf:
+    - { type: object, required: [kind, radius], properties: { kind: { const: circle }, radius: { type: number } } }
+    - { type: object, required: [kind, side],   properties: { kind: { const: square }, side:   { type: number } } }
+  discriminator:
+    propertyName: kind
+    mapping: { circle: '#/components/schemas/Shape/oneOf/0', square: '#/components/schemas/Shape/oneOf/1' }
+```
+
+emits an abstract `ShapeData` base plus `ShapeCircleData` and `ShapeSquareData` variants, each
+pinning its own discriminator via `Rule::in`, validated and hydrated exactly like the named form.
+
+**allOf-inheritance form.** A base object that declares the `discriminator` directly, with variants
+composed via `allOf: [{ $ref: Base }, { ...own props }]`:
+
+```yaml
+Vehicle:
+  type: object
+  required: [vehicleType]
+  properties: { vehicleType: { type: string }, wheels: { type: integer } }
+  discriminator: { propertyName: vehicleType, mapping: { car: Car, truck: Truck } }
+Car:
+  allOf:
+    - $ref: '#/components/schemas/Vehicle'
+    - { type: object, required: [doors], properties: { doors: { type: integer } } }
+```
+
+The base `VehicleData` becomes the abstract morphable parent (declaring only the discriminator), and
+`CarData`/`TruckData` extend it, forwarding the discriminator and declaring their own merged
+properties.
+
 A discriminated union that cannot be cleanly handled degrades to the presence-only behavior below and
-emits a build warning explaining why. This happens when a member is not an object schema, when a
-variant is shared by two discriminated bases (PHP single inheritance keeps the first base), or when a
-base is left with no claimable variant. The remaining forms still presence-only: an **inline**
-discriminated union written directly under a property (not a named component schema), and the
-**allOf-inheritance** form where a base object declares properties plus a discriminator and variants
-compose it with `allOf`. Both are tracked in
+emits a build warning explaining why. This happens when a member is not an object schema, when an
+inline member has no derivable discriminator value (no mapping entry and no `const`/single-enum pin),
+when a variant is shared by two discriminated bases (PHP single inheritance keeps the first base), or
+when a base is left with no claimable variant. One honest residual remains for the allOf-inheritance
+form: when its variants do not pin their discriminator with a `const`, validating a variant
+**standalone** (outside the morph base) does not reject a wrong discriminator value (morph routing
+through the base is unaffected). All tracked in
 [issue #38](https://github.com/codewithagents/openapi-laravel/issues/38).
 
 ### Undiscriminated object unions are presence-only (no false-reject)
@@ -516,7 +556,8 @@ split, scalar constraints (`minLength`, `maxLength`, `pattern`, `format`, `minim
 `enum`), the server scaffold, scalar `oneOf`/`anyOf` union type hints, and discriminated object
 unions (abstract morphable base plus variants, validated and hydrated). The spec-derived validation
 is presence-exact, with the caveats noted above: **undiscriminated** object unions are presence-only
-(any object is accepted, no variant enforced) pending an inline/allOf-inheritance follow-up, and the
+(any object is accepted, no variant enforced) by design, while all three **discriminated** forms
+(named-component, inline-union, allOf-inheritance) are validated and hydrated, and the
 map caveats apply (raw-array `$ref` map values, uncaptured mixed-object overflow, and
 `additionalProperties: false` left unenforced by default but enforceable via the opt-in
 `--enforce-closed-objects` flag).

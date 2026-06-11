@@ -398,6 +398,46 @@ final class GoldenFidelityCatalog
                 ],
             ),
 
+            // --- Inline-union discriminated form (#38) -----------------------
+            // The abstract morphable base over an INLINE oneOf + discriminator.
+            // A valid payload routes to the synthesized variant and validates its
+            // own required fields; a wrong/unmapped/missing discriminator, or a
+            // missing variant-required field, is rejected. Fully enforced.
+            new GoldenFidelityCase(
+                'InlineDiscriminatedUnion (inline form #38)', 'InlineDiscriminatedUnionData',
+                [
+                    ['label' => 'circle discriminator with a valid circle shape', 'payload' => ['shapeKind' => 'circle', 'radius' => 1.5]],
+                    ['label' => 'square discriminator with a valid square shape', 'payload' => ['shapeKind' => 'square', 'side' => 2.0]],
+                ],
+                [
+                    ['label' => 'circle discriminator missing the circle-required radius', 'payload' => ['shapeKind' => 'circle'], 'violates' => 'inline.variant.required'],
+                    ['label' => 'an unmapped inline discriminator value is rejected', 'payload' => ['shapeKind' => 'triangle'], 'violates' => 'discriminator.unmapped'],
+                    ['label' => 'a missing inline discriminator is rejected', 'payload' => ['radius' => 1.0], 'violates' => 'discriminator.missing'],
+                    // A circle payload carrying the square-only field but the circle
+                    // discriminator stays routed to circle, so its required radius
+                    // is still enforced (the wrong-shape field does not satisfy it).
+                    ['label' => 'circle discriminator with only the square field is rejected', 'payload' => ['shapeKind' => 'circle', 'side' => 2.0], 'violates' => 'inline.variant.required'],
+                ],
+            ),
+
+            // --- allOf-inheritance discriminated form (#38) ------------------
+            // The abstract morphable base declared directly on an object, with
+            // variants composed via allOf. A valid payload routes to the right
+            // variant and its required allOf field is enforced.
+            new GoldenFidelityCase(
+                'Vehicle (allOf-inheritance form #38)', 'VehicleData',
+                [
+                    ['label' => 'car discriminator with a valid car shape', 'payload' => ['vehicleType' => 'car', 'doors' => 4]],
+                    ['label' => 'truck discriminator with a valid truck shape', 'payload' => ['vehicleType' => 'truck', 'payloadKg' => 1200]],
+                    ['label' => 'a base-shared optional field is carried on the variant', 'payload' => ['vehicleType' => 'car', 'doors' => 2, 'wheels' => 4]],
+                ],
+                [
+                    ['label' => 'car discriminator missing the car-required doors', 'payload' => ['vehicleType' => 'car'], 'violates' => 'allof.variant.required'],
+                    ['label' => 'an unmapped allOf discriminator value is rejected', 'payload' => ['vehicleType' => 'boat'], 'violates' => 'discriminator.unmapped'],
+                    ['label' => 'a missing allOf discriminator is rejected', 'payload' => ['doors' => 4], 'violates' => 'discriminator.missing'],
+                ],
+            ),
+
             // --- Recursion: self-referential schema --------------------------
             new GoldenFidelityCase(
                 'TreeNode (recursion)', 'TreeNodeData',

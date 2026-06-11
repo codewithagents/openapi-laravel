@@ -820,6 +820,109 @@ final class ConstraintCatalog
                     ['label' => 'missing the discriminator property', 'payload' => ['pet' => ['meow' => 'mrr']], 'violates' => 'discriminator.missing'],
                 ],
             ],
+            // INLINE-UNION form (issue #38): a oneOf + discriminator whose members
+            // are INLINE object schemas (not $refs). The generator synthesizes a
+            // variant Data class per member (named from the discriminator value)
+            // plus an abstract morphable base, so the right variant is selected and
+            // its own rules are applied. Fully enforced, no known-gap entry: the
+            // oracle proves real per-variant validation and hydration, not just a
+            // presence check. Each inline member pins its discriminator via const.
+            [
+                'construct' => 'InlineShapeHolder',
+                'root' => 'InlineShapeHolder',
+                'schemas' => [
+                    'InlineShape' => [
+                        'oneOf' => [
+                            [
+                                'type' => 'object',
+                                'required' => ['shapeKind', 'radius'],
+                                'properties' => [
+                                    'shapeKind' => ['type' => 'string', 'const' => 'circle'],
+                                    'radius' => ['type' => 'number'],
+                                ],
+                            ],
+                            [
+                                'type' => 'object',
+                                'required' => ['shapeKind', 'side'],
+                                'properties' => [
+                                    'shapeKind' => ['type' => 'string', 'const' => 'square'],
+                                    'side' => ['type' => 'number'],
+                                ],
+                            ],
+                        ],
+                        'discriminator' => [
+                            'propertyName' => 'shapeKind',
+                            'mapping' => [
+                                'circle' => '#/components/schemas/InlineShape/oneOf/0',
+                                'square' => '#/components/schemas/InlineShape/oneOf/1',
+                            ],
+                        ],
+                    ],
+                    'InlineShapeHolder' => [
+                        'type' => 'object',
+                        'required' => ['shape'],
+                        'properties' => ['shape' => ['$ref' => '#/components/schemas/InlineShape']],
+                    ],
+                ],
+                'valid' => [
+                    ['label' => 'circle discriminator with a valid circle shape', 'payload' => ['shape' => ['shapeKind' => 'circle', 'radius' => 1.5]]],
+                    ['label' => 'square discriminator with a valid square shape', 'payload' => ['shape' => ['shapeKind' => 'square', 'side' => 2.0]]],
+                ],
+                'invalid' => [
+                    ['label' => 'circle discriminator missing the circle-required radius', 'payload' => ['shape' => ['shapeKind' => 'circle']], 'violates' => 'inline.variant.required'],
+                    ['label' => 'unmapped inline discriminator value', 'payload' => ['shape' => ['shapeKind' => 'triangle']], 'violates' => 'inline.unmapped'],
+                    ['label' => 'missing the inline discriminator property', 'payload' => ['shape' => ['radius' => 1.0]], 'violates' => 'inline.missing'],
+                ],
+            ],
+            // allOf-INHERITANCE form (issue #38): a base object that declares the
+            // discriminator directly, with variants composed via allOf: [{$ref:
+            // Base}, ...]. The base becomes the abstract morphable parent; variants
+            // extend it. Fully enforced, no known-gap entry. The variant required
+            // fields (its own allOf member) are validated per the selected variant.
+            [
+                'construct' => 'VehicleHolder',
+                'root' => 'VehicleHolder',
+                'schemas' => [
+                    'Vehicle' => [
+                        'type' => 'object',
+                        'required' => ['vehicleType'],
+                        'properties' => [
+                            'vehicleType' => ['type' => 'string'],
+                            'wheels' => ['type' => 'integer'],
+                        ],
+                        'discriminator' => [
+                            'propertyName' => 'vehicleType',
+                            'mapping' => ['car' => 'Car', 'truck' => 'Truck'],
+                        ],
+                    ],
+                    'Car' => [
+                        'allOf' => [
+                            ['$ref' => '#/components/schemas/Vehicle'],
+                            ['type' => 'object', 'required' => ['doors'], 'properties' => ['doors' => ['type' => 'integer']]],
+                        ],
+                    ],
+                    'Truck' => [
+                        'allOf' => [
+                            ['$ref' => '#/components/schemas/Vehicle'],
+                            ['type' => 'object', 'required' => ['payloadKg'], 'properties' => ['payloadKg' => ['type' => 'number']]],
+                        ],
+                    ],
+                    'VehicleHolder' => [
+                        'type' => 'object',
+                        'required' => ['vehicle'],
+                        'properties' => ['vehicle' => ['$ref' => '#/components/schemas/Vehicle']],
+                    ],
+                ],
+                'valid' => [
+                    ['label' => 'car discriminator with a valid car shape', 'payload' => ['vehicle' => ['vehicleType' => 'car', 'doors' => 4]]],
+                    ['label' => 'truck discriminator with a valid truck shape', 'payload' => ['vehicle' => ['vehicleType' => 'truck', 'payloadKg' => 1000]]],
+                ],
+                'invalid' => [
+                    ['label' => 'car discriminator missing the car-required doors', 'payload' => ['vehicle' => ['vehicleType' => 'car']], 'violates' => 'allof.variant.required'],
+                    ['label' => 'unmapped allOf discriminator value', 'payload' => ['vehicle' => ['vehicleType' => 'boat']], 'violates' => 'allof.unmapped'],
+                    ['label' => 'missing the allOf discriminator property', 'payload' => ['vehicle' => ['doors' => 4]], 'violates' => 'allof.missing'],
+                ],
+            ],
         ];
     }
 }

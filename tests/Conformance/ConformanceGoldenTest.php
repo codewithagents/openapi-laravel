@@ -481,6 +481,65 @@ it('resolves a required+nullable mixed oneOf to bare mixed with present+nullable
         ->and($code)->toContain("'value' => ['present', 'nullable'],");
 });
 
+// --- Discriminated unions: inline + allOf-inheritance forms (#38) ----------
+
+it('emits a morphable base plus synthesized variants for the INLINE-union discriminator form (#38)', function () {
+    $files = conformance31();
+
+    // The inline oneOf + discriminator becomes an abstract morphable base, and
+    // each INLINE member becomes a synthesized variant Data class named from its
+    // discriminator value (circle/square), extending the base.
+    expect($files)->toHaveKey('InlineDiscriminatedUnionData')
+        ->and($files)->toHaveKey('InlineDiscriminatedUnionCircleData')
+        ->and($files)->toHaveKey('InlineDiscriminatedUnionSquareData');
+
+    $base = $files['InlineDiscriminatedUnionData']->code;
+    expect($base)->toContain('abstract class InlineDiscriminatedUnionData extends Data implements PropertyMorphableData')
+        ->and($base)->toContain('#[PropertyForMorph, Required, StringType]')
+        ->and($base)->toContain('public readonly string $shapeKind')
+        ->and($base)->toContain("'circle' => InlineDiscriminatedUnionCircleData::class,")
+        ->and($base)->toContain("'square' => InlineDiscriminatedUnionSquareData::class,")
+        ->and($base)->toContain('default => null,');
+
+    // A variant extends the base, forwards the discriminator, and pins its own
+    // discriminator value (const) plus declares its own required field.
+    $circle = $files['InlineDiscriminatedUnionCircleData']->code;
+    expect($circle)->toContain('final class InlineDiscriminatedUnionCircleData extends InlineDiscriminatedUnionData')
+        ->and($circle)->toContain('public readonly float $radius')
+        ->and($circle)->toContain("'shapeKind' => [Rule::in(['circle'])],")
+        ->and($circle)->toContain("'radius' => ['required', 'numeric'],")
+        ->and($circle)->toContain('parent::__construct($shapeKind);');
+});
+
+it('emits a morphable base plus extending variants for the allOf-INHERITANCE discriminator form (#38)', function () {
+    $files = conformance31();
+
+    // The base declares the discriminator directly; the allOf variants extend it.
+    expect($files)->toHaveKey('VehicleData')
+        ->and($files)->toHaveKey('CarData')
+        ->and($files)->toHaveKey('TruckData');
+
+    $base = $files['VehicleData']->code;
+    expect($base)->toContain('abstract class VehicleData extends Data implements PropertyMorphableData')
+        ->and($base)->toContain('public readonly string $vehicleType')
+        ->and($base)->toContain("'car' => CarData::class,")
+        ->and($base)->toContain("'truck' => TruckData::class,");
+
+    // A variant extends the base, forwards the discriminator, carries the base's
+    // shared optional field (wheels) plus its own required allOf field (doors).
+    $car = $files['CarData']->code;
+    expect($car)->toContain('final class CarData extends VehicleData')
+        ->and($car)->toContain('public readonly int $doors')
+        ->and($car)->toContain('public readonly ?int $wheels = null')
+        ->and($car)->toContain("'doors' => ['required', 'integer'],")
+        ->and($car)->toContain('parent::__construct($vehicleType);');
+
+    // A property typed by the allOf-inheritance base uses the abstract base type,
+    // so spatie morphs it to the right variant at hydration.
+    expect($files)->toHaveKey('VehicleHolderData');
+    expect($files['VehicleHolderData']->code)->toContain('public readonly VehicleData $vehicle');
+});
+
 // --- Composition: allOf merge ----------------------------------------------
 
 it('flattens allOf plus sibling properties into one class (AllOfWithSiblings)', function () {

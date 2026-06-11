@@ -943,6 +943,87 @@ components:
         betaField:
           type: integer
 
+    # =====================================================================
+    # SECTION 9b: discriminated unions, inline + allOf-inheritance forms (#38)
+    # =====================================================================
+
+    # INLINE-UNION form (#38): a oneOf + discriminator whose members are INLINE
+    # object schemas (not $refs). The generator synthesizes a deterministic
+    # variant Data class per member, named from the discriminator value, and a
+    # morphable base. Each inline member pins its own discriminator via a const.
+    InlineDiscriminatedUnion:
+      description: oneOf of INLINE object schemas with a discriminator (issue #38)
+      oneOf:                          # inline discriminated union
+        - type: object
+          required: [shapeKind, radius]
+          properties:
+            shapeKind:
+              type: string
+              const: circle
+            radius:
+              type: number
+        - type: object
+          required: [shapeKind, side]
+          properties:
+            shapeKind:
+              type: string
+              const: square
+            side:
+              type: number
+      discriminator:
+        propertyName: shapeKind
+        mapping:
+          circle: '#/components/schemas/InlineDiscriminatedUnion/oneOf/0'
+          square: '#/components/schemas/InlineDiscriminatedUnion/oneOf/1'
+
+    # allOf-INHERITANCE form (#38): a base object declares the discriminator
+    # directly, and each variant composes the base via allOf. The base becomes
+    # the abstract morphable parent, variants extend it.
+    Vehicle:
+      type: object                    # allOf-inheritance discriminator base (#38)
+      description: Discriminator base declaring the discriminator property (issue #38)
+      required: [vehicleType]
+      properties:
+        vehicleType:
+          type: string
+        wheels:
+          type: integer
+      discriminator:
+        propertyName: vehicleType
+        mapping:
+          car: '#/components/schemas/Car'
+          truck: '#/components/schemas/Truck'
+
+    Car:
+      description: allOf-inheritance variant composing Vehicle (issue #38)
+      allOf:
+        - $ref: '#/components/schemas/Vehicle'
+        - type: object
+          required: [doors]
+          properties:
+            doors:
+              type: integer
+
+    Truck:
+      description: allOf-inheritance variant composing Vehicle (issue #38)
+      allOf:
+        - $ref: '#/components/schemas/Vehicle'
+        - type: object
+          required: [payloadKg]
+          properties:
+            payloadKg:
+              type: number
+
+    # A holder that references the allOf-inheritance base, so the base type is
+    # observed at a use site (the base is the morphable parent type).
+    VehicleHolder:
+      type: object
+      description: References the allOf-inheritance base as a property type (#38)
+      required: [vehicle]
+      properties:
+        vehicle:
+          $ref: '#/components/schemas/Vehicle'
+
     # Input body for createGadget.
     GadgetInput:
       type: object

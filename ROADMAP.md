@@ -11,6 +11,49 @@ The version target stays deliberately in 0.x, not 1.0.0: we stay in 0.x while th
 format is still evolving, and tag 1.0.0 (the output-stability promise) only when the format
 settles.
 
+## Unreleased (on main, not yet tagged)
+
+### Discriminator-aware inline and allOf-inheritance forms (issue #38)
+
+The two remaining discriminated-union forms now get the same morphable-base-plus-variants treatment
+as the named-component form, so all three discriminated forms are fully validated and hydrated.
+
+The **inline-union form** is a `oneOf`/`anyOf` carrying a `discriminator` whose members are INLINE
+object schemas (not `$ref`s). The members have no component names, so the generator synthesizes a
+deterministic, collision-safe variant name per member, derived from the member's discriminator value
+(the `mapping` key that points at it via a `#/.../oneOf/<index>` pointer, else the member's own
+`const`/single-value-enum discriminator pin). Each synthesized name is sanitized to word characters
+and suffixed until it does not collide with an existing component or an earlier synthesized name, so
+the later identifier mapping stays collision-free. The synthesized schemas are injected into the
+component map, so the rest of the pipeline (registration, emission, `$ref` resolution) treats them
+exactly like named variants: an abstract morphable base plus one variant Data class per inline
+member, each pinning its own discriminator via `Rule::in`.
+
+The **allOf-inheritance form** is the classic OpenAPI inheritance pattern: a base OBJECT component
+declares the `discriminator` (and the discriminator property) directly, and each variant is a named
+component composed as `allOf: [{$ref: Base}, {own props}]`. The base becomes the abstract morphable
+parent (declaring only the discriminator), and each `allOf` variant extends it, forwarding the
+discriminator and declaring its own merged properties (its own fields plus any base-shared fields,
+which a variant redeclares as promoted readonly params). The `discriminator.mapping` (or the implicit
+component-name mapping) routes values to those variants.
+
+Both forms validate per variant through the real Laravel validator (a wrong, unmapped, or missing
+discriminator, or a missing variant-required field, is rejected) and hydrate to the correct concrete
+subclass (`InlineShape_circle` -> `InlineShapeCircleData`, `car` -> `CarData`). The obsolete
+presence-only build warning for these two forms is gone; the only remaining presence-only fallbacks
+are the genuinely unenforceable cases (a non-object member, a discriminator with no derivable value,
+a multi-base variant conflict, or a base with no claimable variant), each still warned and
+documented. The conformance fixture pins both forms, the differential oracle and golden fidelity
+harness gain fully-enforced cases with no known-gap entry, and the full 130-spec corpus still
+regenerates byte-identically with `php -l`, Pint, and PHPStan-max-clean output.
+
+The undiscriminated object union (no `discriminator`) stays `mixed`, presence-only by design (#31):
+a tracked, documented residual, not a regression. A remaining honest residual specific to the
+allOf-inheritance form: when its variants do not pin their own discriminator value with a `const` or
+single-value enum, validating a variant STANDALONE (outside the morph base) does not reject a
+mismatched discriminator value (morph routing through the base is unaffected and always selects the
+right variant). The named and inline forms whose variants carry a `const` do pin it.
+
 ## Done in 0.8.0 (released)
 
 ### Discriminator-aware object unions (issue #38)
@@ -34,10 +77,9 @@ discriminator key and silently drops spatie's morph guard, so an unmapped value 
 
 Scope and fallbacks (each degrades to the existing presence-only behavior and emits a build warning):
 a non-object member, a variant shared by two discriminated bases (PHP single inheritance keeps the
-first base), or a base left with no claimable variant. Still presence-only and tracked for a
-follow-up: an **inline** discriminated union written directly under a property (not a named
-component), and the **allOf-inheritance** form (a base object with properties plus a discriminator,
-variants composing it with `allOf`). The full 130-spec corpus regenerates byte-identically with this
+first base), or a base left with no claimable variant. The **inline-union** and
+**allOf-inheritance** forms landed in the unreleased work below (see "Discriminator-aware inline and
+allOf-inheritance forms"). The full 130-spec corpus regenerates byte-identically with this
 change, every generated file passes `php -l` and import resolution, and the differential oracle gains
 a fully-enforced discriminated case with no known-gap entry. The undiscriminated object-union case
 (#31) stays a tracked, documented limitation.
@@ -131,7 +173,8 @@ check) to avoid wrongly rejecting valid unicode domain labels.
 An undiscriminated `oneOf` of object refs is now typed `mixed` with presence-only validation, so
 every valid variant is accepted and no valid non-first variant is false-rejected. The variant union
 is preserved in the `@var` docblock. Discriminator-aware variant validation and hydration for the
-named-component form shipped in 0.8.0 (issue #38, see "Done in 0.8.0" above).
+named-component form shipped in 0.8.0; the inline-union and allOf-inheritance forms landed unreleased
+(issue #38, see "Unreleased" above). Only the UNDISCRIMINATED union stays `mixed` by design.
 
 ### Real-world corpus robustness sweep
 
@@ -390,12 +433,11 @@ real-world corpus sweep has found no generator bugs. Runtime self-containment ha
 1. **Inline the support classes into the consumer's output** (issue #40): **shipped.** The generator
    emits the support classes a spec references into the consumer's own namespace (the Data namespace
    plus a `\Support` suffix), so generated code has no runtime dependency on the generator package.
-2. **Remaining discriminator forms** (issue #38): the named-component `oneOf`/`anyOf` +
-   `discriminator` form **landed in 0.8.0** (see "Done in 0.8.0" above). Remaining follow-up: the
-   **inline** discriminated union (discriminator written directly under a property, not a named
-   component) and the **allOf-inheritance** form (base object with properties plus a discriminator,
-   variants composing it with `allOf`). Both still degrade to presence-only with a warning.
-   Undiscriminated object unions stay presence-only by design (#31).
+2. **Discriminator forms** (issue #38): **all three forms now land.** The named-component
+   `oneOf`/`anyOf` + `discriminator` form shipped in 0.8.0; the **inline-union** form (inline
+   members, synthesized variant names) and the **allOf-inheritance** form (base object with a
+   discriminator, variants composing it with `allOf`) landed unreleased (see "Unreleased" above).
+   Undiscriminated object unions stay presence-only `mixed` by design (#31).
 3. **Subset generation** (issue #44): `--only-tags` / `--only-schemas` with dependency closure, for
    generating a slice of a very large spec.
 4. **Small follow-ups**: richer error messages on bad input, `$ref`-valued request bodies as typed
@@ -492,11 +534,11 @@ suites are refactored; all gates green).
   changes are major-only; correctness patches (non-compiling output, a dropped or wrong constraint)
   may ship in a patch with an explicit changelog call-out. Now that #40 has shipped, the inlined
   support classes fall under the output surface and the same major-bump rule.
-- **Discriminator-aware object-union validation and hydration** (issue #38): **landed** for the
-  named-component `oneOf`/`anyOf` + `discriminator` form (abstract morphable base plus variants, both
-  validated and hydrated). The inline-union and allOf-inheritance discriminator forms remain
-  presence-only with a build warning, tracked as a follow-up. Undiscriminated unions stay `mixed`
-  (#31) by design.
+- **Discriminator-aware object-union validation and hydration** (issue #38): **landed for all three
+  forms** (abstract morphable base plus variants, both validated and hydrated): the named-component
+  `oneOf`/`anyOf` + `discriminator` form (0.8.0), and the inline-union form (synthesized variant
+  names) plus the allOf-inheritance form (unreleased). The obsolete presence-only build warning for
+  the inline and allOf forms is gone. Undiscriminated unions stay `mixed` (#31) by design.
 - **`additionalProperties: false` enforcement** (issue #30): the opt-in `--enforce-closed-objects`
   flag / `enforce_closed_objects` config key shipped in 0.8.0. Remaining decision: whether the
   default ever flips. Lenient stays the default for now, because strict rejection breaks contract
@@ -514,10 +556,12 @@ the parser boolean-items/OOM cases, the security surfaces, the two sibling-histo
 array-of-union DataCollectionOf bug (#24), the drift-check enforcement layer, the differential
 validation oracle (#23), nested-array depth rules (#28), string-typed scalar coercion (#32, #33),
 per-property required diagnostic (#34), hostname enforcement (#29), default full generation (#45),
-discriminated object-union validation and hydration for the named-component form (#38), opt-in
+discriminated object-union validation and hydration for all three forms (named-component, inline-union,
+and allOf-inheritance) (#38), opt-in
 `additionalProperties: false` enforcement (#30), config output-path containment (#54), and
 self-contained output via support-class inlining into the consumer's own namespace (#40) are all
 implemented. The undiscriminated object-union false-reject is fixed (#31). The cross-language
 contract loop is proven end to end over real HTTP, including the browser-driven Playwright suite.
-The remaining open case is the inline and allOf-inheritance discriminator forms (#38). Floors are
-PHP 8.2 + Laravel 11/12 + laravel-data v4 (^4.15 for the morphable discriminated unions).
+The only discriminated-union residual is the undiscriminated `mixed` case (#31, by design) and the
+standalone-validation of an allOf-inheritance variant that does not pin its discriminator with a
+const. Floors are PHP 8.2 + Laravel 11/12 + laravel-data v4 (^4.15 for the morphable discriminated unions).
