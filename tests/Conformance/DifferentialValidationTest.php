@@ -131,7 +131,6 @@ function differentialOutcome(string $class, array $payload): string
 function differentialKnownGaps(): array
 {
     return [
-        ['construct' => 'ObjAddlPropsFalse', 'expected' => 'reject', 'actual' => 'accept', 'issue' => '#30', 'reason' => 'additionalProperties: false is not enforced; unknown keys are accepted.'],
         ['construct' => 'PetHolder', 'expected' => 'reject', 'actual' => 'accept', 'issue' => '#31', 'reason' => 'Undiscriminated object-union is presence-only pending discriminator support: any object is accepted, no variant is enforced (1.0.0 hydration work). The interim fix traded variant enforcement for not false-rejecting valid variants.'],
     ];
 }
@@ -271,6 +270,74 @@ it('differentially validates every catalog constraint against the generated rule
     expect($unexpected)->toBe([], 'Differential oracle found '.count($unexpected).' UNEXPECTED constraint mismatch(es), i.e. new drift; see tests/Conformance/DIFFERENTIAL_FINDINGS.md');
     expect($resolved)->toBe([], 'Known gap(s) no longer reproduce and were likely fixed: '.implode(', ', $resolved).'. Remove them from differentialKnownGaps().');
 });
+
+it('enforces additionalProperties:false by default and accepts unknown keys only when enforcement is opted out (#30)', function () {
+    $schema = [
+        'type' => 'object',
+        'required' => ['known'],
+        'additionalProperties' => false,
+        'properties' => [
+            'known' => ['type' => 'string'],
+        ],
+    ];
+
+    $document = [
+        'openapi' => '3.0.3',
+        'info' => ['title' => 'ClosedObjectOptOut', 'version' => '1.0.0'],
+        'paths' => new stdClass,
+        'components' => ['schemas' => ['ClosedShape' => $schema]],
+    ];
+    $normalized = SchemaNormalizer::normalize((array) json_decode((string) json_encode($document), true));
+    $spec = Reader::readFromJson((string) json_encode($normalized), OpenApi::class);
+
+    $known = ['known' => 'x'];
+    $unknown = ['known' => 'x', 'extra' => 'y'];
+
+    // Default (enforcement ON): the unknown key is rejected through the real
+    // Laravel validator, the declared-only payload is accepted.
+    $strictClass = differentialGenerateWithOptions('ClosedDefault', $spec, new GeneratorOptions('ClosedDefault\\Models'));
+    expect(differentialOutcome($strictClass, $known))->toBe('accept');
+    expect(differentialOutcome($strictClass, $unknown))->toBe('reject');
+
+    // Opt-out (--no-enforce-closed-objects, enforceClosedObjects: false): the
+    // lenient behavior is restored, the unknown key is accepted again.
+    $lenientClass = differentialGenerateWithOptions('ClosedOptOut', $spec, new GeneratorOptions('ClosedOptOut\\Models', enforceClosedObjects: false));
+    expect(differentialOutcome($lenientClass, $known))->toBe('accept');
+    expect(differentialOutcome($lenientClass, $unknown))->toBe('accept');
+});
+
+/**
+ * Generate one schema document with explicit GeneratorOptions, load the emitted
+ * files (plus the inlined support classes) into the running process, and return
+ * the fully-qualified generated class name for ClosedShape. Used by the #30
+ * opt-out case to drive the same schema through both enforcement settings.
+ *
+ * @return class-string
+ */
+function differentialGenerateWithOptions(string $tag, OpenApi $spec, GeneratorOptions $options): string
+{
+    /** @var string|null $dir */
+    static $dir = null;
+    if ($dir === null) {
+        $dir = sys_get_temp_dir().'/oal_differential_optout_'.getmypid();
+        if (! is_dir($dir)) {
+            mkdir($dir, 0777, true);
+        }
+    }
+
+    $generator = new ModelGenerator($options);
+    $files = $generator->generate($spec);
+    foreach ([...array_values($generator->supportFiles()), ...array_values($files)] as $file) {
+        $path = $dir.'/'.$tag.'_'.$file->filename();
+        file_put_contents($path, $file->code);
+        require_once $path;
+    }
+
+    /** @var class-string $class */
+    $class = $options->namespace.'\\ClosedShapeData';
+
+    return $class;
+}
 
 /**
  * Render the mismatch list as a human-readable markdown body.

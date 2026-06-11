@@ -82,6 +82,21 @@ final class StandaloneApplication
             fwrite(STDOUT, sprintf("Generated %d %s into %s\n", count($written), count($written) === 1 ? 'class' : 'classes', $request->output));
         }
 
+        // The inlined runtime support classes (issue #40) live in a Support/
+        // subdirectory of the Data output. Emit them here too: the artisan
+        // command writes them, so the standalone binary must match or a spec that
+        // references a support class (now including any closed object under the
+        // default enforcement, #30) would write Data classes importing a class
+        // that never landed on disk. Prune the directory on --prune so a class a
+        // spec stopped using does not linger as stale, drift-flagging output.
+        if ($request->output !== null && $request->output !== '') {
+            $supportDir = rtrim($request->output, '/').'/Support';
+            $written = $writer->write($plan, PlannedFile::CATEGORY_SUPPORT, $prune ? $supportDir : null);
+            if ($written !== []) {
+                fwrite(STDOUT, sprintf("Generated %d support %s into %s\n", count($written), count($written) === 1 ? 'class' : 'classes', $supportDir));
+            }
+        }
+
         if ($request->controllers) {
             $written = $writer->write($plan, PlannedFile::CATEGORY_CONTROLLER);
             fwrite(STDOUT, sprintf("Generated %d abstract %s into %s\n", count($written), count($written) === 1 ? 'controller' : 'controllers', $request->controllerPath));
@@ -189,10 +204,12 @@ final class StandaloneApplication
         $controllers = $this->resolveToggle($options, 'controllers', $config->controllersEnabled);
         $routes = $this->resolveToggle($options, 'routes', $config->routesEnabled);
 
-        // Closed-object enforcement is a plain opt-in (default OFF): the presence
-        // of the flag turns it on. There is no config-file key or disable flag to
-        // reconcile, unlike the default-on controllers/routes toggles above.
-        $enforceClosedObjects = isset($options['enforce-closed-objects']);
+        // Closed-object enforcement is a default-on toggle, resolved with the
+        // same strict precedence as controllers/routes: flag beats the config
+        // file key, the config file key beats the built-in default (enabled).
+        // Both --enforce-closed-objects and --no-enforce-closed-objects at once
+        // is a contradiction that fails loudly (exit 2).
+        $enforceClosedObjects = $this->resolveToggle($options, 'enforce-closed-objects', $config->enforceClosedObjectsEnabled);
 
         $outputDir = rtrim($output, '/');
         $controllerOutput = $options['controller-output'] ?? $config->controllerPath ?? $outputDir.'/Controllers';
@@ -346,8 +363,9 @@ final class StandaloneApplication
         openapi-laravel.json in the working directory (if present), or the
         path given via --config. Its keys mirror config/openapi-laravel.php:
         spec, output.{path,namespace,suffix,prune}, controllers.{enabled,path,
-        namespace}, routes.{enabled,path}, max_depth, max_bytes, only_tags,
-        only_schemas (each a comma-separated string or a JSON list of names).
+        namespace}, routes.{enabled,path}, enforce_closed_objects, max_depth,
+        max_bytes, only_tags, only_schemas (the only_* keys each a comma-separated
+        string or a JSON list of names).
 
         Options:
           --config=<path>      Path to a JSON config file (default: ./openapi-laravel.json)
@@ -357,7 +375,8 @@ final class StandaloneApplication
           --suffix=<suffix>    Data class name suffix (default: Data)
           --max-depth=<n>      Maximum schema nesting depth (default: 64)
           --prune              Delete existing .php files in the output dir first (generate only)
-          --enforce-closed-objects  Reject unknown keys for additionalProperties: false schemas (opt in)
+          --enforce-closed-objects     Reject unknown keys for additionalProperties: false schemas (default: on)
+          --no-enforce-closed-objects  Accept unknown keys even for additionalProperties: false schemas
           --only-tags=<list>   Generate only operations carrying these comma-separated tags, plus their schema closure
           --only-schemas=<list> Generate only these comma-separated component schemas, plus their dependency closure
           --diff               Print a unified diff for each changed file (check only)

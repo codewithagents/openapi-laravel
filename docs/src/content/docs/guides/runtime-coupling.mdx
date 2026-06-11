@@ -19,11 +19,11 @@ The generated Data classes stand alone in your repo. When a class needs a rule o
 - `App\Data\Support\Rfc3339TimeRule` (a `format: time` property)
 - `App\Data\Support\Iso8601DurationRule` (a `format: duration` property)
 - `App\Data\Support\MapObjectTransformer` (every `additionalProperties` map property, via `#[WithTransformer(...)]`)
-- `App\Data\Support\NoUnknownPropertiesRule` (the opt-in `additionalProperties: false` enforcement)
+- `App\Data\Support\NoUnknownPropertiesRule` (the default `additionalProperties: false` enforcement)
 
 (The `App\Data` prefix mirrors whatever Data namespace you configured: the support namespace is always the Data namespace plus a `\Support` suffix.)
 
-These classes are part of the **committed generated output** (they are pinned by the conformance golden test), emitted into `<output>/Support/` and drift-checked byte-for-byte like every Data class. Only the support classes a spec actually references are emitted: a spec with no `multipleOf` carries no `MultipleOfRule`, and `NoUnknownPropertiesRule` appears only under `--enforce-closed-objects`. They exist because Laravel has no native rule for `multipleOf`, no strict RFC3339 `date-time`/`time` rule, no ISO 8601 `duration` rule, no hostname rule, no way to reject undeclared properties on a closed object, and no way to force an empty map to serialize as `{}` rather than `[]`. The generator supplies those small classes and inlines the referenced ones into your code.
+These classes are part of the **committed generated output** (they are pinned by the conformance golden test), emitted into `<output>/Support/` and drift-checked byte-for-byte like every Data class. Only the support classes a spec actually references are emitted: a spec with no `multipleOf` carries no `MultipleOfRule`, and `NoUnknownPropertiesRule` appears whenever a schema declares `additionalProperties: false` (enforced by default, suppressed only under `--no-enforce-closed-objects`). They exist because Laravel has no native rule for `multipleOf`, no strict RFC3339 `date-time`/`time` rule, no ISO 8601 `duration` rule, no hostname rule, no way to reject undeclared properties on a closed object, and no way to force an empty map to serialize as `{}` rather than `[]`. The generator supplies those small classes and inlines the referenced ones into your code.
 
 The result is the headline this decision delivers: **`codewithagents/openapi-laravel` is no longer a runtime dependency of consuming applications, it is a pure dev-time tool.** A class that uses `multipleOf` or a date-time format loads `MultipleOfRule` from *your own* `App\Data\Support` namespace, not from the generator package. The historical coupling described below is the problem this shipped change removed.
 
@@ -38,7 +38,7 @@ The project's stated philosophy is [you own the output](/philosophy): readable P
 
 ## The 1.0.0 question
 
-This had to settle **before** 1.0.0, because the import lines are part of the frozen output format. Moving the namespace later (for example from `CodeWithAgents\OpenApiLaravel\Support\...` to `App\Data\Support\...`) is a breaking output change, exactly what the 1.0.0 freeze is meant to prevent. The discriminator-aware cast ([#38](https://github.com/codewithagents/openapi-laravel/issues/38)) has since **shipped using spatie's native `PropertyMorphableData`** (an abstract morphable base plus `morph()`), so it added **no** new runtime support class. The inlined set under Option B is therefore the seven classes above (including the opt-in `NoUnknownPropertiesRule`), not a growing list driven by #38.
+This had to settle **before** 1.0.0, because the import lines are part of the frozen output format. Moving the namespace later (for example from `CodeWithAgents\OpenApiLaravel\Support\...` to `App\Data\Support\...`) is a breaking output change, exactly what the 1.0.0 freeze is meant to prevent. The discriminator-aware cast ([#38](https://github.com/codewithagents/openapi-laravel/issues/38)) has since **shipped using spatie's native `PropertyMorphableData`** (an abstract morphable base plus `morph()`), so it added **no** new runtime support class. The inlined set under Option B is therefore the seven classes above (including `NoUnknownPropertiesRule`, emitted whenever a closed object is present, which is now the default), not a growing list driven by #38.
 
 ## Option A: keep the runtime dependency (status quo)
 
@@ -113,6 +113,6 @@ Option C was the reasonable fallback if duplication had been judged unacceptable
   **Option B is implemented.** The generator inlines the referenced support classes into the consumer's own namespace (the Data namespace plus a `\Support` suffix, for example `App\Data\Support\...`), making generated output fully self-contained with no runtime dependency on the generator.
 
   - **Status:** done. The support classes are emitted into `<output>/Support/`, imported by the generated Data classes from there, and drift-checked byte-for-byte by `openapi:check`. Only the classes a spec references are emitted.
-  - **No growing set from [#38](https://github.com/codewithagents/openapi-laravel/issues/38):** the discriminator-aware cast shipped on spatie's native `PropertyMorphableData`, adding zero support classes. The inlined set is the seven listed above (including the opt-in `NoUnknownPropertiesRule`).
+  - **No growing set from [#38](https://github.com/codewithagents/openapi-laravel/issues/38):** the discriminator-aware cast shipped on spatie's native `PropertyMorphableData`, adding zero support classes. The inlined set is the seven listed above (including `NoUnknownPropertiesRule`, emitted whenever a closed object is present, which is now the default).
   - **It resolves [#41 (versioning policy)](/guides/versioning-policy):** now that they are inlined, the support classes fall under the **output** surface and are governed by the same major-bump rule as the rest of the generated code.
 </Aside>

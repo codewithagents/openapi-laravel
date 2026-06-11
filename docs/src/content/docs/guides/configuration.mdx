@@ -68,10 +68,11 @@ return [
     /*
      * Enforce closed object shapes: when true, a schema declaring
      * `additionalProperties: false` emits a rule that rejects any input key
-     * outside its declared property set. Off by default (lenient keeps
-     * contract evolution safe); opt in here or with --enforce-closed-objects.
+     * outside its declared property set. On by default (the spec is the source
+     * of truth); set false here or pass --no-enforce-closed-objects to accept
+     * unknown keys for lenient, forward-compatible output during contract evolution.
      */
-    'enforce_closed_objects' => false,
+    'enforce_closed_objects' => true,
 
     /*
      * Maximum schema nesting depth the parser will follow before bailing out.
@@ -172,13 +173,15 @@ See the [server scaffold guide](/guides/server-scaffold) for a complete worked e
 
 ### `enforce_closed_objects`
 
-When `true`, every schema declaring `additionalProperties: false` emits a rule that rejects any
-input key outside its declared property set. Defaults to `false`: strict rejection has a
-forward-compatibility hazard (a producer that adds a new field breaks a consumer that has not
-regenerated yet), so lenient is the safe default. Opt in here, or per run with the
-`--enforce-closed-objects` flag on `openapi:generate` / `openapi:check` (the standalone binary
-accepts the flag too; the `openapi-laravel.json` file has no key for it). See
-[the limitations guide](/guides/limitations#additionalproperties-false-enforceable-via-an-opt-in-flag)
+When `true` (the default), every schema declaring `additionalProperties: false` emits a rule that
+rejects any input key outside its declared property set. The spec is the source of truth: a schema
+that explicitly closed its shape gets that shape enforced. Set it to `false` here, or pass the
+`--no-enforce-closed-objects` flag on `openapi:generate` / `openapi:check`, to accept unknown keys.
+That lenient mode is the forward-compatible behavior some consumers want during contract evolution,
+when a producer may add a field ahead of a regenerate. The standalone binary accepts both flags, and
+the `openapi-laravel.json` file accepts the `enforce_closed_objects` key with the same precedence
+(flag beats config, config beats the built-in default of on). See
+[the limitations guide](/guides/limitations#additionalproperties-false-enforced-by-default)
 for the tradeoff in full.
 
 ## Precedence: flags beat config, config beats defaults

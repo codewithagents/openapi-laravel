@@ -157,6 +157,22 @@ it('exits 2 when --routes is combined with --no-routes', function () use ($tempO
     expect($exit)->toBe(2);
 });
 
+it('exits 2 when --enforce-closed-objects is combined with --no-enforce-closed-objects', function () use ($tempOut) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+
+    $exit = (new StandaloneApplication)->run([
+        'bin',
+        '--spec='.$serverSpec,
+        '--output='.$out,
+        '--enforce-closed-objects',
+        '--no-enforce-closed-objects',
+    ]);
+
+    expect($exit)->toBe(2)
+        ->and(is_dir($out))->toBeFalse();
+});
+
 it('exits 2 when check is run with conflicting scaffold flags', function () use ($tempOut) {
     $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
 
@@ -252,6 +268,54 @@ it('honours controllers.enabled=false from the config file', function () use ($t
         ->and(is_file($out.'/PetData.php'))->toBeTrue()
         ->and(is_dir($out.'/Controllers'))->toBeFalse()
         ->and(is_file($out.'/routes.php'))->toBeFalse();
+});
+
+it('enforces additionalProperties:false by default, honours enforce_closed_objects:false from config, and lets --no-enforce-closed-objects override (#30)', function () use ($tempOut, $writeConfig) {
+    $closedSpec = $tempOut().'.json';
+    file_put_contents($closedSpec, json_encode([
+        'openapi' => '3.0.3',
+        'info' => ['title' => 'Closed object', 'version' => '1.0.0'],
+        'paths' => new stdClass,
+        'components' => ['schemas' => [
+            'Closed' => [
+                'type' => 'object',
+                'required' => ['known'],
+                'additionalProperties' => false,
+                'properties' => ['known' => ['type' => 'string']],
+            ],
+        ]],
+    ]));
+
+    // Default (no config key, no flag): enforcement is on, the rule appears.
+    $strictOut = $tempOut();
+    (new StandaloneApplication)->run(['bin', '--spec='.$closedSpec, '--output='.$strictOut, '--no-controllers', '--no-routes']);
+    expect(file_get_contents($strictOut.'/ClosedData.php'))->toContain('new NoUnknownPropertiesRule(')
+        ->and(is_file($strictOut.'/Support/NoUnknownPropertiesRule.php'))->toBeTrue();
+
+    // Config key enforce_closed_objects: false opts out: no rule, no support class.
+    $configOut = $tempOut();
+    $configPath = $writeConfig([
+        'spec' => $closedSpec,
+        'output' => ['path' => $configOut],
+        'controllers' => ['enabled' => false],
+        'routes' => ['enabled' => false],
+        'enforce_closed_objects' => false,
+    ], $configOut);
+    (new StandaloneApplication)->run(['bin', '--config='.$configPath]);
+    expect(file_get_contents($configOut.'/ClosedData.php'))->not->toContain('NoUnknownPropertiesRule')
+        ->and(is_file($configOut.'/Support/NoUnknownPropertiesRule.php'))->toBeFalse();
+
+    // The flag beats a config key that enables: --no-enforce-closed-objects wins.
+    $flagOut = $tempOut();
+    $flagConfigPath = $writeConfig([
+        'spec' => $closedSpec,
+        'output' => ['path' => $flagOut],
+        'controllers' => ['enabled' => false],
+        'routes' => ['enabled' => false],
+        'enforce_closed_objects' => true,
+    ], $flagOut);
+    (new StandaloneApplication)->run(['bin', '--config='.$flagConfigPath, '--no-enforce-closed-objects']);
+    expect(file_get_contents($flagOut.'/ClosedData.php'))->not->toContain('NoUnknownPropertiesRule');
 });
 
 it('lets --controllers and --routes override a config file that disables them', function () use ($tempOut, $writeConfig) {

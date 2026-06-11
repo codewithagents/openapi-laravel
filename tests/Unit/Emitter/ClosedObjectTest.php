@@ -9,9 +9,10 @@ use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 
 /**
- * Opt-in `additionalProperties: false` enforcement (issue #30). The closed-object
- * rule is emitted only when the `enforceClosedObjects` generator option is on.
- * With it off (the default) the output is exactly today's lenient output.
+ * `additionalProperties: false` enforcement (issue #30). The closed-object rule
+ * is emitted whenever the `enforceClosedObjects` generator option is on, which
+ * is the default. Opting out (enforceClosedObjects: false) restores the lenient
+ * output with no rule.
  *
  * @param  array<string, mixed>  $schemas
  * @return array<string, GeneratedFile>
@@ -45,7 +46,7 @@ const CLOSED_SCHEMA = [
     ],
 ];
 
-it('emits the closed-object rule when enforcement is opted in', function () {
+it('emits the closed-object rule when enforcement is on', function () {
     $code = generateClosedSchemas(CLOSED_SCHEMA, enforce: true)['ClosedData']->code;
 
     expect($code)
@@ -53,7 +54,7 @@ it('emits the closed-object rule when enforcement is opted in', function () {
         ->toContain("'__openapi_laravel_no_unknown_properties' => [new NoUnknownPropertiesRule(['known', 'count'])]");
 });
 
-it('does not emit the closed-object rule when enforcement is off (default)', function () {
+it('does not emit the closed-object rule when enforcement is opted out', function () {
     $code = generateClosedSchemas(CLOSED_SCHEMA, enforce: false)['ClosedData']->code;
 
     expect($code)
@@ -61,9 +62,10 @@ it('does not emit the closed-object rule when enforcement is off (default)', fun
         ->not->toContain('__openapi_laravel_no_unknown_properties');
 });
 
-it('keeps default-option output byte-identical to enforcement-off output', function () {
-    // The default constructor (no flag) and an explicit off flag must produce
-    // the same bytes: enforcement is purely additive and gated.
+it('keeps default-option output byte-identical to enforcement-on output', function () {
+    // The default constructor (no flag) and an explicit on flag must produce the
+    // same bytes: enforcement is on by default (#30), so the rule appears either
+    // way and the closed shape is honored without any flag.
     $document = [
         'openapi' => '3.0.3',
         'info' => ['title' => 'Test', 'version' => '1.0.0'],
@@ -73,9 +75,10 @@ it('keeps default-option output byte-identical to enforcement-off output', funct
     $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
 
     $defaultCode = (new ModelGenerator)->generate($spec)['ClosedData']->code;
-    $offCode = (new ModelGenerator(new GeneratorOptions('App\\Data', 'Data', 64, false)))->generate($spec)['ClosedData']->code;
+    $onCode = (new ModelGenerator(new GeneratorOptions('App\\Data', 'Data', 64, true)))->generate($spec)['ClosedData']->code;
 
-    expect($defaultCode)->toBe($offCode);
+    expect($defaultCode)->toBe($onCode)
+        ->and($defaultCode)->toContain('new NoUnknownPropertiesRule(');
 });
 
 it('does not emit the rule for an open object even with enforcement on', function () {

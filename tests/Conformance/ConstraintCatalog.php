@@ -616,9 +616,10 @@ final class ConstraintCatalog
                     ['label' => 'a map value too short', 'payload' => ['labels' => ['a' => 'x']], 'violates' => 'addlProps.minLength'],
                 ],
             ),
-            // KNOWN-WEAK probe: additionalProperties: false. Package documents this
-            // as NOT enforced, so an extra key being accepted is a confirmation of
-            // the documented gap, not a newly found bug.
+            // additionalProperties: false is enforced by default (#30): an extra
+            // undeclared key is rejected through the real validator. The opt-out
+            // (--no-enforce-closed-objects) is exercised separately in
+            // DifferentialValidationTest's dedicated opt-out case.
             new ConstraintCase(
                 'ObjAddlPropsFalse', 'object',
                 [

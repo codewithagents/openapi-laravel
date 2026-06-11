@@ -44,8 +44,8 @@ value schema generates `array<string, int>` with a per-value wildcard rule (so v
 enforced), `additionalProperties: true` generates `array<string, mixed>`, and a `$ref` value
 generates `array<string, PriceData>`. A pure-map component is inlined at its use sites rather than
 emitted as an empty class. Caveats (raw-array `$ref` map values, uncaptured mixed-object overflow,
-`additionalProperties: false` lenient by default, enforceable via the opt-in
-`--enforce-closed-objects` flag) are on the [limitations page](/guides/limitations).
+`additionalProperties: false` enforced by default, with `--no-enforce-closed-objects` as the
+lenient opt-out) are on the [limitations page](/guides/limitations).
 
 **`oneOf` / `anyOf` typing.** A **scalar** union emits a native PHP union type hint plus a `@var`
 variant docblock: `oneOf: [string, integer]` becomes `string|int`. A **discriminated object union**
@@ -123,8 +123,8 @@ page](/guides/limitations) has examples, the fallback rules, and the object-unio
   default, with `--no-controllers` / `--no-routes` opt-outs, strict flags-over-config-over-defaults
   precedence, and an optional `openapi-laravel.json` config file for the standalone binary.
   **Discriminated object unions** (#38, named-component form) are validated and hydrated via an
-  abstract morphable base plus variants. Also shipped: opt-in `additionalProperties: false`
-  enforcement (#30, `--enforce-closed-objects`), `@deprecated` docblocks for deprecated schemas and
+  abstract morphable base plus variants. Also shipped: `additionalProperties: false`
+  enforcement on by default (#30, with `--no-enforce-closed-objects` to opt out), `@deprecated` docblocks for deprecated schemas and
   properties (#43), real `format: time` and `format: duration` validation (#49), config output-path
   containment for the discovered `openapi-laravel.json` (#54), and a batch of real-world fidelity
   reports verified fixed (#48 to #53: nullable rules, integer typing, `#[MapName]` coverage,

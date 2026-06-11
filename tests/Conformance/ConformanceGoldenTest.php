@@ -180,14 +180,15 @@ it('inlines only the referenced support classes into the consumer Support namesp
 
     // Only the support classes the fixture actually references are emitted, and
     // the set is deterministic and sorted. The fixture exercises hostname,
-    // duration, multipleOf, date-time, and time formats; it does not exercise
-    // the opt-in closed-object rule (that needs --enforce-closed-objects), so
-    // NoUnknownPropertiesRule is correctly absent here.
+    // duration, multipleOf, date-time, and time formats, and it declares a
+    // closed object (additionalProperties: false). Closed-object enforcement is
+    // on by default (#30), so NoUnknownPropertiesRule is part of the default set.
     expect(array_keys($support))->toBe([
         'HostnameRule',
         'Iso8601DurationRule',
         'MapObjectTransformer',
         'MultipleOfRule',
+        'NoUnknownPropertiesRule',
         'Rfc3339DateTimeRule',
         'Rfc3339TimeRule',
     ]);
@@ -203,24 +204,41 @@ it('inlines only the referenced support classes into the consumer Support namesp
     }
 });
 
-it('inlines NoUnknownPropertiesRule only under --enforce-closed-objects (#40, #30)', function () {
+it('inlines NoUnknownPropertiesRule by default and drops it under --no-enforce-closed-objects (#40, #30)', function () {
     $document = (new SpecParser)->parseFile(CONFORMANCE_31);
 
-    // Without the flag the closed-object rule is never referenced, so it is not
-    // inlined: the support set is the same six classes the default run emits.
-    $lenient = new ModelGenerator;
-    $lenient->generate($document);
-    expect(array_keys($lenient->supportFiles()))->not->toContain('NoUnknownPropertiesRule');
-
-    // With the flag set, any spec that declares a closed object pulls the rule
-    // into the inlined set. The conformance fixture exercises closed objects, so
-    // the rule appears and is itself self-contained.
-    $strict = new ModelGenerator(new GeneratorOptions(enforceClosedObjects: true));
+    // By default, closed-object enforcement is on (#30), so any spec that
+    // declares a closed object pulls the rule into the inlined set. The
+    // conformance fixture exercises closed objects, so the rule appears by
+    // default and is itself self-contained.
+    $strict = new ModelGenerator;
     $strict->generate($document);
     $strictSupport = $strict->supportFiles();
     expect(array_keys($strictSupport))->toContain('NoUnknownPropertiesRule')
         ->and($strictSupport['NoUnknownPropertiesRule']->code)->toContain('namespace App\Data\Support;')
         ->and($strictSupport['NoUnknownPropertiesRule']->code)->not->toContain('CodeWithAgents\OpenApiLaravel\Support');
+
+    // Opting out (--no-enforce-closed-objects, enforceClosedObjects: false) drops
+    // the closed-object rule: it is never referenced, so it is not inlined.
+    $lenient = new ModelGenerator(new GeneratorOptions(enforceClosedObjects: false));
+    $lenient->generate($document);
+    expect(array_keys($lenient->supportFiles()))->not->toContain('NoUnknownPropertiesRule');
+});
+
+it('emits the NoUnknownPropertiesRule in a closed-object Data class by default, and drops it on opt-out (#30)', function () {
+    // Default run: the closed-object schema's rules() carries the rule keyed by
+    // its non-colliding sentinel, with the declared wire names allow-listed, and
+    // imports the rule from the consumer's own Support namespace (#40).
+    $code = conformanceCode('AdditionalPropsFalseData');
+    expect($code)->toContain('new NoUnknownPropertiesRule(')
+        ->and($code)->toContain('use App\Data\Support\NoUnknownPropertiesRule;');
+
+    // Opt-out run: the same schema emits no closed-object rule and no import.
+    $document = (new SpecParser)->parseFile(CONFORMANCE_31);
+    $lenient = (new ModelGenerator(new GeneratorOptions(enforceClosedObjects: false)))->generate($document);
+    expect($lenient)->toHaveKey('AdditionalPropsFalseData');
+    expect($lenient['AdditionalPropsFalseData']->code)
+        ->not->toContain('NoUnknownPropertiesRule');
 });
 
 // --- Numeric constraints: exclusive bounds + multipleOf (#10, #14) ---------

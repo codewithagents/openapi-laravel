@@ -36,11 +36,13 @@ final readonly class GenerationRequest
         public bool $routes,
         public ?string $routesPath,
         /*
-         * Opt-in closed-object enforcement: when true, a schema declaring
+         * Closed-object enforcement: when true, a schema declaring
          * additionalProperties: false emits a rule rejecting unknown keys
-         * (issue #30). Default false keeps the lenient, forward-compatible output.
+         * (issue #30). Default true honors the spec; opt out with
+         * --no-enforce-closed-objects (or enforce_closed_objects: false) for
+         * lenient, forward-compatible output during contract evolution.
          */
-        public bool $enforceClosedObjects = false,
+        public bool $enforceClosedObjects = true,
         /*
          * Subset generation (issue #44). When non-empty, the run is restricted to
          * the named tags' operations and/or the named component schemas, each

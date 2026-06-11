@@ -44,10 +44,11 @@ final class GoldenFidelityCase
  * golden contract. One entry per runtime-validatable named schema, with
  * boundary-style valid and invalid payloads plus round-trip expectations.
  *
- * Intentionally adversarial: several entries probe constructs the package
- * documents as weak (additionalProperties:false, undiscriminated object unions,
- * mixed-type enums with a boolean member) so the harness either confirms the
- * documented gap or finds it is worse than documented.
+ * Intentionally adversarial: several entries probe constructs the package once
+ * documented as weak (undiscriminated object unions, mixed-type enums with a
+ * boolean member) so the harness either confirms the documented gap or finds it
+ * is worse than documented. additionalProperties:false is no longer a gap: it is
+ * enforced by default, so its invalid payload is now expected to be rejected.
  */
 final class GoldenFidelityCatalog
 {
@@ -506,7 +507,8 @@ final class GoldenFidelityCatalog
                     ['label' => 'only the declared property, preserved', 'payload' => ['known' => 'x'], 'roundTrip' => ['known' => 'x']],
                 ],
                 [
-                    // KNOWN-GAP probe (#30): an extra undeclared key is wrongly accepted.
+                    // Enforced by default (#30): closed-object enforcement is on, so
+                    // an extra undeclared key is rejected through the real validator.
                     ['label' => 'an undeclared extra property must be rejected', 'payload' => ['known' => 'x', 'extra' => 'y'], 'violates' => 'additionalProperties:false'],
                 ],
             ),
@@ -563,15 +565,6 @@ final class GoldenFidelityCatalog
     public static function knownGaps(): array
     {
         return [
-            [
-                'construct' => 'AdditionalPropsFalse',
-                'class' => 'AdditionalPropsFalseData',
-                'label' => 'an undeclared extra property must be rejected',
-                'expected' => 'reject',
-                'actual' => 'accept',
-                'issue' => '#30',
-                'reason' => 'additionalProperties: false is not enforced; unknown keys are silently accepted.',
-            ],
             [
                 'construct' => 'OneOfNoDiscriminator',
                 'class' => 'ExerciserData',

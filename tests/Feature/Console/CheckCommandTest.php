@@ -237,6 +237,15 @@ it('exits 2 when --controllers is combined with --no-controllers', function () u
     ])->assertExitCode(2);
 });
 
+it('exits 2 when --enforce-closed-objects is combined with --no-enforce-closed-objects', function () use ($serverSpec, $tempOut) {
+    $this->artisan('openapi:check', [
+        '--spec' => $serverSpec(),
+        '--output' => $tempOut(),
+        '--enforce-closed-objects' => true,
+        '--no-enforce-closed-objects' => true,
+    ])->assertExitCode(2);
+});
+
 it('exits 2 on a configuration error (no spec)', function () use ($tempOut) {
     config()->set('openapi-laravel.spec', '');
     config()->set('openapi-laravel.output.path', $tempOut());

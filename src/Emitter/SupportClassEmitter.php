@@ -26,7 +26,8 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter;
  * Only the support classes a given spec actually references are emitted (the
  * generator records each one as it wires the import), so a spec with no
  * `hostname` format never carries a HostnameRule, and `NoUnknownPropertiesRule`
- * appears only under `--enforce-closed-objects`. Same spec in -> byte-identical
+ * appears whenever a schema declares `additionalProperties: false` (enforced by
+ * default, suppressed only under `--no-enforce-closed-objects`). Same spec in -> byte-identical
  * support set out.
  */
 final readonly class SupportClassEmitter

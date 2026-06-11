@@ -103,13 +103,17 @@ was retired from user-facing docs: the product is one coherent generator.
 golden harness was not asserting. Deprecated schemas and properties now carry `@deprecated`
 docblocks (with an optional reason from the `x-deprecated-reason` vendor extension).
 
-### Opt-in additionalProperties: false enforcement (issue #30)
+### additionalProperties: false enforcement, on by default (issue #30, done)
 
-A schema declaring `additionalProperties: false` can now reject undeclared keys via a
-`NoUnknownPropertiesRule`, opted in with `--enforce-closed-objects` (or
-`enforce_closed_objects` in the Laravel config). The default stays lenient on purpose: strict
-rejection has a forward-compatibility hazard (a producer adding a field breaks a consumer that has
-not regenerated), so the default build's output is byte-identical to before.
+A schema declaring `additionalProperties: false` rejects undeclared keys via a
+`NoUnknownPropertiesRule`, **enforced by default**: the spec is the source of truth, so a schema
+that explicitly closed its shape gets that shape enforced without a flag. The default flipped from
+opt-in to on. Consumers who need the lenient, forward-compatible behavior during contract evolution
+(when a producer may add a field ahead of a regenerate) opt out with `--no-enforce-closed-objects`
+or `enforce_closed_objects: false` in the config. The toggle resolves with the same strict
+precedence as controllers/routes (CLI flag beats config, config beats the built-in default of on),
+and passing both `--enforce-closed-objects` and `--no-enforce-closed-objects` is a config error
+(exit 2). The default flip is a 0.x output change, not a 1.0.0 bump: regenerate and review the diff.
 
 ### Config output-path containment (issue #54)
 
@@ -470,13 +474,14 @@ Three documentation pages prepared for the 1.0.0 cutover. They live under
   follows #40 below (output surface once inlined, tool surface until then).
 - **Runtime coupling** (`guides/runtime-coupling.mdx`, issue #40, **shipped**): generated code used
   to import seven support classes (`HostnameRule`, `MultipleOfRule`, `Rfc3339DateTimeRule`,
-  `Rfc3339TimeRule`, `Iso8601DurationRule`, `MapObjectTransformer`, and the opt-in
+  `Rfc3339TimeRule`, `Iso8601DurationRule`, `MapObjectTransformer`, and
   `NoUnknownPropertiesRule`) from the generator's `Support\` namespace, making the generator a runtime
   dependency of every consuming app. **Resolved:** Option B is implemented. The generator inlines the
   support classes a spec references into the consumer's own namespace (the Data namespace plus a
   `\Support` suffix, e.g. `App\Data\Support\...`), emitted into `<output>/Support/` and drift-checked
   byte-for-byte like every other generated file. Only the referenced classes are emitted
-  (deterministic; `NoUnknownPropertiesRule` only under `--enforce-closed-objects`). Generated output
+  (deterministic; `NoUnknownPropertiesRule` whenever a closed object is present, which is the
+  default, suppressed only under `--no-enforce-closed-objects`). Generated output
   is now fully self-contained with no runtime dependency on the generator. See the done section below.
 
 Lower-severity lossy cases (document or improve, not blockers): tuple `prefixItems`
@@ -539,10 +544,10 @@ suites are refactored; all gates green).
   `oneOf`/`anyOf` + `discriminator` form (0.8.0), and the inline-union form (synthesized variant
   names) plus the allOf-inheritance form (unreleased). The obsolete presence-only build warning for
   the inline and allOf forms is gone. Undiscriminated unions stay `mixed` (#31) by design.
-- **`additionalProperties: false` enforcement** (issue #30): the opt-in `--enforce-closed-objects`
-  flag / `enforce_closed_objects` config key shipped in 0.8.0. Remaining decision: whether the
-  default ever flips. Lenient stays the default for now, because strict rejection breaks contract
-  evolution for consumers that have not regenerated.
+- **`additionalProperties: false` enforcement** (issue #30, decided and done): the default flipped
+  from opt-in to **on**. The spec is the source of truth, so a closed object rejects undeclared keys
+  by default; `--no-enforce-closed-objects` / `enforce_closed_objects: false` is the lenient opt-out
+  for consumers mid contract-evolution. No open decision remains.
 - **Component request bodies / responses as typed params**: resolve `$ref` to
   `#/components/requestBodies/...` into a typed Data parameter instead of the `Request` fallback.
 - **Map-of-`$ref` value hydration**: a `$ref`-valued `additionalProperties` map is typed in the
@@ -557,8 +562,8 @@ array-of-union DataCollectionOf bug (#24), the drift-check enforcement layer, th
 validation oracle (#23), nested-array depth rules (#28), string-typed scalar coercion (#32, #33),
 per-property required diagnostic (#34), hostname enforcement (#29), default full generation (#45),
 discriminated object-union validation and hydration for all three forms (named-component, inline-union,
-and allOf-inheritance) (#38), opt-in
-`additionalProperties: false` enforcement (#30), config output-path containment (#54), and
+and allOf-inheritance) (#38), default-on
+`additionalProperties: false` enforcement with a `--no-enforce-closed-objects` opt-out (#30), config output-path containment (#54), and
 self-contained output via support-class inlining into the consumer's own namespace (#40) are all
 implemented. The undiscriminated object-union false-reject is fixed (#31). The cross-language
 contract loop is proven end to end over real HTTP, including the browser-driven Playwright suite.

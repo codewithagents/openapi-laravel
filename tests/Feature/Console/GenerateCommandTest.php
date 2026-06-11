@@ -241,6 +241,49 @@ it('rejects --routes combined with --no-routes with exit 2 and writes nothing', 
     expect(is_dir($out))->toBeFalse();
 });
 
+it('rejects --enforce-closed-objects combined with --no-enforce-closed-objects with exit 2 and writes nothing', function () use ($tempOut) {
+    $spec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+
+    $this->artisan('openapi:generate', [
+        '--spec' => $spec,
+        '--output' => $out,
+        '--enforce-closed-objects' => true,
+        '--no-enforce-closed-objects' => true,
+    ])->assertExitCode(2);
+
+    expect(is_dir($out))->toBeFalse();
+});
+
+it('enforces additionalProperties:false by default and drops the rule under --no-enforce-closed-objects (#30)', function () use ($tempOut) {
+    $spec = $tempOut().'.json';
+    file_put_contents($spec, json_encode([
+        'openapi' => '3.0.3',
+        'info' => ['title' => 'Closed object', 'version' => '1.0.0'],
+        'paths' => new stdClass,
+        'components' => ['schemas' => [
+            'Closed' => [
+                'type' => 'object',
+                'required' => ['known'],
+                'additionalProperties' => false,
+                'properties' => ['known' => ['type' => 'string']],
+            ],
+        ]],
+    ]));
+
+    // Default run: the closed-object rule and its inlined support class appear.
+    $strictOut = $tempOut();
+    $this->artisan('openapi:generate', ['--spec' => $spec, '--output' => $strictOut])->assertSuccessful();
+    expect(file_get_contents($strictOut.'/ClosedData.php'))->toContain('new NoUnknownPropertiesRule(')
+        ->and(is_file($strictOut.'/Support/NoUnknownPropertiesRule.php'))->toBeTrue();
+
+    // Opt-out run: no rule and no inlined support class.
+    $lenientOut = $tempOut();
+    $this->artisan('openapi:generate', ['--spec' => $spec, '--output' => $lenientOut, '--no-enforce-closed-objects' => true])->assertSuccessful();
+    expect(file_get_contents($lenientOut.'/ClosedData.php'))->not->toContain('NoUnknownPropertiesRule')
+        ->and(is_file($lenientOut.'/Support/NoUnknownPropertiesRule.php'))->toBeFalse();
+});
+
 it('fails when --controllers is requested but the controllers path is unset', function () use ($tempOut) {
     $spec = __DIR__.'/../../Fixtures/server/petstore.yaml';
 

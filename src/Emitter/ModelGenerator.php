@@ -465,12 +465,12 @@ final class ModelGenerator
             $declaredWireNames[] = $wireName;
         }
 
-        // Opt-in closed-object enforcement (issue #30). When the operator turns
-        // on enforceClosedObjects and the schema declares additionalProperties:
-        // false, emit a payload-wide rule that rejects any key outside the
-        // declared set. The sentinel key never collides with a real wire name,
-        // and the rule is implicit so it fires once even when absent. Default off
-        // keeps today's lenient output byte-identical.
+        // Closed-object enforcement (issue #30). When enforceClosedObjects is on
+        // (the default) and the schema declares additionalProperties: false,
+        // emit a payload-wide rule that rejects any key outside the declared
+        // set. The sentinel key never collides with a real wire name, and the
+        // rule is implicit so it fires once even when absent. Opting out with
+        // --no-enforce-closed-objects restores the lenient output.
         if ($this->options->enforceClosedObjects && $this->declaresClosedObject($schema)) {
             $rules[self::CLOSED_OBJECT_SENTINEL] = [
                 'new NoUnknownPropertiesRule('.$this->wireNameAllowListLiteral($declaredWireNames).')',
@@ -1702,7 +1702,15 @@ final class ModelGenerator
                 return $header." {}\n";
             }
 
-            return $header."\n{".$this->renderRules($rules)."\n}\n";
+            // renderRules() prefixes a blank line so it separates cleanly from a
+            // preceding constructor. With no constructor the method sits right
+            // under the opening brace, so collapse that leading blank line to a
+            // single newline: Pint's class_attributes_separation fixer forbids a
+            // blank line immediately after `{`, and emitting one would make the
+            // output non-idempotent.
+            $rulesBody = preg_replace('/^\n\n/', "\n", $this->renderRules($rules));
+
+            return $header."\n{".$rulesBody."\n}\n";
         }
 
         $body = implode("\n", array_map(static fn (array $p): string => $p['code'], $params));

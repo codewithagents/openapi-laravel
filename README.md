@@ -181,9 +181,9 @@ What the generator handles today:
   deterministically
 - **`additionalProperties`** → typed maps (`array<string, X>`) with per-value wildcard rules; a
   pure-map component is inlined at its use sites instead of emitting an empty class, and an empty map
-  serializes as `{}` (not `[]`). `additionalProperties: false` is lenient by default (contract
-  evolution stays safe) and enforceable with the opt-in `--enforce-closed-objects` flag, which
-  rejects undeclared keys
+  serializes as `{}` (not `[]`). `additionalProperties: false` is enforced by default (the spec is the
+  source of truth), rejecting undeclared keys; `--no-enforce-closed-objects` opts out for lenient,
+  forward-compatible output during contract evolution
 - **`oneOf` / `anyOf`** → a **scalar** union emits a native PHP union type plus a variant docblock
   (`string|int`). A **discriminated object union** (a named `oneOf`/`anyOf` of object `$ref`s with a
   `discriminator`) emits an abstract morphable base plus one variant class per member: the payload is
@@ -542,7 +542,7 @@ These are the layers that catch problems before they reach you.
 **Current release: `0.8.0`** on Packagist. The full feature set described above ships today:
 models, spec-derived validation, enums, controllers, and routes out of the box; the drift gate
 (`openapi:check`); the differential validation oracle; discriminated object-union validation and
-hydration; opt-in `additionalProperties: false` enforcement; self-contained output (the support
+hydration; default `additionalProperties: false` enforcement (opt out with `--no-enforce-closed-objects`); self-contained output (the support
 classes inlined into the consumer's own namespace, so generated code has no runtime dependency on
 the generator package, issue #40); and the config surfaces (`config/openapi-laravel.php` and the
 standalone `openapi-laravel.json`).

@@ -130,28 +130,28 @@ rather than emit a non-functional overflow field that silently fails to hydrate,
 carries a docblock note that the dynamic keys are not captured. Read the known fields from the Data
 object, and reach into the original payload for the overflow if you need it.
 
-### additionalProperties: false (enforceable via an opt-in flag)
+### additionalProperties: false (enforced by default)
 
-By **default**, `additionalProperties: false` is **not enforced**: the named properties are generated
-as usual and extra keys are simply not rejected. Standard Laravel has no native rule to reject unknown
-keys, and, more importantly, enforcing a closed shape carries a forward-compatibility hazard. A
-producer that adds a new field to its responses would break a consumer that has not regenerated its
-Data classes yet, since the unknown field would be rejected. Lenient-by-default keeps that contract
-evolution safe, so the default output stays exactly as it was.
+By **default**, `additionalProperties: false` is **enforced**: a schema that explicitly closed its
+shape gets that shape rejected for any undeclared key. The spec is the source of truth, so the author's
+intent is honored without a flag. Every schema that declares `additionalProperties: false` emits a
+single `NoUnknownPropertiesRule` (inlined into your own `<output>/Support/`) that rejects any input
+key outside the declared property set. It runs once per object, even when the payload omits every
+declared property, so a payload that is nothing but unknown keys is still rejected. Schemas that do
+not declare `additionalProperties: false` are untouched.
 
-When you control both ends of the contract and want the strict OpenAPI intent (reject any undeclared
-key), opt in:
+If you need the lenient, forward-compatible behavior instead, opt out. Enforcing a closed shape
+carries a forward-compatibility hazard: a producer that adds a new field to its responses would break
+a consumer that has not regenerated its Data classes yet, since the unknown field would be rejected.
+During that kind of contract evolution, turn enforcement off:
 
-- artisan: `php artisan openapi:generate --enforce-closed-objects`
-- standalone binary: `vendor/bin/openapi-laravel generate --enforce-closed-objects`
-- config: set `'enforce_closed_objects' => true` in `config/openapi-laravel.php`
+- artisan: `php artisan openapi:generate --no-enforce-closed-objects`
+- standalone binary: `vendor/bin/openapi-laravel generate --no-enforce-closed-objects`
+- config: set `'enforce_closed_objects' => false` in `config/openapi-laravel.php`
 
-With the flag on, every schema that declares `additionalProperties: false` emits a single
-`NoUnknownPropertiesRule` (shipped in the package) that rejects any input key outside the declared
-property set. It runs once per object, even when the payload omits every declared property, so a
-payload that is nothing but unknown keys is still rejected. Schemas that do not declare
-`additionalProperties: false` are untouched, and the flag changes nothing for the default (off) build,
-whose output is byte-identical to before.
+With enforcement opted out, the closed-object rule is never emitted and unknown keys are accepted,
+matching the pre-default-flip output. Passing both `--enforce-closed-objects` and
+`--no-enforce-closed-objects` is a configuration error (exit 2).
 
 ### Empty map encoding (fixed)
 
@@ -559,5 +559,5 @@ is presence-exact, with the caveats noted above: **undiscriminated** object unio
 (any object is accepted, no variant enforced) by design, while all three **discriminated** forms
 (named-component, inline-union, allOf-inheritance) are validated and hydrated, and the
 map caveats apply (raw-array `$ref` map values, uncaptured mixed-object overflow, and
-`additionalProperties: false` left unenforced by default but enforceable via the opt-in
-`--enforce-closed-objects` flag).
+`additionalProperties: false` enforced by default, with `--no-enforce-closed-objects` as the
+lenient opt-out).

@@ -56,13 +56,14 @@ return [
     /*
      * Enforce closed object shapes: when true, a schema declaring
      * `additionalProperties: false` emits a rule that rejects any input key
-     * outside its declared property set (issue #30). Disabled by default, since
-     * strict rejection has a forward-compatibility hazard: a producer that adds a
-     * new field would break a consumer that has not regenerated yet. Opt in here,
-     * or pass --enforce-closed-objects to the command, only when you control both
-     * ends of the contract. Default (off) leaves unknown keys silently accepted.
+     * outside its declared property set (issue #30). Enabled by default, because
+     * the spec is the source of truth: a schema that explicitly closed its shape
+     * gets that shape enforced. Set this to false (or pass
+     * --no-enforce-closed-objects to the command) to accept unknown keys, which
+     * is the lenient, forward-compatible behavior some consumers want during
+     * contract evolution when a producer may add fields ahead of a regenerate.
      */
-    'enforce_closed_objects' => false,
+    'enforce_closed_objects' => true,
 
     /*
      * Maximum schema nesting depth the parser will follow before bailing out.
