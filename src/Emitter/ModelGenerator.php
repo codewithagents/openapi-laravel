@@ -56,6 +56,14 @@ final class ModelGenerator
     private UniqueNames $names;
 
     /**
+     * Discriminated-union registry for the current generate() run: which
+     * component schemas are union bases (oneOf/anyOf + discriminator over object
+     * members) and which are their variants. Drives the abstract base + variant
+     * emission and the `$ref`-to-base typing. Rebuilt per generate() call.
+     */
+    private DiscriminatorRegistry $discriminators;
+
+    /**
      * Component schema name => [className, kind, schema].
      *
      * @var array<string, array{class: string, kind: 'data'|'enum', schema: Schema}>
@@ -154,7 +162,24 @@ final class ModelGenerator
         $schemas = $this->componentSchemas($document);
         ksort($schemas);
 
+        // Find discriminated object unions before classifying schemas: a union
+        // base (a oneOf/anyOf of object $refs plus a discriminator) becomes an
+        // abstract Data class rather than a non-object alias, and its variants
+        // extend it. Built from the same component map so it is deterministic.
+        $this->discriminators = new DiscriminatorRegistry($schemas);
+
         foreach ($schemas as $name => $schema) {
+            // A discriminated-union base is a Data class (an abstract
+            // PropertyMorphableData), even though it is structurally a
+            // oneOf/anyOf alias. Register it as such before the alias check
+            // below would otherwise skip it.
+            if ($this->discriminators->isBase($name)) {
+                $class = $this->names->reserve($this->withSuffix(PhpIdentifier::toClassName($name)));
+                $this->registry[$name] = ['class' => $class, 'kind' => 'data', 'schema' => $schema];
+
+                continue;
+            }
+
             // A pure-map component (only additionalProperties, no named
             // properties) is not a Data class: it is a typed array. Record it as
             // a map alias and skip emitting an empty class. References to it
@@ -196,6 +221,12 @@ final class ModelGenerator
         // through resolveReference, guarded against cycles. Sorted for
         // determinism.
         foreach ($schemas as $name => $schema) {
+            // A discriminated-union base is an (abstract) Data class, not a
+            // non-object alias: never record it as an alias, or a $ref to it
+            // would resolve to mixed instead of the base type.
+            if ($this->discriminators->isBase($name)) {
+                continue;
+            }
             if ($this->isNonObjectAlias($schema)) {
                 $this->aliasSchemas[$name] = $schema;
             }
@@ -216,6 +247,15 @@ final class ModelGenerator
         foreach ($this->registry as $name => $entry) {
             if ($entry['kind'] === 'enum') {
                 $this->emitEnum($entry['class'], $entry['schema']);
+            } elseif ($this->discriminators->isBase($name)) {
+                // The abstract base of a discriminated union: only the
+                // discriminator property, marked for morph, plus a match() that
+                // maps each discriminator value to its variant Data class.
+                $this->emitDiscriminatorBase($name, $entry['class']);
+            } elseif ($this->discriminators->isVariant($name)) {
+                // A variant extends its base, forwards the discriminator, and
+                // declares only its own (non-discriminator) properties.
+                $this->emitVariant($name, $entry['class'], $entry['schema']);
             } elseif ($this->hasReadWriteFlags($entry['schema'])) {
                 // The spec marks fields readOnly/writeOnly: split into a read
                 // variant (drops writeOnly) and a write variant (drops readOnly).
@@ -393,6 +433,192 @@ final class ModelGenerator
             $className,
             $this->renderDataClass($className, $params, $imports, $rules, $classDoc),
         );
+    }
+
+    /**
+     * Emit the abstract base of a discriminated union. The base carries ONLY the
+     * discriminator property (marked `#[PropertyForMorph]`, with its rules) and a
+     * `morph()` that maps each discriminator value to its variant Data class.
+     * spatie/laravel-data reads the discriminator from the payload, calls morph()
+     * to pick the concrete variant, and then validates and hydrates THAT variant,
+     * so per-variant validation and polymorphic hydration both come for free.
+     */
+    private function emitDiscriminatorBase(string $baseName, string $className): void
+    {
+        $wireName = (string) $this->discriminators->propertyName($baseName);
+        $propertyName = PhpIdentifier::toPropertyName($wireName);
+
+        // The discriminator type comes from a variant that declares it (every
+        // variant shares the discriminator property). Default to string when no
+        // variant types it explicitly: a discriminator is a string in practice.
+        $discriminatorSchema = $this->discriminatorPropertySchema($baseName, $wireName);
+        $type = $discriminatorSchema !== null
+            ? $this->resolveType($discriminatorSchema, $this->stripSuffix($className).PhpIdentifier::toClassName($wireName), 1, 'all')
+            : new ResolvedType('string');
+
+        // The discriminator's rules are emitted as VALIDATION ATTRIBUTES, not a
+        // rules() method. spatie adds its morph guard (EnsurePropertyMorphable)
+        // to the discriminator property during rule inference; a rules() method
+        // on the base sets hasDynamicValidationRules, whose overwritten-rules
+        // pass REPLACES the inferred rules for the discriminator key, silently
+        // dropping the morph guard so an unmapped value would pass. Attributes
+        // stay on the inference path, preserving the guard, exactly as the design
+        // spike proved. The discriminator is always required (it selects the
+        // variant); a type attribute matches the resolved scalar.
+        $validationAttributes = ['Required'];
+        $validationImports = ['Spatie\\LaravelData\\Attributes\\Validation\\Required'];
+        $typeAttribute = $this->discriminatorTypeAttribute($type);
+        if ($typeAttribute !== null) {
+            $validationAttributes[] = $typeAttribute;
+            $validationImports[] = 'Spatie\\LaravelData\\Attributes\\Validation\\'.$typeAttribute;
+        }
+
+        $imports = array_merge([
+            'Spatie\\LaravelData\\Data',
+            'Spatie\\LaravelData\\Contracts\\PropertyMorphableData',
+            'Spatie\\LaravelData\\Attributes\\PropertyForMorph',
+        ], $validationImports);
+
+        $mapName = '';
+        if (PhpIdentifier::needsMapName($wireName, $propertyName)) {
+            $mapName = "        #[MapName('".$this->escapeSingleQuoted($wireName)."')]\n";
+            $imports[] = 'Spatie\\LaravelData\\Attributes\\MapName';
+        }
+
+        $imports = array_values(array_unique($imports));
+        sort($imports);
+
+        // match() arm per discriminator value -> variant Data class, sorted by
+        // value for determinism, with a `default => null` so an unmapped value
+        // stays abstract and is rejected by spatie's morph guard.
+        $arms = [];
+        foreach ($this->discriminators->valueToVariant($baseName) as $value => $variantSchemaName) {
+            $variantClass = $this->registry[$variantSchemaName]['class'] ?? null;
+            if ($variantClass === null) {
+                continue;
+            }
+            $arms[] = '            '.$this->scalarLiteral($value).' => '.$variantClass.'::class,';
+        }
+        $arms[] = '            default => null,';
+
+        $this->files[$className] = new GeneratedFile(
+            $className,
+            $this->renderDiscriminatorBase($className, $imports, $mapName, $propertyName, $type, $validationAttributes, $wireName, $arms),
+        );
+    }
+
+    /**
+     * The spatie validation type attribute for a discriminator's resolved scalar
+     * type (`StringType`/`IntegerType`), or null when the type is neither (a
+     * float/bool/union discriminator, which is unusual: it then carries only the
+     * `Required` attribute and no type assertion).
+     */
+    private function discriminatorTypeAttribute(ResolvedType $type): ?string
+    {
+        return match ($type->declaration) {
+            'string' => 'StringType',
+            'int' => 'IntegerType',
+            default => null,
+        };
+    }
+
+    /**
+     * Emit a variant of a discriminated union. It extends the abstract base,
+     * forwards the discriminator to the parent constructor (a non-promoted param
+     * so the base owns the single declared discriminator property), and declares
+     * its OWN remaining properties as promoted readonly params with their rules.
+     */
+    private function emitVariant(string $variantName, string $className, Schema $schema): void
+    {
+        $baseName = (string) $this->discriminators->baseOf($variantName);
+        $baseClass = $this->registry[$baseName]['class'] ?? 'Data';
+        $discriminatorWire = (string) $this->discriminators->propertyName($baseName);
+        $discriminatorProperty = PhpIdentifier::toPropertyName($discriminatorWire);
+
+        $properties = $this->objectProperties($schema);
+        $required = $this->requiredNames($schema);
+
+        $base = $this->stripSuffix($className);
+        $propertyNames = new UniqueNames;
+        // The discriminator property name is owned by the base; reserve it so a
+        // variant's own property never collides with the forwarded param.
+        $propertyNames->reserve($discriminatorProperty);
+
+        $paramsRequired = [];
+        $paramsOptional = [];
+        $rules = [];
+        $usesRule = false;
+
+        foreach ($properties as $rawName => $propertySchema) {
+            $wireName = (string) $rawName;
+
+            // The discriminator itself lives on the base, not the variant.
+            if ($wireName === $discriminatorWire) {
+                continue;
+            }
+
+            $this->warnPerPropertyRequired($base, $wireName, $propertySchema);
+
+            $propertyName = $propertyNames->reserve(PhpIdentifier::toPropertyName($wireName));
+            $listedRequired = in_array($wireName, $required, true);
+            $type = $this->resolveType($propertySchema, $base.PhpIdentifier::toClassName($wireName), 1, 'all');
+
+            $default = $this->defaultValue($propertySchema, $type);
+            $isRequired = $listedRequired && $default === null;
+
+            $rendered = $this->renderProperty($wireName, $propertyName, $type, $isRequired, $default);
+
+            if ($isRequired) {
+                $paramsRequired[] = $rendered;
+            } else {
+                $paramsOptional[] = $rendered;
+            }
+
+            [$propertyRules, $wildcardRules, $uses] = $this->buildRules($propertySchema, $isRequired, $type);
+            $rules[$wireName] = $propertyRules;
+            foreach ($wildcardRules as $suffix => $ruleList) {
+                if ($ruleList !== []) {
+                    $rules[$wireName.$suffix] = $ruleList;
+                }
+            }
+            $usesRule = $usesRule || $uses;
+        }
+
+        $params = array_merge($paramsRequired, $paramsOptional);
+
+        // The variant extends the base, so it no longer needs the Spatie Data
+        // import. The base lives in the same namespace as the variant, so it is
+        // referenced by short name with no `use` (a same-namespace import would
+        // be redundant and Pint would strip it).
+        $imports = $this->collectImports($params, $usesRule, $rules);
+        $imports = array_values(array_filter($imports, static fn (string $i): bool => $i !== 'Spatie\\LaravelData\\Data'));
+        sort($imports);
+
+        $this->files[$className] = new GeneratedFile(
+            $className,
+            $this->renderVariantClass($className, $baseClass, $discriminatorProperty, $params, $imports, $rules),
+        );
+    }
+
+    /**
+     * The schema of the discriminator property, taken from the first variant
+     * (sorted) that declares it. All variants share the discriminator, so any
+     * one is representative. Returns null when no variant types it.
+     */
+    private function discriminatorPropertySchema(string $baseName, string $wireName): ?Schema
+    {
+        foreach ($this->discriminators->variants($baseName) as $variantSchemaName) {
+            $schema = $this->registry[$variantSchemaName]['schema'] ?? null;
+            if ($schema === null) {
+                continue;
+            }
+            $property = $this->objectProperties($schema)[$wireName] ?? null;
+            if ($property instanceof Schema) {
+                return $property;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -1193,6 +1419,71 @@ final class ModelGenerator
 
         $body = implode("\n", array_map(static fn (array $p): string => $p['code'], $params));
         $constructor = "    public function __construct(\n".$body."\n    ) {}";
+
+        return $header."\n{\n".$constructor.$this->renderRules($rules)."\n}\n";
+    }
+
+    /**
+     * Render the abstract base class of a discriminated union: only the
+     * discriminator property (marked `#[PropertyForMorph]` plus its validation
+     * attributes) and a morph() that maps each discriminator value to a variant.
+     *
+     * @param  list<string>  $imports
+     * @param  list<string>  $validationAttributes  short attribute names, e.g. ['Required', 'StringType']
+     * @param  list<string>  $arms  match() arm lines, already indented
+     */
+    private function renderDiscriminatorBase(string $className, array $imports, string $mapName, string $propertyName, ResolvedType $type, array $validationAttributes, string $wireName, array $arms): string
+    {
+        $useBlock = implode("\n", array_map(static fn (string $fqcn): string => 'use '.$fqcn.';', $imports));
+
+        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->options->namespace.";\n\n".$useBlock."\n\n"
+            .'abstract class '.$className.' extends Data implements PropertyMorphableData';
+
+        $attributeLine = '        #[PropertyForMorph, '.implode(', ', $validationAttributes)."]\n";
+
+        $constructor = "    public function __construct(\n"
+            .$mapName
+            .$attributeLine
+            .'        public readonly '.$type->declaration().' $'.$propertyName.",\n"
+            .'    ) {}';
+
+        $morph = "\n\n    /**\n     * @param  array<string, mixed>  \$properties\n     */\n    public static function morph(array \$properties): ?string\n    {\n"
+            .'        return match ($properties['."'".$this->escapeSingleQuoted($wireName)."'".'] ?? null) {'."\n"
+            .implode("\n", $arms)."\n"
+            ."        };\n    }";
+
+        return $header."\n{\n".$constructor.$morph."\n}\n";
+    }
+
+    /**
+     * Render a variant class of a discriminated union: it extends the base,
+     * forwards the discriminator (a non-promoted param) to the parent, and
+     * declares its own promoted readonly properties plus a rules() method.
+     *
+     * @param  list<array{code: string, imports: list<string>}>  $params
+     * @param  list<string>  $imports
+     * @param  array<string, list<string>>  $rules
+     */
+    private function renderVariantClass(string $className, string $baseClass, string $discriminatorProperty, array $params, array $imports, array $rules): string
+    {
+        // The base lives in the same namespace, so a variant can have zero
+        // imports; emit no `use` block then (avoid stray blank lines).
+        $useBlock = $imports === []
+            ? ''
+            : implode("\n", array_map(static fn (string $fqcn): string => 'use '.$fqcn.';', $imports))."\n\n";
+
+        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->options->namespace.";\n\n".$useBlock
+            .'final class '.$className.' extends '.$baseClass;
+
+        // The discriminator is a forwarded, non-promoted parameter so only the
+        // base declares it as a property (PHP forbids redeclaring a parent's
+        // promoted property). It comes first, then the variant's own properties.
+        $forwarded = '        string $'.$discriminatorProperty.','.($params !== [] ? "\n" : '');
+        $body = implode("\n", array_map(static fn (array $p): string => $p['code'], $params));
+
+        $constructor = "    public function __construct(\n"
+            .$forwarded.$body."\n"
+            ."    ) {\n        parent::__construct(\$".$discriminatorProperty.");\n    }";
 
         return $header."\n{\n".$constructor.$this->renderRules($rules)."\n}\n";
     }
