@@ -637,6 +637,32 @@ final class ConstraintCatalog
                     ['label' => 'extra undeclared property must be rejected', 'payload' => ['known' => 'x', 'extra' => 'y'], 'violates' => 'additionalProperties:false'],
                 ],
             ),
+            // patternProperties combined with additionalProperties: false (#65):
+            // a key the pattern admits is spec-valid and must NOT be rejected by
+            // the closed-object rule; a key matching neither the declared names
+            // nor a pattern is still rejected. The pattern's VALUE schema is not
+            // validated (documented limitation), so only key admission is probed.
+            new ConstraintCase(
+                'ObjAddlPropsFalsePattern', 'object',
+                [
+                    'type' => 'object',
+                    'required' => ['known'],
+                    'additionalProperties' => false,
+                    'properties' => [
+                        'known' => ['type' => 'string'],
+                    ],
+                    'patternProperties' => [
+                        '^x-' => ['type' => 'string'],
+                    ],
+                ],
+                [
+                    ['label' => 'only known property', 'payload' => ['known' => 'x']],
+                    ['label' => 'patternProperties-matching key must be accepted', 'payload' => ['known' => 'x', 'x-trace' => 'abc']],
+                ],
+                [
+                    ['label' => 'key matching neither names nor patterns must be rejected', 'payload' => ['known' => 'x', 'extra' => 'y'], 'violates' => 'additionalProperties:false'],
+                ],
+            ),
         ];
     }
 

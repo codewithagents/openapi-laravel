@@ -470,11 +470,14 @@ final class ModelGenerator
         // emit a payload-wide rule that rejects any key outside the declared
         // set. The sentinel key never collides with a real wire name, and the
         // rule is implicit so it fires once even when absent. Opting out with
-        // --no-enforce-closed-objects restores the lenient output.
+        // --no-enforce-closed-objects restores the lenient output. A schema
+        // that also declares patternProperties widens the allow-set with its
+        // patterns (issue #65); see closedObjectRule().
         if ($this->options->enforceClosedObjects && $this->declaresClosedObject($schema)) {
-            $rules[self::CLOSED_OBJECT_SENTINEL] = [
-                'new NoUnknownPropertiesRule('.$this->wireNameAllowListLiteral($declaredWireNames).')',
-            ];
+            $closedObjectRule = $this->closedObjectRule($base, $declaredWireNames, $schema);
+            if ($closedObjectRule !== null) {
+                $rules[self::CLOSED_OBJECT_SENTINEL] = [$closedObjectRule];
+            }
         }
 
         $params = array_merge($paramsRequired, $paramsOptional);
@@ -1603,19 +1606,28 @@ final class ModelGenerator
             return null;
         }
 
+        return "'regex:".$this->escapeSingleQuoted($this->delimitedPattern($pattern))."'";
+    }
+
+    /**
+     * Wrap a spec-derived pattern in PCRE delimiters: the first candidate not
+     * present in the pattern, so the pattern never needs internal escaping. When
+     * every candidate appears, fall back to a fixed delimiter and
+     * backslash-escape its unescaped occurrences so the resulting PCRE stays
+     * valid. Spec patterns are ECMA-262; consistent with the `pattern` rule,
+     * they are embedded as PCRE without dialect translation.
+     */
+    private function delimitedPattern(string $pattern): string
+    {
         foreach (self::REGEX_DELIMITERS as $candidate) {
             if (! str_contains($pattern, $candidate)) {
-                return "'regex:".$this->escapeSingleQuoted($candidate.$pattern.$candidate)."'";
+                return $candidate.$pattern.$candidate;
             }
         }
 
-        // Every candidate appears in the pattern. Never drop the rule: fall back
-        // to a fixed delimiter and backslash-escape its unescaped occurrences so
-        // the resulting PCRE stays valid.
         $delimiter = self::REGEX_DELIMITERS[0];
-        $escaped = $this->escapeDelimiter($pattern, $delimiter);
 
-        return "'regex:".$this->escapeSingleQuoted($delimiter.$escaped.$delimiter)."'";
+        return $delimiter.$this->escapeDelimiter($pattern, $delimiter).$delimiter;
     }
 
     /**
@@ -2639,6 +2651,107 @@ final class ModelGenerator
     }
 
     /**
+     * The closed-object rule expression for a schema that declared
+     * `additionalProperties: false`, or null when enforcement must be skipped.
+     *
+     * `patternProperties` legally admits keys beyond the declared property set
+     * even under `additionalProperties: false` (issue #65), so its patterns are
+     * passed to the rule as a second, pattern allow-list: a matching key is
+     * admitted (its value schema is not validated, only key admission). Each
+     * pattern is delimited exactly like the `pattern` rule (PCRE, no
+     * ECMA-262 dialect translation) and verified to compile; if any pattern
+     * does not compile as PCRE, the rule cannot tell legal keys apart, so the
+     * sound fallback is to skip closed-object enforcement for this schema
+     * entirely. Both the relaxation and the skip are surfaced as build
+     * warnings: false-rejecting valid data is worse than under-validating.
+     *
+     * @param  list<string>  $wireNames  the declared wire (input) names
+     */
+    private function closedObjectRule(string $schemaName, array $wireNames, Schema $schema): ?string
+    {
+        $patterns = $this->patternPropertyPatterns($schema);
+
+        if ($patterns === []) {
+            return 'new NoUnknownPropertiesRule('.$this->stringListLiteral($wireNames).')';
+        }
+
+        $delimited = [];
+        foreach ($patterns as $pattern) {
+            $candidate = $this->delimitedPattern($pattern);
+            if (! $this->compilesAsPcre($candidate)) {
+                $this->warnings[sprintf(
+                    'Schema "%s" declares patternProperties with a pattern that is not valid PCRE (%s); '
+                    .'closed-object enforcement (additionalProperties: false) is skipped for this schema '
+                    .'so spec-legal keys are never falsely rejected.',
+                    $schemaName,
+                    (string) json_encode($pattern),
+                )] = true;
+
+                return null;
+            }
+            $delimited[] = $candidate;
+        }
+
+        $this->warnings[sprintf(
+            'Schema "%s" combines additionalProperties: false with patternProperties. '
+            .'Keys matching a pattern are accepted by the closed-object rule, but their value schemas are not validated.',
+            $schemaName,
+        )] = true;
+
+        return 'new NoUnknownPropertiesRule('
+            .$this->stringListLiteral($wireNames)
+            .', '
+            .$this->stringListLiteral($delimited)
+            .')';
+    }
+
+    /**
+     * Whether a delimited pattern compiles as PCRE. The spec dialect is
+     * ECMA-262 and PHP's is PCRE, and the pattern is untrusted spec input, so
+     * compilation is probed before the pattern is embedded in generated code.
+     * The probe's PHP warning is swallowed by a scoped no-op error handler
+     * (plain @-suppression would still surface as a PHPUnit test warning).
+     */
+    private function compilesAsPcre(string $delimited): bool
+    {
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            return preg_match($delimited, '') !== false;
+        } finally {
+            restore_error_handler();
+        }
+    }
+
+    /**
+     * The `patternProperties` patterns a schema declares, in spec order. cebe
+     * has no typed attribute for `patternProperties` (a JSON Schema keyword
+     * OpenAPI 3.1 admits), so it is read from the serialized data, where cebe
+     * keeps unknown keys verbatim. The value schemas are intentionally ignored:
+     * only key admission is derived from them (see closedObjectRule()).
+     *
+     * @return list<string>
+     */
+    private function patternPropertyPatterns(Schema $schema): array
+    {
+        $serialized = (array) $schema->getSerializableData();
+        $raw = $serialized['patternProperties'] ?? null;
+        if (is_object($raw)) {
+            $raw = (array) $raw;
+        }
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        $patterns = [];
+        foreach (array_keys($raw) as $pattern) {
+            $patterns[] = (string) $pattern;
+        }
+
+        return array_values(array_unique($patterns));
+    }
+
+    /**
      * Whether a component schema is a pure map: an object whose only content is
      * `additionalProperties` (a typed, ref, or untyped value), with no named
      * `properties` and no composition keyword. Such a schema is a typed array,
@@ -3157,17 +3270,18 @@ final class ModelGenerator
     }
 
     /**
-     * A `['a', 'b']` PHP array literal of the allowed wire names for the
-     * closed-object rule. Each name is single-quote-escaped (the wire name is
-     * untrusted spec input), mirroring how MapName renders a wire name.
+     * A `['a', 'b']` PHP array literal of strings for the closed-object rule's
+     * allow-lists (declared wire names, delimited patternProperties patterns).
+     * Each item is single-quote-escaped (both come from untrusted spec input),
+     * mirroring how MapName renders a wire name.
      *
-     * @param  list<string>  $wireNames
+     * @param  list<string>  $values
      */
-    private function wireNameAllowListLiteral(array $wireNames): string
+    private function stringListLiteral(array $values): string
     {
         $items = array_map(
-            fn (string $name): string => "'".$this->escapeSingleQuoted($name)."'",
-            array_values(array_unique($wireNames)),
+            fn (string $value): string => "'".$this->escapeSingleQuoted($value)."'",
+            array_values(array_unique($values)),
         );
 
         return '['.implode(', ', $items).']';

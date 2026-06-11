@@ -153,6 +153,21 @@ With enforcement opted out, the closed-object rule is never emitted and unknown 
 matching the pre-default-flip output. Passing both `--enforce-closed-objects` and
 `--no-enforce-closed-objects` is a configuration error (exit 2).
 
+### patternProperties under a closed object
+
+A schema may combine `additionalProperties: false` with `patternProperties`: keys matching one of the
+patterns are then spec-legal even though they are undeclared. The closed-object rule honors this: the
+patterns are embedded as a second allow-list, and an input key matching any of them is accepted. Two
+caveats, both surfaced as build warnings:
+
+- **Key admission only.** The pattern's **value schema is not validated** (`patternProperties` is not
+  translated into rules, see [supported OpenAPI versions](/guides/openapi-versions)). A matching key
+  is let through; its value is whatever the payload carries.
+- **Pattern dialect.** Spec patterns are ECMA-262 while PHP matches PCRE; like the `pattern` keyword,
+  the pattern is embedded as PCRE without translation. If a pattern does not compile as PCRE, the
+  generator cannot tell legal keys apart, so it **skips the closed-object rule for that schema
+  entirely** and warns: false-rejecting valid data is worse than under-validating.
+
 ### Empty map encoding (fixed)
 
 An **empty** `additionalProperties` map serializes as a JSON object `{}`, not an array `[]`. PHP
