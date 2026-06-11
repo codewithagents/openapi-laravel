@@ -54,6 +54,12 @@ final readonly class CommandRequestFactory
         $controllerNamespace = $this->configString('openapi-laravel.controllers.namespace') ?? 'App\\Http\\Controllers\\Api';
         $routesPath = $this->configString('openapi-laravel.routes.path');
 
+        // Subset generation (issue #44): a flag (comma-separated) overrides the
+        // config key (a comma string or a list); an empty result means "full
+        // spec". The closure is resolved later in the planner.
+        $onlyTags = $this->resolveList($command, 'only-tags', 'openapi-laravel.only_tags');
+        $onlySchemas = $this->resolveList($command, 'only-schemas', 'openapi-laravel.only_schemas');
+
         return new GenerationRequest(
             $spec,
             $output,
@@ -67,7 +73,62 @@ final readonly class CommandRequestFactory
             $routes,
             $routesPath,
             $enforceClosedObjects,
+            $onlyTags,
+            $onlySchemas,
         );
+    }
+
+    /**
+     * Resolve a comma-separated subset flag against its config key: the flag
+     * (when present) wins, otherwise the config value is read. The config value
+     * may be a comma-separated string or a list of strings; either is normalized
+     * to a clean list of names (trimmed, empties dropped). Returns [] when
+     * neither is set, which the planner reads as "no subset".
+     *
+     * @return list<string>
+     */
+    private function resolveList(Command $command, string $flag, string $configKey): array
+    {
+        $flagValue = $command->option($flag);
+        if (is_string($flagValue) && trim($flagValue) !== '') {
+            return $this->splitList($flagValue);
+        }
+
+        $configured = config($configKey);
+        if (is_string($configured)) {
+            return $this->splitList($configured);
+        }
+
+        if (is_array($configured)) {
+            $names = [];
+            foreach ($configured as $value) {
+                if (is_string($value) && trim($value) !== '') {
+                    $names[] = trim($value);
+                }
+            }
+
+            return $names;
+        }
+
+        return [];
+    }
+
+    /**
+     * Split a comma-separated list into trimmed, non-empty names.
+     *
+     * @return list<string>
+     */
+    private function splitList(string $value): array
+    {
+        $names = [];
+        foreach (explode(',', $value) as $part) {
+            $part = trim($part);
+            if ($part !== '') {
+                $names[] = $part;
+            }
+        }
+
+        return $names;
     }
 
     /**

@@ -37,6 +37,8 @@ final class CheckCommand extends Command
         {--routes : Check the routes file even when disabled in config (default: on)}
         {--no-routes : Skip the routes file}
         {--enforce-closed-objects : Reject unknown keys for schemas with additionalProperties: false (opt in)}
+        {--only-tags= : Check only operations carrying these comma-separated tags, plus their schema closure}
+        {--only-schemas= : Check only these comma-separated component schemas, plus their dependency closure}
         {--diff : Print a unified diff for each changed file}';
 
     /**

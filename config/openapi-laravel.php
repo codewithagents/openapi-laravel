@@ -80,4 +80,24 @@ return [
      */
     'max_bytes' => 25_165_824,
 
+    /*
+     * Subset generation (issue #44). Restrict the run to a slice of the spec
+     * instead of every component and operation. Each list is automatically
+     * closed over its transitive `$ref` dependencies, so the output stays
+     * self-consistent (no dangling reference, no missing union variant).
+     *
+     * - only_tags: keep operations carrying any of these tags (their
+     *   controllers and routes), plus every schema they reference.
+     * - only_schemas: keep these component schemas, plus everything reachable
+     *   from them.
+     *
+     * Both may be combined (the union of the two selections plus the closure).
+     * Each accepts a comma-separated string or an array of names; the
+     * --only-tags / --only-schemas flags override these keys. Empty (the
+     * default) generates the full spec, byte-identical to before. A name that
+     * matches nothing in the spec is a hard error, not a silent empty slice.
+     */
+    'only_tags' => env('OPENAPI_LARAVEL_ONLY_TAGS', ''),
+    'only_schemas' => env('OPENAPI_LARAVEL_ONLY_SCHEMAS', ''),
+
 ];

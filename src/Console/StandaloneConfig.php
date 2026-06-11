@@ -16,6 +16,10 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  */
 final readonly class StandaloneConfig
 {
+    /**
+     * @param  list<string>|null  $onlyTags  subset tag selection (issue #44), or null when unset
+     * @param  list<string>|null  $onlySchemas  subset schema selection (issue #44), or null when unset
+     */
     public function __construct(
         public ?string $spec = null,
         public ?string $outputPath = null,
@@ -29,5 +33,17 @@ final readonly class StandaloneConfig
         public ?string $routesPath = null,
         public ?int $maxDepth = null,
         public ?int $maxBytes = null,
+        /*
+         * Subset generation (issue #44). A comma-separated string or a JSON list
+         * of tag / component-schema names. Null means the key was not set, in
+         * which case the binary generates the full spec.
+         *
+         * @var list<string>|null
+         */
+        public ?array $onlyTags = null,
+        /*
+         * @var list<string>|null
+         */
+        public ?array $onlySchemas = null,
     ) {}
 }

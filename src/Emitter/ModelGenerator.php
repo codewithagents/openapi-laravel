@@ -336,12 +336,24 @@ final class ModelGenerator
             return [];
         }
 
+        $keep = $this->options->keepSchemas;
+
         $result = [];
         foreach ($components->schemas as $name => $schema) {
             // Component entries that are bare $refs (aliases) are skipped in v1.
-            if ($schema instanceof Schema) {
-                $result[(string) $name] = $schema;
+            if (! $schema instanceof Schema) {
+                continue;
             }
+
+            // Subset generation (issue #44): when a keep-set is configured, emit
+            // only its members. The caller closed the set over its transitive
+            // dependencies, so every surviving $ref still resolves. A null
+            // keep-set (the default) keeps every schema, byte-identical to before.
+            if ($keep !== null && ! isset($keep[(string) $name])) {
+                continue;
+            }
+
+            $result[(string) $name] = $schema;
         }
 
         return $result;

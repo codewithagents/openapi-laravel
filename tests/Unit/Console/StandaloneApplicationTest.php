@@ -386,3 +386,37 @@ it('validates a namespace from the config file like a flag', function () use ($s
     expect($exit)->toBe(2)
         ->and(is_dir($out))->toBeFalse();
 });
+
+it('restricts the standalone scaffold to a tag with --only-tags', function () use ($tempOut) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+
+    $exit = (new StandaloneApplication)->run(['bin', '--spec='.$serverSpec, '--output='.$out, '--only-tags=pet']);
+
+    // The pet tag covers every pet operation, whose only schema is Pet.
+    expect($exit)->toBe(0)
+        ->and(is_file($out.'/PetData.php'))->toBeTrue()
+        ->and(is_file($out.'/Controllers/AbstractPetController.php'))->toBeTrue();
+});
+
+it('generates only the named schema with --only-schemas', function () use ($tempOut) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+
+    $exit = (new StandaloneApplication)->run([
+        'bin', '--spec='.$serverSpec, '--output='.$out, '--only-schemas=Pet', '--no-controllers', '--no-routes',
+    ]);
+
+    expect($exit)->toBe(0)
+        ->and(is_file($out.'/PetData.php'))->toBeTrue();
+});
+
+it('exits non-zero on an unknown --only-schemas name', function () use ($tempOut) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+
+    $exit = (new StandaloneApplication)->run(['bin', '--spec='.$serverSpec, '--output='.$out, '--only-schemas=Ghost']);
+
+    expect($exit)->toBe(1)
+        ->and(is_dir($out))->toBeFalse();
+});

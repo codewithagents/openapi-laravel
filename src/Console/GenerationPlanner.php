@@ -8,10 +8,13 @@ use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GenerationException;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
+use CodeWithAgents\OpenApiLaravel\Emitter\ResolvedClosure;
+use CodeWithAgents\OpenApiLaravel\Emitter\SchemaClosure;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ControllerGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\RouteGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
+use CodeWithAgents\OpenApiLaravel\Emitter\SubsetSelection;
 use CodeWithAgents\OpenApiLaravel\Parser\ParseException;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
@@ -56,11 +59,29 @@ final readonly class GenerationPlanner
         }
 
         $document = (new SpecParser($request->maxBytes))->parseFile($request->spec);
+
+        // Subset generation (issue #44): when --only-tags / --only-schemas are
+        // set, resolve the selection to its transitive dependency closure once,
+        // here, so the model generator and the server scaffold both restrict to
+        // the same self-consistent slice. With no selection this is the "all"
+        // sentinel: closure is null, nothing is filtered, output is byte-identical.
+        $selection = SubsetSelection::of($request->onlyTags, $request->onlySchemas);
+        $closure = null;
+        $keepSchemas = null;
+        if (! $selection->isAll()) {
+            $closure = (new SchemaClosure)->resolve($document, $selection);
+            if ($closure->hasUnknown()) {
+                throw new PlanException($this->unknownSelectionMessage($closure));
+            }
+            $keepSchemas = $closure->schemaSet();
+        }
+
         $generator = new ModelGenerator(new GeneratorOptions(
             $request->namespace,
             $request->suffix,
             $request->maxDepth,
             $request->enforceClosedObjects,
+            $keepSchemas,
         ));
         $modelFiles = $generator->generate($document);
 
@@ -74,16 +95,36 @@ final readonly class GenerationPlanner
             );
         }
 
-        $files = [...$files, ...$this->planServer($request, $document, $generator->registry())];
+        $files = [...$files, ...$this->planServer($request, $document, $generator->registry(), $closure)];
 
         return new GenerationPlan($files, $modelFiles === [], $generator->warnings());
+    }
+
+    /**
+     * The error message for a subset flag that named a tag or schema absent from
+     * the spec. A typo (or a stale flag after a spec change) is a configuration
+     * error, not a silent empty slice, so the message lists exactly what did not
+     * match and the planner raises a PlanException.
+     */
+    private function unknownSelectionMessage(ResolvedClosure $closure): string
+    {
+        $parts = [];
+        if ($closure->unknownSchemas !== []) {
+            $parts[] = 'schema(s) '.implode(', ', $closure->unknownSchemas);
+        }
+        if ($closure->unknownTags !== []) {
+            $parts[] = 'tag(s) '.implode(', ', $closure->unknownTags);
+        }
+
+        return 'Subset selection matched nothing for '.implode(' and ', $parts)
+            .'. Check --only-schemas / --only-tags against the spec (names are case-sensitive); nothing was generated.';
     }
 
     /**
      * @param  array<string, array{dataClass: string, writeClass: ?string, kind: 'data'|'enum'}>  $registry
      * @return list<PlannedFile>
      */
-    private function planServer(GenerationRequest $request, OpenApi $document, array $registry): array
+    private function planServer(GenerationRequest $request, OpenApi $document, array $registry, ?ResolvedClosure $closure): array
     {
         if (! $request->controllers && ! $request->routes) {
             return [];
@@ -101,7 +142,7 @@ final readonly class GenerationPlanner
 
         // Collect descriptors once and feed the same list to both generators so
         // controller method names and route targets can never drift apart.
-        $descriptors = (new OperationCollector($serverOptions, $registry))->collect($document);
+        $descriptors = (new OperationCollector($serverOptions, $registry, $closure))->collect($document);
 
         $files = [];
 

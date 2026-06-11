@@ -53,6 +53,53 @@ it('maps every supported key onto the config object', function () use ($writeFil
         ->and($config->maxBytes)->toBe(1024);
 });
 
+it('reads only_tags and only_schemas as a comma-separated string', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode([
+        'only_tags' => 'pets, store',
+        'only_schemas' => 'Pet,Tag',
+    ]));
+
+    $config = (new StandaloneConfigLoader)->load($path, '/tmp');
+
+    expect($config->onlyTags)->toBe(['pets', 'store'])
+        ->and($config->onlySchemas)->toBe(['Pet', 'Tag']);
+});
+
+it('reads only_tags and only_schemas as a JSON list', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode([
+        'only_tags' => ['pets', 'store'],
+        'only_schemas' => ['Pet'],
+    ]));
+
+    $config = (new StandaloneConfigLoader)->load($path, '/tmp');
+
+    expect($config->onlyTags)->toBe(['pets', 'store'])
+        ->and($config->onlySchemas)->toBe(['Pet']);
+});
+
+it('defaults only_tags and only_schemas to null when absent', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['spec' => 'openapi.yaml']));
+
+    $config = (new StandaloneConfigLoader)->load($path, '/tmp');
+
+    expect($config->onlyTags)->toBeNull()
+        ->and($config->onlySchemas)->toBeNull();
+});
+
+it('rejects a non-string element inside only_schemas', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['only_schemas' => ['Pet', 42]]));
+
+    expect(fn () => (new StandaloneConfigLoader)->load($path, '/tmp'))
+        ->toThrow(OptionException::class, 'every entry must be a string');
+});
+
+it('rejects an object value for only_tags', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['only_tags' => ['a' => 'b']]));
+
+    expect(fn () => (new StandaloneConfigLoader)->load($path, '/tmp'))
+        ->toThrow(OptionException::class, 'comma-separated string or a list of strings');
+});
+
 it('discovers the default file name in the given directory', function () use ($writeFile) {
     $path = $writeFile((string) json_encode(['spec' => 'discovered.yaml']));
 

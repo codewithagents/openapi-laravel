@@ -46,6 +46,8 @@ final readonly class StandaloneConfigLoader
         'routes' => ['enabled', 'path'],
         'max_depth' => null,
         'max_bytes' => null,
+        'only_tags' => null,
+        'only_schemas' => null,
     ];
 
     /**
@@ -104,7 +106,58 @@ final readonly class StandaloneConfigLoader
             routesPath: $containment->contain($this->string($decoded['routes'] ?? [], 'path', $path, 'routes.'), 'routes.path', $path),
             maxDepth: $this->int($decoded, 'max_depth', $path),
             maxBytes: $this->int($decoded, 'max_bytes', $path),
+            onlyTags: $this->stringList($decoded, 'only_tags', $path),
+            onlySchemas: $this->stringList($decoded, 'only_schemas', $path),
         );
+    }
+
+    /**
+     * Read a subset key (issue #44) as a list of names. Accepts a comma-separated
+     * string or a JSON array of strings; either is normalized to a clean list
+     * (trimmed, non-empty). Returns null when the key is absent so the binary
+     * applies its "no subset" default. A non-string, non-array value, or an array
+     * holding a non-string element, fails with a clear message.
+     *
+     * @param  array<array-key, mixed>  $decoded
+     * @return list<string>|null
+     *
+     * @throws OptionException when the key is present but not a string or string list
+     */
+    private function stringList(array $decoded, string $key, string $path): ?array
+    {
+        $value = $decoded[$key] ?? null;
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_string($value)) {
+            $names = [];
+            foreach (explode(',', $value) as $part) {
+                $part = trim($part);
+                if ($part !== '') {
+                    $names[] = $part;
+                }
+            }
+
+            return $names;
+        }
+
+        if (is_array($value) && array_is_list($value)) {
+            $names = [];
+            foreach ($value as $element) {
+                if (! is_string($element)) {
+                    throw new OptionException("Invalid '{$key}' in config file {$path}: every entry must be a string.");
+                }
+                $element = trim($element);
+                if ($element !== '') {
+                    $names[] = $element;
+                }
+            }
+
+            return $names;
+        }
+
+        throw new OptionException("Invalid '{$key}' in config file {$path}: expected a comma-separated string or a list of strings.");
     }
 
     /**

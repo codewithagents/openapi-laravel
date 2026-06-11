@@ -14,6 +14,7 @@ use cebe\openapi\spec\RequestBody;
 use cebe\openapi\spec\Response;
 use cebe\openapi\spec\Responses;
 use cebe\openapi\spec\Schema;
+use CodeWithAgents\OpenApiLaravel\Emitter\ResolvedClosure;
 use CodeWithAgents\OpenApiLaravel\Naming\PhpIdentifier;
 use CodeWithAgents\OpenApiLaravel\Naming\UniqueNames;
 
@@ -50,6 +51,13 @@ final class OperationCollector
     public function __construct(
         private readonly ServerOptions $options,
         private readonly array $registry,
+        /*
+         * Subset generation (issue #44). When non-null, only operations the
+         * closure kept (by path + method) become controllers/routes, so a
+         * tag-scoped run does not scaffold the whole API. Null (the default)
+         * keeps every operation, byte-identical to a full run.
+         */
+        private readonly ?ResolvedClosure $closure = null,
     ) {}
 
     /**
@@ -64,6 +72,13 @@ final class OperationCollector
                 $operation = $pathItem->{$method} ?? null;
 
                 if (! $operation instanceof Operation) {
+                    continue;
+                }
+
+                // Subset generation (issue #44): when a closure is configured,
+                // emit only the operations it kept. A null closure (the default)
+                // keeps every operation, byte-identical to a full run.
+                if ($this->closure !== null && ! $this->closure->keepsOperation($method, $path)) {
                     continue;
                 }
 

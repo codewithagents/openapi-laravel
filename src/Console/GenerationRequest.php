@@ -19,6 +19,10 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  */
 final readonly class GenerationRequest
 {
+    /**
+     * @param  list<string>  $onlyTags  subset tag selection (issue #44); empty means the full spec
+     * @param  list<string>  $onlySchemas  subset schema selection (issue #44); empty means the full spec
+     */
     public function __construct(
         public ?string $spec,
         public ?string $output,
@@ -37,5 +41,19 @@ final readonly class GenerationRequest
          * (issue #30). Default false keeps the lenient, forward-compatible output.
          */
         public bool $enforceClosedObjects = false,
+        /*
+         * Subset generation (issue #44). When non-empty, the run is restricted to
+         * the named tags' operations and/or the named component schemas, each
+         * automatically closed over its transitive `$ref` dependencies so the
+         * output stays self-consistent. Empty lists (the default) generate the
+         * full spec, byte-identical to a run with no subset flags.
+         *
+         * @var list<string>
+         */
+        public array $onlyTags = [],
+        /*
+         * @var list<string>
+         */
+        public array $onlySchemas = [],
     ) {}
 }
