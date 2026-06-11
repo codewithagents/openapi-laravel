@@ -34,7 +34,7 @@
         "ext-ctype": "*",
         "devizzent/cebe-php-openapi": "^1.1",
         "illuminate/support": "^11.0|^12.0",
-        "spatie/laravel-data": "^4.0"
+        "spatie/laravel-data": "^4.15"
     },
     "require-dev": {
         "deptrac/deptrac": "^4.6",
