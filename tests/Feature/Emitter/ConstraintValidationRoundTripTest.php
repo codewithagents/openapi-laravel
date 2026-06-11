@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\ConstraintData\DatedData;
+use App\ConstraintData\NestedData;
 use App\ConstraintData\NumberedData;
 use cebe\openapi\Reader;
 use cebe\openapi\spec\OpenApi;
@@ -40,6 +41,20 @@ function bootConstraintClasses(): void
                 'gt' => ['type' => 'integer', 'minimum' => 1, 'exclusiveMinimum' => true],
                 'ratio' => ['type' => 'number', 'enum' => [1.5, 2.5]],
                 'tags' => ['type' => 'array', 'uniqueItems' => true, 'items' => ['type' => 'string']],
+            ],
+        ],
+        'Nested' => [
+            'type' => 'object',
+            'properties' => [
+                // array of array of integer (minimum 0): the inner item rules
+                // must survive to depth (issue #28).
+                'matrix' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'array',
+                        'items' => ['type' => 'integer', 'minimum' => 0],
+                    ],
+                ],
             ],
         ],
     ];
@@ -131,3 +146,16 @@ it('accepts distinct items for uniqueItems', function () {
     NumberedData::validate(['tags' => ['a', 'b']]);
     expect(true)->toBeTrue();
 });
+
+it('accepts a valid nested array of arrays (#28)', function () {
+    NestedData::validate(['matrix' => [[0, 1], [2, 3]]]);
+    expect(true)->toBeTrue();
+});
+
+it('rejects an inner value below the minimum in a nested array (#28)', function () {
+    NestedData::validate(['matrix' => [[1], [-1]]]);
+})->throws(ValidationException::class);
+
+it('rejects a non-array inner element in a nested array (#28)', function () {
+    NestedData::validate(['matrix' => ['not-an-array']]);
+})->throws(ValidationException::class);

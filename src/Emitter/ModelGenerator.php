@@ -325,11 +325,15 @@ final class ModelGenerator
                 $paramsOptional[] = $rendered;
             }
 
-            // Validation rules are keyed by the wire (mapped input) name.
-            [$propertyRules, $itemRules, $uses] = $this->buildRules($propertySchema, $isRequired, $type);
+            // Validation rules are keyed by the wire (mapped input) name. The
+            // wildcard map carries one entry per array-nesting level ('.*',
+            // '.*.*', ...) so a nested array enforces its inner item rules too.
+            [$propertyRules, $wildcardRules, $uses] = $this->buildRules($propertySchema, $isRequired, $type);
             $rules[$wireName] = $propertyRules;
-            if ($itemRules !== null && $itemRules !== []) {
-                $rules[$wireName.'.*'] = $itemRules;
+            foreach ($wildcardRules as $suffix => $ruleList) {
+                if ($ruleList !== []) {
+                    $rules[$wireName.$suffix] = $ruleList;
+                }
             }
             $usesRule = $usesRule || $uses;
         }
@@ -580,8 +584,12 @@ final class ModelGenerator
     /**
      * Derive Laravel validation rules for a property from its schema.
      *
-     * @return array{0: list<string>, 1: ?list<string>, 2: bool} property rules,
-     *                                                           optional per-item rules (arrays), whether Rule:: is used
+     * The second element is a wildcard-rule map keyed by suffix relative to the
+     * property name: '.*' for an array's items, '.*.*' for a nested array's
+     * inner items, and so on. An empty map means the property has no item rules.
+     *
+     * @return array{0: list<string>, 1: array<string, list<string>>, 2: bool} property rules,
+     *                                                                         wildcard item rules keyed by suffix, whether Rule:: is used
      */
     private function buildRules(Schema|Reference $schema, bool $required, ResolvedType $type): array
     {
@@ -595,7 +603,7 @@ final class ModelGenerator
             if ($mapSchema !== null) {
                 [$valueRules, $valueUses] = $this->mapValueRules($mapSchema);
 
-                return [array_merge($rules, ["'array'"]), $valueRules, $valueUses];
+                return [array_merge($rules, ["'array'"]), $this->wildcardMap($valueRules), $valueUses];
             }
 
             // A $ref to a non-object alias component (scalar/array/union): derive
@@ -616,24 +624,24 @@ final class ModelGenerator
             if ($enumClass !== null) {
                 $rules[] = 'Rule::enum('.$enumClass.'::class)';
 
-                return [$rules, null, true];
+                return [$rules, [], true];
             }
 
-            return [$rules, null, false];
+            return [$rules, [], false];
         }
 
         // A pure-map property: 'array' plus a wildcard value rule.
         if ($this->isPureMap($schema)) {
             [$valueRules, $valueUses] = $this->mapValueRules($schema);
 
-            return [array_merge($rules, ["'array'"]), $valueRules, $valueUses];
+            return [array_merge($rules, ["'array'"]), $this->wildcardMap($valueRules), $valueUses];
         }
 
         // oneOf/anyOf stay presence-only (no variant enforcement). allOf is an
         // object shape after merging, so it also gets presence-only rules here;
         // its member properties carry their own rules in the nested Data class.
         if ($this->notEmptyArray($schema->oneOf) || $this->notEmptyArray($schema->anyOf) || $this->notEmptyArray($schema->allOf)) {
-            return [$rules, null, false];
+            return [$rules, [], false];
         }
 
         if ($this->notEmptyArray($schema->enum)) {
@@ -641,7 +649,7 @@ final class ModelGenerator
             if ($values !== []) {
                 $rules[] = 'Rule::in(['.implode(', ', array_map(fn (string|int|float $value): string => $this->scalarLiteral($value), $values)).'])';
 
-                return [$rules, null, true];
+                return [$rules, [], true];
             }
         }
 
@@ -651,7 +659,7 @@ final class ModelGenerator
         if ($const !== null) {
             $rules[] = 'Rule::in(['.$this->scalarLiteral($const[0]).'])';
 
-            return [$rules, null, true];
+            return [$rules, [], true];
         }
 
         $types = $this->normalizeTypes($schema);
@@ -660,42 +668,87 @@ final class ModelGenerator
         // a single type rule (`'string'`) would wrongly reject the other valid
         // members. This mirrors the presence-only handling of oneOf/anyOf unions.
         if (count($types) > 1) {
-            return [$rules, null, false];
+            return [$rules, [], false];
         }
 
         $primary = $types[0] ?? null;
 
         if ($primary === 'string') {
-            return [array_merge($rules, $this->stringRules($schema)), null, false];
+            return [array_merge($rules, $this->stringRules($schema)), [], false];
         }
 
         if ($primary === 'integer') {
-            return [array_merge($rules, ["'integer'"], $this->numericRules($schema)), null, false];
+            return [array_merge($rules, ["'integer'"], $this->numericRules($schema)), [], false];
         }
 
         if ($primary === 'number') {
-            return [array_merge($rules, ["'numeric'"], $this->numericRules($schema)), null, false];
+            return [array_merge($rules, ["'numeric'"], $this->numericRules($schema)), [], false];
         }
 
         if ($primary === 'boolean') {
-            return [array_merge($rules, ["'boolean'"]), null, false];
+            return [array_merge($rules, ["'boolean'"]), [], false];
         }
 
         if ($primary === 'array') {
-            [$itemRules, $itemUses] = $this->itemRules($schema);
+            [$wildcards, $itemUses] = $this->arrayWildcardRules($schema, '.*');
 
-            // `uniqueItems: true` requires every element to be distinct. Laravel
-            // expresses that with a `distinct` rule on the `field.*` wildcard, so
-            // append it to the item rules (creating them if the items carried
-            // none of their own).
-            if ($schema->uniqueItems === true) {
-                $itemRules = array_merge($itemRules ?? [], ["'distinct'"]);
-            }
-
-            return [array_merge($rules, ["'array'"], $this->arrayCountRules($schema)), $itemRules, $itemUses];
+            return [array_merge($rules, ["'array'"], $this->arrayCountRules($schema)), $wildcards, $itemUses];
         }
 
-        return [$rules, null, false];
+        return [$rules, [], false];
+    }
+
+    /**
+     * Wrap a single list of item rules into the wildcard-rule map shape keyed
+     * by '.*'. An empty or null list yields an empty map.
+     *
+     * @param  ?list<string>  $itemRules
+     * @return array<string, list<string>>
+     */
+    private function wildcardMap(?array $itemRules): array
+    {
+        return $itemRules === null || $itemRules === [] ? [] : ['.*' => $itemRules];
+    }
+
+    /**
+     * Wildcard rules for an array property, keyed by their suffix relative to
+     * the property name ('.*', '.*.*', ...). Walks nested `array` items so an
+     * array-of-array enforces an `array` rule at each level and the scalar item
+     * rules at the leaf, plus a `distinct` rule wherever `uniqueItems` is set.
+     * Without this recursion a nested array would drop its inner item rules
+     * entirely and silently accept invalid inner values.
+     *
+     * @return array{0: array<string, list<string>>, 1: bool} wildcard rules by suffix, whether Rule:: is used
+     */
+    private function arrayWildcardRules(Schema $schema, string $suffix): array
+    {
+        $items = $schema->items;
+        $map = [];
+        $here = [];
+        $uses = false;
+
+        if ($items instanceof Schema && ($this->normalizeTypes($items)[0] ?? null) === 'array') {
+            // Each element at this level is itself an array: assert its shape and
+            // count, then recurse to emit the inner level's rules ('.*.*', ...).
+            $here = array_merge(["'array'"], $this->arrayCountRules($items));
+            [$map, $uses] = $this->arrayWildcardRules($items, $suffix.'.*');
+        } else {
+            [$leaf, $uses] = $this->itemRules($schema);
+            $here = $leaf ?? [];
+        }
+
+        // `uniqueItems: true` requires this array's direct elements (at $suffix)
+        // to be distinct. Laravel expresses that with a `distinct` rule on the
+        // wildcard, so append it to this level's element rules.
+        if ($schema->uniqueItems === true) {
+            $here = array_merge($here, ["'distinct'"]);
+        }
+
+        if ($here !== []) {
+            $map = array_merge([$suffix => $here], $map);
+        }
+
+        return [$map, $uses];
     }
 
     /**
