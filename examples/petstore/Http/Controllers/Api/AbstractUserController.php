@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Http\Controllers\Api;
 
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\LoginUserQueryData;
 use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\UserData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -29,7 +30,7 @@ abstract class AbstractUserController
      *
      * Logs user into the system.
      */
-    abstract public function loginUser(): JsonResponse;
+    abstract public function loginUser(LoginUserQueryData $query): JsonResponse;
 
     /**
      * GET /user/logout

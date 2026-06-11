@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CodeWithAgents\OpenApiLaravel\Emitter;
 
 use cebe\openapi\spec\OpenApi;
+use cebe\openapi\spec\Parameter;
 use cebe\openapi\spec\Reference;
 use cebe\openapi\spec\Schema;
 use CodeWithAgents\OpenApiLaravel\Naming\PhpIdentifier;
@@ -128,6 +129,17 @@ final class ModelGenerator
     private array $files = [];
 
     /**
+     * Per-operation query Data classes (issue #63), emitted on demand by
+     * {@see generateQueryData()} AFTER generate() ran, keyed by class name.
+     * Kept apart from $files because generate() already returned its file set
+     * when the server scaffold asks for query classes; the planner collects
+     * these separately via {@see queryFiles()}.
+     *
+     * @var array<string, GeneratedFile>
+     */
+    private array $queryFiles = [];
+
+    /**
      * Non-fatal diagnostics gathered during a generate() run, keyed by the
      * warning text so the same finding (re-seen across the read/write variants of
      * one schema, or a recursive inline emit) is recorded only once. The CLI
@@ -168,6 +180,7 @@ final class ModelGenerator
         $this->aliasTypes = [];
         $this->aliasSchemas = [];
         $this->files = [];
+        $this->queryFiles = [];
         $this->warnings = [];
         $this->usedSupportClasses = [];
 
@@ -345,6 +358,288 @@ final class ModelGenerator
         sort($warnings);
 
         return $warnings;
+    }
+
+    /**
+     * Emit a per-operation query Data class (issue #63) for an operation's
+     * `in: query` parameters, reusing the EXACT rules/type pipeline the body
+     * Data classes go through (resolveType, buildRules, renderProperty), so a
+     * query constraint is enforced with the same fidelity as a body constraint.
+     *
+     * Must be called AFTER generate(): the pipeline resolves `$ref` parameters
+     * against the run's component registry and alias caches. The collected
+     * files are exposed via {@see queryFiles()}; the class name is reserved in
+     * the run's allocator so a query class can never collide with a component
+     * class (a clash suffixes deterministically, e.g. `..._2`).
+     *
+     * Each query class also carries a `fromQuery(Request $request)` factory
+     * that validates and hydrates from `$request->query()` ONLY. For an
+     * operation with a request body this is the supported access path (the
+     * class is not injected, or body fields would bleed into query
+     * validation); for a body-less operation laravel-data picks `fromQuery`
+     * up as the magic creation method on container injection, so the typed
+     * controller parameter hydrates through the same query-only path.
+     *
+     * A parameter whose serialization cannot round-trip through Laravel's
+     * flat `key=value` / `key[]=value` query parsing (style deepObject,
+     * space/pipe-delimited, a non-exploded array, an object or object-map
+     * shape, a content-typed parameter) is skipped with a warning rather than
+     * given rules that would false-reject valid requests.
+     *
+     * @param  string  $baseName  StudlyCaps operation context (operationId or the method+path fallback), without suffix
+     * @param  string  $operationLabel  "GET /pets", for warning messages
+     * @param  list<Parameter>  $parameters  the operation's `in: query` parameters, in spec order
+     * @return string|null the reserved query class name, or null when every parameter was skipped
+     */
+    public function generateQueryData(string $baseName, string $operationLabel, array $parameters): ?string
+    {
+        $supported = [];
+        foreach ($parameters as $parameter) {
+            $reason = $this->querySkipReason($parameter);
+
+            if ($reason !== null) {
+                $name = is_string($parameter->name) ? $parameter->name : '(unnamed)';
+                $this->warnings[sprintf(
+                    'Operation %s: query parameter "%s" was skipped: %s.',
+                    $operationLabel,
+                    $name,
+                    $reason,
+                )] = true;
+
+                continue;
+            }
+
+            $supported[] = $parameter;
+        }
+
+        if ($supported === []) {
+            return null;
+        }
+
+        $className = $this->names->reserve($this->withSuffix($baseName.'Query'));
+        $base = $this->stripSuffix($className);
+        $propertyNames = new UniqueNames;
+
+        $paramsRequired = [];
+        $paramsOptional = [];
+        $rules = [];
+        $usesRule = false;
+        $booleanNames = [];
+
+        foreach ($supported as $parameter) {
+            $wireName = (string) $parameter->name;
+            $schema = $parameter->schema;
+            if (! $schema instanceof Schema && ! $schema instanceof Reference) {
+                // querySkipReason() guarantees a schema; defensive for PHPStan.
+                continue;
+            }
+
+            // Distinct wire names can collapse to the same identifier
+            // (first_name + firstName); suffix collisions like emitData does.
+            $propertyName = $propertyNames->reserve(PhpIdentifier::toPropertyName($wireName));
+            $type = $this->resolveType($schema, $base.PhpIdentifier::toClassName($wireName), 1);
+
+            // The form style serializes a boolean as ?flag=true / ?flag=false,
+            // but Laravel's `boolean` rule only understands 1/0 (and PHP's
+            // coercive bool cast would turn the string "false" into TRUE), so
+            // fromQuery() maps the literals to '1'/'0' before validating.
+            if ($type->declaration === 'bool') {
+                $booleanNames[] = $wireName;
+            }
+
+            // A scalar `default` makes the parameter optional on input even when
+            // the spec marks it required, exactly like a defaulted body property:
+            // an omitted value is filled by the default.
+            $default = $this->defaultValue($schema, $type);
+            $isRequired = $parameter->required === true && $default === null;
+
+            // A parameter can be deprecated on the Parameter object itself or on
+            // its schema; either way the property carries the `@deprecated` tag.
+            $deprecationTag = $parameter->deprecated === true ? '@deprecated' : $this->deprecationTag($schema);
+
+            $rendered = $this->renderProperty($wireName, $propertyName, $type, $isRequired, $default, $deprecationTag);
+
+            if ($isRequired) {
+                $paramsRequired[] = $rendered;
+            } else {
+                $paramsOptional[] = $rendered;
+            }
+
+            [$propertyRules, $wildcardRules, $uses] = $this->buildRules($schema, $isRequired, $type);
+            $rules[$wireName] = $propertyRules;
+            foreach ($wildcardRules as $suffix => $ruleList) {
+                if ($ruleList !== []) {
+                    $rules[$wireName.$suffix] = $ruleList;
+                }
+            }
+            $usesRule = $usesRule || $uses;
+        }
+
+        $params = array_merge($paramsRequired, $paramsOptional);
+
+        if ($params === []) {
+            // Every surviving parameter lacked a usable schema (defensive; the
+            // skip check above already filtered these). No useful class to emit.
+            return null;
+        }
+
+        // The fromQuery factory references Request by short name.
+        $imports = $this->collectImports($params, $usesRule, $rules);
+        $imports[] = 'Illuminate\\Http\\Request';
+        $imports = array_values(array_unique($imports));
+        sort($imports);
+
+        $classDoc = [
+            'Query parameters of '.$this->docblockSafe($operationLabel).'.',
+        ];
+
+        $this->queryFiles[$className] = new GeneratedFile(
+            $className,
+            $this->renderDataClass($className, $params, $imports, $rules, $classDoc, fromQueryBooleans: $booleanNames),
+        );
+
+        return $className;
+    }
+
+    /**
+     * The per-operation query Data classes emitted since the last generate()
+     * run (issue #63), keyed and ordered by class name. Exposed as a getter,
+     * mirroring supportFiles(): generate() already returned its file set when
+     * the server scaffold asks for these.
+     *
+     * @return array<string, GeneratedFile>
+     */
+    public function queryFiles(): array
+    {
+        $files = $this->queryFiles;
+        ksort($files);
+
+        return $files;
+    }
+
+    /**
+     * Why a query parameter cannot become a typed, validated property, or null
+     * when it can. The bar: the value must arrive through Laravel's flat query
+     * parsing (`key=value` scalars, `key[]=value` arrays) in a shape the
+     * generated rules describe. Anything else is skipped with a warning;
+     * generating wrong rules (false-rejecting valid requests) would be worse
+     * than generating none.
+     */
+    private function querySkipReason(Parameter $parameter): ?string
+    {
+        if (! is_string($parameter->name) || $parameter->name === '') {
+            return 'it has no usable name';
+        }
+
+        $style = $parameter->style;
+        if ($style === 'deepObject') {
+            return 'style "deepObject" is not supported yet';
+        }
+        if ($style === 'spaceDelimited' || $style === 'pipeDelimited') {
+            return 'style "'.$style.'" serializes the array into a single delimited value, which the generated array rules cannot validate';
+        }
+
+        $schema = $parameter->schema;
+        if (! $schema instanceof Schema && ! $schema instanceof Reference) {
+            return 'it declares no schema (content-typed query parameters are not supported yet)';
+        }
+
+        // A non-exploded form array arrives as ONE comma-joined string
+        // (?ids=1,2,3), not the per-item ?ids[]=1&ids[]=2 shape the generated
+        // `array` rule validates.
+        if ($parameter->explode === false && $this->isQueryArraySchema($schema)) {
+            return 'a non-exploded (explode: false) array arrives as a single comma-joined value, which the generated array rules cannot validate';
+        }
+
+        return $this->queryShapeSkipReason($schema, 0);
+    }
+
+    /**
+     * Whether a query parameter's schema is an array (directly, or through a
+     * non-object alias component that resolves to an array). Used only for the
+     * explode: false check above.
+     */
+    private function isQueryArraySchema(Schema|Reference $schema): bool
+    {
+        if ($schema instanceof Reference) {
+            $name = $this->refName($schema->getReference());
+
+            return $name !== null
+                && isset($this->aliasSchemas[$name])
+                && $this->resolveAlias($name)->declaration === 'array';
+        }
+
+        return ($this->normalizeTypes($schema)[0] ?? null) === 'array';
+    }
+
+    /**
+     * The shape-level skip reason for a query parameter schema, or null when
+     * the shape survives flat form serialization: scalars, enums (inline or
+     * `$ref` to a generated enum), scalar unions, and arrays of those. Objects,
+     * object maps, and arrays of objects have no flat `key=value` form, so they
+     * are skipped. Recurses through array items so an array-of-array-of-object
+     * is caught at any depth (bounded; deeper nesting is rejected outright,
+     * since bracket query strings beyond a few levels are not a real wire
+     * format).
+     */
+    private function queryShapeSkipReason(Schema|Reference $schema, int $depth): ?string
+    {
+        if ($depth > 4) {
+            return 'it nests arrays too deeply for query-string serialization';
+        }
+
+        if ($schema instanceof Reference) {
+            $name = $this->refName($schema->getReference());
+            if ($name === null) {
+                // External or non-schema pointer: degrades to mixed,
+                // presence-only, exactly like a body property would.
+                return null;
+            }
+
+            if (isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'data') {
+                return 'it is an object, which has no flat query-string serialization';
+            }
+
+            if (isset($this->mapSchemas[$name])) {
+                return 'it is an object map, which has no flat query-string serialization';
+            }
+
+            if (isset($this->aliasSchemas[$name])) {
+                $resolved = $this->resolveAlias($name);
+                if ($resolved->isMap) {
+                    return 'it is an object map, which has no flat query-string serialization';
+                }
+                if ($resolved->dataCollectionOf !== null) {
+                    return 'it is an array of objects, which has no flat query-string serialization';
+                }
+            }
+
+            // A generated enum, a scalar/array alias, or an unknown component
+            // (degrades to mixed): all safe.
+            return null;
+        }
+
+        if ($this->isPureMap($schema)) {
+            return 'it is an object map, which has no flat query-string serialization';
+        }
+
+        $primary = $this->normalizeTypes($schema)[0] ?? null;
+
+        if ($primary === 'object' || $this->notEmptyArray($schema->properties) || $this->notEmptyArray($schema->allOf)) {
+            return 'it is an object, which has no flat query-string serialization';
+        }
+
+        if ($primary === 'array') {
+            $items = $schema->items;
+            if ($items instanceof Schema || $items instanceof Reference) {
+                return $this->queryShapeSkipReason($items, $depth + 1);
+            }
+        }
+
+        // Scalars, inline enums/consts, oneOf/anyOf unions (which resolve to a
+        // native scalar union or degrade to presence-only mixed), and untyped
+        // schemas are all safe for flat form serialization.
+        return null;
     }
 
     /**
@@ -1686,8 +1981,9 @@ final class ModelGenerator
      * @param  list<string>  $imports
      * @param  array<string, list<string>>  $rules
      * @param  list<string>  $classDoc  class-level docblock lines, in emit order; empty means no docblock
+     * @param  list<string>|null  $fromQueryBooleans  non-null emits the query-only fromQuery() factory (per-operation query classes, issue #63); the list holds the wire names of boolean parameters that need true/false literal mapping
      */
-    private function renderDataClass(string $className, array $params, array $imports, array $rules, array $classDoc = []): string
+    private function renderDataClass(string $className, array $params, array $imports, array $rules, array $classDoc = [], ?array $fromQueryBooleans = null): string
     {
         $useBlock = implode("\n", array_map(static fn (string $fqcn): string => 'use '.$fqcn.';', $imports));
 
@@ -1726,7 +2022,69 @@ final class ModelGenerator
         $body = implode("\n", array_map(static fn (array $p): string => $p['code'], $params));
         $constructor = "    public function __construct(\n".$body."\n    ) {}";
 
-        return $header."\n{\n".$constructor.$this->renderRules($rules)."\n}\n";
+        $factory = $fromQueryBooleans !== null ? "\n\n".$this->renderFromQuery($fromQueryBooleans) : '';
+
+        return $header."\n{\n".$constructor.$factory.$this->renderRules($rules)."\n}\n";
+    }
+
+    /**
+     * The query-only creation factory every per-operation query Data class
+     * carries (issue #63). It validates against rules() and hydrates from the
+     * request's query string ONLY, so request-body fields never bleed into
+     * query validation (and vice versa). Because the method name starts with
+     * `from` and accepts a Request, laravel-data also picks it up as the magic
+     * creation method when the class is resolved from the container, so a
+     * typed controller parameter hydrates through this same query-only path.
+     *
+     * Boolean parameters need one extra step: the OpenAPI form style
+     * serializes a boolean as ?flag=true / ?flag=false, but Laravel's
+     * `boolean` rule rejects those literals and PHP's coercive bool cast
+     * would turn the string "false" into TRUE. The factory maps the literals
+     * to '1'/'0' first, so spec-valid requests validate and hydrate
+     * correctly.
+     *
+     * @param  list<string>  $booleanNames  wire names of the class's boolean parameters, in spec order
+     */
+    private function renderFromQuery(array $booleanNames): string
+    {
+        $doc = '    /**'."\n"
+            .'     * Validate against rules() and hydrate from the query string only, so'."\n"
+            .'     * request-body fields never bleed into query validation (or vice versa).'."\n";
+
+        if ($booleanNames === []) {
+            return $doc
+                .'     */'."\n"
+                .'    public static function fromQuery(Request $request): static'."\n"
+                ."    {\n"
+                .'        return self::validateAndCreate($request->query->all());'."\n"
+                .'    }';
+        }
+
+        $names = implode(', ', array_map(
+            fn (string $name): string => "'".$this->escapeSingleQuoted($name)."'",
+            $booleanNames,
+        ));
+
+        return $doc
+            .'     * Boolean parameters arrive as the form-style literals true / false,'."\n"
+            .'     * which are mapped to 1 / 0 before validation.'."\n"
+            .'     */'."\n"
+            .'    public static function fromQuery(Request $request): static'."\n"
+            ."    {\n"
+            .'        $query = $request->query->all();'."\n"
+            ."\n"
+            .'        foreach (['.$names.'] as $name) {'."\n"
+            .'            if (array_key_exists($name, $query)) {'."\n"
+            .'                $query[$name] = match ($query[$name]) {'."\n"
+            ."                    'true' => '1',"."\n"
+            ."                    'false' => '0',"."\n"
+            .'                    default => $query[$name],'."\n"
+            .'                };'."\n"
+            .'            }'."\n"
+            .'        }'."\n"
+            ."\n"
+            .'        return self::validateAndCreate($query);'."\n"
+            .'    }';
     }
 
     /**

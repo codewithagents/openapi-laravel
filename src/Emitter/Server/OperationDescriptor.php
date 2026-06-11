@@ -17,9 +17,18 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter\Server;
 final readonly class OperationDescriptor
 {
     /**
+     * `queryParam` (issue #63) names the operation's generated query Data
+     * class, or null when the operation has no usable `in: query` parameters.
+     * `injected` is true when the class is type-hinted into the method
+     * signature (body-less operations, where container injection is safe);
+     * false when the implementer must call `::fromQuery($request)` explicitly
+     * (operations with a request body, where auto-injection would validate
+     * the query class against the merged body + query input).
+     *
      * @param  list<array{name: string, phpType: string}>  $pathParams
      * @param  array{name: string, type: string}|null  $bodyParam
      * @param  list<string>  $imports  FQCNs the controller file must `use`
+     * @param  array{name: string, type: string, injected: bool}|null  $queryParam
      */
     public function __construct(
         public string $httpMethod,
@@ -42,5 +51,6 @@ final readonly class OperationDescriptor
         public ?string $returnDoc,
         public ?string $summary,
         public array $imports,
+        public ?array $queryParam = null,
     ) {}
 }

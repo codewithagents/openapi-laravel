@@ -47,8 +47,13 @@ committed files, which proves the demo is genuinely generated and deterministic.
 ## How the concrete controllers extend the generated abstracts
 
 Each generated abstract controller declares one `abstract` method per spec
-operation, typed against the generated Data classes (typed body and path params
-in, Data or DataCollection or JsonResponse out). A concrete controller simply
+operation, typed against the generated Data classes (typed body, query, and
+path params in, Data or DataCollection or JsonResponse out). Operations with
+`in: query` parameters get a per-operation query Data class (issue #63):
+body-less operations receive it as a typed, container-validated method
+parameter (e.g. `findPetsByStatus(FindPetsByStatusQueryData $query)`), and
+operations with a request body call `<Operation>QueryData::fromQuery($request)`
+explicitly, as the generated docblock points out. A concrete controller simply
 extends it and implements every abstract method:
 
 ```php

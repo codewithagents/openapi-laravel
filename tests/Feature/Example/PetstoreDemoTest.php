@@ -86,10 +86,36 @@ it('finds pets by status and returns a collection', function () {
 it('updates a pet with form data', function () {
     $id = $this->postJson('/pet', validPetPayload(['status' => 'available']))->json('id');
 
-    $this->post("/pet/{$id}", ['name' => 'Renamed', 'status' => 'sold'])
+    // The spec declares name/status as query parameters (issue #63), so the
+    // generated UpdatePetWithFormQueryData hydrates them from the query string.
+    $this->post("/pet/{$id}?name=Renamed&status=sold")
         ->assertSuccessful()
         ->assertJsonPath('name', 'Renamed')
         ->assertJsonPath('status', 'sold');
+});
+
+it('rejects an out-of-enum status query parameter with 422 from the generated query rules', function () {
+    $this->postJson('/pet', validPetPayload());
+
+    // No hand-written validation: the 422 comes entirely from the generated
+    // FindPetsByStatusQueryData::rules() on container injection (issue #63).
+    $this->getJson('/pet/findByStatus?status=shiny')
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['status']);
+});
+
+it('fills the spec default when the status query parameter is omitted', function () {
+    $this->postJson('/pet', validPetPayload(['name' => 'DefaultPet', 'status' => 'available']));
+    $this->postJson('/pet', validPetPayload(['name' => 'SoldPet', 'status' => 'sold']));
+
+    // status defaults to 'available' in the spec, so the bare call filters.
+    $response = $this->getJson('/pet/findByStatus');
+
+    $response->assertSuccessful();
+    $names = array_column($response->json(), 'name');
+
+    expect($names)->toContain('DefaultPet')
+        ->and($names)->not->toContain('SoldPet');
 });
 
 it('uploads an image for a pet', function () {

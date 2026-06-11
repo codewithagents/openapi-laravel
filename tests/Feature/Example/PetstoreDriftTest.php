@@ -32,13 +32,18 @@ function regenerateDemo(): array
     $registry = $modelGenerator->registry();
 
     $serverOptions = new ServerOptions(CONTROLLER_NAMESPACE, DATA_NAMESPACE);
-    // Collect once, share with both generators (mirrors the command/standalone wiring).
-    $descriptors = (new OperationCollector($serverOptions, $registry))->collect($document);
+    // Collect once, share with both generators, with the model generator wired
+    // in so the per-operation query Data classes (issue #63) are emitted
+    // exactly like the planner does (mirrors the command/standalone wiring).
+    $descriptors = (new OperationCollector($serverOptions, $registry, null, $modelGenerator))->collect($document);
     $controllerFiles = (new ControllerGenerator($serverOptions))->generate($descriptors);
     $routeFile = (new RouteGenerator($serverOptions))->generate($descriptors);
 
     return [
-        'data' => $dataFiles,
+        // The query classes live next to the model Data classes, same namespace
+        // and directory, exactly as the planner writes them.
+        'data' => [...$dataFiles, ...$modelGenerator->queryFiles()],
+        // Collected AFTER the query classes so their rule references count.
         'support' => $modelGenerator->supportFiles(),
         'controllers' => $controllerFiles,
         'routes' => $routeFile,

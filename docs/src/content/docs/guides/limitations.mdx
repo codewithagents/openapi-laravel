@@ -497,6 +497,42 @@ User:
       type: string
 ```
 
+## Query parameters
+
+Operations with `in: query` parameters generate a per-operation query Data class with spec-derived
+`rules()` and a query-only `fromQuery()` factory (see
+[server scaffold](/guides/server-scaffold#query-parameters) for how the class is injected or
+called). The residuals:
+
+**Header and cookie parameters are not generated.** `in: header` and `in: cookie` parameters produce
+no typing and no validation yet. They are not silently dropped: the generator emits a warning naming
+the operation and the parameters, so the gap is visible at generation time. Read them from the
+`Request` yourself in the meantime.
+
+**Parameters without a flat query-string form are skipped, with a warning.** The generated rules
+validate what Laravel's query parsing actually delivers: `key=value` scalars and exploded
+`key[]=value` arrays (the OpenAPI default `form`/`explode` serialization). A parameter that cannot
+round-trip through that parsing is skipped rather than given rules that would false-reject valid
+requests:
+
+- `style: deepObject` (bracket-notation filter objects, used heavily by e.g. Stripe),
+- `style: spaceDelimited` and `style: pipeDelimited` (the array arrives as one delimited string),
+- non-exploded arrays (`explode: false`, the array arrives as one comma-joined string),
+- object-shaped parameters, object maps, and `content`-typed parameters.
+
+Each skip emits a warning naming the operation, the parameter, and the reason. An operation whose
+every query parameter is skipped gets no query class.
+
+**Array elements hydrate as the raw query strings.** PHP's query parsing produces strings, so an
+array parameter's elements are *validated* against the spec type (`?ids[]=x` is rejected for an
+integer item schema) but *hydrate* as the raw strings (`$query->ids` is `['1', '2']`, not `[1, 2]`).
+Top-level scalar properties are unaffected: they hydrate to the declared `int`/`float`/`bool` types.
+
+**Boolean literals are normalized in `fromQuery()` only.** The form-style literals `?flag=true` /
+`?flag=false` are mapped to `1`/`0` by the generated `fromQuery()` factory before validation. Calling
+`rules()` through a different path (e.g. a hand-rolled validator over `$request->all()`) skips that
+mapping and Laravel's `boolean` rule will reject the literals.
+
 ## this is the one renamed property
 
 PHP allows every reserved word (`for`, `class`, `list`, `match`, ...) as a parameter variable name,
@@ -568,7 +604,8 @@ Everything else generates fully: object schemas with `properties`, `$ref`s betwe
 `allOf` composition (merged into a flat class), `additionalProperties` maps (typed `array` with
 per-value rules), nested objects and arrays (`DataCollection`), native enums, the read/write variant
 split, scalar constraints (`minLength`, `maxLength`, `pattern`, `format`, `minimum`/`maximum`,
-`enum`), the server scaffold, scalar `oneOf`/`anyOf` union type hints, and discriminated object
+`enum`), the server scaffold, typed and validated query parameters (per-operation query Data
+classes), scalar `oneOf`/`anyOf` union type hints, and discriminated object
 unions (abstract morphable base plus variants, validated and hydrated). The spec-derived validation
 is presence-exact, with the caveats noted above: **undiscriminated** object unions are presence-only
 (any object is accepted, no variant enforced) by design, while all three **discriminated** forms

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Http\Controllers\Api;
 
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\LoginUserQueryData;
 use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\UserData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -42,9 +43,9 @@ final class UserController extends AbstractUserController
         return $last ?? new UserData;
     }
 
-    public function loginUser(): JsonResponse
+    public function loginUser(LoginUserQueryData $query): JsonResponse
     {
-        return new JsonResponse('logged in');
+        return new JsonResponse('logged in as '.($query->username ?? 'guest'));
     }
 
     public function logoutUser(): JsonResponse

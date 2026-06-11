@@ -95,6 +95,23 @@ final readonly class GenerationPlanner
             );
         }
 
+        // The server scaffold runs BEFORE the support files are collected: the
+        // per-operation query Data classes (issue #63) are emitted while the
+        // operations are collected, and their rules may reference support
+        // classes that must land in the inlined set below.
+        [$serverFiles, $serverWarnings] = $this->planServer($request, $document, $generator, $closure);
+
+        // The per-operation query Data classes (issue #63) live next to the
+        // model Data classes: same namespace, same output directory, same
+        // drift-checked CATEGORY_DATA bucket.
+        foreach ($generator->queryFiles() as $queryFile) {
+            $files[] = new PlannedFile(
+                $target.'/'.$queryFile->filename(),
+                $queryFile->code,
+                PlannedFile::CATEGORY_DATA,
+            );
+        }
+
         // Inline the runtime support classes the generated Data files reference
         // into the consumer's own `<output>/Support/` directory (issue #40), so
         // generated output is self-contained with no runtime dependency on the
@@ -108,9 +125,15 @@ final readonly class GenerationPlanner
             );
         }
 
-        $files = [...$files, ...$this->planServer($request, $document, $generator->registry(), $closure)];
+        $files = [...$files, ...$serverFiles];
 
-        return new GenerationPlan($files, $modelFiles === [], $generator->warnings());
+        // One merged, sorted diagnostics channel: the model generator's
+        // warnings (including skipped query parameters) plus the operation
+        // collector's (header/cookie parameters).
+        $warnings = array_values(array_unique([...$generator->warnings(), ...$serverWarnings]));
+        sort($warnings);
+
+        return new GenerationPlan($files, $modelFiles === [], $warnings);
     }
 
     /**
@@ -134,13 +157,18 @@ final readonly class GenerationPlanner
     }
 
     /**
-     * @param  array<string, array{dataClass: string, writeClass: ?string, kind: 'data'|'enum'}>  $registry
-     * @return list<PlannedFile>
+     * Plan the server scaffold (controllers + routes). The model generator is
+     * handed through so the operation collector can emit the per-operation
+     * query Data classes (issue #63) with the exact rules pipeline the model
+     * classes used; the planner collects those files via queryFiles() after
+     * this returns.
+     *
+     * @return array{0: list<PlannedFile>, 1: list<string>} planned files, collector warnings
      */
-    private function planServer(GenerationRequest $request, OpenApi $document, array $registry, ?ResolvedClosure $closure): array
+    private function planServer(GenerationRequest $request, OpenApi $document, ModelGenerator $generator, ?ResolvedClosure $closure): array
     {
         if (! $request->controllers && ! $request->routes) {
-            return [];
+            return [[], []];
         }
 
         if ($request->controllers && ($request->controllerPath === null || $request->controllerPath === '')) {
@@ -160,7 +188,8 @@ final readonly class GenerationPlanner
 
         // Collect descriptors once and feed the same list to both generators so
         // controller method names and route targets can never drift apart.
-        $descriptors = (new OperationCollector($serverOptions, $registry, $closure))->collect($document);
+        $collector = new OperationCollector($serverOptions, $generator->registry(), $closure, $generator);
+        $descriptors = $collector->collect($document);
 
         $files = [];
 
@@ -189,6 +218,6 @@ final readonly class GenerationPlanner
             );
         }
 
-        return $files;
+        return [$files, $collector->warnings()];
     }
 }

@@ -1,0 +1,152 @@
+openapi: 3.0.3
+info:
+  title: Query Parameters
+  version: 1.0.0
+paths:
+  /widgets:
+    parameters:
+      # PathItem-level query parameter, shared by every operation (issue #66 merge).
+      - name: page
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+    get:
+      tags:
+        - widget
+      operationId: listWidgets
+      parameters:
+        - name: state
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/WidgetState'
+        - name: ids
+          in: query
+          schema:
+            type: array
+            items:
+              type: integer
+              minimum: 1
+        - name: q
+          in: query
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 64
+      responses:
+        '200':
+          description: ok
+    post:
+      tags:
+        - widget
+      operationId: createWidget
+      parameters:
+        - name: validateOnly
+          in: query
+          schema:
+            type: boolean
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Widget'
+      responses:
+        '201':
+          description: ok
+  /widgets/{widgetId}:
+    get:
+      tags:
+        - widget
+      operationId: getWidget
+      parameters:
+        - name: widgetId
+          in: path
+          required: true
+          schema:
+            type: integer
+        # No query parameters: queryParam must stay null for this operation.
+        - name: X-Trace-Id
+          in: header
+          schema:
+            type: string
+        - name: session
+          in: cookie
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+  /search:
+    get:
+      tags:
+        - widget
+      operationId: searchWidgets
+      parameters:
+        # Every parameter here is un-serializable: the operation must get NO query class.
+        - name: filter
+          in: query
+          style: deepObject
+          schema:
+            type: object
+            properties:
+              color:
+                type: string
+        - name: shape
+          in: query
+          schema:
+            $ref: '#/components/schemas/Widget'
+        - name: matrix
+          in: query
+          style: pipeDelimited
+          schema:
+            type: array
+            items:
+              type: string
+        - name: csv
+          in: query
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+        - name: payload
+          in: query
+          content:
+            application/json:
+              schema:
+                type: object
+      responses:
+        '200':
+          description: ok
+  /untyped:
+    post:
+      tags:
+        - widget
+      operationId: uploadBlob
+      parameters:
+        - name: overwrite
+          in: query
+          schema:
+            type: boolean
+      requestBody:
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: ok
+components:
+  schemas:
+    Widget:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+    WidgetState:
+      type: string
+      enum: [new, used, broken]
