@@ -31,5 +31,11 @@ final readonly class GenerationRequest
         public string $controllerNamespace,
         public bool $routes,
         public ?string $routesPath,
+        /*
+         * Opt-in closed-object enforcement: when true, a schema declaring
+         * additionalProperties: false emits a rule rejecting unknown keys
+         * (issue #30). Default false keeps the lenient, forward-compatible output.
+         */
+        public bool $enforceClosedObjects = false,
     ) {}
 }

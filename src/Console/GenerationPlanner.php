@@ -56,7 +56,12 @@ final readonly class GenerationPlanner
         }
 
         $document = (new SpecParser($request->maxBytes))->parseFile($request->spec);
-        $generator = new ModelGenerator(new GeneratorOptions($request->namespace, $request->suffix, $request->maxDepth));
+        $generator = new ModelGenerator(new GeneratorOptions(
+            $request->namespace,
+            $request->suffix,
+            $request->maxDepth,
+            $request->enforceClosedObjects,
+        ));
         $modelFiles = $generator->generate($document);
 
         $files = [];

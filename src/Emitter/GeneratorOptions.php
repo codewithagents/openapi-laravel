@@ -15,5 +15,13 @@ final readonly class GeneratorOptions
         public string $namespace = 'App\\Data',
         public string $dataSuffix = 'Data',
         public int $maxDepth = 64,
+        /*
+         * When true, a schema that declares `additionalProperties: false` emits a
+         * rule rejecting any key outside its declared property set (a closed
+         * object shape, issue #30). Off by default: enforcing a closed shape has
+         * a forward-compatibility hazard (a producer adding a field would break a
+         * consumer that has not regenerated), so strict rejection is opt in.
+         */
+        public bool $enforceClosedObjects = false,
     ) {}
 }

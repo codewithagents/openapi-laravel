@@ -36,6 +36,7 @@ final class CheckCommand extends Command
         {--no-controllers : Skip the abstract controllers}
         {--routes : Check the routes file even when disabled in config (default: on)}
         {--no-routes : Skip the routes file}
+        {--enforce-closed-objects : Reject unknown keys for schemas with additionalProperties: false (opt in)}
         {--diff : Print a unified diff for each changed file}';
 
     /**

@@ -54,6 +54,17 @@ return [
     ],
 
     /*
+     * Enforce closed object shapes: when true, a schema declaring
+     * `additionalProperties: false` emits a rule that rejects any input key
+     * outside its declared property set (issue #30). Disabled by default, since
+     * strict rejection has a forward-compatibility hazard: a producer that adds a
+     * new field would break a consumer that has not regenerated yet. Opt in here,
+     * or pass --enforce-closed-objects to the command, only when you control both
+     * ends of the contract. Default (off) leaves unknown keys silently accepted.
+     */
+    'enforce_closed_objects' => false,
+
+    /*
      * Maximum schema nesting depth the parser will follow before bailing out.
      * Guards against pathological or maliciously deep specs.
      */

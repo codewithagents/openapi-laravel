@@ -21,7 +21,8 @@ final class GenerateCommand extends Command
         {--controllers : Generate abstract controllers even when disabled in config (default: on)}
         {--no-controllers : Skip the abstract controllers}
         {--routes : Generate the routes file even when disabled in config (default: on)}
-        {--no-routes : Skip the routes file}';
+        {--no-routes : Skip the routes file}
+        {--enforce-closed-objects : Reject unknown keys for schemas with additionalProperties: false (opt in)}';
 
     /**
      * @var string

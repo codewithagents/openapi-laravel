@@ -370,6 +370,10 @@ final class ModelGenerator
         $rules = [];
         $usesRule = false;
 
+        // The declared wire (input) names, the allow-list for the closed-object
+        // rule when `additionalProperties: false` enforcement is opted in.
+        $declaredWireNames = [];
+
         foreach ($properties as $rawName => $propertySchema) {
             // Numeric property names ("200") are coerced to int array keys by PHP.
             $wireName = (string) $rawName;
@@ -424,6 +428,19 @@ final class ModelGenerator
                 }
             }
             $usesRule = $usesRule || $uses;
+            $declaredWireNames[] = $wireName;
+        }
+
+        // Opt-in closed-object enforcement (issue #30). When the operator turns
+        // on enforceClosedObjects and the schema declares additionalProperties:
+        // false, emit a payload-wide rule that rejects any key outside the
+        // declared set. The sentinel key never collides with a real wire name,
+        // and the rule is implicit so it fires once even when absent. Default off
+        // keeps today's lenient output byte-identical.
+        if ($this->options->enforceClosedObjects && $this->declaresClosedObject($schema)) {
+            $rules[self::CLOSED_OBJECT_SENTINEL] = [
+                'new NoUnknownPropertiesRule('.$this->wireNameAllowListLiteral($declaredWireNames).')',
+            ];
         }
 
         $params = array_merge($paramsRequired, $paramsOptional);
@@ -741,9 +758,18 @@ final class ModelGenerator
         'HostnameRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\HostnameRule',
         'Iso8601DurationRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\Iso8601DurationRule',
         'MultipleOfRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\MultipleOfRule',
+        'NoUnknownPropertiesRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\NoUnknownPropertiesRule',
         'Rfc3339DateTimeRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\Rfc3339DateTimeRule',
         'Rfc3339TimeRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\Rfc3339TimeRule',
     ];
+
+    /**
+     * The rules() key under which the opt-in closed-object rule is attached. It
+     * is namespaced with a leading marker so it can never collide with a real
+     * wire (input) name (OpenAPI property names do not begin with this prefix in
+     * practice, and even if one did, the implicit rule keyed here is harmless).
+     */
+    private const CLOSED_OBJECT_SENTINEL = '__openapi_laravel_no_unknown_properties';
 
     /**
      * @param  list<array{code: string, imports: list<string>}>  $params
@@ -1561,7 +1587,15 @@ final class ModelGenerator
         $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->options->namespace.";\n\n".$useBlock."\n\n".$docBlock.'final class '.$className.' extends Data';
 
         if ($params === []) {
-            return $header."\n{\n}\n";
+            // An object with no constructor properties is normally an empty class.
+            // The one exception is a closed object with no named properties
+            // (additionalProperties: false, empty properties): it carries the
+            // closed-object rule but no params, so emit just the rules() method.
+            if ($rules === []) {
+                return $header."\n{\n}\n";
+            }
+
+            return $header."\n{".$this->renderRules($rules)."\n}\n";
         }
 
         $body = implode("\n", array_map(static fn (array $p): string => $p['code'], $params));
@@ -2456,6 +2490,22 @@ final class ModelGenerator
     }
 
     /**
+     * Whether the schema explicitly declares `additionalProperties: false`, the
+     * closed-object marker (issue #30). cebe defaults `additionalProperties` to
+     * boolean `true` on every object, so the in-memory value alone cannot tell an
+     * explicit `false` apart from an unset default; getSerializableData() keeps
+     * only keys the spec actually set, so its presence is the honest signal of
+     * intent. Returns true only when the spec set the key to literal `false`.
+     */
+    private function declaresClosedObject(Schema $schema): bool
+    {
+        $serialized = (array) $schema->getSerializableData();
+
+        return array_key_exists('additionalProperties', $serialized)
+            && $schema->additionalProperties === false;
+    }
+
+    /**
      * Whether a component schema is a pure map: an object whose only content is
      * `additionalProperties` (a typed, ref, or untyped value), with no named
      * `properties` and no composition keyword. Such a schema is a typed array,
@@ -2964,6 +3014,23 @@ final class ModelGenerator
     private function escapeSingleQuoted(string $value): string
     {
         return str_replace(['\\', "'"], ['\\\\', "\\'"], $value);
+    }
+
+    /**
+     * A `['a', 'b']` PHP array literal of the allowed wire names for the
+     * closed-object rule. Each name is single-quote-escaped (the wire name is
+     * untrusted spec input), mirroring how MapName renders a wire name.
+     *
+     * @param  list<string>  $wireNames
+     */
+    private function wireNameAllowListLiteral(array $wireNames): string
+    {
+        $items = array_map(
+            fn (string $name): string => "'".$this->escapeSingleQuoted($name)."'",
+            array_values(array_unique($wireNames)),
+        );
+
+        return '['.implode(', ', $items).']';
     }
 
     private function notEmptyArray(mixed $value): bool

@@ -11,7 +11,8 @@ use Illuminate\Console\Command;
  * resolution the generate command always used, lifted out so generate and check
  * read their inputs identically. Both commands accept the same options
  * (--spec, --output, --namespace, --controllers/--no-controllers,
- * --routes/--no-routes), so neither can compute a different plan than the other.
+ * --routes/--no-routes, --enforce-closed-objects), so neither can compute a
+ * different plan than the other.
  *
  * Toggle precedence is strict: an explicit flag beats the config value, the
  * config value beats the built-in default (enabled). Passing both the enable
@@ -43,6 +44,12 @@ final readonly class CommandRequestFactory
         $controllers = $this->resolveToggle($command, 'controllers', 'openapi-laravel.controllers.enabled');
         $routes = $this->resolveToggle($command, 'routes', 'openapi-laravel.routes.enabled');
 
+        // Closed-object enforcement is a plain opt-in (default OFF, unlike the
+        // default-on controllers/routes toggles): the flag or the config key
+        // turns it on, and there is no disable flag to reconcile.
+        $enforceClosedObjects = (bool) $command->option('enforce-closed-objects')
+            || (bool) config('openapi-laravel.enforce_closed_objects');
+
         $controllerPath = $this->configString('openapi-laravel.controllers.path');
         $controllerNamespace = $this->configString('openapi-laravel.controllers.namespace') ?? 'App\\Http\\Controllers\\Api';
         $routesPath = $this->configString('openapi-laravel.routes.path');
@@ -59,6 +66,7 @@ final readonly class CommandRequestFactory
             $controllerNamespace,
             $routes,
             $routesPath,
+            $enforceClosedObjects,
         );
     }
 
