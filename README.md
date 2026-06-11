@@ -10,12 +10,16 @@
 
 **Documentation: [openapi-laravel.codewithagents.de](https://openapi-laravel.codewithagents.de)**
 
-You consume or implement a REST API described by an OpenAPI document. You need PHP DTOs, validation
-rules, and enums that match the spec exactly, and you need them to stay in sync every time the spec
-changes. Instead of hand-writing and re-checking all of it, you run one command. The output is
+Hand-written DTOs, validation rules, and controllers drift from the API contract silently. Nobody
+notices the missing `nullable`, the renamed wire field, or the new enum case until production rejects
+a valid payload, or a consumer files the bug for you. The spec already states every one of those
+shapes; the drift exists only because humans re-type them.
+
+So make the spec the source of truth and regeneration the sync mechanism. One command emits
 [spatie/laravel-data](https://github.com/spatie/laravel-data) classes with explicit, spec-derived
 `rules()` methods plus native PHP enums, and, when you opt in, an abstract controller per tag and a
-routes file so the request/response types and the routing table derive from the spec too.
+routes file so the request/response types and the routing table derive from the spec too. When the
+spec changes, you re-run the generator and review the diff.
 
 Unlike annotation-driven tools that generate a *spec from your code*, this goes the other way: the
 spec drives the code. And unlike most generators, the output is not a black box. It is readable,
@@ -46,8 +50,8 @@ final class CustomerData extends Data
 ```
 
 Sibling project of [openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts), which does the
-same for TypeScript. Both are validated against a corpus of 128 real-world public API specs (Stripe,
-GitHub, OpenAI, Slack, Twilio, and friends).
+same for TypeScript. Both are tested against the same corpus of 128 real-world public API documents
+(detailed in [Why quality matters](#why-quality-matters) below).
 
 The generated classes extend `Spatie\LaravelData\Data`, so
 [spatie/laravel-data](https://github.com/spatie/laravel-data) v4 is a **runtime peer dependency of
@@ -187,6 +191,107 @@ honest list.
 
 ---
 
+## The hard case
+
+The Customer example above is the easy 80%. The schema below is the kind that breaks generators: the
+`Pet` schema from the e2e demo spec ([`e2e/spec/petstore.yaml`](./e2e/spec/petstore.yaml)) combines a
+nested `$ref`, a typed collection, an inline enum, a nullable number, an `additionalProperties` map,
+a scalar `oneOf` union, a snake_case wire name, and a readOnly/writeOnly split, in one object.
+Trimmed to the interesting parts:
+
+```yaml
+Pet:
+  type: object
+  required: [name, photoUrls]
+  properties:
+    category:
+      $ref: '#/components/schemas/Category'        # nested $ref
+    tags:
+      type: array
+      items:
+        $ref: '#/components/schemas/Tag'           # typed collection
+    status:
+      type: string
+      enum: [available, pending, sold]             # inline enum
+    microchip_id:
+      type: string                                 # snake_case wire name
+    secret_note:
+      type: string
+      writeOnly: true                              # write shape only
+    created_at:
+      type: string
+      format: date-time
+      readOnly: true                               # read shape only
+    weight_kg:
+      type: number
+      nullable: true                               # nullable number
+    attributes:
+      type: object
+      additionalProperties:
+        type: string                               # string-to-string map
+    external_id:
+      oneOf:                                       # scalar union
+        - type: string
+        - type: integer
+```
+
+The generator turns that into two classes, because the readOnly/writeOnly flags mean the read shape
+and the write shape differ on the wire. The read variant
+([`e2e/backend/app/Data/PetData.php`](./e2e/backend/app/Data/PetData.php), trimmed):
+
+```php
+final class PetData extends Data
+{
+    public function __construct(
+        public readonly string $name,
+        /** @var array<int, string> */
+        public readonly array $photoUrls,
+        public readonly ?int $id = null,
+        public readonly ?CategoryData $category = null,        // nested $ref
+        /** @var array<int, TagData> */
+        #[DataCollectionOf(TagData::class)]
+        public readonly ?array $tags = null,                   // typed collection
+        public readonly ?string $status = null,
+        #[MapName('microchip_id')]
+        public readonly ?string $microchipId = null,           // wire name mapping
+        #[MapName('created_at')]
+        public readonly ?string $createdAt = null,             // readOnly: read shape only
+        #[MapName('weight_kg')]
+        public readonly ?float $weightKg = null,               // nullable number
+        /** @var array<string, string> */
+        public readonly ?array $attributes = null,             // additionalProperties map
+        /** @var string|int */
+        #[MapName('external_id')]
+        public readonly string|int|null $externalId = null,    // scalar oneOf union
+    ) {}
+
+    public static function rules(): array
+    {
+        return [
+            'name'         => ['required', 'string'],
+            'photoUrls'    => ['required', 'array'],
+            'photoUrls.*'  => ['string'],
+            'status'       => ['sometimes', Rule::in(['available', 'pending', 'sold'])],
+            'attributes'   => ['sometimes', 'array'],
+            'attributes.*' => ['string'],
+            // ... trimmed
+        ];
+    }
+}
+```
+
+The write variant ([`e2e/backend/app/Data/PetWritableData.php`](./e2e/backend/app/Data/PetWritableData.php))
+is the mirror image: it carries `secret_note` (writeOnly, accepted on create, never read back) and
+drops `created_at` (readOnly, set server-side). The abstract controller types
+`addPet(PetWritableData $pet): PetData`, so the split is enforced at the signature level, not by
+convention.
+
+This exact schema is exercised by the Playwright e2e suite over real HTTP: the `#[MapName]` field
+round-trips in both directions, the writeOnly secret never appears in a response, `null` stays
+`null`, the map round-trips intact, and the scalar union arrives uncoerced.
+
+---
+
 ## Philosophy
 
 **The spec is the source of truth.** Code follows the contract, never the other way around. This is
@@ -238,6 +343,19 @@ laravel-data classes, so your app takes on that dependency and its conventions.
   `spatie/laravel-data` v4;
 - you need a non-PHP target (the sibling
   [openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts) covers TypeScript).
+
+---
+
+## Why not just ask an AI agent?
+
+An agent can write a Data class from your spec, and the first one will probably be fine. But the
+output is non-deterministic (the same prompt produces a different class tomorrow), nobody reviews the
+hundredth one, and the moment the spec changes you are back to hand-maintained code that drifts. This
+generator is deterministic: same spec in, byte-identical files out. That makes the output diffable,
+reviewable once instead of every time, and re-runnable in CI on every spec change.
+
+The honest kicker: agents built this generator. The generator is what makes their output trustworthy
+on the hundredth run, not just the first.
 
 ---
 
@@ -306,16 +424,19 @@ model and operator boundaries.
 A code generator has a wide blast radius: a subtle regression touches every project that runs it.
 These are the layers that catch problems before they reach you.
 
-- **128 real-world specs, multiple gates.** Every spec in the corpus (Stripe, GitHub, OpenAI, Slack,
-  Twilio, Adyen, and more) must *parse*, *generate syntactically valid model classes*, and
-  *generate syntactically valid controllers and routes* on every CI run. A `php -l` compile gate
-  goes a step further than tokenizing and catches code that tokenizes cleanly yet cannot compile.
+- **Generated validation is executed, not just compiled.** Behavioral round-trip tests load the
+  generated classes into a real Laravel app (Orchestra Testbench) and run real payloads through
+  Laravel's Validator: valid payloads pass, while a missing required field, a malformed email, and a
+  below-minimum integer each throw `ValidationException`
+  (`tests/Feature/Emitter/RoundTripTest.php`). The [e2e suite](#proof-a-full-contract-first-round-trip)
+  goes further and proves `422` responses over real HTTP from the spec-derived `rules()`.
+- **128 real-world specs, multiple gates.** The corpus is the published OpenAPI documents of Stripe,
+  GitHub, OpenAI, Slack, Twilio, and 123 others. Every one must *parse*, *generate model classes,
+  controllers, and routes that compile* (`php -l`, which goes a step further than tokenizing), and
+  *resolve every class reference*, on every CI run.
 - **OpenAPI 3.1 conformance fixture.** A synthetic spec exercises the full generator surface
   (exclusive bounds, `multipleOf`, `uniqueItems`, float enums, multi-type unions, strict date-time,
   defaults, non-object aliasing) so the comprehensive construct set is covered in one place.
-- **End-to-end round-trip.** Generated classes are loaded into a real Laravel app (Orchestra
-  Testbench), hydrated from payloads, and validated. Valid payloads pass; a missing required field, a
-  bad email, and an out-of-range number each throw `ValidationException`.
 - **PHPStan at max level**, **100% type coverage**, and **Laravel Pint** style enforcement, on every
   PR.
 - **Mutation testing** with [Pest's native mutation testing](https://pestphp.com/docs/mutation-testing)
@@ -330,6 +451,10 @@ These are the layers that catch problems before they reach you.
   the GitHub Security tab. This check is informational and does not block merges.
 - **Committed snapshots** of generated output, diff-checked so any change to the generator is
   visible in review.
+- **Next rigor step (roadmap):** a differential conformance harness that derives a conforming and a
+  violating payload per emitted constraint and asserts Validator agreement across the corpus
+  ([#23](https://github.com/codewithagents/openapi-laravel/issues/23)). Today the executed-validation
+  guarantee covers the behavioral suite and the e2e demo, not every constraint of every corpus spec.
 
 > Qodana Cloud dashboard (optional, maintainer only): create a project at
 > [qodana.cloud](https://qodana.cloud) and add its token as the `QODANA_TOKEN` repository secret.

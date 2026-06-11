@@ -209,6 +209,123 @@ components:
   [openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts).
 </Aside>
 
+## The hard case
+
+The Customer example above is the easy 80%. The schema below is the kind that breaks generators: the `Pet` schema from the [end-to-end demo](/guides/end-to-end-demo) spec (`e2e/spec/petstore.yaml` in the repo) combines a nested `$ref`, a typed collection, an inline enum, a nullable number, an `additionalProperties` map, a scalar `oneOf` union, a snake_case wire name, and a readOnly/writeOnly split, in one object.
+
+<Tabs>
+  <TabItem label="OpenAPI input (trimmed)">
+
+```yaml
+Pet:
+  type: object
+  required: [name, photoUrls]
+  properties:
+    category:
+      $ref: '#/components/schemas/Category'        # nested $ref
+    tags:
+      type: array
+      items:
+        $ref: '#/components/schemas/Tag'           # typed collection
+    status:
+      type: string
+      enum: [available, pending, sold]             # inline enum
+    microchip_id:
+      type: string                                 # snake_case wire name
+    secret_note:
+      type: string
+      writeOnly: true                              # write shape only
+    created_at:
+      type: string
+      format: date-time
+      readOnly: true                               # read shape only
+    weight_kg:
+      type: number
+      nullable: true                               # nullable number
+    attributes:
+      type: object
+      additionalProperties:
+        type: string                               # string-to-string map
+    external_id:
+      oneOf:                                       # scalar union
+        - type: string
+        - type: integer
+```
+
+  </TabItem>
+  <TabItem label="Read variant (trimmed)">
+
+```php
+// e2e/backend/app/Data/PetData.php
+final class PetData extends Data
+{
+    public function __construct(
+        public readonly string $name,
+        /** @var array<int, string> */
+        public readonly array $photoUrls,
+        public readonly ?int $id = null,
+        public readonly ?CategoryData $category = null,        // nested $ref
+        /** @var array<int, TagData> */
+        #[DataCollectionOf(TagData::class)]
+        public readonly ?array $tags = null,                   // typed collection
+        public readonly ?string $status = null,
+        #[MapName('microchip_id')]
+        public readonly ?string $microchipId = null,           // wire name mapping
+        #[MapName('created_at')]
+        public readonly ?string $createdAt = null,             // readOnly: read shape only
+        #[MapName('weight_kg')]
+        public readonly ?float $weightKg = null,               // nullable number
+        /** @var array<string, string> */
+        public readonly ?array $attributes = null,             // additionalProperties map
+        /** @var string|int */
+        #[MapName('external_id')]
+        public readonly string|int|null $externalId = null,    // scalar oneOf union
+    ) {}
+
+    public static function rules(): array
+    {
+        return [
+            'name'         => ['required', 'string'],
+            'photoUrls'    => ['required', 'array'],
+            'photoUrls.*'  => ['string'],
+            'status'       => ['sometimes', Rule::in(['available', 'pending', 'sold'])],
+            'attributes'   => ['sometimes', 'array'],
+            'attributes.*' => ['string'],
+            // ... trimmed
+        ];
+    }
+}
+```
+
+  </TabItem>
+  <TabItem label="Write variant (excerpt)">
+
+```php
+// e2e/backend/app/Data/PetWritableData.php
+// the mirror image of PetData: carries secret_note, drops created_at
+final class PetWritableData extends Data
+{
+    public function __construct(
+        public readonly string $name,
+        /** @var array<int, string> */
+        public readonly array $photoUrls,
+        public readonly ?int $id = null,
+        // ... shared fields as in PetData, trimmed ...
+        #[MapName('secret_note')]
+        public readonly ?string $secretNote = null,   // writeOnly: write shape only
+        // ... more shared fields, trimmed; no createdAt here: readOnly fields
+        // never appear in the write variant
+    ) {}
+}
+```
+
+  </TabItem>
+</Tabs>
+
+The readOnly/writeOnly flags split the schema into two classes because the read shape and the write shape differ on the wire. The abstract controller types `addPet(PetWritableData $pet): PetData`, so the split is enforced at the signature level, not by convention.
+
+This exact schema is exercised by the Playwright e2e suite over real HTTP: the `#[MapName]` field round-trips in both directions, the writeOnly secret never appears in a response, `null` stays `null`, the map round-trips intact, and the scalar union arrives uncoerced. See the [end-to-end demo](/guides/end-to-end-demo).
+
 ## Determinism
 
 The generator emits stable ordering everywhere: properties, rules, enum cases, and file output. The same spec in produces byte-identical files out, so re-running in CI yields either no diff or a diff that is entirely a consequence of the spec changing.

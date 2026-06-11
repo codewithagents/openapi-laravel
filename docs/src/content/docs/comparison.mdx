@@ -46,6 +46,12 @@ Pick them when your code is authoritative and you want documentation generated f
 
 You can always write the DTOs, validation, and enums by hand. The cost is keeping every one of them aligned with the spec as it changes, by hand, forever. A generator turns that recurring manual reconciliation into a diff you review.
 
+## Why not just ask an AI agent?
+
+An agent can write a Data class from your spec, and the first one will probably be fine. But the output is non-deterministic (the same prompt produces a different class tomorrow), nobody reviews the hundredth one, and the moment the spec changes you are back to hand-maintained code that drifts. This generator is deterministic: same spec in, byte-identical files out. That makes the output diffable, reviewable once instead of every time, and re-runnable in CI on every spec change.
+
+The honest kicker: agents built this generator. The generator is what makes their output trustworthy on the hundredth run, not just the first.
+
 ## When to pick something else
 
 <Aside type="note">

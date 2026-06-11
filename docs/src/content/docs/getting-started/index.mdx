@@ -5,9 +5,9 @@ description: What openapi-laravel does, who it is for, and how the spec-first ap
 
 import { Aside, Card, CardGrid } from '@astrojs/starlight/components'
 
-You consume or implement a REST API described by an OpenAPI document. You need PHP DTOs, validation rules, and enums that match the spec exactly, and you need them to stay in sync every time the spec changes. Instead of hand-writing and re-checking all of it, you run one command.
+Hand-written DTOs, validation rules, and controllers drift from the API contract silently. Nobody notices the missing `nullable`, the renamed wire field, or the new enum case until production rejects a valid payload, or a consumer files the bug for you. The spec already states every one of those shapes; the drift exists only because humans re-type them.
 
-`openapi-laravel` reads an OpenAPI 3.0 or 3.1 document and generates [spatie/laravel-data](https://github.com/spatie/laravel-data) classes with explicit, spec-derived `rules()` methods, plus native PHP enums. The output is readable, deterministic PHP that lives in your repo and looks like code you would have written yourself.
+`openapi-laravel` makes the spec the source of truth and regeneration the sync mechanism. It reads an OpenAPI 3.0 or 3.1 document and generates [spatie/laravel-data](https://github.com/spatie/laravel-data) classes with explicit, spec-derived `rules()` methods, plus native PHP enums. The output is readable, deterministic PHP that lives in your repo and looks like code you would have written yourself.
 
 ## Spec-first, not code-first
 

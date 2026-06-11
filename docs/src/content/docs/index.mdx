@@ -7,7 +7,7 @@ head:
     content: 'openapi-laravel: spec-first Laravel models from your OpenAPI document'
 hero:
   title: The spec is the source of truth. Your code follows it.
-  tagline: Generate spatie/laravel-data classes with explicit, spec-derived rules() methods, native PHP enums, abstract controllers per tag, and a routes file from your OpenAPI document. Readable, deterministic PHP that lives in your repo and looks like code you would have written yourself.
+  tagline: Hand-written DTOs, validation rules, and controllers drift from the API contract silently, and you find out in production or from a consumer. openapi-laravel makes the OpenAPI document the source of truth and regeneration the sync mechanism. It generates spatie/laravel-data classes with explicit, spec-derived rules() methods, native PHP enums, abstract controllers per tag, and a routes file. Readable, deterministic PHP that lives in your repo.
   actions:
     - text: Get started
       link: /getting-started
@@ -131,9 +131,10 @@ You write your business logic. The DTOs, validation, controller signatures, and 
     Generate abstract controllers per tag and a routes file. The routing table derives from the spec,
     so path-level drift is structurally impossible.
   </Card>
-  <Card title="Proven on 128 real specs" icon="star">
-    Stripe, GitHub, OpenAI, Slack, Twilio, and more. Every spec parses and generates valid PHP in CI.
-    Shared with the sibling project openapi-zod-ts.
+  <Card title="Validation that is executed, not assumed" icon="star">
+    Generated rules() are run through Laravel's Validator in tests, and the test corpus is 128
+    published real-world OpenAPI documents that must parse, generate, and compile on every CI run.
+    See [Philosophy: quality is the feature](/philosophy#quality-is-the-feature).
   </Card>
   <Card title="Deterministic" icon="seti:php">
     Stable ordering everywhere. The same spec in produces byte-identical files out, so the generator
