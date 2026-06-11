@@ -12,7 +12,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://openapi-laravel.codewithagents.de/media/infographic-dark.svg">
-  <img alt="From OpenAPI spec to generated Data classes, validation rules and controllers; you write only business logic; openapi:check fails CI on drift and regeneration never touches your files" src="https://openapi-laravel.codewithagents.de/media/infographic-light.svg" width="1200">
+  <img alt="From OpenAPI spec to generated Data classes, validation rules and controllers; you write only business logic; openapi:check fails CI on drift and regeneration never touches your files" src="https://openapi-laravel.codewithagents.de/media/infographic-light.svg" width="880">
 </picture>
 
 Hand-written DTOs, validation rules, and controllers drift from the API contract silently. Nobody
