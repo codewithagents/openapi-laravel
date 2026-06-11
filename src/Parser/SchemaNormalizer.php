@@ -29,20 +29,58 @@ namespace CodeWithAgents\OpenApiLaravel\Parser;
  *                       it loses nothing the emitter could have used, and avoids
  *                       inventing a fake "match nothing" schema.
  *
- * The walk is recursive and structural: it rewrites every `items` key it finds
+ * It also coerces a second class of slightly-off real-world specs (issues #32
+ * and #33): a scalar keyword emitted as a JSON STRING where a number or boolean
+ * is expected. Some tools serialise `"minimum": "8"` or `"nullable": "true"`.
+ * The downstream emitter reads `$schema->minimum` with `is_int`/`is_float`
+ * checks and `$schema->nullable === true`, so a string value is silently
+ * dropped: no `min:` rule, no nullable flag. We coerce the unambiguous cases up
+ * front so both rule derivation and the nullable flag see proper types:
+ *   - numeric keywords (minimum, maximum, exclusiveMinimum/Maximum, multipleOf,
+ *     minLength, maxLength, minItems, maxItems, minProperties, maxProperties)
+ *     whose value is a STRICTLY-NUMERIC string are cast to int/float. A
+ *     non-numeric string (e.g. "8abc") is left untouched and ignored exactly as
+ *     before, never coerced and never crashing.
+ *   - a `nullable` value of the string "true"/"false" (case-insensitive) is cast
+ *     to the matching boolean. Any other string is left untouched (treated as
+ *     not-nullable, as before).
+ *
+ * The walk is recursive and structural: it rewrites every matching key it finds
  * regardless of nesting (arrays of arrays, items inside composition members,
- * items under component schemas, etc.). It deliberately does not try to
- * understand the surrounding schema; an `items` key with a boolean value is only
- * ever the array-items construct in OpenAPI, so a blunt key-based rewrite is
- * both correct and cheap.
+ * keys under component schemas, etc.). It deliberately does not try to
+ * understand the surrounding schema; these keys only ever carry their OpenAPI
+ * meaning, so a blunt key-based rewrite is both correct and cheap.
  */
 final class SchemaNormalizer
 {
     /**
-     * Recursively normalise boolean `items` in the decoded spec data.
+     * Numeric schema keywords whose value is a number in OpenAPI. A strictly
+     * numeric string here is coerced to int/float so the emitter's numeric
+     * checks see it. `multipleOf` is float-capable (0.5); integer-only keywords
+     * (lengths, counts) still coerce through the same numeric cast, which yields
+     * an int for an integer-valued string.
+     *
+     * @var list<string>
+     */
+    private const NUMERIC_KEYS = [
+        'minimum',
+        'maximum',
+        'exclusiveMinimum',
+        'exclusiveMaximum',
+        'multipleOf',
+        'minLength',
+        'maxLength',
+        'minItems',
+        'maxItems',
+        'minProperties',
+        'maxProperties',
+    ];
+
+    /**
+     * Recursively normalise the decoded spec data before cebe parses it.
      *
      * @param  mixed  $data  the raw decoded spec (associative arrays + scalars)
-     * @return mixed the same structure with boolean `items` rewritten
+     * @return mixed the same structure with the rewrites described in the class docblock
      */
     public static function normalize(mixed $data): mixed
     {
@@ -63,9 +101,57 @@ final class SchemaNormalizer
                 continue;
             }
 
+            // A numeric keyword carried as a strictly-numeric string ("8") is
+            // coerced to the proper number so the emitter's is_int/is_float
+            // checks fire. A non-numeric string ("8abc") is left as-is and
+            // stays ignored downstream. Booleans (3.0 boolean exclusiveMinimum)
+            // and already-numeric values pass through untouched.
+            if (in_array($key, self::NUMERIC_KEYS, true) && is_string($value) && is_numeric($value)) {
+                $result[$key] = self::numericFromString($value);
+
+                continue;
+            }
+
+            // A `nullable` carried as the string "true"/"false" is coerced to the
+            // matching boolean (case-insensitive). Any other string is left
+            // untouched and treated as not-nullable downstream.
+            if ($key === 'nullable' && is_string($value)) {
+                $lower = strtolower($value);
+                if ($lower === 'true') {
+                    $result[$key] = true;
+
+                    continue;
+                }
+                if ($lower === 'false') {
+                    $result[$key] = false;
+
+                    continue;
+                }
+            }
+
             $result[$key] = self::normalize($value);
         }
 
         return $result;
+    }
+
+    /**
+     * Cast a strictly-numeric string to int when it has no fractional part and
+     * fits an int, else to float. Mirrors how a JSON number would have decoded:
+     * `"8"` -> int 8, `"0.5"` -> float 0.5, so the emitter's int and float rule
+     * branches both behave exactly as for a native number.
+     */
+    private static function numericFromString(string $value): int|float
+    {
+        $float = (float) $value;
+        $int = (int) $float;
+
+        // An integer-valued string with no exponent/decimal that round-trips
+        // through int becomes an int; anything fractional stays a float.
+        if ((float) $int === $float && ! str_contains($value, '.') && stripos($value, 'e') === false) {
+            return $int;
+        }
+
+        return $float;
     }
 }

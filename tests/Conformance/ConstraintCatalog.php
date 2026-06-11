@@ -217,6 +217,20 @@ final class ConstraintCatalog
                     ['label' => 'any other value', 'payload' => ['v' => 'other'], 'violates' => 'const'],
                 ],
             ),
+            // #32: a length constraint serialised as a JSON string ("3") must
+            // behave exactly like the numeric form. Before the SchemaNormalizer
+            // coercion the rule was silently dropped and every value (even a too
+            // short one) was accepted.
+            new ConstraintCase(
+                'StrMinLengthAsString', 'string',
+                self::obj('v', ['type' => 'string', 'minLength' => '3']),
+                [
+                    ['label' => 'at boundary (3 chars)', 'payload' => ['v' => 'abc']],
+                ],
+                [
+                    ['label' => 'one char short (2 chars)', 'payload' => ['v' => 'ab'], 'violates' => 'minLength(string-typed)'],
+                ],
+            ),
         ];
     }
 
@@ -352,6 +366,22 @@ final class ConstraintCatalog
                 ],
                 [
                     ['label' => 'any other value', 'payload' => ['v' => 41], 'violates' => 'const'],
+                ],
+            ),
+            // #32: numeric bounds serialised as JSON strings ("0"/"120") must
+            // behave like the numeric forms. Before the coercion both min: and
+            // max: rules were silently dropped and any integer was accepted.
+            new ConstraintCase(
+                'NumMinMaxAsString', 'number',
+                self::obj('v', ['type' => 'integer', 'minimum' => '0', 'maximum' => '120']),
+                [
+                    ['label' => 'at lower boundary', 'payload' => ['v' => 0]],
+                    ['label' => 'at upper boundary', 'payload' => ['v' => 120]],
+                    ['label' => 'inside range', 'payload' => ['v' => 30]],
+                ],
+                [
+                    ['label' => 'below minimum', 'payload' => ['v' => -1], 'violates' => 'minimum(string-typed)'],
+                    ['label' => 'above maximum', 'payload' => ['v' => 121], 'violates' => 'maximum(string-typed)'],
                 ],
             ),
         ];
@@ -499,6 +529,26 @@ final class ConstraintCatalog
                 [
                     ['label' => 'null accepted on nullable field', 'payload' => ['n' => null]],
                     ['label' => 'string accepted on nullable field', 'payload' => ['n' => 'x']],
+                ],
+                [
+                    ['label' => 'wrong type still rejected', 'payload' => ['n' => 123], 'violates' => 'type:string'],
+                ],
+            ),
+            // #33: `nullable` serialised as the string "true" must make the
+            // field nullable. Before the coercion the string was not === true,
+            // so null was rejected on a field the spec marks nullable.
+            new ConstraintCase(
+                'ObjNullableTrueAsString', 'object',
+                [
+                    'type' => 'object',
+                    'required' => ['n'],
+                    'properties' => [
+                        'n' => ['type' => 'string', 'nullable' => 'true'],
+                    ],
+                ],
+                [
+                    ['label' => 'null accepted on string-typed nullable field', 'payload' => ['n' => null]],
+                    ['label' => 'string accepted on string-typed nullable field', 'payload' => ['n' => 'x']],
                 ],
                 [
                     ['label' => 'wrong type still rejected', 'payload' => ['n' => 123], 'violates' => 'type:string'],
