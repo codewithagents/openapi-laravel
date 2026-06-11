@@ -727,8 +727,10 @@ final class ModelGenerator
      */
     private const RULE_CLASS_IMPORTS = [
         'HostnameRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\HostnameRule',
+        'Iso8601DurationRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\Iso8601DurationRule',
         'MultipleOfRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\MultipleOfRule',
         'Rfc3339DateTimeRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\Rfc3339DateTimeRule',
+        'Rfc3339TimeRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\Rfc3339TimeRule',
     ];
 
     /**
@@ -1402,6 +1404,15 @@ final class ModelGenerator
             // through (and also accepted many non-RFC3339 strings).
             'date' => "'date_format:Y-m-d'",
             'date-time' => 'new Rfc3339DateTimeRule',
+            // A `time` is an RFC3339 full-time: a dedicated rule accepts the
+            // Z/offset and fractional-second forms and a bare local time, and
+            // rejects an out-of-range or malformed time (date_format:H:i:s would
+            // be too strict, false-rejecting offsets and fractional seconds). A
+            // `duration` is an ISO 8601 duration: a dedicated rule enforces the
+            // `P...T...` grammar and rejects garbage. Both previously fell through
+            // to no rule, so any string was silently accepted.
+            'time' => 'new Rfc3339TimeRule',
+            'duration' => 'new Iso8601DurationRule',
             'uri', 'url', 'iri' => "'url'",
             'ipv4' => "'ipv4'",
             'ipv6' => "'ipv6'",
