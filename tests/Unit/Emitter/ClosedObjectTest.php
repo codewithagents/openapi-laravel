@@ -110,6 +110,104 @@ it('emits an empty allow-list for a pure-map closed object with no named propert
     expect($code)->toContain('new NoUnknownPropertiesRule([])');
 });
 
+it('allow-lists patternProperties patterns alongside the declared names (#65)', function () {
+    // patternProperties legally admits matching keys even under
+    // additionalProperties: false, so the rule carries the delimited patterns
+    // as a second allow-list and a build warning surfaces the relaxation.
+    $document = [
+        'openapi' => '3.1.0',
+        'info' => ['title' => 'Test', 'version' => '1.0.0'],
+        'paths' => new stdClass,
+        'components' => ['schemas' => [
+            'Tagged' => [
+                'type' => 'object',
+                'additionalProperties' => false,
+                'required' => ['name'],
+                'properties' => ['name' => ['type' => 'string']],
+                'patternProperties' => [
+                    '^x-' => ['type' => 'string'],
+                    '^meta_[a-z]+$' => ['type' => 'integer'],
+                ],
+            ],
+        ]],
+    ];
+    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    $generator = new ModelGenerator(new GeneratorOptions('App\\Data', 'Data', 64, true));
+    $code = $generator->generate($spec)['TaggedData']->code;
+
+    expect($code)
+        ->toContain("new NoUnknownPropertiesRule(['name'], ['#^x-#', '#^meta_[a-z]+\$#'])")
+        ->and($generator->warnings())->toContain(
+            'Schema "Tagged" combines additionalProperties: false with patternProperties. '
+            .'Keys matching a pattern are accepted by the closed-object rule, but their value schemas are not validated.',
+        );
+});
+
+it('falls back to the next PCRE delimiter when a pattern contains the first (#65)', function () {
+    $document = [
+        'openapi' => '3.1.0',
+        'info' => ['title' => 'Test', 'version' => '1.0.0'],
+        'paths' => new stdClass,
+        'components' => ['schemas' => [
+            'Hashed' => [
+                'type' => 'object',
+                'additionalProperties' => false,
+                'properties' => ['name' => ['type' => 'string']],
+                'patternProperties' => ['^#\\d+$' => ['type' => 'string']],
+            ],
+        ]],
+    ];
+    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    $code = (new ModelGenerator)->generate($spec)['HashedData']->code;
+
+    // '#' appears in the pattern, so the delimiter falls through to '~',
+    // mirroring the `pattern` rule's delimiter selection.
+    expect($code)->toContain("new NoUnknownPropertiesRule(['name'], ['~^#\\\\d+\$~'])");
+});
+
+it('skips closed-object enforcement when a patternProperties pattern is not valid PCRE (#65)', function () {
+    // An uncompilable pattern means the rule cannot tell legal keys apart, so
+    // the sound fallback is no closed-object rule at all (under-validating
+    // beats false-rejecting), surfaced by a build warning.
+    $document = [
+        'openapi' => '3.1.0',
+        'info' => ['title' => 'Test', 'version' => '1.0.0'],
+        'paths' => new stdClass,
+        'components' => ['schemas' => [
+            'Broken' => [
+                'type' => 'object',
+                'additionalProperties' => false,
+                'properties' => ['name' => ['type' => 'string']],
+                'patternProperties' => ['(' => ['type' => 'string']],
+            ],
+        ]],
+    ];
+    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    $generator = new ModelGenerator(new GeneratorOptions('App\\Data', 'Data', 64, true));
+    $code = $generator->generate($spec)['BrokenData']->code;
+
+    expect($code)
+        ->not->toContain('NoUnknownPropertiesRule')
+        ->and($generator->warnings())->toContain(
+            'Schema "Broken" declares patternProperties with a pattern that is not valid PCRE ("("); '
+            .'closed-object enforcement (additionalProperties: false) is skipped for this schema '
+            .'so spec-legal keys are never falsely rejected.',
+        );
+});
+
+it('emits no pattern allow-list for patternProperties without additionalProperties: false (#65)', function () {
+    // An open object never carries the closed-object rule, patterns or not.
+    $code = generateClosedSchemas([
+        'OpenPatterned' => [
+            'type' => 'object',
+            'properties' => ['name' => ['type' => 'string']],
+            'patternProperties' => ['^x-' => ['type' => 'string']],
+        ],
+    ], enforce: true)['OpenPatternedData']->code;
+
+    expect($code)->not->toContain('NoUnknownPropertiesRule');
+});
+
 it('single-quote-escapes an untrusted wire name in the allow-list', function () {
     $code = generateClosedSchemas([
         'Tricky' => [

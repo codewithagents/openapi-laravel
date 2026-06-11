@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\ClosedStrict\AccountData;
+use App\ClosedStrict\TaggedData;
 use cebe\openapi\Reader;
 use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
@@ -33,6 +34,20 @@ function bootClosedObjectClasses(): void
             'properties' => [
                 'id' => ['type' => 'integer'],
                 'label' => ['type' => 'string'],
+            ],
+        ],
+        // patternProperties + additionalProperties: false (issue #65): a key
+        // matching a pattern is spec-legal, so the closed-object rule must
+        // admit it while still rejecting keys matching nothing.
+        'Tagged' => [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['id'],
+            'properties' => [
+                'id' => ['type' => 'integer'],
+            ],
+            'patternProperties' => [
+                '^x-' => ['type' => 'string'],
             ],
         ],
     ];
@@ -94,6 +109,15 @@ it('rejects a payload with an unknown key when enforcement is on (#30)', functio
 
 it('rejects an unknown key even with no declared optional key present (#30)', function () {
     AccountData::validate(['id' => 1, 'surprise' => true]);
+})->throws(ValidationException::class);
+
+it('accepts a key permitted by patternProperties when enforcement is on (#65)', function () {
+    TaggedData::validate(['id' => 1, 'x-trace' => 'abc']);
+    expect(true)->toBeTrue();
+});
+
+it('still rejects a key matching neither declared names nor patternProperties (#65)', function () {
+    TaggedData::validate(['id' => 1, 'rogue' => 'nope']);
 })->throws(ValidationException::class);
 
 it('accepts an unknown key when enforcement is off (default behavior, the documented gap)', function () {
