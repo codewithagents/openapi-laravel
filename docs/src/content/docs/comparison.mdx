@@ -25,6 +25,7 @@ The Laravel ecosystem is full of **code-first** tools that generate an OpenAPI d
 | Standard OpenAPI (no custom extensions) | **Yes** | Yes | No (custom OAS) | n/a |
 | Owned, readable, committed output | **Yes** | n/a | Generated | Yes |
 | Runs without Laravel (CI) | **Yes** (bin) | No | No | n/a |
+| Drift detection in CI | **Yes** (`openapi:check`, byte-level, exit 1 on drift in generator-owned files) | n/a (spec is generated from code) | No | Manual review |
 
 The `oneOf` / `anyOf` cell is honest: the generator emits native PHP union type hints where the members resolve, but an **object union** (`CatData|DogData`) does not auto-hydrate at runtime without a `discriminator`. See the [limitations page](/guides/limitations#oneof-and-anyof-emit-union-types).
 

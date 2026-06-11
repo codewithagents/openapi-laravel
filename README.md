@@ -356,6 +356,7 @@ Those are excellent if your code is the source of truth. This tool is for the ot
 | Standard OpenAPI (no custom extensions) | **Yes** | Yes | No (custom OAS) | n/a |
 | Owned, readable, committed output | **Yes** | n/a | Generated | Yes |
 | Runs without Laravel (CI) | **Yes** (bin) | No | No | n/a |
+| Drift detection in CI | **Yes** (`openapi:check`, byte-level, exit 1 on drift in generator-owned files) | n/a (spec is generated from code) | No | Manual review |
 
 The `spatie/laravel-data` v4 runtime peer is a real adoption cost: the generated DTOs are
 laravel-data classes, so your app takes on that dependency and its conventions.
