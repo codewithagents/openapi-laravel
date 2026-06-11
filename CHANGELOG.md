@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.10.0](https://github.com/codewithagents/openapi-laravel/compare/v0.9.0...v0.10.0) (2026-06-11)
+
+
+### Features
+
+* **console:** enforce additionalProperties:false by default with a --no-enforce-closed-objects opt-out ([#30](https://github.com/codewithagents/openapi-laravel/issues/30)) ([3e2b95c](https://github.com/codewithagents/openapi-laravel/commit/3e2b95c7bca5c583a59cc745909d5fd2e35b08dd))
+* **emitter:** discriminator-aware validation and hydration for inline-union and allOf-inheritance forms ([#38](https://github.com/codewithagents/openapi-laravel/issues/38)) ([083cfa6](https://github.com/codewithagents/openapi-laravel/commit/083cfa6ebfa65238cb4bed51170c391ae8f8634b))
+* **emitter:** emit ?T and {} so generated output is Pint-idempotent ([#60](https://github.com/codewithagents/openapi-laravel/issues/60)) ([df924c4](https://github.com/codewithagents/openapi-laravel/commit/df924c4616c908b41c28eb6b5b43657c560b2f43))
+* **emitter:** inline support classes into the consumer namespace so generated output has no runtime dependency on the generator ([#40](https://github.com/codewithagents/openapi-laravel/issues/40)) ([522dbc4](https://github.com/codewithagents/openapi-laravel/commit/522dbc4dba857e830977f6c574377bc0fe363a38))
+
+
+### Bug Fixes
+
+* **emitter:** emit array generics and drop DataCollectionOf on enum collections so generated output passes PHPStan max ([#62](https://github.com/codewithagents/openapi-laravel/issues/62)) ([9e3c6fb](https://github.com/codewithagents/openapi-laravel/commit/9e3c6fb21ca0eae8758de59b5e6de934a32489f1))
+
 ## [0.9.0](https://github.com/codewithagents/openapi-laravel/compare/v0.8.0...v0.9.0) (2026-06-11)
 
 
