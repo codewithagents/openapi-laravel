@@ -1,17 +1,53 @@
 # Roadmap
 
-Status: **0.4.0 released on Packagist; 0.5.0 "hardening" releasing now (all merged and CI-green on
-`main`).** The v1 models generator and v2 server scaffold are shipped. 0.3.0 added composition
-keywords (allOf merge, additionalProperties maps), a full security-hardening pass, and edge-case
-fixes mined from the openapi-zod-ts sibling history. 0.4.0 shipped **oneOf/anyOf union types** and a
-**cross-language end-to-end demo** (`e2e/`) that proves the contract-first loop end to end over real
-HTTP, with a Docker stack and a Playwright headless-Chrome suite, all green. 0.5.0 is a
+Status: **0.5.0 released on Packagist; 0.6.0 (drift check) prepared and CI-green on `main`.**
+The v1 models generator and v2 server scaffold are shipped. 0.3.0 added composition keywords
+(allOf merge, additionalProperties maps), a full security-hardening pass, and edge-case fixes mined
+from the openapi-zod-ts sibling history. 0.4.0 shipped **oneOf/anyOf union types** and a
+**cross-language end-to-end demo** (`e2e/`), with the full browser loop green. 0.5.0 was a
 correctness-and-robustness pass: a large **silent-validation** sweep, **non-object component
-aliasing** (no more empty Data classes), **parser hardening**, and broader **CI tooling**. The
-version target stays deliberately in 0.x, not 1.0.0: we stay in 0.x while the generated output format
-is still evolving, and tag 1.0.0 (the API-stability promise) only when the feature set settles.
+aliasing** (no more empty Data classes), **parser hardening**, and broader CI tooling. 0.6.0 is the
+enforcement pass: the **drift-check command**, the **conformance golden test**, and the array-of-union
+DataCollectionOf fix (bug #24). The version target stays deliberately in 0.x, not 1.0.0: we stay in
+0.x while the generated output format is still evolving, and tag 1.0.0 (the API-stability promise)
+only when the feature set settles.
 
-## Done in 0.5.0 (releasing now)
+## Done in 0.6.0 (CI-green on main)
+
+### Drift-check command (`php artisan openapi:check`)
+
+The headline feature. Regenerates the full set of files the generator would write, in memory, and
+compares them byte-for-byte against what is on disk, without writing anything. Use it in CI to fail
+the build when committed generated code has drifted from the spec. Also available as the
+framework-free `vendor/bin/openapi-laravel check`.
+
+Exit codes: `0` = in sync, `1` = drift detected, `2` = config or spec error. The `--diff` flag
+prints a bounded unified diff for each changed file. The command honors the same flags as
+`openapi:generate` (`--spec`, `--output`, `--namespace`, `--controllers`, `--routes`). Only
+generator-owned files are compared, so hand-written concrete controllers are never flagged as drift.
+
+Internally, generate and check now share one code path via a `GenerationPlanner` that computes the
+full file set. Both commands call it, so they can never diverge in which files they consider or in
+the content they would produce.
+
+### Conformance golden test
+
+A single OpenAPI 3.1 spec exercises every generator construct family (exclusive bounds,
+`multipleOf`, `uniqueItems`, float enums, multi-type unions, strict date-time, defaults,
+non-object aliasing, union arrays). A golden test pins the per-construct output, runs a `php -l`
+compile check on it, and verifies byte-for-byte determinism on every CI run. It caught bug #24
+before the release.
+
+### Bug #24: array-of-union emits a plain typed array, not DataCollectionOf
+
+An array whose `items` are a `oneOf`/`anyOf` union previously emitted
+`#[DataCollectionOf(A|B::class)]`. PHP operator precedence causes `php -l` to accept that
+syntax, but at runtime it resolves to `DataCollectionOf(A | (B::class))`, which is wrong. Such
+an array now emits a plain typed `array<int, A|B>` property with a docblock and no collection
+attribute. Object-union hydration is still the documented residual (needs a discriminator or custom
+cast); this fix stops the generator from producing silently broken collection attributes.
+
+## Done in 0.5.0 (released)
 
 ### Silent-validation correctness pass
 
@@ -84,10 +120,10 @@ green.
   conformance-fixture output plus a deterministic 20-file slice of every corpus spec, with a short,
   auditable by-name exempt list for pre-existing src-side residuals.
 - **OpenAPI 3.1 conformance fixture**: a synthetic spec exercising the full generator surface ships
-  in 0.5.0. Its golden-output test is wired in 0.6.0.
+  in 0.5.0. Its golden-output test is wired in 0.6.0 (see "Done in 0.6.0").
 - **Dependency and quality tooling**: `composer audit`, Deptrac (architecture layering), and Qodana
   run in CI alongside the existing PHPStan-max / Pint / type-coverage / mutation / composer-unused
-  stack; 600+ package tests pass.
+  stack.
 
 ## Done in 0.4.0 (released)
 
@@ -215,22 +251,19 @@ The forward expansion: generate a typed PHP client for *consuming* a third-party
 (e.g. a typed PayPal/Stripe/microservice client) from its spec, built on the `Http::` facade. Decide
 later, not a near-term commitment.
 
-## Next work (toward 0.6.0)
+## Next work (toward 1.0.0)
 
-With 0.5.0 the validation surface is comprehensive and the empty-map encoding, parser, and `?mixed`
-gaps are closed. The 0.6.0 headline is the enforcement that makes "drift is structurally impossible"
-a runtime guarantee, not just a property of generated code.
+With 0.6.0 the enforcement layer is in place: drift is now a CI gate, not just a property of
+generated code. The remaining open items before 1.0.0 are runtime correctness and format stability.
 
-1. **Drift-check command (`php artisan openapi:check`)**, the headline. Regenerate into a temp
-   location and compare against the committed output, failing on any difference, so CI fails when the
-   checked-in code has drifted from the spec. This turns determinism into an enforced gate: the spec
-   and the generated code cannot silently diverge.
-2. **Conformance golden test**: wire the 0.5.0 OpenAPI 3.1 conformance fixture to a committed golden
-   snapshot so any change to the generator surface shows up as a reviewable diff.
-3. **Object-union runtime hydration**: emit a discriminator-driven cast so a `oneOf` of Data classes
+1. **Object-union runtime hydration**: emit a discriminator-driven cast so a `oneOf` of Data classes
    hydrates at runtime, not just type-checks. Currently the documented residual.
-4. **Small follow-ups**: a `--dry-run` summary and richer error messages on bad input.
-5. **Cross-repo follow-up**: the openapi-zod-ts `Accept: application/json` gap (issue #289), surfaced
+2. **Differential conformance harness** (issue #23): derive a conforming and a violating payload per
+   emitted constraint and assert Validator agreement across the corpus. Today the executed-validation
+   guarantee covers the behavioral suite and the e2e demo, not every constraint of every corpus spec.
+3. **Small follow-ups**: richer error messages on bad input, `$ref`-valued request bodies as typed
+   Data params instead of the `Request` fallback.
+4. **Cross-repo follow-up**: the openapi-zod-ts `Accept: application/json` gap (issue #289), surfaced
    by the e2e demo. Fix lives in the sibling repo, not here.
 
 Lower-severity lossy cases (document or improve, not blockers): tuple `prefixItems`
@@ -262,13 +295,14 @@ Pest unit tests per feature (minimal in-memory spec builder) plus snapshots. Cor
 fixtures parse and generate valid PHP, passing the import-resolution gate (256 corpus cases across
 the model and server gates), the `php -l` compile gate (catches compile errors `token_get_all`
 misses), plus the allOf/additionalProperties/oneOf non-empty guards. A synthetic OpenAPI 3.1
-conformance fixture covers the full generator surface. Hostile-input suite for the security surfaces.
-Behavioral validator round-trips pin each 0.5.0 constraint (exclusive bounds, multipleOf,
-uniqueItems, float enums, strict date-time, defaults). Regression fixtures for the sibling-history
-edge cases. Pest native mutation (>=90%), 100% type coverage, PHPStan max, Pint. The e2e demo adds
-real-HTTP round-trip proofs across the language boundary, plus a Playwright headless-Chrome suite that
-drives the full browser -> SPA -> generated client -> backend loop against a docker-compose stack.
-Current totals: 600+ package tests passing.
+conformance fixture covers the full generator surface, with a golden test (wired in 0.6.0) that
+pins the per-construct output, runs `php -l`, and verifies byte-for-byte determinism. Hostile-input
+suite for the security surfaces. Behavioral validator round-trips pin each 0.5.0 constraint
+(exclusive bounds, multipleOf, uniqueItems, float enums, strict date-time, defaults). Regression
+fixtures for the sibling-history edge cases. Pest native mutation (>=90%), 100% type coverage,
+PHPStan max, Pint. The e2e demo adds real-HTTP round-trip proofs across the language boundary, plus
+a Playwright headless-Chrome suite that drives the full browser -> SPA -> generated client ->
+backend loop against a docker-compose stack. Current totals: 840 package tests passing.
 
 ## Open questions (genuine design decisions)
 
@@ -283,6 +317,7 @@ Current totals: 600+ package tests passing.
 
 Resolved: allOf, additionalProperties (including empty-map `{}` encoding), oneOf/anyOf, non-object
 component aliasing, the silent-validation gaps, the parser boolean-items/OOM cases, the security
-surfaces, and the two sibling-history bugs are implemented. The cross-language contract loop is proven
-end to end over real HTTP, including the browser-driven Playwright suite; object-union runtime
-hydration is the remaining open case. Floors are PHP 8.2 + Laravel 11/12 + laravel-data v4.
+surfaces, the two sibling-history bugs, the array-of-union DataCollectionOf bug (#24), and the
+drift-check enforcement layer are all implemented. The cross-language contract loop is proven end to
+end over real HTTP, including the browser-driven Playwright suite; object-union runtime hydration is
+the remaining open case. Floors are PHP 8.2 + Laravel 11/12 + laravel-data v4.

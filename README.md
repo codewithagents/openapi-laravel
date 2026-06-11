@@ -100,6 +100,27 @@ Not a Laravel project? The same generator ships as a framework-free binary:
 vendor/bin/openapi-laravel --spec=openapi.yaml --output=src/Data --namespace="Acme\\Dto"
 ```
 
+### Keep generated code in sync (CI)
+
+Once the generated files are committed, add `openapi:check` to your CI pipeline. It regenerates
+the full file set in memory and compares it byte-for-byte against what is on disk, without writing
+anything:
+
+```bash
+php artisan openapi:check
+# or, without Laravel:
+vendor/bin/openapi-laravel check
+```
+
+Exit codes: `0` the committed files match the spec, `1` drift detected (the build fails), `2` a
+config or spec error. Add `--diff` to print a bounded unified diff per changed file so you can see
+exactly what drifted. The check honors the same flags as `openapi:generate` (`--spec`, `--output`,
+`--namespace`, `--controllers`, `--routes`) and only compares generator-owned files, so hand-written
+concrete controllers are never flagged as drift.
+
+See the [drift-check guide](https://openapi-laravel.codewithagents.de/guides/drift-check) for a
+full CI walkthrough.
+
 ---
 
 ## Pipeline
@@ -143,7 +164,10 @@ What the generator handles today:
   serializes as `{}` (not `[]`)
 - **`oneOf` / `anyOf`** → native PHP union types plus a variant docblock when every member resolves
   to a scalar or a generated Data class (`string|int`, `CatData|DogData`), with a deterministic
-  `mixed` fallback for messier members
+  `mixed` fallback for messier members. An array whose `items` are a union emits a plain typed
+  `array<int, A|B>` with a docblock, not `#[DataCollectionOf(A|B::class)]`: that attribute is
+  syntactically accepted by PHP but resolves wrongly at runtime due to operator precedence (bug #24,
+  fixed in 0.6.0)
 - **Multi-type scalars** → `type: ["string","integer"]` becomes a `string|int` union (`["x","null"]`
   stays a nullable scalar)
 - **Non-object components** → a top-level component that is itself a scalar, an array, or a
@@ -434,9 +458,12 @@ These are the layers that catch problems before they reach you.
   GitHub, OpenAI, Slack, Twilio, and 123 others. Every one must *parse*, *generate model classes,
   controllers, and routes that compile* (`php -l`, which goes a step further than tokenizing), and
   *resolve every class reference*, on every CI run.
-- **OpenAPI 3.1 conformance fixture.** A synthetic spec exercises the full generator surface
-  (exclusive bounds, `multipleOf`, `uniqueItems`, float enums, multi-type unions, strict date-time,
-  defaults, non-object aliasing) so the comprehensive construct set is covered in one place.
+- **Conformance golden test.** A single synthetic OpenAPI 3.1 spec exercises the full generator
+  surface (exclusive bounds, `multipleOf`, `uniqueItems`, float enums, multi-type unions, strict
+  date-time, defaults, non-object aliasing, union arrays). A golden test pins the per-construct
+  output, runs `php -l` on it, and verifies byte-for-byte determinism on every CI run. This paid
+  for itself immediately: it caught bug #24 (the array-of-union `DataCollectionOf` attribute,
+  wrong at runtime) before the release.
 - **PHPStan at max level**, **100% type coverage**, and **Laravel Pint** style enforcement, on every
   PR.
 - **Mutation testing** with [Pest's native mutation testing](https://pestphp.com/docs/mutation-testing)
@@ -451,6 +478,11 @@ These are the layers that catch problems before they reach you.
   the GitHub Security tab. This check is informational and does not block merges.
 - **Committed snapshots** of generated output, diff-checked so any change to the generator is
   visible in review.
+- **Drift check** (`openapi:check`) regenerates the full file set in memory and compares it
+  byte-for-byte against disk, without writing anything. Exit `0` = in sync, `1` = drift detected
+  (the build fails), `2` = config or spec error. Use it in CI so committed generated code can never
+  silently diverge from the spec. See the
+  [drift-check guide](https://openapi-laravel.codewithagents.de/guides/drift-check).
 - **Next rigor step (roadmap):** a differential conformance harness that derives a conforming and a
   violating payload per emitted constraint and asserts Validator agreement across the corpus
   ([#23](https://github.com/codewithagents/openapi-laravel/issues/23)). Today the executed-validation
@@ -465,7 +497,7 @@ These are the layers that catch problems before they reach you.
 
 ## Roadmap
 
-**Current release: `0.5.0`** on Packagist.
+**Current release: `0.6.0`** on Packagist.
 
 - **0.1.x: models.** Spec → laravel-data classes + validation rules + enums, nested objects,
   collections, and the readOnly/writeOnly split.
@@ -474,13 +506,18 @@ These are the layers that catch problems before they reach you.
 - **0.3.0: composition + hardening.** `allOf` merge, `additionalProperties` typed maps, a full
   security pass (the spec treated as untrusted input), and edge-case fixes.
 - **0.4.0: `oneOf` / `anyOf` union types** and the cross-language end-to-end demo.
-- **0.5.0 (current): hardening.** A silent-validation correctness pass (exclusive bounds,
-  `multipleOf`, `uniqueItems`, float enums, multi-type unions, strict date-time, defaults), non-object
-  component aliasing (no more empty Data classes), parser hardening (boolean `items`, clean OOM
-  message), empty-map `{}` encoding, a `--namespace` flag, and a `php -l` compile gate.
-- **0.6.0 (next): drift check.** A `php artisan openapi:check` command that regenerates and compares
-  against the committed output, failing CI on any drift, so the spec and the generated code cannot
-  silently diverge.
+- **0.5.0: hardening.** A silent-validation correctness pass (exclusive bounds, `multipleOf`,
+  `uniqueItems`, float enums, multi-type unions, strict date-time, defaults), non-object component
+  aliasing (no more empty Data classes), parser hardening (boolean `items`, clean OOM message),
+  empty-map `{}` encoding, a `--namespace` flag, and a `php -l` compile gate.
+- **0.6.0 (current): drift check + quality.** `php artisan openapi:check` (and
+  `vendor/bin/openapi-laravel check`) regenerates the full file set in memory and compares it
+  byte-for-byte against disk, without writing anything. Exit `0` = in sync, `1` = drift, `2` =
+  config or spec error. Generate and check share one code path (a `GenerationPlanner`) so they can
+  never compute a different result. Also ships: a conformance golden test that pins per-construct
+  output and catches regressions, and a fix for bug #24 (arrays whose `items` are a
+  `oneOf`/`anyOf` union now emit a plain typed `array<int, A|B>` with a docblock, not a
+  `#[DataCollectionOf(A|B::class)]` attribute that is wrong at runtime).
 - **v3 (maybe): client generation** for consuming a third-party or internal API (e.g. a typed
   PayPal/Stripe/microservice client), built on the `Http::` facade. A decide-later item, not a
   commitment.

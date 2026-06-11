@@ -5,7 +5,7 @@ description: What ships in v1 (models) and v2 (server scaffold), the known limit
 
 import { Aside } from '@astrojs/starlight/components'
 
-**The current release is `0.4.0`** on Packagist, which ships the models, the server scaffold, full composition support (`allOf`, `additionalProperties`, `oneOf` / `anyOf`), and the security pass. The version deliberately stays in `0.x` while the generated output format is still evolving, and tags `1.0.0` (the API-stability promise) only when the feature set settles. This page is the honest account of what is in each version, what is deliberately basic, and what is planned next.
+**The current release is `0.6.0`** on Packagist, which ships the models, the server scaffold, full composition support (`allOf`, `additionalProperties`, `oneOf` / `anyOf`), the security pass, a comprehensive silent-validation correctness sweep, and the drift-check command. The version deliberately stays in `0.x` while the generated output format is still evolving, and tags `1.0.0` (the API-stability promise) only when the feature set settles. This page is the honest account of what is in each version, what is deliberately basic, and what is planned next.
 
 ## v1: models
 
@@ -15,7 +15,7 @@ Spec in, generated `app/Data/*` out:
 - An explicit `rules()` method per class, derived from spec constraints: `required` / `nullable`, types, string `minLength` / `maxLength` / `pattern` / `format` (email, uuid, date, date-time, url, ip), numeric `minimum` / `maximum`, array `minItems` / `maxItems`, and enum via `Rule::enum` or `Rule::in`.
 - Native backed enums for string and integer enums.
 - `readOnly` / `writeOnly` handling: a read variant and a write variant, only when the spec uses the flags.
-- Nested objects become nested Data classes; arrays become typed collections with `#[DataCollectionOf]`.
+- Nested objects become nested Data classes; arrays become typed collections with `#[DataCollectionOf]`. An array whose `items` are a `oneOf`/`anyOf` union emits a plain `array<int, A|B>` with a docblock instead of a broken `#[DataCollectionOf(A|B::class)]` attribute (fixed in 0.6.0, bug #24).
 - A naming layer: StudlyCaps classes, camelCase properties with `#[MapName]` when the wire name differs, collision handling, and PHP reserved-word escaping.
 - Two ways to run it: `php artisan openapi:generate` via the service provider, and a framework-free `vendor/bin/openapi-laravel` for non-Laravel CI.
 - Determinism: the same spec in produces byte-identical files out.
@@ -54,6 +54,11 @@ unions (a nested `oneOf`, an array, a map, an untyped or enum member) fall back 
 `mixed` with presence-only rules. The server scaffold types a response that is a `oneOf`/`anyOf` of
 Data-class `$ref`s as a Data-class union return, and otherwise keeps the `JsonResponse` fallback.
 
+**Array-of-union:** an array whose `items` are a `oneOf`/`anyOf` union emits a plain typed
+`array<int, A|B>` property with a docblock and no collection attribute. Previously the generator
+emitted `#[DataCollectionOf(A|B::class)]`, which PHP's parser accepts but which resolves wrongly
+at runtime due to operator precedence. Fixed in 0.6.0 (bug #24).
+
 ## Known limitations
 
 <Aside type="note" title="oneOf / anyOf object-union hydration needs a discriminator">
@@ -64,6 +69,9 @@ Data-class `$ref`s as a Data-class union return, and otherwise keeps the `JsonRe
 - **Object-union runtime hydration** (`CatData|DogData`) still needs a discriminator or a custom
   cast. The union type hint is a typing, IDE, and PHPStan improvement; scalar unions hydrate fine,
   but an object union arrives as a raw array at runtime without a discriminator-aware cast.
+- **Array-of-union** (an array whose `items` are a `oneOf`/`anyOf`) now emits a plain
+  `array<int, A|B>` with a docblock, not `#[DataCollectionOf(A|B::class)]`. The broken attribute
+  form is fixed as of 0.6.0 (bug #24).
 
 </Aside>
 
@@ -77,20 +85,49 @@ page](/guides/limitations) has examples, the fallback rules, and the object-unio
 - **0.2.0:** the server scaffold (abstract controllers per tag plus a routes file).
 - **0.3.0:** `allOf` merging, `additionalProperties` typed maps, and a full security-hardening pass
   that treats the spec as untrusted input.
-- **0.4.0 (current):** `oneOf` / `anyOf` native union typing (union type hints and variant docblocks
-  where members resolve cleanly, a deterministic `mixed` fallback otherwise, Data-class union return
-  types in the server scaffold), plus the cross-language end-to-end demo below. Runtime variant
-  validation and object-union hydration still depend on a `discriminator` in the spec.
+- **0.4.0:** `oneOf` / `anyOf` native union typing (union type hints and variant docblocks where
+  members resolve cleanly, a deterministic `mixed` fallback otherwise, Data-class union return types
+  in the server scaffold), plus the cross-language end-to-end demo. Runtime variant validation and
+  object-union hydration still depend on a `discriminator` in the spec.
+- **0.5.0:** silent-validation correctness pass (exclusive bounds, `multipleOf`, `uniqueItems`,
+  float enums, multi-type unions, strict date-time, defaults), non-object component aliasing (no
+  more empty Data classes that silently failed to hydrate), parser hardening (boolean `items` and
+  clean OOM surfacing), empty-map `{}` encoding, a `--namespace` flag, and a `php -l` compile gate.
+- **0.6.0 (current):** the drift-check command (`php artisan openapi:check`), the conformance
+  golden test, and the array-of-union fix (bug #24). See the drift-check section below.
+
+## Drift check: keeping generated code in sync
+
+Shipped in 0.6.0. `php artisan openapi:check` (and the framework-free
+`vendor/bin/openapi-laravel check`) regenerates the full set of files the generator would write,
+in memory, and compares them byte-for-byte against what is on disk, without writing anything.
+
+Use it in CI to fail the build the moment committed generated code diverges from the spec:
+
+```bash
+php artisan openapi:check
+```
+
+Exit codes: `0` the committed files match the spec, `1` drift detected (the build fails), `2` a
+config or spec error. The `--diff` flag prints a bounded unified diff for each changed file. The
+command honors the same flags as `openapi:generate` (`--spec`, `--output`, `--namespace`,
+`--controllers`, `--routes`), and only compares generator-owned files: hand-written concrete
+controllers are never flagged as drift.
+
+Internally, generate and check share one code path via a `GenerationPlanner` that computes the full
+file set, so they can never produce a different answer about which files are in scope.
+
+See the [drift-check guide](/guides/drift-check) for a full CI walkthrough and example GitHub
+Actions configuration.
 
 ## Proof: a contract-first end-to-end demo
 
-The repository carries a contract-first demo. One OpenAPI spec is the single source of truth, and
-`openapi-laravel` generates a real Laravel backend (Data classes, abstract controllers, routes) whose
-behaviour is verified over real HTTP with `curl`. The cross-language half, where the sibling
-[openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts) generates a typed TypeScript client
-for a SPA and a Playwright headless-Chrome suite drives the browser end to end, is being finalized.
-The Laravel backend and its contract round trip are proven today; the TypeScript SPA, the Docker
-stack, and the browser suite are not yet. See the [end-to-end demo page](/guides/end-to-end-demo).
+The repository carries a contract-first demo. One OpenAPI spec is the single source of truth.
+`openapi-laravel` generates a real Laravel backend (Data classes, abstract controllers, routes),
+and the sibling [openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts) generates a
+typed TypeScript client for a SPA. A Playwright headless-Chrome suite drives the browser end to end
+over real HTTP, and the full cross-language loop is green: browser, SPA, generated client,
+generated backend, all from one spec. See the [end-to-end demo page](/guides/end-to-end-demo).
 
 ## Later: v3 (maybe)
 
