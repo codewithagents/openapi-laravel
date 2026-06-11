@@ -44,11 +44,9 @@ final class GenerateCommand extends Command
             $this->components->error($e->getMessage());
 
             return self::INVALID;
-        } catch (PlanException $e) {
-            $this->components->error($e->getMessage());
-
-            return self::FAILURE;
-        } catch (ParseException|GenerationException $e) {
+        } catch (PlanException|ParseException|GenerationException $e) {
+            // A planning, spec-parse, or generation failure is a runtime failure
+            // (exit 1), distinct from the configuration error above (exit 2).
             $this->components->error($e->getMessage());
 
             return self::FAILURE;

@@ -36,3 +36,18 @@ exclude:
   - name: PhpUnnecessaryCurlyVarSyntaxInspection
   # Pure noise: flags explicit (bool) casts we keep for readability.
   - name: PhpUnnecessaryBoolCastInspection
+  # The emitter deliberately casts array keys to string (for example
+  # `(string) $name`, `(string) $rawName`) when iterating spec-derived maps.
+  # PHP coerces a numeric-string key like "200" to an int at runtime, so the
+  # declared `array<string, ...>` key type is not honoured by the engine. The
+  # cast restores the `list<string>` / string-key invariant the rest of the
+  # emitter relies on, even though the static type already says `string`. This
+  # is a deliberate runtime-safety pattern, not a redundant cast.
+  - name: PhpCastIsUnnecessaryInspection
+  # The format-trying loop in the RFC3339 date-time, date, and time rules is
+  # intentionally duplicated across those classes. Each src/Support rule is a
+  # standalone unit inlined verbatim into the consumer's own \Support namespace
+  # per spec (#40). Extracting a shared helper would add another inlined file
+  # and couple two otherwise self-contained rules, which breaks the inlining
+  # story. The duplication is the price of keeping each rule self-contained.
+  - name: DuplicatedCode

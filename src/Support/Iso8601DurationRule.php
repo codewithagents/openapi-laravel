@@ -44,7 +44,7 @@ final class Iso8601DurationRule implements ValidationRule
      * The outer alternation requires at least one section overall, so a bare `P`
      * (no date section and no `T`) fails to match.
      */
-    private const PATTERN = '/^P(?:(?:\d+Y)?(?:\d+M)?(?:\d+D)?(?:T(?:\d+H)?(?:\d+M)?(?:\d+S)?)?)$/';
+    private const PATTERN = '/^P(?:\d+Y)?(?:\d+M)?(?:\d+D)?(?:T(?:\d+H)?(?:\d+M)?(?:\d+S)?)?$/';
 
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {

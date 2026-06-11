@@ -127,7 +127,7 @@ final readonly class SchemaClosure
             }
             $kept[$name] = true;
 
-            foreach ($this->dependenciesOf($name, $schemas[$name], $schemas, $discriminators) as $dependency) {
+            foreach ($this->dependenciesOf($name, $schemas[$name], $discriminators) as $dependency) {
                 if (! isset($kept[$dependency])) {
                     $stack[] = $dependency;
                 }
@@ -153,10 +153,9 @@ final readonly class SchemaClosure
      * reachable through its structure, plus the discriminated-union base/variant
      * links. Returns bare component names (the closure walk dedupes/visits).
      *
-     * @param  array<string, Schema>  $schemas
      * @return list<string>
      */
-    private function dependenciesOf(string $name, Schema $schema, array $schemas, DiscriminatorRegistry $discriminators): array
+    private function dependenciesOf(string $name, Schema $schema, DiscriminatorRegistry $discriminators): array
     {
         $found = [];
         $this->collectRefs($schema, $found);

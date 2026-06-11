@@ -60,7 +60,7 @@ final class NoUnknownPropertiesRule implements DataAwareRule, ValidationRule
     /**
      * @param  array<array-key, mixed>  $data
      */
-    public function setData(array $data): static
+    public function setData(array $data): self
     {
         $this->data = $data;
 

@@ -62,11 +62,9 @@ final class StandaloneApplication
             fwrite(STDERR, $e->getMessage()."\n");
 
             return self::EXIT_ERROR;
-        } catch (PlanException $e) {
-            fwrite(STDERR, $e->getMessage()."\n");
-
-            return 1;
-        } catch (ParseException|GenerationException $e) {
+        } catch (PlanException|ParseException|GenerationException $e) {
+            // A planning, spec-parse, or generation failure is a runtime failure
+            // (exit 1), distinct from the configuration error above (exit 2).
             fwrite(STDERR, $e->getMessage()."\n");
 
             return 1;
@@ -128,11 +126,11 @@ final class StandaloneApplication
         try {
             $request = $this->buildRequest($options, $this->loadConfig($options));
             $plan = (new GenerationPlanner)->plan($request);
-        } catch (PlanException|OptionException $e) {
-            fwrite(STDERR, $e->getMessage()."\n");
-
-            return self::EXIT_ERROR;
-        } catch (ParseException|GenerationException $e) {
+        } catch (PlanException|OptionException|ParseException|GenerationException $e) {
+            // Every failure surface of check (config error, spec parse error,
+            // generation error) is the same outcome: report it and exit 2. Check
+            // has no exit-2-versus-1 distinction among errors, so these collapse
+            // into one arm.
             fwrite(STDERR, $e->getMessage()."\n");
 
             return self::EXIT_ERROR;

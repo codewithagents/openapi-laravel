@@ -23,9 +23,9 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter;
  *
  * `isEnum` marks a reference that resolved to a generated backed enum (a native
  * PHP `enum`, not a Data class). It separates enums from Data classes so an array
- * of enums is NOT given a `#[DataCollectionOf(SomeEnum::class)]` attribute:
+ * of enums is NOT given a `DataCollectionOf` attribute naming the enum class:
  * `DataCollectionOf` targets `class-string<BaseData>`, and spatie hydrates a
- * backed enum from the typed array via the `@var array<int, SomeEnum>` docblock
+ * backed enum from the typed array via the generated array-of-enum docblock
  * on its own.
  */
 final readonly class ResolvedType

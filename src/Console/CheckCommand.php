@@ -52,11 +52,11 @@ final class CheckCommand extends Command
         try {
             $request = (new CommandRequestFactory)->fromCommand($this);
             $plan = (new GenerationPlanner)->plan($request);
-        } catch (PlanException|OptionException $e) {
-            $this->components->error($e->getMessage());
-
-            return self::EXIT_ERROR;
-        } catch (ParseException|GenerationException $e) {
+        } catch (PlanException|OptionException|ParseException|GenerationException $e) {
+            // Every failure surface of openapi:check (config error, spec parse
+            // error, generation error) is the same outcome here: report it and
+            // exit 2. Check has no exit-2-versus-1 distinction among errors, so
+            // these collapse into one arm.
             $this->components->error($e->getMessage());
 
             return self::EXIT_ERROR;

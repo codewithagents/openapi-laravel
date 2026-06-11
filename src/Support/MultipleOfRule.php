@@ -22,9 +22,9 @@ use Illuminate\Contracts\Validation\ValidationRule;
  * Attached by the generator to numeric properties whose schema carries a
  * `multipleOf` via a `new MultipleOfRule(N)` rule expression.
  */
-final class MultipleOfRule implements ValidationRule
+final readonly class MultipleOfRule implements ValidationRule
 {
-    public function __construct(private readonly int|float $divisor) {}
+    public function __construct(private int|float $divisor) {}
 
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {

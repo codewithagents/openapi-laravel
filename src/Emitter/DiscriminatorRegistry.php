@@ -177,12 +177,10 @@ final class DiscriminatorRegistry
                 continue;
             }
 
-            $valueToVariant = [];
-            foreach ($candidate['valueToVariant'] as $value => $variant) {
-                if (in_array($variant, $claimed, true)) {
-                    $valueToVariant[$value] = $variant;
-                }
-            }
+            $valueToVariant = array_filter(
+                $candidate['valueToVariant'],
+                static fn (string $variant): bool => in_array($variant, $claimed, true),
+            );
 
             // Record synthesized variant schemas (inline form) and inheritance
             // links (allOf form) only for the variants this base actually claimed.

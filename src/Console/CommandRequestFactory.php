@@ -160,7 +160,7 @@ final readonly class CommandRequestFactory
 
         $configured = config($configKey);
 
-        return $configured === null ? true : (bool) $configured;
+        return $configured === null || (bool) $configured;
     }
 
     private function stringOption(Command $command, string $name): ?string

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Parser;
 
+use cebe\openapi\exceptions\TypeErrorException;
+use cebe\openapi\exceptions\UnresolvableReferenceException;
 use cebe\openapi\json\JsonPointer;
 use cebe\openapi\ReferenceContext;
 use cebe\openapi\spec\OpenApi;
@@ -90,6 +92,18 @@ final class SpecParser
      * extra step: {@see SchemaNormalizer} rewrites boolean `items` before cebe
      * sees it, because cebe cannot instantiate a Schema from a boolean (#20).
      * References are left unresolved, exactly as before.
+     *
+     * Every checked exception below is caught by the sole caller (parseFile)
+     * and re-thrown as a ParseException, so these are propagated, never
+     * swallowed: a YAML syntax error surfaces as ParseException, malformed
+     * JSON as ParseException, an ill-typed document as ParseException, and a
+     * non-absolute base URI as ParseException, all keeping the original as the
+     * chained previous exception.
+     *
+     * @throws \Symfony\Component\Yaml\Exception\ParseException when the YAML is malformed
+     * @throws \JsonException when the JSON is malformed
+     * @throws TypeErrorException when the document data is ill-typed
+     * @throws UnresolvableReferenceException when the base URI is not absolute
      */
     private function readDocument(string $absolute): OpenApi
     {

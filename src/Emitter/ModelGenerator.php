@@ -294,7 +294,7 @@ final class ModelGenerator
                 $this->writeClasses[$name] = $writeClass;
                 $this->emitData($writeClass, $entry['schema'], 0, 'write');
             } else {
-                $this->emitData($entry['class'], $entry['schema'], 0, 'all');
+                $this->emitData($entry['class'], $entry['schema'], 0);
             }
         }
 
@@ -678,7 +678,7 @@ final class ModelGenerator
 
             $propertyName = $propertyNames->reserve(PhpIdentifier::toPropertyName($wireName));
             $listedRequired = in_array($wireName, $required, true);
-            $type = $this->resolveType($propertySchema, $base.PhpIdentifier::toClassName($wireName), 1, 'all');
+            $type = $this->resolveType($propertySchema, $base.PhpIdentifier::toClassName($wireName), 1);
 
             $default = $this->defaultValue($propertySchema, $type);
             $isRequired = $listedRequired && $default === null;
@@ -734,7 +734,7 @@ final class ModelGenerator
             return new ResolvedType('string');
         }
 
-        return $this->resolveType($schema, $this->stripSuffix($className).PhpIdentifier::toClassName($wireName), 1, 'all');
+        return $this->resolveType($schema, $this->stripSuffix($className).PhpIdentifier::toClassName($wireName), 1);
     }
 
     /**
@@ -1249,8 +1249,6 @@ final class ModelGenerator
     {
         $items = $schema->items;
         $map = [];
-        $here = [];
-        $uses = false;
 
         if ($items instanceof Schema && ($this->normalizeTypes($items)[0] ?? null) === 'array') {
             // Each element at this level is itself an array: assert its shape and
@@ -2038,9 +2036,10 @@ final class ModelGenerator
      *
      * Mirrors the oneOf/anyOf union machinery (resolveUnion): isUnion is set so
      * the declaration renders nullability as a trailing `|null` member, and a
-     * `@var` docType lists the variants.
+     * docType lists the variants for the generated docblock.
      *
      * @param  list<string>  $types  non-null type members, in source order
+     * @param  bool  $nullable  whether the property is nullable
      */
     private function resolveScalarTypeUnion(array $types, bool $nullable): ?ResolvedType
     {
@@ -2482,7 +2481,8 @@ final class ModelGenerator
     }
 
     /**
-     * The `@deprecated` docblock line for a deprecated schema, including a short
+     * The deprecation docblock line for a deprecated schema (the literal
+     * "at-deprecated" tag, optionally followed by a reason), including a short
      * reason when the spec supplies one via the vendor extension
      * `x-deprecated-reason` or `x-deprecation-reason`. Returns null when the
      * schema is not deprecated. The reason is spec-derived (untrusted), so it is
@@ -2810,7 +2810,7 @@ final class ModelGenerator
 
         $seen[$name] = true;
         $this->aliasSeen = $seen;
-        $resolved = $this->resolveType($schema, PhpIdentifier::toClassName($name), 0, 'all');
+        $resolved = $this->resolveType($schema, PhpIdentifier::toClassName($name), 0);
         $this->aliasSeen = [];
 
         return $this->aliasTypes[$name] = $resolved;
