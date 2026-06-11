@@ -111,7 +111,6 @@ function differentialOutcome(string $class, array $payload): string
 function differentialKnownGaps(): array
 {
     return [
-        ['construct' => 'StrFormatHostname', 'expected' => 'reject', 'actual' => 'accept', 'issue' => '#29', 'reason' => 'format: hostname has no Laravel validator; emitted as a no-op string rule.'],
         ['construct' => 'ObjAddlPropsFalse', 'expected' => 'reject', 'actual' => 'accept', 'issue' => '#30', 'reason' => 'additionalProperties: false is not enforced; unknown keys are accepted.'],
         ['construct' => 'PetHolder', 'expected' => 'accept', 'actual' => 'reject', 'issue' => '#31', 'reason' => 'Undiscriminated oneOf object-union false-rejects non-first variants (1.0.0 hydration work).'],
     ];

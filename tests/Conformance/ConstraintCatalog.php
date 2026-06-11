@@ -191,9 +191,13 @@ final class ConstraintCatalog
                 self::obj('v', ['type' => 'string', 'format' => 'hostname']),
                 [
                     ['label' => 'valid hostname', 'payload' => ['v' => 'example.com']],
+                    ['label' => 'multi-label hostname', 'payload' => ['v' => 'api.service.io']],
+                    ['label' => 'single label', 'payload' => ['v' => 'localhost']],
                 ],
                 [
                     ['label' => 'spaces', 'payload' => ['v' => 'not a hostname'], 'violates' => 'format:hostname'],
+                    ['label' => 'illegal characters', 'payload' => ['v' => 'bad_host!'], 'violates' => 'format:hostname'],
+                    ['label' => 'leading-hyphen label', 'payload' => ['v' => '-bad.com'], 'violates' => 'format:hostname'],
                 ],
             ),
             new ConstraintCase(

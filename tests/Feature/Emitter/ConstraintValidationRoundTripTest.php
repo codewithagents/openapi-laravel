@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\ConstraintData\DatedData;
+use App\ConstraintData\HostedData;
 use App\ConstraintData\NestedData;
 use App\ConstraintData\NumberedData;
 use cebe\openapi\Reader;
@@ -41,6 +42,15 @@ function bootConstraintClasses(): void
                 'gt' => ['type' => 'integer', 'minimum' => 1, 'exclusiveMinimum' => true],
                 'ratio' => ['type' => 'number', 'enum' => [1.5, 2.5]],
                 'tags' => ['type' => 'array', 'uniqueItems' => true, 'items' => ['type' => 'string']],
+            ],
+        ],
+        'Hosted' => [
+            'type' => 'object',
+            'properties' => [
+                // format: hostname must enforce RFC1123 syntax (issue #29).
+                'host' => ['type' => 'string', 'format' => 'hostname'],
+                // format: idn-hostname keeps the softer non-whitespace rule.
+                'idn' => ['type' => 'string', 'format' => 'idn-hostname'],
             ],
         ],
         'Nested' => [
@@ -146,6 +156,34 @@ it('accepts distinct items for uniqueItems', function () {
     NumberedData::validate(['tags' => ['a', 'b']]);
     expect(true)->toBeTrue();
 });
+
+it('accepts valid hostnames for format hostname (#29)', function () {
+    foreach (['example.com', 'api.service.io', 'localhost'] as $value) {
+        HostedData::validate(['host' => $value]);
+    }
+    expect(true)->toBeTrue();
+});
+
+it('rejects a hostname with spaces (#29)', function () {
+    HostedData::validate(['host' => 'not a hostname']);
+})->throws(ValidationException::class);
+
+it('rejects a hostname with illegal characters (#29)', function () {
+    HostedData::validate(['host' => 'bad_host!']);
+})->throws(ValidationException::class);
+
+it('rejects a hostname with a leading-hyphen label (#29)', function () {
+    HostedData::validate(['host' => '-bad.com']);
+})->throws(ValidationException::class);
+
+it('accepts a unicode idn-hostname and rejects whitespace (#29)', function () {
+    HostedData::validate(['idn' => 'bücher.example']);
+    expect(true)->toBeTrue();
+});
+
+it('rejects an idn-hostname with whitespace (#29)', function () {
+    HostedData::validate(['idn' => 'bad host']);
+})->throws(ValidationException::class);
 
 it('accepts a valid nested array of arrays (#28)', function () {
     NestedData::validate(['matrix' => [[0, 1], [2, 3]]]);

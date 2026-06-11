@@ -403,6 +403,7 @@ final class ModelGenerator
      * @var array<string, string>
      */
     private const RULE_CLASS_IMPORTS = [
+        'HostnameRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\HostnameRule',
         'MultipleOfRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\MultipleOfRule',
         'Rfc3339DateTimeRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\Rfc3339DateTimeRule',
     ];
@@ -1082,7 +1083,15 @@ final class ModelGenerator
             'ipv4' => "'ipv4'",
             'ipv6' => "'ipv6'",
             'ip' => "'ip'",
-            'hostname', 'idn-hostname' => "'string'",
+            // An RFC1123 hostname gets a real rule that enforces dot-separated
+            // letter/digit/hyphen labels with no leading/trailing hyphen. The
+            // internationalized `idn-hostname` keeps a softer non-whitespace
+            // check: a strict ASCII regex would wrongly reject valid unicode
+            // labels, and full unicode/punycode validation is out of scope.
+            'hostname' => 'new HostnameRule',
+            'idn-hostname' => "'regex:/^\\S+\$/'",
+            // Both formats already carry the leading 'string' from stringRules,
+            // so neither re-adds a redundant 'string' here.
             default => null,
         };
     }
