@@ -1,6 +1,6 @@
 ---
 title: Limitations
-description: What the generator does not yet represent. Scalar oneOf/anyOf emit native union type hints; object unions are presence-only (no false-reject) pending discriminator support. Honest about the gaps so you can plan around them.
+description: What the generator does not yet represent. Scalar oneOf/anyOf emit native union type hints; discriminated object unions are validated and hydrated; undiscriminated object unions stay presence-only. Honest about the gaps so you can plan around them.
 ---
 
 import { Aside } from '@astrojs/starlight/components'
@@ -13,11 +13,14 @@ them the generated class can be incomplete. This page is honest about where that
 
 <Aside type="note" title="oneOf / anyOf typing and object unions">
   Scalar `oneOf`/`anyOf` emit native PHP union type hints (and a variant docblock).
-  An **object union** (a `oneOf`/`anyOf` of Data classes) is typed `mixed` and
-  validated for presence only, so every valid variant is accepted, no valid
-  payload is false-rejected (issue #31). It keeps the variant union in its `@var`
-  docblock. Full discriminator-aware variant validation and hydration is 1.0.0
-  work. See [oneOf and anyOf](#oneof-and-anyof-emit-union-types) below.
+  A **discriminated object union** (a `oneOf`/`anyOf` of object `$ref`s with a
+  `discriminator`) is now fully validated and hydrated: the generator emits an
+  abstract morphable base plus one variant class per member, and spatie selects
+  the right variant from the discriminator value at runtime (issue #38). An
+  **undiscriminated object union** (no `discriminator`) stays typed `mixed` and
+  validated for presence only, so every valid variant is accepted and no valid
+  payload is false-rejected (issue #31). See
+  [oneOf and anyOf](#oneof-and-anyof-emit-union-types) below.
 </Aside>
 
 ## allOf is merged
@@ -188,7 +191,9 @@ object, an untyped or empty schema, an enum, or a `$ref` to something that is no
 The generated `rules()` keep presence semantics (`required` / `sometimes` / `nullable`). They do
 **not** assert which variant was supplied: standard Laravel validation cannot enforce "exactly one
 of these shapes" without a discriminator, and a type rule on a union would wrongly reject a valid
-variant. If you have a `discriminator` in the spec, it is noted but not wired into runtime dispatch.
+variant. When the spec **does** carry a `discriminator`, the generator wires it into runtime
+dispatch instead, see [Discriminated object unions](#discriminated-object-unions-are-validated-and-hydrated)
+below.
 
 This applies to **scalar** unions too. A `oneOf: [string, integer]` (or the JSON Schema multi-type
 form `type: ["string", "integer"]`) emits the `string|int` type hint but only a presence rule, with
@@ -198,10 +203,102 @@ A field whose only constraint is being one of several scalar types is therefore 
 presence only. If you need to reject, say, a boolean on a `string|int` field at the validation layer,
 add a rule for it yourself.
 
-### Object unions are presence-only (no false-reject), full validation needs a discriminator
+### Discriminated object unions are validated and hydrated
 
-An **object union** (`oneOf`/`anyOf` of Data classes, `CatData|DogData`) is typed `mixed` rather than
-the native union, and validated for **presence only**. This is deliberate (issue #31). A native
+When a named `oneOf`/`anyOf` component carries a `discriminator` and every member is a `$ref` to an
+object schema, the generator emits a real discriminated union: an **abstract morphable base** plus
+one **variant class** per member. spatie/laravel-data reads the discriminator value from the payload,
+selects the concrete variant, and validates and hydrates **that** variant, so per-variant validation
+and polymorphic hydration both work at runtime, with no custom cast.
+
+Given:
+
+```yaml
+Pet:
+  oneOf:
+    - $ref: '#/components/schemas/Cat'
+    - $ref: '#/components/schemas/Dog'
+  discriminator:
+    propertyName: petType
+    mapping: { cat: '#/components/schemas/Cat', dog: '#/components/schemas/Dog' }
+Cat:
+  type: object
+  required: [petType, meow]
+  properties: { petType: { type: string }, meow: { type: string } }
+Dog:
+  type: object
+  required: [petType, bark]
+  properties: { petType: { type: string }, bark: { type: string } }
+```
+
+the generator emits an abstract `PetData` whose only property is the discriminator (marked for morph)
+plus a `morph()` that maps each discriminator value to a variant:
+
+```php
+abstract class PetData extends Data implements PropertyMorphableData
+{
+    public function __construct(
+        #[PropertyForMorph, Required, StringType]
+        public readonly string $petType,
+    ) {}
+
+    public static function morph(array $properties): ?string
+    {
+        return match ($properties['petType'] ?? null) {
+            'cat' => CatData::class,
+            'dog' => DogData::class,
+            default => null,
+        };
+    }
+}
+```
+
+and one variant per member, each forwarding the discriminator and declaring its own properties:
+
+```php
+final class CatData extends PetData
+{
+    public function __construct(
+        string $petType,
+        public readonly string $meow,
+    ) {
+        parent::__construct($petType);
+    }
+
+    public static function rules(): array
+    {
+        return ['meow' => ['required', 'string']];
+    }
+}
+```
+
+A property whose schema is `$ref: Pet` is typed as the abstract `PetData`, so laravel-data morphs it:
+
+```php
+public readonly PetData $pet,
+```
+
+At runtime, `HolderData::from(['pet' => ['petType' => 'cat', 'meow' => 'mrr']])` hydrates `->pet` as a
+`CatData`; a `dog` payload hydrates a `DogData`. `HolderData::validate(...)` enforces the **selected
+variant's** rules: a `cat` discriminator missing `meow` is rejected, an unmapped discriminator value
+is rejected (the `default => null` arm fails spatie's morph guard), and a payload missing the
+discriminator is rejected. An **array** of a discriminated union (`items: { $ref: Pet }`) works too:
+each element morphs to its own variant and is validated per variant. The mapping is optional, when it
+is omitted, the implicit discriminator value for each member is its component schema name.
+
+A discriminated union that cannot be cleanly handled degrades to the presence-only behavior below and
+emits a build warning explaining why. This happens when a member is not an object schema, when a
+variant is shared by two discriminated bases (PHP single inheritance keeps the first base), or when a
+base is left with no claimable variant. The remaining forms still presence-only: an **inline**
+discriminated union written directly under a property (not a named component schema), and the
+**allOf-inheritance** form where a base object declares properties plus a discriminator and variants
+compose it with `allOf`. Both are tracked for a future phase.
+
+### Undiscriminated object unions are presence-only (no false-reject)
+
+An **undiscriminated object union** (`oneOf`/`anyOf` of Data classes with no `discriminator`,
+`CatData|DogData`) is typed `mixed` rather than the native union, and validated for **presence only**.
+This is deliberate (issue #31). A native
 `CatData|DogData` property type makes spatie/laravel-data infer nested validation rules from the
 union and, lacking a discriminator, validate **every** payload against the **first** variant. With
 `oneOf: [Cat, Dog]` where `Cat` requires `meow`, a valid `Dog` payload (`{"bark": "woof"}`) was then
@@ -209,30 +306,32 @@ union and, lacking a discriminator, validate **every** payload against the **fir
 so the property is typed `mixed`: every valid variant is now accepted, and the variant union stays in
 the `@var` docblock for IDE and PHPStan.
 
-The interim tradeoff is honest: an object union currently accepts **any** object (presence-only), it
-does **not** yet enforce "the value is exactly one of these variants". Full discriminator-aware
-variant validation and auto-hydration is dedicated 1.0.0 work. Scalar unions (`string|int`) are
-unaffected: they keep their native union type and hydrate directly.
+The tradeoff is honest: an **undiscriminated** object union accepts **any** object (presence-only),
+it does **not** enforce "the value is exactly one of these variants". If your spec has a
+`discriminator`, you get full variant validation and hydration automatically, see
+[Discriminated object unions](#discriminated-object-unions-are-validated-and-hydrated) above. Scalar
+unions (`string|int`) are unaffected: they keep their native union type and hydrate directly.
 
-**Hydrating object unions today.** Because the property is `mixed`, an object-union value arrives as
-a raw array at runtime. Hydrate the chosen variant yourself, keyed off a discriminator field your
-spec already carries. Given a spec like:
+**Hydrating an undiscriminated object union today.** Because the property is `mixed`, the value
+arrives as a raw array at runtime. Add a `discriminator` to the spec to have the generator handle it
+for you, or hydrate the chosen variant yourself by sniffing a distinguishing field. Given a spec with
+a field you can switch on:
 
 ```yaml
 animal:
   oneOf:
     - $ref: '#/components/schemas/Cat'
     - $ref: '#/components/schemas/Dog'
-  discriminator:
-    propertyName: kind   # each variant carries a "kind" field: "cat" or "dog"
+  # no discriminator: dispatch on a field one variant carries, e.g. "kind"
 ```
 
-`$pet->animal` arrives as a raw `array`. Dispatch on the discriminator in your controller or service:
+`$pet->animal` arrives as a raw `array`. Dispatch on the distinguishing field in your controller or
+service:
 
 ```php
 $raw = $pet->animal;                        // raw array, e.g. ['kind' => 'cat', 'lives' => 9]
 
-$animal = match ($raw['kind'] ?? null) {    // the spec's discriminator propertyName
+$animal = match ($raw['kind'] ?? null) {    // a field you switch on yourself
     'cat'   => CatData::from($raw),
     'dog'   => DogData::from($raw),
     default => throw ValidationException::withMessages([
@@ -243,9 +342,10 @@ $animal = match ($raw['kind'] ?? null) {    // the spec's discriminator property
 // $animal is now a fully hydrated CatData or DogData
 ```
 
-If your spec has no discriminator, sniff a distinguishing field instead (for example a property only
-`CatData` defines), or register a custom cast on the property. Scalar unions (`string|int`) need none
-of this: they hydrate directly.
+The cleaner fix is to add a `discriminator` to the spec, which makes the generator emit the morphable
+base and variants for you. Failing that, sniff a distinguishing field as above (for example a property
+only `CatData` defines), or register a custom cast on the property. Scalar unions (`string|int`) need
+none of this: they hydrate directly.
 
 ## String formats: some are no-ops
 
@@ -375,8 +475,9 @@ Everything else generates fully: object schemas with `properties`, `$ref`s betwe
 `allOf` composition (merged into a flat class), `additionalProperties` maps (typed `array` with
 per-value rules), nested objects and arrays (`DataCollection`), native enums, the read/write variant
 split, scalar constraints (`minLength`, `maxLength`, `pattern`, `format`, `minimum`/`maximum`,
-`enum`), the server scaffold, and scalar `oneOf`/`anyOf` union type hints. The spec-derived
-validation is presence-exact, with the caveats noted above: object unions are presence-only (any
-object is accepted, no variant enforced) pending discriminator-aware validation and hydration in
-1.0.0, and the map caveats apply (raw-array `$ref` map values, uncaptured mixed-object overflow,
-unenforced `additionalProperties: false`).
+`enum`), the server scaffold, scalar `oneOf`/`anyOf` union type hints, and discriminated object
+unions (abstract morphable base plus variants, validated and hydrated). The spec-derived validation
+is presence-exact, with the caveats noted above: **undiscriminated** object unions are presence-only
+(any object is accepted, no variant enforced) pending an inline/allOf-inheritance follow-up, and the
+map caveats apply (raw-array `$ref` map values, uncaptured mixed-object overflow, unenforced
+`additionalProperties: false`).

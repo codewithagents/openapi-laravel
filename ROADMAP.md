@@ -15,6 +15,37 @@ large real-world corpus sweep. The version target stays deliberately in 0.x, not
 0.x while the generated output format is still evolving, and tag 1.0.0 (the API-stability promise)
 only when the feature set settles.
 
+## Done since 0.7.0 (toward 1.0.0)
+
+### Discriminator-aware object unions (issue #38)
+
+The 1.0.0 object-union cornerstone has landed. A named `oneOf`/`anyOf` component that carries a
+`discriminator` and whose members are all `$ref`s to object schemas now generates a real
+discriminated union instead of the presence-only `mixed` fallback: an **abstract morphable base**
+(spatie `PropertyMorphableData` plus a `morph()` that maps each discriminator value to a variant
+class) and one **variant class** per member, each extending the base, forwarding the discriminator,
+and declaring its own properties. A property typed `$ref` to the base resolves to the abstract base,
+so spatie selects the concrete variant from the discriminator at runtime. The result both validates
+per variant (a wrong-variant, unmapped, or missing-discriminator payload is rejected by the real
+Laravel validator) and hydrates polymorphically (a `cat` payload becomes `CatData`), with no custom
+rule or cast. Arrays of a discriminated union morph and validate each element. The mapping is
+optional: with no `mapping`, each member's schema name is its implicit discriminator value. A
+MapName discriminator works (the `morph()` reads the PHP property name, which is how spatie keys the
+morph payload even under `#[MapName]`). The discriminator's own rules are emitted as validation
+attributes, not a `rules()` method: a `rules()` method on the base would set
+`hasDynamicValidationRules`, whose overwritten-rules pass replaces the inferred rules for the
+discriminator key and silently drops spatie's morph guard, so an unmapped value would wrongly pass.
+
+Scope and fallbacks (each degrades to the existing presence-only behavior and emits a build warning):
+a non-object member, a variant shared by two discriminated bases (PHP single inheritance keeps the
+first base), or a base left with no claimable variant. Still presence-only and tracked for a
+follow-up: an **inline** discriminated union written directly under a property (not a named
+component), and the **allOf-inheritance** form (a base object with properties plus a discriminator,
+variants composing it with `allOf`). The full 130-spec corpus regenerates byte-identically with this
+change, every generated file passes `php -l` and import resolution, and the differential oracle gains
+a fully-enforced discriminated case with no known-gap entry. The undiscriminated object-union case
+(#31) stays a tracked, documented limitation.
+
 ## Done in 0.7.0 (correctness and robustness hardening)
 
 ### Differential validation oracle (issue #23)
@@ -317,10 +348,12 @@ With 0.7.0 the enforcement and correctness layers are in place: drift is a CI ga
 oracle guards every emitted constraint, and the large real-world corpus sweep has found no generator
 bugs. The remaining open items before 1.0.0 are runtime correctness and format stability.
 
-1. **Discriminator-aware object-union validation and hydration** (issue #38): emit a
-   discriminator-driven cast so a `oneOf` of Data classes validates the correct variant and hydrates
-   at runtime, not just type-checks. Object unions are currently presence-only (`mixed`), which is
-   correct but lenient. Full variant enforcement needs a discriminator.
+1. **Discriminator-aware object-union validation and hydration** (issue #38): **landed** for the
+   named-component `oneOf`/`anyOf` + `discriminator` form (see "Done since 0.7.0" above). Remaining
+   follow-up: the **inline** discriminated union (discriminator written directly under a property,
+   not a named component) and the **allOf-inheritance** form (base object with properties plus a
+   discriminator, variants composing it with `allOf`). Both still degrade to presence-only with a
+   warning. Undiscriminated object unions stay presence-only by design (#31).
 2. **`additionalProperties: false` enforcement** (issue #30): a schema with
    `additionalProperties: false` currently emits no rule preventing extra keys. The spec intent is
    strict object shape; enforcement would reject payloads carrying undeclared properties. Tracked as a
@@ -374,10 +407,11 @@ suites are refactored; all gates green).
 
 ## Open questions (genuine design decisions)
 
-- **Discriminator-aware object-union validation and hydration** (issue #38): emit a
-  discriminator-driven cast for `oneOf` of Data classes so object unions hydrate at runtime, not just
-  type-check. Currently typed `mixed` for presence-only validation (interim fix, 0.7.0). Full
-  variant enforcement and hydration is the 1.0.0 work.
+- **Discriminator-aware object-union validation and hydration** (issue #38): **landed** for the
+  named-component `oneOf`/`anyOf` + `discriminator` form (abstract morphable base plus variants, both
+  validated and hydrated). The inline-union and allOf-inheritance discriminator forms remain
+  presence-only with a build warning, tracked as a follow-up. Undiscriminated unions stay `mixed`
+  (#31) by design.
 - **`additionalProperties: false` enforcement** (issue #30): decide whether to emit a rule rejecting
   undeclared properties. Currently a documented limitation.
 - **Component request bodies / responses as typed params**: resolve `$ref` to

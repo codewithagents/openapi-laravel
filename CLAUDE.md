@@ -41,8 +41,11 @@ corpus gate (catches unresolvable class references), composer-unused/require-che
 audit`, Deptrac architecture enforcement, and a Qodana workflow. 580 tests green; all 128 corpus
 specs generate valid PHP.
 
-**Honest residuals (documented, not hidden):** object-union (`oneOf` of Data classes) does not
-auto-hydrate in laravel-data without a discriminator; an empty `additionalProperties` map serializes
+**Honest residuals (documented, not hidden):** a **discriminated** object union (`oneOf`/`anyOf` of
+object `$ref`s with a `discriminator`, named-component form) now validates and auto-hydrates via an
+abstract morphable base plus variants (issue #38); an **undiscriminated** object union still does not
+auto-hydrate (typed `mixed`, presence-only, #31), and the inline-union and allOf-inheritance
+discriminator forms remain presence-only with a build warning; an empty `additionalProperties` map serializes
 as `[]` not `{}` (known issue, surfaced by the e2e demo); a component `$ref` request body falls back
 to `Illuminate\Http\Request` (now correctly imported) instead of a typed Data param; tuple
 `prefixItems`, int64 bounds, and non-JSON responses degrade gracefully.
