@@ -140,10 +140,12 @@ The whole loop is proven end to end: one petstore spec drives a generated Larave
     Generate abstract controllers per tag and a routes file. The routing table derives from the spec,
     so path-level drift is structurally impossible.
   </Card>
-  <Card title="Validation that is executed, not assumed" icon="star">
-    Generated rules() are run through Laravel's Validator in tests, and the test corpus is 128
-    published real-world OpenAPI documents that must parse, generate, and compile on every CI run.
-    See [Philosophy: quality is the feature](/philosophy#quality-is-the-feature).
+  <Card title="Validation that is differentially tested, not assumed" icon="star">
+    A differential oracle runs spec-valid and spec-invalid payloads through the generated rules()
+    with the real Laravel Validator: what the spec rejects, the generated rules() must reject. The
+    test corpus is 130 published real-world OpenAPI documents that must parse, generate, and
+    compile on every CI run. See
+    [Philosophy: quality is the feature](/philosophy#quality-is-the-feature).
   </Card>
   <Card title="Deterministic" icon="seti:php">
     Stable ordering everywhere. The same spec in produces byte-identical files out, so the generator
@@ -193,7 +195,7 @@ The whole loop is proven end to end: one petstore spec drives a generated Larave
 
 - **Your OpenAPI spec is the contract** and you want PHP DTOs, validation, and enums derived from it.
 - **You want to own the generated code**, not call into a runtime black box.
-- **Your spec is large or full of edge cases.** The generator is tested against 128 real-world specs on every CI run.
+- **Your spec is large or full of edge cases.** The generator is tested against 130 real-world specs on every CI run.
 
 </Aside>
 
@@ -216,7 +218,7 @@ The whole loop is proven end to end: one petstore spec drives a generated Larave
     start](/getting-started/quickstart)
   </Card>
   <Card title="GitHub" icon="github">
-    Source code, issues, and the 128-spec corpus. [View on
+    Source code, issues, and the 130-spec corpus. [View on
     GitHub](https://github.com/codewithagents/openapi-laravel)
   </Card>
 </CardGrid>
