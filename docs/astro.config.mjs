@@ -71,6 +71,7 @@ export default defineConfig({
             { label: 'Configuration', slug: 'guides/configuration' },
             { label: 'Generated output', slug: 'guides/generated-output' },
             { label: 'Server scaffold', slug: 'guides/server-scaffold' },
+            { label: 'Subset generation', slug: 'guides/subset-generation' },
             { label: 'Drift check', slug: 'guides/drift-check' },
             { label: 'Supported OpenAPI versions', slug: 'guides/openapi-versions' },
             { label: 'End-to-end demo', slug: 'guides/end-to-end-demo' },

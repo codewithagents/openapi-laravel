@@ -54,6 +54,10 @@ over config over defaults, and the standalone binary reads an optional `openapi-
 derived scaffold paths (`<output>/Controllers`, `<output>/routes.php`). The v1/v2 tier framing was
 retired from user-facing docs.
 
+### Subset generation (issue #44)
+
+`--only-tags` / `--only-schemas` (config keys `only_tags` / `only_schemas`, also in `openapi-laravel.json`) restrict a run to a slice of the spec, closed over its transitive `$ref` dependencies (properties, items, additionalProperties, allOf/oneOf/anyOf, discriminator base/variants) so the output never has a dangling reference; `--only-tags` also scopes the server scaffold to the selected operations. No selection generates the full spec byte-identically; an unknown tag/schema is a hard error. Documented in the Subset generation guide.
+
 ### Format: time and duration validation (issue #49), @deprecated docblocks (issue #43)
 
 `format: time` and `format: duration` now emit real validation (`Rfc3339TimeRule`,

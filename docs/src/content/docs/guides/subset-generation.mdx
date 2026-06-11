@@ -1,0 +1,168 @@
+---
+title: Subset generation
+description: Generate only a slice of your spec, a set of tags or component schemas, instead of every model and operation. The dependency closure guarantees the slice never has a dangling reference.
+---
+
+import { Tabs, TabItem, Aside, Steps } from '@astrojs/starlight/components'
+
+By default the generator emits a class for every component schema in your spec, plus the full server scaffold. Subset generation lets you restrict a run to a **slice**: a set of tags, a set of component schemas, or both. Everything else is left out.
+
+This is useful when one spec backs several services, when you only own a few tags of a large shared document, or when you want to regenerate a single area without churning the rest of the output.
+
+The feature is purely additive and opt in. With no selection flags, the full spec is generated exactly as before, byte for byte. Nothing changes until you ask for a subset.
+
+## The two selectors
+
+There are two independent selectors. You can use either, or both together.
+
+- **`--only-tags`** keeps every operation that carries one of the named tags, the controllers and routes for those operations, and every schema those operations reference.
+- **`--only-schemas`** keeps the named component schemas and everything reachable from them.
+
+Both accept a comma-separated list. When both are given, the result is the **union** of the two selections (plus the closure of each, see below).
+
+## The dependency-closure guarantee
+
+The selection you write is only a seed. Before anything is emitted, the generator computes the **transitive dependency closure** of that seed: selecting a schema (directly, or indirectly through an `--only-tags` operation that references it) automatically pulls in every schema reachable from it.
+
+The walk follows every `$ref` reachable from a selected schema:
+
+- object `properties` values,
+- array `items` (recursively, including arrays of arrays),
+- `additionalProperties` value schemas (the typed-map case),
+- `allOf` / `oneOf` / `anyOf` members, and
+- `discriminator.mapping` targets.
+
+It also closes over the **abstract base and variants of a discriminated union in both directions**. Selecting a base drags in all its variants (so the base's `morph()` arms all point at present classes). Selecting a single variant drags in its base **and that base's other variants** (so the variant's `extends Base` resolves and the union still hydrates). Either way the emitted union resolves.
+
+The result is a hard guarantee: **the output of a subset run never carries a dangling `$ref`, a missing union variant, or a broken `extends`.** Every type named in a generated signature resolves within the emitted set. This is proven on real specs (a `github.json` issue closure, a `stripe.json` charge closure) and across the full corpus: a tag-scoped slice of every corpus spec generates with no dangling reference.
+
+Recursion terminates. A self-referential schema (a tree node that points back at its own type) or a `$ref` cycle (`A -> B -> A`) is followed once, via a visited set, so the closure always finishes.
+
+<Aside type="tip">
+You select by **tag** or by **component-schema name**, and the closure handles the rest. You never have to hand-list a schema's dependencies. If you select `Order` and it references `Pet` which references `Tag`, you get all three.
+</Aside>
+
+## Usage
+
+<Tabs>
+<TabItem label="Artisan">
+
+Generate only the schemas reachable from `Pet`:
+
+```bash
+php artisan openapi:generate --only-schemas=Pet
+```
+
+Generate only the operations tagged `pets` and `store`, their controllers, their routes, and every schema they reference:
+
+```bash
+php artisan openapi:generate --only-tags=pets,store
+```
+
+Combine both (the union of the two selections plus each closure):
+
+```bash
+php artisan openapi:generate --only-tags=store --only-schemas=Tag
+```
+
+The same flags work on `openapi:check`, so a CI drift gate can verify just the slice it owns:
+
+```bash
+php artisan openapi:check --only-tags=pets
+```
+
+</TabItem>
+<TabItem label="Standalone binary">
+
+The framework-free binary takes the identical flags:
+
+```bash
+vendor/bin/openapi-laravel --spec=openapi.yaml --output=src/Data --only-schemas=Pet
+```
+
+```bash
+vendor/bin/openapi-laravel --spec=openapi.yaml --output=src/Data --only-tags=pets,store
+```
+
+The `check` subcommand accepts them too:
+
+```bash
+vendor/bin/openapi-laravel check --spec=openapi.yaml --output=src/Data --only-tags=pets
+```
+
+</TabItem>
+<TabItem label="Config file">
+
+Set the selection as a default in your published Laravel config. Each key accepts a comma-separated string or an array of names:
+
+```php
+// config/openapi-laravel.php
+
+'only_tags'    => 'pets,store',
+'only_schemas' => ['Pet', 'Order'],
+```
+
+Both default to an empty string, which means "generate the full spec". The keys also read from environment variables out of the box:
+
+```php
+'only_tags'    => env('OPENAPI_LARAVEL_ONLY_TAGS', ''),
+'only_schemas' => env('OPENAPI_LARAVEL_ONLY_SCHEMAS', ''),
+```
+
+For the standalone binary, the same keys live in `openapi-laravel.json`, each a comma-separated string or a JSON list:
+
+```json
+{
+  "spec": "openapi.yaml",
+  "output": { "path": "src/Data" },
+  "only_tags": "pets,store",
+  "only_schemas": ["Pet", "Order"]
+}
+```
+
+</TabItem>
+</Tabs>
+
+### Flag and config reference
+
+| Selector | Artisan / standalone flag | Laravel config key | `openapi-laravel.json` key |
+| --- | --- | --- | --- |
+| Tags | `--only-tags=<list>` | `only_tags` | `only_tags` |
+| Schemas | `--only-schemas=<list>` | `only_schemas` | `only_schemas` |
+
+A flag overrides its config key for that run. Names are trimmed and duplicates collapse, so `--only-tags=pets, store ,pets` resolves to `pets,store`.
+
+## Interaction with the server scaffold
+
+The server scaffold is generated by default (see [Server scaffold](/guides/server-scaffold)). When you use `--only-tags`, the scaffold is **restricted to the selected operations**: only the controllers for those tags are emitted, and the routes file lists only those operations. Operations carrying a tag you did not select are left out of both the controllers and the routes.
+
+For example, `--only-tags=pets` on a spec with `pets` and `store` operations emits `AbstractPetsController` and routes for `/pets`, but not `AbstractStoreController` and not the `/orders` routes.
+
+`--only-schemas` selects model classes by schema; it does not by itself drive the operation set, so combine it with `--only-tags` when you want the scaffold scoped too. The scaffold opt-outs (`--no-controllers`, `--no-routes`) compose with subset selection as usual.
+
+## The default: no selection means the full spec
+
+A run with no `--only-tags` and no `--only-schemas` (and empty config keys) generates **every** component schema and the full scaffold, byte-identical to a run from before this feature existed. The empty selection is the explicit "generate everything" sentinel. Subset generation never changes the default output; it only activates when you opt in.
+
+## A name that matches nothing is a hard error
+
+A selected tag or schema name that does not exist in the spec is treated as a **configuration error**, not a silent empty slice. A typo, or a stale flag left over after a spec change, fails loudly so you notice it.
+
+- An unknown **schema** name (one that is not a component schema in the spec) fails the run.
+- An unknown **tag** name (one that no operation carries) fails the run.
+
+The message lists exactly what did not match, for example:
+
+```
+Subset selection matched nothing for schema(s) Ghost. Check --only-schemas / --only-tags against the spec (names are case-sensitive); nothing was generated.
+```
+
+Names are **case-sensitive** and must match the spec exactly. When a selection matches nothing, **no files are written.** On the artisan `openapi:generate` command, on `openapi:check`, and on the standalone binary alike, this is a configuration error and the run exits non-zero (exit `1` on generate, exit `2` on check and on the standalone binary's option-validation path).
+
+<Aside type="caution">
+If you select multiple names and only one is unknown, the whole run still fails. Fix the bad name (or remove it) so the selection resolves cleanly.
+</Aside>
+
+## Determinism
+
+A subset run is byte-stable regardless of selection order. The kept-schema set and the kept-operation set are both sorted internally, so `--only-schemas=Pet,Order` and `--only-schemas=Order,Pet` produce identical output. This keeps subset generation compatible with the [drift check](/guides/drift-check): a committed slice stays in sync as long as the spec and the selection do not change.
