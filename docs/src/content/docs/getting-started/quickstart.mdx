@@ -5,7 +5,7 @@ description: Go from an OpenAPI spec to generated laravel-data classes in a few 
 
 import { Steps, Tabs, TabItem, Card, CardGrid, Aside } from '@astrojs/starlight/components'
 
-This guide takes you from a spec file to generated Data classes. There are two ways to run the generator: the **artisan command** inside a Laravel app, and the **standalone binary** for anything else.
+This guide takes you from a spec file to a working, typed Laravel slice: models, validation, controllers, routes, and a CI gate that keeps them in sync. There are two ways to run the generator: the **artisan command** inside a Laravel app, and the **standalone binary** for anything else.
 
 ## In a Laravel app
 
@@ -13,19 +13,34 @@ This guide takes you from a spec file to generated Data classes. There are two w
 
 1. **Install the runtime peer and the generator.**
 
-   The generated classes extend `Spatie\LaravelData\Data`, so `spatie/laravel-data` v4 is a runtime
+   The generated classes extend `Spatie\LaravelData\Data`, so `spatie/laravel-data` is a runtime
    dependency of your app. Without it, a fresh app hits fatal autoload errors as soon as it loads a
    generated class. The generator itself is a dev dependency.
 
    ```bash
-   composer require spatie/laravel-data:^4.0
+   composer require spatie/laravel-data:^4.15
    composer require --dev codewithagents/openapi-laravel
    ```
 
-2. **Generate from your spec.**
+2. **Generate from your spec. One command, full output.**
 
    ```bash
    php artisan openapi:generate --spec=openapi.yaml --output=app/Data
+   ```
+
+   For the classic Petstore spec, this is what appears on disk:
+
+   ```
+   app/Data/PetData.php                                  laravel-data class + spec-derived rules()
+   app/Data/CategoryData.php
+   app/Data/TagData.php
+   app/Data/OrderData.php
+   app/Data/UserData.php
+   app/Data/ApiResponseData.php
+   app/Http/Controllers/Api/AbstractPetController.php    one abstract controller per tag
+   app/Http/Controllers/Api/AbstractStoreController.php
+   app/Http/Controllers/Api/AbstractUserController.php
+   routes/api.generated.php                              one Route:: entry per operation
    ```
 
    The output namespace comes from `config/openapi-laravel.php` (`output.namespace`, default
@@ -36,9 +51,44 @@ This guide takes you from a spec file to generated Data classes. There are two w
    php artisan openapi:generate
    ```
 
-3. **Review and commit the output.**
+   Want models only? Pass `--no-controllers --no-routes` (see the
+   [precedence rules](/guides/configuration#precedence-flags-beat-config-config-beats-defaults)).
 
-   The command writes one Data class per schema (plus enums and write variants where the spec needs them) into your output directory, one `Abstract{Tag}Controller` per OpenAPI tag into `app/Http/Controllers/Api`, and a `routes/api.generated.php` file. Read the diff, commit it, and extend the abstract controllers with your business logic. Want models only? Pass `--no-controllers --no-routes` (see the [precedence rules](/guides/configuration#precedence-flags-beat-config-config-beats-defaults)).
+3. **Wire up a controller.**
+
+   Each generated `Abstract{Tag}Controller` declares one abstract method per operation, typed by the
+   Data classes. You extend it; an unimplemented operation is a PHP fatal, not a silent gap:
+
+   ```php
+   final class PetController extends AbstractPetController
+   {
+       public function getPetById(int $petId): PetData
+       {
+           return PetData::from(Pet::findOrFail($petId));
+       }
+
+       // ... the abstract class forces you to implement the rest
+   }
+   ```
+
+   Then include the generated routes file from `routes/api.php`:
+
+   ```php
+   require base_path('routes/api.generated.php');
+   ```
+
+   See the [server scaffold guide](/guides/server-scaffold) for the full walkthrough.
+
+4. **Review, commit, and add the drift gate to CI.**
+
+   The output is deterministic, so commit it like any other code. Then make CI fail whenever the
+   committed files and the spec disagree:
+
+   ```bash
+   php artisan openapi:check        # exit 0 in sync, 1 drift, 2 config error
+   ```
+
+   See the [drift-check guide](/guides/drift-check) for a ready-made GitHub Actions job.
 
 </Steps>
 

@@ -75,8 +75,8 @@ export default defineConfig({
             { label: 'Supported OpenAPI versions', slug: 'guides/openapi-versions' },
             { label: 'End-to-end demo', slug: 'guides/end-to-end-demo' },
             { label: 'Limitations', slug: 'guides/limitations' },
-            { label: 'Versioning & upgrades (draft)', slug: 'guides/versioning-policy' },
-            { label: 'Runtime coupling (draft)', slug: 'guides/runtime-coupling' },
+            { label: 'Versioning & upgrades', slug: 'guides/versioning-policy' },
+            { label: 'Runtime coupling', slug: 'guides/runtime-coupling' },
           ],
         },
         {
@@ -84,7 +84,7 @@ export default defineConfig({
           items: [
             { label: 'How it compares', slug: 'comparison' },
             { label: 'Philosophy', slug: 'philosophy' },
-            { label: 'Roadmap & limitations', slug: 'roadmap' },
+            { label: 'Roadmap & release history', slug: 'roadmap' },
           ],
         },
       ],

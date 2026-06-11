@@ -23,7 +23,7 @@ A stability promise is only meaningful against a declared input surface. This pa
 
 ## What "supported" covers
 
-Across both 3.0.x and 3.1.0, the generator handles the common modeling surface: object schemas with `properties`, `$ref`s between component schemas, `allOf` composition (merged into a flat class), `additionalProperties` maps, `oneOf` / `anyOf` (scalar unions emit native PHP unions, object unions are presence-only), enums (native PHP backed enums), arrays and nested objects (`DataCollection`), the readOnly / writeOnly split, and scalar constraints (`minLength`, `maxLength`, `pattern`, `format`, `minimum` / `maximum`, `exclusiveMinimum` / `exclusiveMaximum`, `multipleOf`, `uniqueItems`, `enum`, `const`, `default`). The [limitations guide](/guides/limitations) documents the exact behavior and the honest residuals for each.
+Across both 3.0.x and 3.1.0, the generator handles the common modeling surface: object schemas with `properties`, `$ref`s between component schemas, `allOf` composition (merged into a flat class), `additionalProperties` maps, `oneOf` / `anyOf` (scalar unions emit native PHP unions, discriminated object unions are validated and hydrated, undiscriminated ones are presence-only), enums (native PHP backed enums), arrays and nested objects (`DataCollection`), the readOnly / writeOnly split, and scalar constraints (`minLength`, `maxLength`, `pattern`, `format`, `minimum` / `maximum`, `exclusiveMinimum` / `exclusiveMaximum`, `multipleOf`, `uniqueItems`, `enum`, `const`, `default`). The [limitations guide](/guides/limitations) documents the exact behavior and the honest residuals for each.
 
 The matrix below is only about what differs **between** the two versions, since that is where a "which version is supported" question actually bites.
 
@@ -77,7 +77,7 @@ Some generators (across both versions) emit numeric keywords or the `nullable` f
 - **`webhooks`** (the 3.1 top-level `webhooks` object). The generator does not emit controllers, routes, or Data classes from `webhooks`. Only `paths` drives the server scaffold. A spec with `webhooks` still generates cleanly from its `components` and `paths`; the `webhooks` entries are simply not a generation source.
 - **Tuple `prefixItems`**. A positional tuple degrades to `array<int, mixed>` rather than a per-position typed structure. See the [roadmap](/roadmap) and [limitations](/guides/limitations).
 - **Advanced JSON Schema applicators** beyond `allOf` / `oneOf` / `anyOf`: `if` / `then` / `else`, `not`, `dependentSchemas`, `patternProperties`, and `unevaluatedProperties` are not translated into rules. A schema using them still generates a class from its plain `properties`; the conditional or pattern constraints are not enforced.
-- **`additionalProperties: false`** is not enforced (standard Laravel has no rule to reject unknown keys on a nested structure). See [additionalProperties: false](/guides/limitations#additionalproperties-false).
+- **`additionalProperties: false`** is not enforced by default (lenient keeps contract evolution safe), but the opt-in `--enforce-closed-objects` flag rejects undeclared keys. See [additionalProperties: false](/guides/limitations#additionalproperties-false-enforceable-via-an-opt-in-flag).
 
 These are completeness gaps, not crashes. Even a schema that leans on an unsupported feature produces code that parses and compiles; the unsupported part is simply not represented in the generated rules.
 
@@ -90,4 +90,4 @@ The parser is invoked with full OpenAPI validation **off** by default. It applie
 - **OpenAPI 3.0.x and 3.1.0 are supported.** Both are pinned by a conformance fixture and exercised by the 130-spec corpus.
 - **Swagger 2.0 and any non-3.x document are rejected** with a clear, named error.
 - **The 3.0 and 3.1 spellings** of nullability and exclusive bounds are normalized to one code path; boolean `items`, multi-type arrays, and `const` are 3.1-only constructs that are handled.
-- **`webhooks`, tuple `prefixItems`, advanced JSON Schema applicators, and `additionalProperties: false`** are the declared 3.1 boundaries: not generated from or not enforced, by design, and documented here and in [Limitations](/guides/limitations).
+- **`webhooks`, tuple `prefixItems`, and advanced JSON Schema applicators** are the declared 3.1 boundaries: not generated from or not enforced, by design. **`additionalProperties: false`** is lenient by default and enforceable via the opt-in `--enforce-closed-objects` flag. All documented here and in [Limitations](/guides/limitations).

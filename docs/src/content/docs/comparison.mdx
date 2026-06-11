@@ -15,11 +15,11 @@ The Laravel ecosystem is full of **code-first** tools that generate an OpenAPI d
 |---|---|---|---|---|
 | Direction | **Spec to code** | Code to spec | Spec to code | n/a |
 | Generates laravel-data DTOs | **Yes** | No | No (custom DTOs) | You do |
-| Spec-derived validation `rules()` | **Yes** | No | Partial | You do |
+| Spec-derived validation `rules()` | **Yes**, differentially tested against the spec | No | Partial | You do |
 | Native PHP enums | **Yes** | No | No | You do |
 | Server scaffold (abstract controllers + routes) | **Yes** (default) | No | Yes | You do |
 | `allOf` / `additionalProperties` | **Yes** | n/a | Partial | You do |
-| `oneOf` / `anyOf` | **Union type hints** (object unions need a discriminator at runtime) | n/a | Partial | You do |
+| `oneOf` / `anyOf` | **Yes**: scalar union type hints; discriminated object unions validated and hydrated; undiscriminated ones presence-only | n/a | Partial | You do |
 | Minimum Laravel version | **11** | 9+ | 10+ | n/a |
 | Runtime peer dependency | `spatie/laravel-data` v4 | none | own DTO layer | none |
 | Standard OpenAPI (no custom extensions) | **Yes** | Yes | No (custom OAS) | n/a |
@@ -27,7 +27,7 @@ The Laravel ecosystem is full of **code-first** tools that generate an OpenAPI d
 | Runs without Laravel (CI) | **Yes** (bin) | No | No | n/a |
 | Drift detection in CI | **Yes** (`openapi:check`, byte-level, exit 1 on drift in generator-owned files) | n/a (spec is generated from code) | No | Manual review |
 
-The `oneOf` / `anyOf` cell is honest: the generator emits native PHP union type hints where the members resolve, but an **object union** (`CatData|DogData`) does not auto-hydrate at runtime without a `discriminator`. See the [limitations page](/guides/limitations#oneof-and-anyof-emit-union-types).
+The `oneOf` / `anyOf` cell is honest: scalar unions get native PHP union type hints, and an object union **with** a `discriminator` is validated against the selected variant and hydrated polymorphically at runtime. An **undiscriminated** object union (`CatData|DogData` with no discriminator) stays presence-only and does not auto-hydrate. See the [limitations page](/guides/limitations#oneof-and-anyof-emit-union-types).
 
 The `spatie/laravel-data` v4 runtime peer is a real adoption cost: the generated DTOs are laravel-data classes, so your app takes on that dependency and its conventions, and you need Laravel 11 or newer.
 

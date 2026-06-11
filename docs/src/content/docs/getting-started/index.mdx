@@ -7,18 +7,19 @@ import { Aside, Card, CardGrid } from '@astrojs/starlight/components'
 
 Hand-written DTOs, validation rules, and controllers drift from the API contract silently. Nobody notices the missing `nullable`, the renamed wire field, or the new enum case until production rejects a valid payload, or a consumer files the bug for you. The spec already states every one of those shapes; the drift exists only because humans re-type them.
 
-`openapi-laravel` makes the spec the source of truth and regeneration the sync mechanism. It reads an OpenAPI 3.0 or 3.1 document and generates [spatie/laravel-data](https://github.com/spatie/laravel-data) classes with explicit, spec-derived `rules()` methods, plus native PHP enums. The output is readable, deterministic PHP that lives in your repo and looks like code you would have written yourself.
+`openapi-laravel` makes the spec the source of truth and regeneration the sync mechanism. It reads an OpenAPI 3.0 or 3.1 document and, out of the box, generates [spatie/laravel-data](https://github.com/spatie/laravel-data) classes with explicit, spec-derived `rules()` methods, native PHP enums, one abstract controller per tag, and a routes file. The output is readable, deterministic PHP that lives in your repo and looks like code you would have written yourself.
 
 ## Spec-first, not code-first
 
 The Laravel ecosystem is full of code-first tools that generate an OpenAPI document from your controllers and annotations. This tool goes the other way: the spec is the contract, and your models derive from it.
 
 ```
-openapi.yaml  →  openapi-laravel  →  app/Data/*.php
-(the contract)    (the generator)     (laravel-data classes, rules(), enums)
+openapi.yaml  →  openapi-laravel  →  app/Data/*.php                       (laravel-data classes, rules(), enums)
+(the contract)    (the generator)     app/Http/Controllers/Api/Abstract*  (one abstract controller per tag)
+                                      routes/api.generated.php            (one route per operation)
 ```
 
-When the spec changes, you re-run the generator and review the diff. There is no second source of truth to keep aligned by hand.
+When the spec changes, you re-run the generator and review the diff. There is no second source of truth to keep aligned by hand, and the [drift gate](/guides/drift-check) (`openapi:check`) fails CI if anyone forgets.
 
 ## What it generates
 
@@ -31,7 +32,7 @@ When the spec changes, you re-run the generator and review the diff. There is no
 - **Nested objects** become nested Data classes; **arrays** become `#[DataCollectionOf]` typed collections.
 - **Nullability** is handled for both 3.0 `nullable` and 3.1 `type: [..., 'null']`.
 - **readOnly / writeOnly** produce a read variant and a write variant, only when the spec uses the flags.
-- **Composition** is handled: `allOf` is merged into one flat class, `additionalProperties` becomes a typed map (`array<string, X>`) with per-value rules, and `oneOf` / `anyOf` emit native PHP union types (`string|int`, `CatData|DogData`) with a deterministic `mixed` fallback. See the [limitations guide](/guides/limitations) for the exact behaviour and residuals.
+- **Composition** is handled: `allOf` is merged into one flat class, `additionalProperties` becomes a typed map (`array<string, X>`) with per-value rules, and `oneOf` / `anyOf` emit native PHP union types for scalars (`string|int`); a discriminated object union is validated and hydrated via an abstract morphable base, with a deterministic `mixed` fallback for the messy cases. See the [limitations guide](/guides/limitations) for the exact behaviour and residuals.
 
 ### Server scaffold: controllers and routes
 
@@ -55,7 +56,10 @@ Want models only? Opt out with `--no-controllers --no-routes` or via `controller
     Every option in `config/openapi-laravel.php`. [Configuration](/guides/configuration)
   </Card>
   <Card title="Server scaffold" icon="right-arrow">
-    Generate abstract controllers and a routes file. [Server scaffold](/guides/server-scaffold)
+    How the default controllers and routes work. [Server scaffold](/guides/server-scaffold)
+  </Card>
+  <Card title="Drift check" icon="approve-check-circle">
+    Fail CI when generated code and spec disagree. [Drift check](/guides/drift-check)
   </Card>
   <Card title="End-to-end demo" icon="approve-check-circle">
     One spec, a generated Laravel backend and a generated TypeScript client, proven over real HTTP.

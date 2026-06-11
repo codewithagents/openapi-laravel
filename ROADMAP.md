@@ -1,21 +1,17 @@
 # Roadmap
 
-Status: **0.6.0 released on Packagist; 0.7.0 (correctness and robustness hardening) prepared.**
-The v1 models generator and v2 server scaffold are shipped. 0.3.0 added composition keywords
-(allOf merge, additionalProperties maps), a full security-hardening pass, and edge-case fixes mined
-from the openapi-zod-ts sibling history. 0.4.0 shipped **oneOf/anyOf union types** and a
-**cross-language end-to-end demo** (`e2e/`), with the full browser loop green. 0.5.0 was a
-correctness-and-robustness pass: a large **silent-validation** sweep, **non-object component
-aliasing** (no more empty Data classes), **parser hardening**, and broader CI tooling. 0.6.0 is the
-enforcement pass: the **drift-check command**, the **conformance golden test**, and the array-of-union
-DataCollectionOf fix (bug #24). 0.7.0 is a second correctness-and-robustness wave: the
-**differential validation oracle**, nested-array depth rules, string-typed-scalar coercion, a
-per-property required warning, hostname enforcement, the object-union false-reject fix, and a
-large real-world corpus sweep. The version target stays deliberately in 0.x, not 1.0.0: we stay in
-0.x while the generated output format is still evolving, and tag 1.0.0 (the API-stability promise)
-only when the feature set settles.
+Status: **0.8.0 released on Packagist.**
+A plain `php artisan openapi:generate` (or `vendor/bin/openapi-laravel`) now generates the full
+slice out of the box: Data model classes with spec-derived `rules()`, native enums, one abstract
+controller per tag, and a routes file. `--no-controllers` / `--no-routes` opt out, settings resolve
+with strict precedence (CLI flags over config file over built-in defaults), and the standalone
+binary reads an optional `openapi-laravel.json`. The drift gate (`openapi:check`) and the
+differential validation oracle are permanent quality layers. Release-by-release history is below.
+The version target stays deliberately in 0.x, not 1.0.0: we stay in 0.x while the generated output
+format is still evolving, and tag 1.0.0 (the output-stability promise) only when the format
+settles.
 
-## Done since 0.7.0 (toward 1.0.0)
+## Done in 0.8.0 (released)
 
 ### Discriminator-aware object unions (issue #38)
 
@@ -51,8 +47,8 @@ a fully-enforced discriminated case with no known-gap entry. The undiscriminated
 `openapi:generate` / `openapi:check` and the standalone binary now emit and check models,
 controllers, and routes by default. `--no-controllers` / `--no-routes` opt out, precedence is flags
 over config over defaults, and the standalone binary reads an optional `openapi-laravel.json` with
-derived scaffold paths (`<output>/Controllers`, `<output>/routes.php`). The v1/v2 tier framing was
-retired from user-facing docs.
+derived scaffold paths (`<output>/Controllers`, `<output>/routes.php`). The internal tier framing
+was retired from user-facing docs: the product is one coherent generator.
 
 ### Format: time and duration validation (issue #49), @deprecated docblocks (issue #43)
 
@@ -60,6 +56,29 @@ retired from user-facing docs.
 `Iso8601DurationRule`) instead of silently accepting any string, closing a fidelity blind spot the
 golden harness was not asserting. Deprecated schemas and properties now carry `@deprecated`
 docblocks (with an optional reason from the `x-deprecated-reason` vendor extension).
+
+### Opt-in additionalProperties: false enforcement (issue #30)
+
+A schema declaring `additionalProperties: false` can now reject undeclared keys via a
+`NoUnknownPropertiesRule`, opted in with `--enforce-closed-objects` (or
+`enforce_closed_objects` in the Laravel config). The default stays lenient on purpose: strict
+rejection has a forward-compatibility hazard (a producer adding a field breaks a consumer that has
+not regenerated), so the default build's output is byte-identical to before.
+
+### Config output-path containment (issue #54)
+
+The standalone binary auto-discovers `openapi-laravel.json` from the working directory, so a hostile
+config committed to a cloned repository could redirect generated-file writes. Every write path
+sourced from a config file (`output.path`, `controllers.path`, `routes.path`) is now contained to
+the directory the config lives in; a `..` traversal, an absolute escape, or a symlinked-parent
+escape fails closed before anything is written. CLI flags keep full freedom by design.
+
+### Real-world fidelity reports verified fixed (issues #48 to #53)
+
+Six fidelity reports from running the generator against a large real-world spec (nullable rules
+matching the nullable type, `format: time`, integer typing, `#[MapName]` coverage, `Route::patch()`
+for PATCH operations, request/response type consistency) were each verified fixed against the
+0.8.0 output and closed.
 
 ## Done in 0.7.0 (correctness and robustness hardening)
 
@@ -103,13 +122,12 @@ accepted). It now enforces RFC 1123 hostname syntax via a dedicated rule, and th
 redundant `string` rule was removed. `idn-hostname` remains lenient (a non-empty, no-whitespace
 check) to avoid wrongly rejecting valid unicode domain labels.
 
-### Undiscriminated object-union interim fix (issue #31)
+### Undiscriminated object-union false-reject fix (issue #31)
 
 An undiscriminated `oneOf` of object refs is now typed `mixed` with presence-only validation, so
 every valid variant is accepted and no valid non-first variant is false-rejected. The variant union
-is preserved in the `@var` docblock. Full discriminator-aware variant validation and hydration is
-tracked as 1.0.0 work (issue #38). See also the limitations documentation updated by the prior
-release.
+is preserved in the `@var` docblock. Discriminator-aware variant validation and hydration for the
+named-component form shipped in 0.8.0 (issue #38, see "Done in 0.8.0" above).
 
 ### Real-world corpus robustness sweep
 
@@ -315,7 +333,7 @@ upstream as openapi-zod-ts #289 (https://github.com/codewithagents/openapi-zod-t
 models and a server scaffold from it. The sibling of `openapi-zod-ts` (same author, same philosophy:
 owned output, readable generated code, zero magic) for the Laravel ecosystem.
 
-Quality bar: valid, PHPStan-max-clean output for all 128 real-world specs in
+Quality bar: valid, PHPStan-max-clean output for all 130 real-world specs in
 `tests/Fixtures/specs/`, with the import-resolution gate, before anything ships.
 
 ## Market context (researched 2026-06-10)
@@ -340,43 +358,52 @@ Quality bar: valid, PHPStan-max-clean output for all 128 real-world specs in
    real-world edge cases to verify against this generator, independent of the corpus.
 8. **Stay in 0.x now, 1.0.0 when out of ideas.** Tag 1.0.0 only when the output format settles.
 
-## Versions
+## Feature areas
 
-### v1: Models [shipped]
+### Models [shipped]
 laravel-data classes, spec-derived rules(), backed enums, readOnly/writeOnly split, nested objects,
-collections, allOf merge, additionalProperties maps, oneOf/anyOf unions, the naming layer (incl. the
-`this` special case), determinism. Artisan command plus framework-free `vendor/bin`.
+collections, allOf merge, additionalProperties maps, oneOf/anyOf unions (including discriminated
+object unions, validated and hydrated), the naming layer (incl. the `this` special case),
+determinism. Artisan command plus framework-free `vendor/bin`.
 
-### v2: Server scaffold [shipped in 0.2.0]
+### Server scaffold [shipped, generated by default since 0.8.0]
 Generated routes + one abstract controller per tag, typed by the Data classes. Unimplemented = PHP
 fatal. Path-level drift structurally impossible. Remaining limitation: a component `$ref` request
 body falls back to `Illuminate\Http\Request` (now correctly imported) instead of a typed Data param.
 
-### v3 (maybe): client generation (`Http::` based). Decide later.
+### Client generation [maybe, decide later]
 The forward expansion: generate a typed PHP client for *consuming* a third-party or internal API
 (e.g. a typed PayPal/Stripe/microservice client) from its spec, built on the `Http::` facade. Decide
 later, not a near-term commitment.
 
 ## Next work (toward 1.0.0)
 
-With 0.7.0 the enforcement and correctness layers are in place: drift is a CI gate, the differential
-oracle guards every emitted constraint, and the large real-world corpus sweep has found no generator
-bugs. The remaining open items before 1.0.0 are runtime correctness and format stability.
+With 0.8.0 the enforcement and correctness layers are in place: the full output ships by default,
+drift is a CI gate, the differential oracle guards every emitted constraint, and the large
+real-world corpus sweep has found no generator bugs. The remaining open items before 1.0.0 are
+runtime self-containment and format stability.
 
-1. **Discriminator-aware object-union validation and hydration** (issue #38): **landed** for the
-   named-component `oneOf`/`anyOf` + `discriminator` form (see "Done since 0.7.0" above). Remaining
-   follow-up: the **inline** discriminated union (discriminator written directly under a property,
-   not a named component) and the **allOf-inheritance** form (base object with properties plus a
-   discriminator, variants composing it with `allOf`). Both still degrade to presence-only with a
-   warning. Undiscriminated object unions stay presence-only by design (#31).
-2. **`additionalProperties: false` enforcement** (issue #30): a schema with
-   `additionalProperties: false` currently emits no rule preventing extra keys. The spec intent is
-   strict object shape; enforcement would reject payloads carrying undeclared properties. Tracked as a
-   documented limitation until the enforcement strategy is decided.
-3. **Small follow-ups**: richer error messages on bad input, `$ref`-valued request bodies as typed
-   Data params instead of the `Request` fallback.
-4. **Cross-repo follow-up**: the openapi-zod-ts `Accept: application/json` gap (issue #289), surfaced
+1. **Inline the support classes into the consumer's output** (issue #40, decided, the planned
+   headline of the next release): emit the seven support classes into the consumer's own namespace
+   so generated code has no runtime dependency on the generator package.
+2. **Remaining discriminator forms** (issue #38): the named-component `oneOf`/`anyOf` +
+   `discriminator` form **landed in 0.8.0** (see "Done in 0.8.0" above). Remaining follow-up: the
+   **inline** discriminated union (discriminator written directly under a property, not a named
+   component) and the **allOf-inheritance** form (base object with properties plus a discriminator,
+   variants composing it with `allOf`). Both still degrade to presence-only with a warning.
+   Undiscriminated object unions stay presence-only by design (#31).
+3. **Subset generation** (issue #44): `--only-tags` / `--only-schemas` with dependency closure, for
+   generating a slice of a very large spec.
+4. **Small follow-ups**: richer error messages on bad input, `$ref`-valued request bodies as typed
+   Data params instead of the `Request` fallback, `@deprecated` docblocks on abstract controller
+   methods for deprecated operations (the remaining part of #43).
+5. **Cross-repo follow-up**: the openapi-zod-ts `Accept: application/json` gap (issue #289), surfaced
    by the e2e demo. Fix lives in the sibling repo, not here.
+
+**What 1.0.0 means:** the output-stability promise, per the adopted versioning policy (#41).
+Intentional output-shape and validation changes become major-only; correctness patches may ship in a
+patch with an explicit changelog call-out. 1.0.0 is tagged when the generated output format settles,
+not on a feature count.
 
 ### 1.0.0 readiness docs (issues #40, #41, #42)
 
@@ -451,7 +478,7 @@ known-gap ratchet documents acknowledged gaps. Regression fixtures for the sibli
 cases. Pest native mutation (>=90%), 100% type coverage, PHPStan max, Pint. The e2e demo adds
 real-HTTP round-trip proofs across the language boundary, plus a Playwright headless-Chrome suite
 that drives the full browser -> SPA -> generated client -> backend loop against a docker-compose
-stack. Current totals: 580 package tests passing (the number fluctuates as parameterized corpus
+stack. Current totals: 1021 package tests passing (the number fluctuates as parameterized corpus
 suites are refactored; all gates green).
 
 ## Open questions (genuine design decisions)
@@ -472,8 +499,10 @@ suites are refactored; all gates green).
   validated and hydrated). The inline-union and allOf-inheritance discriminator forms remain
   presence-only with a build warning, tracked as a follow-up. Undiscriminated unions stay `mixed`
   (#31) by design.
-- **`additionalProperties: false` enforcement** (issue #30): decide whether to emit a rule rejecting
-  undeclared properties. Currently a documented limitation.
+- **`additionalProperties: false` enforcement** (issue #30): the opt-in `--enforce-closed-objects`
+  flag / `enforce_closed_objects` config key shipped in 0.8.0. Remaining decision: whether the
+  default ever flips. Lenient stays the default for now, because strict rejection breaks contract
+  evolution for consumers that have not regenerated.
 - **Component request bodies / responses as typed params**: resolve `$ref` to
   `#/components/requestBodies/...` into a typed Data parameter instead of the `Request` fallback.
 - **Map-of-`$ref` value hydration**: a `$ref`-valued `additionalProperties` map is typed in the
@@ -486,8 +515,11 @@ component aliasing, the silent-validation gaps (0.5.0 sweep plus 0.7.0 oracle-dr
 the parser boolean-items/OOM cases, the security surfaces, the two sibling-history bugs, the
 array-of-union DataCollectionOf bug (#24), the drift-check enforcement layer, the differential
 validation oracle (#23), nested-array depth rules (#28), string-typed scalar coercion (#32, #33),
-per-property required diagnostic (#34), and hostname enforcement (#29) are all implemented. The
-undiscriminated object-union false-reject is fixed (#31, interim). The cross-language contract loop
-is proven end to end over real HTTP, including the browser-driven Playwright suite; discriminator-
-aware object-union runtime hydration and `additionalProperties: false` enforcement are the
-remaining open cases. Floors are PHP 8.2 + Laravel 11/12 + laravel-data v4.
+per-property required diagnostic (#34), hostname enforcement (#29), default full generation (#45),
+discriminated object-union validation and hydration for the named-component form (#38), opt-in
+`additionalProperties: false` enforcement (#30), and config output-path containment (#54) are all
+implemented. The undiscriminated object-union false-reject is fixed (#31). The cross-language
+contract loop is proven end to end over real HTTP, including the browser-driven Playwright suite.
+The remaining open cases are the inline and allOf-inheritance discriminator forms (#38) and the
+support-class inlining (#40). Floors are PHP 8.2 + Laravel 11/12 + laravel-data v4 (^4.15 for the
+morphable discriminated unions).

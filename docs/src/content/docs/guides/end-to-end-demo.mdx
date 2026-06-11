@@ -101,20 +101,20 @@ The shared spec is a "petstore-plus": the stock petstore with extra fields added
 
 Because the spec uses `readOnly` and `writeOnly`, the generator emits the read/write split: `PetData` (the response shape, with `created_at` and without `secret_note`) and `PetWritableData` (the request shape, with `secret_note` and without `created_at`). The generated `AbstractPetController::addPet` therefore takes a `PetWritableData` and returns a `PetData`, exactly the typing described in the [server scaffold guide](/guides/server-scaffold).
 
-The `external_id` field exercises the `oneOf` / `anyOf` support. A scalar union is chosen deliberately: an object union cannot auto-hydrate in `laravel-data` without a `discriminator` (a documented residual), whereas a scalar union round-trips cleanly and proves the union path end to end.
+The `external_id` field exercises the `oneOf` / `anyOf` support. A scalar union is chosen deliberately: an **undiscriminated** object union does not auto-hydrate in `laravel-data` (a documented residual; a union with a `discriminator` is validated and hydrated, see the [limitations page](/guides/limitations#discriminated-object-unions-are-validated-and-hydrated)), whereas a scalar union round-trips cleanly and proves the union path end to end.
 
 ## What the demo found
 
 Running both generators together against one spec is not just a victory lap. It surfaced two real, honest findings that only a live cross-language round trip exposes, which is the whole point of running one.
 
-**1. An empty map serializes as `[]`, not `{}` (an openapi-laravel finding).** An **empty** `additionalProperties` map round-trips as a JSON array `[]`, not an object `{}`:
+**1. An empty map serialized as `[]`, not `{}` (an openapi-laravel finding, since fixed).** An **empty** `additionalProperties` map round-tripped as a JSON array `[]`, not an object `{}`:
 
 ```bash
 # POST a pet with "attributes": {}
 # 201 -> "attributes":[]
 ```
 
-This is the classic PHP ambiguity: an empty associative array is indistinguishable from an empty list, so `json_encode` emits `[]`. A non-empty map encodes correctly as an object, and a `null` stays `null`. A strict typed client expecting `Record<string, string>` would see an array for the empty case. The demo surfaces this rather than papering over it, and it is tracked as a candidate fix (a cast that forces object encoding) on the [limitations page](/guides/limitations#additionalproperties-is-represented-as-a-typed-map).
+This is the classic PHP ambiguity: an empty associative array is indistinguishable from an empty list, so `json_encode` emits `[]`. A non-empty map encoded correctly as an object, and a `null` stayed `null`, only the empty case was wrong, and only a strict typed client expecting `Record<string, string>` would notice. The fix shipped in 0.5.0: every map-typed property now carries a transformer that forces `{}` for the empty case. See the [limitations page](/guides/limitations#additionalproperties-is-represented-as-a-typed-map).
 
 **2. The generated client omits the `Accept` header (an openapi-zod-ts finding).** The generated openapi-zod-ts client does not send an `Accept: application/json` header. When a browser fetch carries no explicit `Accept`, the browser default is `text/html,...`, so Laravel's `$request->wantsJson()` returns false and its error path returns an HTML redirect instead of a `422` JSON response. That broke every state-changing request (POST, PUT, DELETE) in the browser until the demo backend added a small `ForceJsonAccept` middleware that sets `Accept: application/json` on every inbound API request.
 
