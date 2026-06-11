@@ -55,8 +55,8 @@ final class CustomerData extends Data
 ```
 
 Sibling project of [openapi-zod-ts](https://github.com/codewithagents/openapi-zod-ts), which does the
-same for TypeScript. Both are tested against the same corpus of 128 real-world public API documents
-(detailed in [Why quality matters](#why-quality-matters) below).
+same for TypeScript. Both are tested against a shared corpus of real-world public API documents,
+130 specs on this side (detailed in [Why quality matters](#why-quality-matters) below).
 
 The generated classes extend `Spatie\LaravelData\Data`, so
 [spatie/laravel-data](https://github.com/spatie/laravel-data) v4 is a **runtime peer dependency of
@@ -366,7 +366,7 @@ Those are excellent if your code is the source of truth. This tool is for the ot
 |---|---|---|---|---|
 | Direction | **Spec → code** | Code → spec | Spec → code | n/a |
 | Generates laravel-data DTOs | **Yes** | No | No (custom DTOs) | You do |
-| Spec-derived validation `rules()` | **Yes** | No | Partial | You do |
+| Spec-derived validation `rules()` | **Yes**, differentially tested against the spec | No | Partial | You do |
 | Native PHP enums | **Yes** | No | No | You do |
 | Server scaffold (abstract controllers + routes) | **Yes** (opt-in) | No | Yes | You do |
 | `allOf` / `additionalProperties` | **Yes** | n/a | Partial | You do |
@@ -469,16 +469,20 @@ model and operator boundaries.
 A code generator has a wide blast radius: a subtle regression touches every project that runs it.
 These are the layers that catch problems before they reach you.
 
-- **Generated validation is executed, not just compiled.** Behavioral round-trip tests load the
-  generated classes into a real Laravel app (Orchestra Testbench) and run real payloads through
-  Laravel's Validator: valid payloads pass, while a missing required field, a malformed email, and a
-  below-minimum integer each throw `ValidationException`
-  (`tests/Feature/Emitter/RoundTripTest.php`). The [e2e suite](#proof-a-full-contract-first-round-trip)
-  goes further and proves `422` responses over real HTTP from the spec-derived `rules()`.
-- **128 real-world specs, multiple gates.** The corpus is the published OpenAPI documents of Stripe,
-  GitHub, OpenAI, Slack, Twilio, and 123 others. Every one must *parse*, *generate model classes,
+- **Generated validation is differentially tested against the spec, not just compiled.** Behavioral
+  round-trip tests load the generated classes into a real Laravel app (Orchestra Testbench) and run
+  real payloads through Laravel's Validator (`tests/Feature/Emitter/RoundTripTest.php`), and the
+  differential validation oracle (below) asserts the contract directly: what the spec rejects, the
+  generated `rules()` must reject, and what the spec accepts, they must accept. The
+  [e2e suite](#proof-a-full-contract-first-round-trip) goes further and proves `422` responses over
+  real HTTP from the spec-derived `rules()`.
+- **130 real-world specs, multiple gates.** The corpus is the published OpenAPI documents of Stripe,
+  GitHub, OpenAI, Slack, Twilio, and 125 others. Every one must *parse*, *generate model classes,
   controllers, and routes that compile* (`php -l`, which goes a step further than tokenizing), and
-  *resolve every class reference*, on every CI run.
+  *resolve every class reference*, on every CI run. As a 0.7.0 robustness sweep, the generator was
+  also run over 9 large public API specs as test inputs (Stripe, GitHub, Box, Adyen, Asana, Sentry,
+  Twilio among them): all 13,378 generated files compile clean, and two construct-diverse specs
+  (Sentry, Twilio v2010) joined the permanent corpus.
 - **Conformance golden test.** A single synthetic OpenAPI 3.1 spec exercises the full generator
   surface (exclusive bounds, `multipleOf`, `uniqueItems`, float enums, multi-type unions, strict
   date-time, defaults, non-object aliasing, union arrays). A golden test pins the per-construct
