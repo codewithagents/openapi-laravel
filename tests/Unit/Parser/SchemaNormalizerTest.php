@@ -99,6 +99,23 @@ it('coerces a fractional multipleOf string to a float', function () {
     expect($out['multipleOf'])->toBe(0.5);
 });
 
+it('keeps an out-of-int-range numeric string as a float without warning', function () {
+    // An int64 bound past PHP_INT_MAX (real-world specs carry these). Casting an
+    // out-of-range float to int warns and truncates, so it must stay a float.
+    $out = SchemaNormalizer::normalize(['maximum' => '9223372036854775807999']);
+
+    expect($out['maximum'])->toBeFloat();
+});
+
+it('coerces the largest in-range int64 bound to an exact int', function () {
+    // PHP_INT_MAX is integer-shaped and in range, so it stays an exact int. The
+    // no-warning guarantee for out-of-range magnitudes is covered by the corpus
+    // parse gate (a real int64 bound previously triggered a float-to-int warning).
+    $out = SchemaNormalizer::normalize(['maximum' => (string) PHP_INT_MAX]);
+
+    expect($out['maximum'])->toBe(PHP_INT_MAX);
+});
+
 it('coerces a numeric exclusiveMinimum/Maximum string (3.1 form) to a number', function () {
     $out = SchemaNormalizer::normalize(['exclusiveMinimum' => '5', 'exclusiveMaximum' => '9']);
 

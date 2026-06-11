@@ -144,12 +144,20 @@ final class SchemaNormalizer
     private static function numericFromString(string $value): int|float
     {
         $float = (float) $value;
-        $int = (int) $float;
 
-        // An integer-valued string with no exponent/decimal that round-trips
-        // through int becomes an int; anything fractional stays a float.
-        if ((float) $int === $float && ! str_contains($value, '.') && stripos($value, 'e') === false) {
-            return $int;
+        // An integer-shaped string (no decimal point, no exponent) that fits the
+        // platform int range becomes an int; a fractional value, an exponent, or
+        // an out-of-range magnitude (e.g. an int64 bound past PHP_INT_MAX) stays
+        // a float. The range is checked before any int cast, and the cast is done
+        // on the string, not the float: casting an out-of-range float to int both
+        // warns ("not representable as an int") and truncates.
+        if (
+            ! str_contains($value, '.')
+            && stripos($value, 'e') === false
+            && $float >= (float) PHP_INT_MIN
+            && $float <= (float) PHP_INT_MAX
+        ) {
+            return (int) $value;
         }
 
         return $float;
