@@ -39,7 +39,7 @@
     "require-dev": {
         "deptrac/deptrac": "^4.6",
         "larastan/larastan": "^3.0",
-        "laravel/pint": "^1.0",
+        "laravel/pint": "^1.16.1",
         "orchestra/testbench": "^9.0|^10.0",
         "pestphp/pest": "^3.0",
         "pestphp/pest-plugin-type-coverage": "^3.0",
