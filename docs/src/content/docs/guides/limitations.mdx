@@ -130,12 +130,28 @@ rather than emit a non-functional overflow field that silently fails to hydrate,
 carries a docblock note that the dynamic keys are not captured. Read the known fields from the Data
 object, and reach into the original payload for the overflow if you need it.
 
-### additionalProperties: false
+### additionalProperties: false (enforceable via an opt-in flag)
 
-Standard Laravel has no rule to reject unknown keys on a nested data structure, so
-`additionalProperties: false` is **not enforced** by the generated `rules()`. The named properties
-are generated as usual; extra keys simply are not rejected. Enforce closed objects in your own
-validation layer if you need that guarantee.
+By **default**, `additionalProperties: false` is **not enforced**: the named properties are generated
+as usual and extra keys are simply not rejected. Standard Laravel has no native rule to reject unknown
+keys, and, more importantly, enforcing a closed shape carries a forward-compatibility hazard. A
+producer that adds a new field to its responses would break a consumer that has not regenerated its
+Data classes yet, since the unknown field would be rejected. Lenient-by-default keeps that contract
+evolution safe, so the default output stays exactly as it was.
+
+When you control both ends of the contract and want the strict OpenAPI intent (reject any undeclared
+key), opt in:
+
+- artisan: `php artisan openapi:generate --enforce-closed-objects`
+- standalone binary: `vendor/bin/openapi-laravel generate --enforce-closed-objects`
+- config: set `'enforce_closed_objects' => true` in `config/openapi-laravel.php`
+
+With the flag on, every schema that declares `additionalProperties: false` emits a single
+`NoUnknownPropertiesRule` (shipped in the package) that rejects any input key outside the declared
+property set. It runs once per object, even when the payload omits every declared property, so a
+payload that is nothing but unknown keys is still rejected. Schemas that do not declare
+`additionalProperties: false` are untouched, and the flag changes nothing for the default (off) build,
+whose output is byte-identical to before.
 
 ### Empty map encoding (a known issue)
 
@@ -479,5 +495,6 @@ split, scalar constraints (`minLength`, `maxLength`, `pattern`, `format`, `minim
 unions (abstract morphable base plus variants, validated and hydrated). The spec-derived validation
 is presence-exact, with the caveats noted above: **undiscriminated** object unions are presence-only
 (any object is accepted, no variant enforced) pending an inline/allOf-inheritance follow-up, and the
-map caveats apply (raw-array `$ref` map values, uncaptured mixed-object overflow, unenforced
-`additionalProperties: false`).
+map caveats apply (raw-array `$ref` map values, uncaptured mixed-object overflow, and
+`additionalProperties: false` left unenforced by default but enforceable via the opt-in
+`--enforce-closed-objects` flag).
