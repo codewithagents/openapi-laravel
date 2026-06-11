@@ -68,4 +68,4 @@ it('generates Pint-idempotent output (pint --test reports no reformats)', functi
     'conformance-3.0-forms' => [__DIR__.'/../Fixtures/conformance/conformance-3.0-forms.yaml'],
     'corpus: petstore' => [__DIR__.'/../../examples/petstore/openapi.yaml'],
     'corpus: github' => [__DIR__.'/../Fixtures/specs/github.json'],
-]);
+])->group('slow');

@@ -88,6 +88,24 @@ tests/Fixtures/specs/   130 real-world OpenAPI specs (shared corpus with openapi
 - README style mirrors openapi-zod-ts: one-liner, philosophy, honest comparison table, pipeline
   diagram. Reference: ../openapi-zod-ts/packages/openapi-zod-ts/README.md
 
+## Test workflow (keep iteration fast)
+
+The two generated-output gates (`GeneratedOutputPintTest`, `GeneratedOutputPhpstanTest`) are tagged
+`slow` and account for roughly two thirds of the suite runtime (the full GitHub spec dominates). To
+keep iteration cheap:
+
+- **During iteration:** run only the test file you are touching (`vendor/bin/pest tests/Path/XTest.php`),
+  or `composer test:fast` (excludes the `slow` group, about 77s vs 214s for the full run).
+- **Once, before declaring done:** run the full gate a single time: `composer test` (full, includes
+  `slow`), `composer stan`, `composer lint`, `composer deptrac`, and
+  `composer-require-checker check --config-file=composer-require-checker.json`. Run `composer test:type`
+  only in this final pass, it re-runs the whole suite with coverage instrumentation.
+- **Never** run `composer test:mutate` mid-task: it can take over an hour. It is a CI/manual concern.
+- CI still runs the full `composer test`, so the `slow` gates always execute there. `test:fast` is a
+  local iteration convenience only, never a substitute for the final full run.
+- Do not run the full gate repeatedly while iterating. Repeated full-gate runs (each about 8 to 10
+  minutes once `test:type` and `stan` are included) are the main cause of long task wall-clock.
+
 ## Sibling repo
 
 `../openapi-zod-ts` is the design reference: parser/emitter separation, naming utilities

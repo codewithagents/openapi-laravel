@@ -143,4 +143,4 @@ it('generates PHPStan-max-clean output (phpstan analyse reports no errors)', fun
         0,
         "PHPStan max reported errors on generated output (analysed {$totalFiles} files):\n".implode("\n", $output),
     );
-});
+})->group('slow');
