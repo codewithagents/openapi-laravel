@@ -20,6 +20,13 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter;
  * `isMap` marks an `additionalProperties` map (`array<string, X>`). A map needs a
  * transformer so an empty map serializes as a JSON object `{}` rather than the
  * array `[]` that `json_encode([])` would otherwise emit.
+ *
+ * `isEnum` marks a reference that resolved to a generated backed enum (a native
+ * PHP `enum`, not a Data class). It separates enums from Data classes so an array
+ * of enums is NOT given a `#[DataCollectionOf(SomeEnum::class)]` attribute:
+ * `DataCollectionOf` targets `class-string<BaseData>`, and spatie hydrates a
+ * backed enum from the typed array via the `@var array<int, SomeEnum>` docblock
+ * on its own.
  */
 final readonly class ResolvedType
 {
@@ -34,6 +41,7 @@ final readonly class ResolvedType
         public ?string $dataCollectionOf = null,
         public bool $isUnion = false,
         public bool $isMap = false,
+        public bool $isEnum = false,
     ) {}
 
     public function declaration(): string

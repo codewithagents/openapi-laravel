@@ -1720,7 +1720,12 @@ final class ModelGenerator
             $lines[] = "            '".$this->escapeSingleQuoted((string) $key)."' => [".implode(', ', $expressions).'],';
         }
 
-        return "\n\n    /**\n     * @return array<string, list<string|object>>\n     */\n    public static function rules(): array\n    {\n        return [\n".implode("\n", $lines)."\n        ];\n    }";
+        // The key type is `array-key`, not `string`: a property whose JSON name is
+        // a numeric string (e.g. GitHub reaction counts keyed `+1`, `-1`) becomes
+        // an int array key in PHP, so PHPStan infers an `int|string`-keyed array
+        // and a `string`-keyed return type would not match it. `array-key` covers
+        // both without widening the value type.
+        return "\n\n    /**\n     * @return array<array-key, list<string|object>>\n     */\n    public static function rules(): array\n    {\n        return [\n".implode("\n", $lines)."\n        ];\n    }";
     }
 
     private function resolveType(Schema|Reference $schema, string $nameHint, int $depth, string $variant = 'all'): ResolvedType
@@ -1801,7 +1806,7 @@ final class ModelGenerator
         if ($aliasRef !== null) {
             $resolved = $this->resolveReference($aliasRef);
 
-            return $allOfNullable ? new ResolvedType($resolved->declaration, true, $resolved->docType, $resolved->imports, $resolved->dataCollectionOf) : $resolved;
+            return $allOfNullable ? new ResolvedType($resolved->declaration, true, $resolved->docType, $resolved->imports, $resolved->dataCollectionOf, $resolved->isUnion, $resolved->isMap, $resolved->isEnum) : $resolved;
         }
 
         // An allOf member set merges to an object even when `type: object` is
@@ -2110,7 +2115,14 @@ final class ModelGenerator
         }
 
         if (isset($this->registry[$name]) && is_string($this->registry[$name]['class'])) {
-            return new ResolvedType($this->registry[$name]['class']);
+            // A reference to a generated backed enum is a native PHP enum, not a
+            // Data class: mark it so an array of enums is not given an invalid
+            // #[DataCollectionOf(SomeEnum::class)] attribute (which targets
+            // class-string<BaseData>, failing PHPStan). spatie hydrates the backed
+            // enum from the typed array via the array<int, SomeEnum> docblock.
+            $isEnum = $this->registry[$name]['kind'] === 'enum';
+
+            return new ResolvedType($this->registry[$name]['class'], isEnum: $isEnum);
         }
 
         return new ResolvedType('mixed');
@@ -2126,24 +2138,30 @@ final class ModelGenerator
 
         $itemType = $this->resolveType($items, $nameHint.'Item', $depth + 1, $variant);
 
-        // A DataCollectionOf argument must be a single `Foo::class`. A union item
-        // ('GadgetAlphaData|GadgetBetaData', 'string|int') would render the
-        // invalid `#[DataCollectionOf(A|B::class)]`, which php -l silently
-        // accepts (operator precedence parses it as `A | (B::class)`) but is
-        // semantically wrong. For a union element, emit a plain typed array with
-        // an `array<int, A|B>` docblock and no collection attribute instead.
-        $dataCollectionOf = $this->isDataClass($itemType) && ! $itemType->isUnion
+        // A DataCollectionOf argument must be a single `Foo::class` naming a Data
+        // class. A union item ('GadgetAlphaData|GadgetBetaData', 'string|int')
+        // would render the invalid `#[DataCollectionOf(A|B::class)]`, which php -l
+        // silently accepts (operator precedence parses it as `A | (B::class)`) but
+        // is semantically wrong. A backed-enum item is a native PHP enum, not a
+        // Data class, so `#[DataCollectionOf(SomeEnum::class)]` is also invalid
+        // (the attribute expects class-string<BaseData>, failing PHPStan max);
+        // spatie hydrates the enum from the typed array via the docblock alone.
+        // For either case, emit a plain typed array with an `array<int, T>`
+        // docblock and no collection attribute instead.
+        $dataCollectionOf = $this->isDataClass($itemType) && ! $itemType->isUnion && ! $itemType->isEnum
             ? $itemType->declaration
             : null;
 
-        // An undiscriminated object-union item declares as `mixed` (so laravel-data
-        // does not infer nested rules from a `A|B` type, issue #31) but keeps the
-        // variant union in its docType. Surface that union in the array docblock so
-        // it reads `array<int, GadgetAlphaData|GadgetBetaData>` rather than the
-        // lossy `array<int, mixed>`. Every other item type uses its declaration.
-        $itemDoc = $itemType->declaration === 'mixed' && $itemType->docType !== null
-            ? $itemType->docType
-            : $itemType->declaration;
+        // The element's documented type is its richer `@var` form when it carries
+        // one, falling back to the bare declaration. This covers three cases with
+        // one rule: an undiscriminated object-union item declares `mixed` but keeps
+        // the variant union in its docType (issue #31, so the docblock reads
+        // `array<int, GadgetAlphaData|GadgetBetaData>` not `array<int, mixed>`); a
+        // nested array/map item declares `array` but carries its own generic
+        // docType (so the docblock reads `array<int, array<int, int>>` not the
+        // PHPStan-rejected `array<int, array>`); and a plain scalar/Data item has
+        // no docType and uses its declaration.
+        $itemDoc = $itemType->docType ?? $itemType->declaration;
 
         return new ResolvedType(
             'array',
@@ -2733,10 +2751,17 @@ final class ModelGenerator
 
         $valueType = $this->resolveType($value, $nameHint.'Value', $depth + 1, $variant);
 
+        // The value's documented type is its richer `@var` form when it carries one
+        // (a nested array/map value declares `array` but has its own generic
+        // docType, so the map reads `array<string, array<int, T>>` rather than the
+        // PHPStan-rejected `array<string, array>`), falling back to the bare
+        // declaration for a scalar/Data value with no docType.
+        $valueDoc = $valueType->docType ?? $valueType->declaration;
+
         return new ResolvedType(
             'array',
             $nullable,
-            'array<string, '.$valueType->declaration.'>',
+            'array<string, '.$valueDoc.'>',
             $valueType->imports,
             null,
             false,

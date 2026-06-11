@@ -65,8 +65,9 @@ Both files parse cleanly through `SpecParser` (and pass cebe's optional
 | `ArrayScalar` | scalar items, minItems, maxItems, uniqueItems | #14 |
 | `ArrayOfRef` | items via $ref | |
 | `TupleSchema` | closed prefixItems tuple plus `items: false` | #20 |
-| `ArrayOfArray` | array of array | |
+| `ArrayOfArray` | array of array | #62 |
 | `ArrayOfUnion` | array whose items are a oneOf union | |
+| `ArrayOfEnum` | array whose items are a backed enum (no DataCollectionOf) | #62 |
 
 ### Objects and additionalProperties
 

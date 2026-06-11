@@ -449,6 +449,19 @@ components:
           - $ref: '#/components/schemas/GadgetAlpha'
           - $ref: '#/components/schemas/GadgetBeta'
 
+    # Array of a backed enum. The items are a $ref to a string enum, so the
+    # property must be a plain typed array carrying an `array<int, StringEnum>`
+    # docblock and NO `#[DataCollectionOf(StringEnum::class)]` attribute:
+    # DataCollectionOf targets a Data class (class-string<BaseData>), not a native
+    # PHP backed enum, so that attribute would fail PHPStan max and throw at
+    # runtime (#62). spatie hydrates the backed enum from the typed array via the
+    # docblock alone.
+    ArrayOfEnum:
+      type: array
+      description: Array whose items are a $ref to a backed string enum
+      items:
+        $ref: '#/components/schemas/StringEnum'   # array-of-enum items
+
     # =====================================================================
     # SECTION 6: OBJECTS + additionalProperties
     # =====================================================================
@@ -867,6 +880,8 @@ components:
           $ref: '#/components/schemas/ArrayOfRef'              # array of $ref -> DataCollection of WidgetData
         unionArray:
           $ref: '#/components/schemas/ArrayOfUnion'            # array whose items are a oneOf union
+        enumArray:
+          $ref: '#/components/schemas/ArrayOfEnum'             # array of a backed enum -> no DataCollectionOf (#62)
         nestedArray:
           $ref: '#/components/schemas/ArrayOfArray'            # array of array of integer
         tuple:

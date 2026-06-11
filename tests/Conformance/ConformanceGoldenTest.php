@@ -301,6 +301,31 @@ it('emits a plain typed array, never DataCollectionOf(A|B::class), for an array 
         ->and($code)->not->toContain('DataCollectionOf(GadgetAlphaData');
 });
 
+it('emits a plain typed array with NO DataCollectionOf for an array of a backed enum (#62, Exerciser)', function () {
+    $code = conformanceCode('ExerciserData');
+
+    // A backed-enum element is a native PHP enum, not a Data class. The property
+    // is a plain typed array carrying an `array<int, StringEnum>` docblock with
+    // NO `#[DataCollectionOf(StringEnum::class)]` attribute: DataCollectionOf
+    // targets class-string<BaseData>, so the attribute fails PHPStan max and
+    // throws at runtime (CannotFindDataClass). spatie hydrates the backed enum
+    // from the typed array via the docblock alone.
+    expect($code)->toContain('/** @var array<int, StringEnum> */')
+        ->and($code)->toContain('public readonly ?array $enumArray = null')
+        ->and($code)->not->toContain('DataCollectionOf(StringEnum::class)');
+});
+
+it('emits a fully-generic nested-array docblock, never a bare inner array, for an array of array (#62, Exerciser)', function () {
+    $code = conformanceCode('ExerciserData');
+
+    // A nested array (array of array of integer) must carry a fully recursive
+    // generic so the inner element type is specified too: `array<int, array<int,
+    // int>>`, never the PHPStan-rejected `array<int, array>` (missingType.iterableValue).
+    expect($code)->toContain('/** @var array<int, array<int, int>> */')
+        ->and($code)->toContain('public readonly ?array $nestedArray = null')
+        ->and($code)->not->toContain('@var array<int, array> ');
+});
+
 // --- Non-object component aliases (#9): NO empty Data class -----------------
 
 it('inlines non-object alias components instead of emitting empty Data classes (#9)', function () {

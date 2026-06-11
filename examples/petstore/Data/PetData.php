@@ -23,7 +23,7 @@ final class PetData extends Data
     ) {}
 
     /**
-     * @return array<string, list<string|object>>
+     * @return array<array-key, list<string|object>>
      */
     public static function rules(): array
     {

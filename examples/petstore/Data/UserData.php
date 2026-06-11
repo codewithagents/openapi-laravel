@@ -20,7 +20,7 @@ final class UserData extends Data
     ) {}
 
     /**
-     * @return array<string, list<string|object>>
+     * @return array<array-key, list<string|object>>
      */
     public static function rules(): array
     {
