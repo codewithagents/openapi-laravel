@@ -845,7 +845,13 @@ final class ModelGenerator
             $lines[] = '        /** '.$docTags[0].' */';
         } elseif (count($docTags) > 1) {
             $lines[] = '        /**';
-            foreach ($docTags as $tag) {
+            // `@var` and `@deprecated` are distinct annotation groups, so the
+            // Laravel Pint `phpdoc_separation` fixer wants a blank ` *` line
+            // between them. Emit that separator up front so the docblock is
+            // born-clean and the output stays formatter-idempotent.
+            $lines[] = '         * '.$docTags[0];
+            foreach (array_slice($docTags, 1) as $tag) {
+                $lines[] = '         *';
                 $lines[] = '         * '.$tag;
             }
             $lines[] = '         */';
@@ -1005,10 +1011,13 @@ final class ModelGenerator
             return 'mixed';
         }
 
-        // An optional property defaults to null, so the union must accept null.
-        // A union spells that as a trailing `|null` member ('string|int|null'),
-        // never the `?` shorthand, which PHP forbids on a union.
-        if ($type->isUnion) {
+        // An optional property defaults to null, so the type must accept null. A
+        // genuine multi-member union spells that as a trailing `|null` member
+        // ('string|int|null'), never the `?` shorthand, which PHP forbids on a
+        // union. A single type (including a degenerate one-member union, a `oneOf`
+        // of one scalar) uses `?T`: PHP allows it and the Pint preset normalizes
+        // `T|null` to it anyway, so emitting `?T` keeps the output idempotent.
+        if ($type->isMultiMemberUnion()) {
             return str_ends_with($type->declaration, '|null') ? $type->declaration : $type->declaration.'|null';
         }
 
@@ -1604,7 +1613,11 @@ final class ModelGenerator
             // (additionalProperties: false, empty properties): it carries the
             // closed-object rule but no params, so emit just the rules() method.
             if ($rules === []) {
-                return $header."\n{\n}\n";
+                // A genuinely empty body renders as `{}` on the SAME line as the
+                // class declaration, matching the Laravel Pint `braces_position`
+                // and `single_line_empty_body` fixers so the output stays
+                // formatter-idempotent.
+                return $header." {}\n";
             }
 
             return $header."\n{".$this->renderRules($rules)."\n}\n";

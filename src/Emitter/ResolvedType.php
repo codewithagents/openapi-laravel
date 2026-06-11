@@ -48,8 +48,23 @@ final readonly class ResolvedType
             return 'mixed';
         }
 
-        // A union encodes null as a trailing member ('string|int|null'); a plain
-        // type uses the nullable shorthand ('?string').
-        return $this->isUnion ? $this->declaration.'|null' : '?'.$this->declaration;
+        // A genuine multi-member union encodes null as a trailing member
+        // ('string|int|null'), since PHP forbids `?A|B`. A single type (including
+        // a degenerate one-member union like a `oneOf` of one scalar) uses the
+        // nullable shorthand ('?string'), which the Laravel Pint preset normalizes
+        // to anyway, so emitting it directly keeps the output formatter-idempotent.
+        return $this->isMultiMemberUnion() ? $this->declaration.'|null' : '?'.$this->declaration;
+    }
+
+    /**
+     * Whether the declaration is a genuine union of two or more distinct PHP
+     * types ('string|int', 'CatData|DogData'). A degenerate one-member union (a
+     * `oneOf` of a single scalar resolves with isUnion = true but a 'string'
+     * declaration) is NOT a multi-member union: it must render with the `?`
+     * shorthand, not a `|null` member, to stay Pint-idempotent.
+     */
+    public function isMultiMemberUnion(): bool
+    {
+        return $this->isUnion && str_contains($this->declaration, '|');
     }
 }
