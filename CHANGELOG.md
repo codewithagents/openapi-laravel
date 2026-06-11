@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/codewithagents/openapi-laravel/compare/v0.8.0...v0.9.0) (2026-06-11)
+
+
+### Features
+
+* subset generation with dependency closure ([#44](https://github.com/codewithagents/openapi-laravel/issues/44)) ([3b5c5be](https://github.com/codewithagents/openapi-laravel/commit/3b5c5be00c50305ef0e939de8af02c93111bfff8))
+
 ## [0.8.0](https://github.com/codewithagents/openapi-laravel/compare/v0.7.0...v0.8.0) (2026-06-11)
 
 
