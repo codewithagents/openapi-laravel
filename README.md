@@ -215,7 +215,11 @@ classes) does not auto-hydrate in laravel-data without a discriminator, a `$ref`
 `additionalProperties` map is typed in the docblock but not auto-hydrated into Data objects at
 runtime, a request body referencing a component `$ref` falls back to `Illuminate\Http\Request`
 instead of a typed Data param, and tuple `prefixItems`, int64 literal bounds, and non-JSON responses
-are represented loosely. See the
+are represented loosely. A non-standard per-property `required: true` key (a boolean set inside an
+individual property schema, which some generators emit) is ignored, because OpenAPI 3.x only honours
+the schema-level `required: [...]` array; the field is generated as optional and the run prints a
+diagnostic to stderr naming the property and schema, so use the schema-level array to make a field
+required. See the
 [limitations guide](https://openapi-laravel.codewithagents.de/guides/limitations) for the full,
 honest list.
 

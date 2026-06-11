@@ -12,15 +12,22 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  * `noModelSchemas` records that the spec produced no component schemas, so the
  * generate path can keep emitting its "nothing to generate" warning while still
  * planning any requested controllers/routes.
+ *
+ * `warnings` carries non-fatal diagnostics from the model generator (for example
+ * a non-standard per-property `required` key the spec used and OpenAPI ignores).
+ * The generate paths print them after writing; nothing in the planned files is
+ * affected. It defaults to an empty list so existing constructions keep working.
  */
 final readonly class GenerationPlan
 {
     /**
      * @param  list<PlannedFile>  $files
+     * @param  list<string>  $warnings
      */
     public function __construct(
         public array $files,
         public bool $noModelSchemas,
+        public array $warnings = [],
     ) {}
 
     /**

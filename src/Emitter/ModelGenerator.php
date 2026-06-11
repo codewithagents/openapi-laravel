@@ -119,6 +119,17 @@ final class ModelGenerator
      */
     private array $files = [];
 
+    /**
+     * Non-fatal diagnostics gathered during a generate() run, keyed by the
+     * warning text so the same finding (re-seen across the read/write variants of
+     * one schema, or a recursive inline emit) is recorded only once. The CLI
+     * surfaces these verbatim. They never change what is generated: the channel
+     * only reports silent information loss the spec forced on us.
+     *
+     * @var array<string, true>
+     */
+    private array $warnings = [];
+
     public function __construct(
         private readonly GeneratorOptions $options = new GeneratorOptions,
     ) {
@@ -138,6 +149,7 @@ final class ModelGenerator
         $this->aliasTypes = [];
         $this->aliasSchemas = [];
         $this->files = [];
+        $this->warnings = [];
 
         $schemas = $this->componentSchemas($document);
         ksort($schemas);
@@ -245,6 +257,27 @@ final class ModelGenerator
     }
 
     /**
+     * Non-fatal diagnostics from the last generate() run, sorted for determinism.
+     * Each entry flags information the spec carried that OpenAPI ignores, so the
+     * generated code is correct but quietly loses something a reader expected
+     * (currently: a non-standard per-property `required` key). Behavior is never
+     * altered by these; they exist so the CLI can warn instead of staying silent.
+     *
+     * Added as a getter rather than changing the generate() return type so every
+     * existing caller (the GenerationPlanner and its check path) keeps compiling
+     * unchanged: callers that care opt in by calling warnings() after generate().
+     *
+     * @return list<string>
+     */
+    public function warnings(): array
+    {
+        $warnings = array_keys($this->warnings);
+        sort($warnings);
+
+        return $warnings;
+    }
+
+    /**
      * @return array<string, Schema>
      */
     private function componentSchemas(OpenApi $document): array
@@ -292,6 +325,13 @@ final class ModelGenerator
         foreach ($properties as $rawName => $propertySchema) {
             // Numeric property names ("200") are coerced to int array keys by PHP.
             $wireName = (string) $rawName;
+
+            // A non-standard per-property `required: true` (a boolean sitting on
+            // the property schema itself) is ignored by OpenAPI 3.x, which only
+            // honours the schema-level `required: [...]` array. We do not change
+            // behavior (the field stays optional unless the array lists it), but
+            // we record a diagnostic so the silent information loss is reported.
+            $this->warnPerPropertyRequired($base, $wireName, $propertySchema);
 
             // readOnly fields are response-only (drop from the write variant);
             // writeOnly fields are request-only (drop from the read variant).
@@ -1703,6 +1743,38 @@ final class ModelGenerator
         }
 
         return false;
+    }
+
+    /**
+     * Record a diagnostic when a property schema carries a non-standard
+     * per-property `required` key (a boolean `required` set on the property
+     * object itself). OpenAPI 3.x ignores this: a property is required only when
+     * the OWNING schema's `required: [...]` array lists it. cebe keeps the
+     * stray boolean in the property's serialized data (the schema-level array,
+     * by contrast, is always a list of strings), so we read it from there.
+     *
+     * The detection is intentionally narrow: only a boolean value triggers it,
+     * so a legitimate schema-level `required` array nested inside a property
+     * (itself an object schema) is never mistaken for the non-standard key.
+     */
+    private function warnPerPropertyRequired(string $schemaName, string $propertyName, Schema|Reference $propertySchema): void
+    {
+        if (! $propertySchema instanceof Schema) {
+            return;
+        }
+
+        $serialized = (array) $propertySchema->getSerializableData();
+
+        if (! array_key_exists('required', $serialized) || ! is_bool($serialized['required'])) {
+            return;
+        }
+
+        $this->warnings[sprintf(
+            'Property "%s" on schema "%s" has a non-standard per-property "required" key, which OpenAPI ignores. '
+            .'Use the schema-level "required" array instead. This field is generated as optional.',
+            $propertyName,
+            $schemaName,
+        )] = true;
     }
 
     private function isReadOnly(Schema|Reference $schema): bool

@@ -80,6 +80,13 @@ final class StandaloneApplication
             fwrite(STDOUT, sprintf("Generated %d %s into %s\n", $count, $count === 1 ? 'route file' : 'route files', $request->routesPath));
         }
 
+        // Non-fatal diagnostics (e.g. a non-standard per-property `required` key
+        // the spec used and OpenAPI ignores) go to stderr so stdout stays clean
+        // for tooling, and they do not change the success exit code.
+        foreach ($plan->warnings as $warning) {
+            fwrite(STDERR, 'Warning: '.$warning."\n");
+        }
+
         return self::EXIT_OK;
     }
 

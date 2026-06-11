@@ -273,6 +273,38 @@ A bare `const` with no declared `type` infers its PHP type from the literal (`co
 `string`, `const: 3` is an `int`). Only scalar `const` values (string and integer) are enforced this
 way; an array, object, boolean, or null `const` falls back to the normal type handling.
 
+## Per-property required is ignored (it is non-standard)
+
+Some spec generators emit a boolean `required: true` key INSIDE an individual property schema:
+
+```yaml
+User:
+  type: object
+  properties:
+    email:
+      type: string
+      required: true   # non-standard, OpenAPI ignores this
+```
+
+OpenAPI 3.x does not honour a per-property `required` boolean. A property is required only when the
+owning schema's `required: [...]` array lists it. The generator follows the spec: the per-property
+key is ignored and `email` above is generated as OPTIONAL (`public readonly ?string $email = null`,
+with `'email' => ['sometimes', 'string']`).
+
+Because that information loss is silent, the run prints a diagnostic to stderr naming the property
+and schema, for example: `Property "email" on schema "User" has a non-standard per-property
+"required" key, which OpenAPI ignores. Use the schema-level "required" array instead. This field is
+generated as optional.` To actually make the field required, move it into the schema-level array:
+
+```yaml
+User:
+  type: object
+  required: [email]   # this is what OpenAPI honours
+  properties:
+    email:
+      type: string
+```
+
 ## this is the one renamed property
 
 PHP allows every reserved word (`for`, `class`, `list`, `match`, ...) as a parameter variable name,

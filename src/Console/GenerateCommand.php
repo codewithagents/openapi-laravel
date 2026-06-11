@@ -63,6 +63,13 @@ final class GenerateCommand extends Command
             $this->components->info(sprintf('Generated %d %s into %s', $count, $count === 1 ? 'route file' : 'route files', $request->routesPath));
         }
 
+        // Non-fatal diagnostics (e.g. a non-standard per-property `required` key
+        // the spec used and OpenAPI ignores) go to stderr so they never pollute
+        // captured stdout, and do not change the success exit code.
+        foreach ($plan->warnings as $warning) {
+            $this->output->getErrorStyle()->warning($warning);
+        }
+
         return self::SUCCESS;
     }
 }

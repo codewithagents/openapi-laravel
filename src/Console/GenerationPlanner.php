@@ -71,7 +71,7 @@ final readonly class GenerationPlanner
 
         $files = [...$files, ...$this->planServer($request, $document, $generator->registry())];
 
-        return new GenerationPlan($files, $modelFiles === []);
+        return new GenerationPlan($files, $modelFiles === [], $generator->warnings());
     }
 
     /**
