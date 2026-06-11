@@ -18,21 +18,29 @@ final class GenerateCommand extends Command
         {--output= : Output directory for generated classes (defaults to config)}
         {--namespace= : Namespace for generated classes (overrides config)}
         {--prune : Delete existing .php files in the output directory first}
-        {--controllers : Also generate abstract controllers (one per tag)}
-        {--routes : Also generate the routes file}';
+        {--controllers : Generate abstract controllers even when disabled in config (default: on)}
+        {--no-controllers : Skip the abstract controllers}
+        {--routes : Generate the routes file even when disabled in config (default: on)}
+        {--no-routes : Skip the routes file}';
 
     /**
      * @var string
      */
-    protected $description = 'Generate Laravel models from an OpenAPI spec.';
+    protected $description = 'Generate Laravel models, controllers, and routes from an OpenAPI spec.';
 
     public function handle(): int
     {
-        $request = (new CommandRequestFactory)->fromCommand($this);
-
         try {
+            $request = (new CommandRequestFactory)->fromCommand($this);
             $plan = (new GenerationPlanner)->plan($request);
-        } catch (PlanException|OptionException $e) {
+        } catch (OptionException $e) {
+            // Invalid options (conflicting flags, illegal identifiers) are a
+            // configuration error and exit 2 on every surface, matching
+            // openapi:check and the standalone binary.
+            $this->components->error($e->getMessage());
+
+            return self::INVALID;
+        } catch (PlanException $e) {
             $this->components->error($e->getMessage());
 
             return self::FAILURE;

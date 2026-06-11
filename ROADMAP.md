@@ -317,6 +317,12 @@ With 0.7.0 the enforcement and correctness layers are in place: drift is a CI ga
 oracle guards every emitted constraint, and the large real-world corpus sweep has found no generator
 bugs. The remaining open items before 1.0.0 are runtime correctness and format stability.
 
+Done since 0.7.0: default full generation (issue #45). `openapi:generate` / `openapi:check` and the
+standalone binary now emit and check models, controllers, and routes by default; `--no-controllers` /
+`--no-routes` opt out, precedence is flags over config over defaults, and the standalone binary reads
+an optional `openapi-laravel.json` with derived scaffold paths (`<output>/Controllers`,
+`<output>/routes.php`). The v1/v2 tier framing was retired from user-facing docs.
+
 1. **Discriminator-aware object-union validation and hydration** (issue #38): emit a
    discriminator-driven cast so a `oneOf` of Data classes validates the correct variant and hydrates
    at runtime, not just type-checks. Object unions are currently presence-only (`mixed`), which is

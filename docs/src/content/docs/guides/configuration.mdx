@@ -62,20 +62,20 @@ return [
     /*
      * Server scaffold: generate one abstract controller per OpenAPI tag,
      * with one abstract method per operation, typed by the generated Data classes.
-     * Disabled by default. Enable with 'enabled' => true or pass --controllers.
+     * Enabled by default. Disable with 'enabled' => false or pass --no-controllers.
      */
     'controllers' => [
-        'enabled'   => false,
+        'enabled'   => true,
         'path'      => app_path('Http/Controllers/Api'),
         'namespace' => 'App\\Http\\Controllers\\Api',
     ],
 
     /*
      * Server scaffold: generate a routes file with one Route:: entry per operation.
-     * Disabled by default. Enable with 'enabled' => true or pass --routes.
+     * Enabled by default. Disable with 'enabled' => false or pass --no-routes.
      */
     'routes' => [
-        'enabled' => false,
+        'enabled' => true,
         'path'    => base_path('routes/api.generated.php'),
     ],
 
@@ -96,7 +96,7 @@ Directory the generated classes are written to. Defaults to `app_path('Data')`, 
 
 ### `output.namespace`
 
-PHP namespace the generated classes live under. Defaults to `App\Data`. Keep this aligned with `output.path` so the autoloader resolves the classes. The artisan command has **no** `--namespace` flag, so set this in the config file. Only the standalone binary takes a `--namespace` flag (it has no config file to read from).
+PHP namespace the generated classes live under. Defaults to `App\Data`. Keep this aligned with `output.path` so the autoloader resolves the classes. Both the artisan command and the standalone binary accept a `--namespace` flag that overrides this value per run (the binary can also read it from [`openapi-laravel.json`](#standalone-binary-openapi-laraveljson)).
 
 ### `output.suffix`
 
@@ -131,15 +131,16 @@ Controls the server scaffold: abstract controller generation. All three sub-keys
 
 | Key         | Default                            | Description                                                                 |
 | ----------- | ---------------------------------- | --------------------------------------------------------------------------- |
-| `enabled`   | `false`                            | Generate abstract controllers. Overridden by the `--controllers` flag.      |
+| `enabled`   | `true`                             | Generate abstract controllers. Overridden by `--controllers` / `--no-controllers`. |
 | `path`      | `app_path('Http/Controllers/Api')` | Directory the abstract controller files are written to.                     |
 | `namespace` | `'App\\Http\\Controllers\\Api'`   | PHP namespace for the generated abstract controllers.                       |
 
-When `enabled` is `true`, the generator writes one `Abstract{Tag}Controller` file per OpenAPI tag into `path`. Each file is overwritten on every run. Your concrete controllers (which extend the abstract classes) are never touched.
+When enabled, the generator writes one `Abstract{Tag}Controller` file per OpenAPI tag into `path`. Each file is overwritten on every run. Your concrete controllers (which extend the abstract classes) are never touched.
 
 <Aside type="note">
-  The `--controllers` flag on the artisan command and the standalone binary enables controller
-  generation regardless of the `enabled` value in the config file.
+  `--no-controllers` skips controller generation for one run regardless of the config;
+  `--controllers` forces it on when the config disables it. See
+  [precedence](#precedence-flags-beat-config-config-beats-defaults).
 </Aside>
 
 ### `routes`
@@ -148,36 +149,76 @@ Controls the server scaffold: routes file generation.
 
 | Key       | Default                                     | Description                                                           |
 | --------- | ------------------------------------------- | --------------------------------------------------------------------- |
-| `enabled` | `false`                                     | Generate the routes file. Overridden by the `--routes` flag.          |
+| `enabled` | `true`                                      | Generate the routes file. Overridden by `--routes` / `--no-routes`.   |
 | `path`    | `base_path('routes/api.generated.php')`     | Path the generated routes file is written to.                         |
 
 The generated file contains one `Route::{method}(...)` call per operation, referencing the concrete controller class by tag name. It is overwritten on every run.
 
 <Aside type="note">
-  The `--routes` flag on the artisan command and the standalone binary enables routes generation
-  regardless of the `enabled` value in the config file.
+  `--no-routes` skips the routes file for one run regardless of the config; `--routes` forces it on
+  when the config disables it. See
+  [precedence](#precedence-flags-beat-config-config-beats-defaults).
 </Aside>
 
 See the [server scaffold guide](/guides/server-scaffold) for a complete worked example.
 
-## Precedence
+## Precedence: flags beat config, config beats defaults
 
-Command-line flags win over the config file, and the config file wins over the built-in defaults.
-
-For the **artisan command** (`--spec`, `--output`, `--prune`, `--controllers`, `--routes`; note there
-is no `--namespace`):
+Every setting resolves through the same three layers, for `openapi:generate`, `openapi:check`, and
+the standalone binary alike:
 
 ```
---spec / --output / --prune / --controllers / --routes   (artisan flags)
+command-line flags          (one run)
         ↓ override
-config/openapi-laravel.php                                (your committed defaults)
+config file                 (your committed defaults)
         ↓ override
-built-in defaults
+built-in defaults           (full output: controllers and routes enabled)
 ```
 
-The output **namespace** has no artisan flag, so it always comes from `output.namespace` in the
-config file (or its built-in default `App\Data`).
+For the scaffold toggles this means: `--controllers` / `--routes` force generation on even when the
+config says `enabled => false`, and `--no-controllers` / `--no-routes` skip it even when the config
+says `enabled => true`. Passing an enable flag together with its disable flag (for example
+`--controllers --no-controllers`) is a configuration error: every surface (`openapi:generate`,
+`openapi:check`, and both standalone subcommands) prints a clear message and exits `2`.
 
-For the **standalone binary**, which has no config file, every value comes from flags (including
-`--namespace`, `--controller-namespace`, `--controller-output`, and `--routes-output`); anything not
-passed uses the built-in default.
+The output **namespace** follows the same chain: `--namespace`, then `output.namespace` in the
+config file, then the built-in default `App\Data`.
+
+## Standalone binary (`openapi-laravel.json`)
+
+The standalone binary reads an optional JSON config file: `openapi-laravel.json` in the working
+directory, or any path given via `--config=<path>`. Its keys mirror `config/openapi-laravel.php`
+one to one:
+
+```json
+{
+  "spec": "openapi.yaml",
+  "output": {
+    "path": "src/Data",
+    "namespace": "Acme\\Dto",
+    "suffix": "Data",
+    "prune": false
+  },
+  "controllers": {
+    "enabled": true,
+    "path": "src/Http/Controllers",
+    "namespace": "Acme\\Http\\Controllers"
+  },
+  "routes": {
+    "enabled": true,
+    "path": "src/routes/api.generated.php"
+  },
+  "max_depth": 64,
+  "max_bytes": 25165824
+}
+```
+
+Every key is optional, and flags override the file per value (the same
+[precedence](#precedence-flags-beat-config-config-beats-defaults) as the artisan commands). The file
+is validated strictly before anything is generated: a file larger than 1 MiB, malformed JSON, an
+unknown key, or a wrong value type fails with a clear message and exit code `2`, no file is written,
+and namespaces from the file go through the same identifier validation as the flags.
+
+When neither the flags nor the file set a scaffold path, the binary derives deterministic defaults
+relative to the model output directory: controllers go to `<output>/Controllers` and the routes
+file to `<output>/routes.php`.
