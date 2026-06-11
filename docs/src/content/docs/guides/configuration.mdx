@@ -222,3 +222,30 @@ and namespaces from the file go through the same identifier validation as the fl
 When neither the flags nor the file set a scaffold path, the binary derives deterministic defaults
 relative to the model output directory: controllers go to `<output>/Controllers` and the routes
 file to `<output>/routes.php`.
+
+### Config-file write paths are contained to the project directory
+
+Because `openapi-laravel.json` is auto-discovered from the working directory, its paths are not typed
+by the operator: a config committed to a cloned repository runs the moment a developer invokes the
+binary in that directory. So every write path the file sets (`output.path`, `controllers.path`,
+`routes.path`) is contained to the directory the config file lives in (the working directory for the
+discovered default file, or the directory of the `--config` file). After normalization, resolving
+`.`, `..`, and symlinks, an escaping value fails closed with a clear error naming the path, and
+nothing is written:
+
+```json
+{
+  "output": { "path": "../../../tmp/escape" }
+}
+```
+
+```
+Config file ./openapi-laravel.json sets 'output.path' to '../../../tmp/escape', which resolves to
+'/tmp/escape', outside the project directory '/path/to/project'. ...
+```
+
+A `..` traversal, an absolute path, or a symlink whose target escapes the directory is rejected.
+Legitimate in-root relative paths (`src/Data`, `app/Http/Controllers/Api`) and nested paths work
+unchanged. CLI flags (`--output`, `--controller-output`, `--routes-output`) are explicit operator
+input and keep full freedom, so pass a flag if you really do mean to write outside the project. See
+the [security posture](/guides/limitations#security-specs-are-untrusted-input) for the full rationale.

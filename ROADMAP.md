@@ -416,9 +416,16 @@ Spec is untrusted input, generated PHP is loaded and executed by the host. Defen
 injection neutralized, identifier whitelist (path traversal + identifier injection + the `this`
 fatal), escaped literals, validated namespace options, structural rejection of non-OpenAPI docs,
 input-size guard plus documented OS-limit guidance for the YAML-alias-bomb residual,
-operator-controlled output paths, and a hostile-input regression suite. Residual: a caller who fully
-controls the CLI/config can still choose hostile output paths; YAML alias expansion happens inside
-the vendored parser, so size guard plus OS limits are the mitigation.
+operator-controlled CLI output paths, config-file output-path containment (issue #54), and a
+hostile-input regression suite. Config-file containment (issue #54): the standalone binary
+auto-discovers `openapi-laravel.json` from the working directory, so its write paths are not typed by
+the operator. Every config-sourced write path (`output.path`, `controllers.path`, `routes.path`) is
+contained by `PathContainment` to the directory the config lives in: after normalization (`.`, `..`,
+symlinks) a `..` traversal, an absolute escape, or a symlinked-parent escape fails closed before any
+file is written, naming the offending path. CLI flags keep full freedom by design (explicit operator
+input). Residual: a caller who controls the CLI flags can still choose hostile output paths (by
+design); YAML alias expansion happens inside the vendored parser, so size guard plus OS limits are
+the mitigation.
 
 ## Repo and release governance
 

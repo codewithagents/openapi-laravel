@@ -472,10 +472,27 @@ rather than dropping the rule. A field is never silently left under-validated.
 **Non-OpenAPI documents are rejected.** A Swagger 2.0, non-3.x, or empty document is rejected with a
 clear error naming what was found, instead of silently parsing into an empty result.
 
-**Output paths must be operator-controlled.** The output directory, controller path, and routes path
-are written exactly where you point them, by design, with no sandboxing. Never derive these paths
-from untrusted input (for example from spec content or from an end user). Point them at fixed,
+**CLI output paths must be operator-controlled.** When you pass the output directory, controller
+path, or routes path as a CLI flag (`--output`, `--controller-output`, `--routes-output`, or their
+`config/openapi-laravel.php` equivalents in a Laravel app), they are written exactly where you point
+them, by design, with no sandboxing. A flag is explicit operator input. Never derive these flag
+values from untrusted input (for example from spec content or from an end user). Point them at fixed,
 operator-controlled locations.
+
+**Discovered config-file paths are contained to the project directory.** The standalone binary
+auto-discovers `openapi-laravel.json` from the working directory. Those paths are not typed by the
+operator and may not even be known to exist, so a hostile config committed to a cloned repository
+could otherwise silently redirect generated-file writes the moment a developer runs
+`vendor/bin/openapi-laravel` in that directory. To close this path-traversal / arbitrary-write
+hazard, every write path sourced from a config file (`output.path`, `controllers.path`,
+`routes.path`) is contained: after normalization (resolving `.`, `..`, and symlinks) it must stay
+inside the directory the config file lives in (the working directory for the discovered default file,
+or the directory of the file named by `--config`). A `..` traversal, an absolute path, or a symlink
+whose target escapes the directory fails closed with a clear error naming the offending path, before
+any file is written. Legitimate in-root relative and nested paths are unaffected, the default
+behaviour for a safe config is unchanged. If you genuinely need to write outside the project
+directory, pass the path as an explicit CLI flag instead, which is treated as operator-controlled
+input and keeps full freedom.
 
 **YAML resource exhaustion: use OS-level limits.** YAML anchors and aliases are expanded by the
 underlying parser before the generator sees the data, a classic "billion laughs" / alias-bomb
