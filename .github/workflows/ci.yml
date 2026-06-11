@@ -15,6 +15,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Laravel coverage follows composer resolution per PHP version:
+        # lowest resolves Laravel 11 (testbench 9) on every leg; highest
+        # resolves Laravel 12 on PHP 8.2 and Laravel 13 (testbench 11) on
+        # PHP 8.3/8.4, since illuminate 13 requires PHP ^8.3.
         php: ['8.2', '8.3', '8.4']
         deps: ['lowest', 'highest']
     steps:
