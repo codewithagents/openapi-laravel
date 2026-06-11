@@ -14,7 +14,7 @@ history, and the open questions. Do not re-litigate decided items without new in
 
 ## Current state
 
-**Current release: `0.8.0`** on Packagist. One coherent generator: a plain
+**Current release: `0.9.0`** on Packagist (`0.10.0` queued in an open release-please PR). One coherent generator: a plain
 `php artisan openapi:generate` (or the framework-free `vendor/bin/openapi-laravel`) emits the full
 slice out of the box, with no flags: laravel-data model classes with spec-derived `rules()`, backed
 enums, one abstract controller per tag, and a routes file. `--no-controllers` / `--no-routes` opt
@@ -51,7 +51,7 @@ config output-path containment, and a hostile-input test suite.
 validation oracle (#23: spec-valid payloads must pass and spec-invalid must fail through the real
 Laravel Validator, with a known-gap ratchet), the import-resolution corpus gate, the `php -l`
 compile gate, the conformance golden test, composer-unused/require-checker, `composer audit`,
-Deptrac architecture enforcement, and a Qodana workflow. 1021 tests green; all 130 corpus specs
+Deptrac architecture enforcement, and a Qodana workflow. ~1230 tests green; all 130 corpus specs
 (incl. Stripe, GitHub, Box, Adyen, Asana, Sentry, Twilio as test inputs) generate valid PHP.
 
 **Honest residuals (documented, not hidden):** an undiscriminated object union does not
