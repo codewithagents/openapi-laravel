@@ -504,10 +504,11 @@ These are the layers that catch problems before they reach you.
   (the build fails), `2` = config or spec error. Use it in CI so committed generated code can never
   silently diverge from the spec. See the
   [drift-check guide](https://openapi-laravel.codewithagents.de/guides/drift-check).
-- **Next rigor step (roadmap):** a differential conformance harness that derives a conforming and a
-  violating payload per emitted constraint and asserts Validator agreement across the corpus
-  ([#23](https://github.com/codewithagents/openapi-laravel/issues/23)). Today the executed-validation
-  guarantee covers the behavioral suite and the e2e demo, not every constraint of every corpus spec.
+- **Differential validation oracle** (shipped in 0.7.0, issue #23): a data-driven, mutation-based
+  test generates a class per constraint and runs valid and invalid payloads through the real Laravel
+  Validator. A silently-dropped constraint fails the suite. A known-gap ratchet documents every
+  acknowledged gap, so new gaps cannot accumulate silently. It found and drove several of the
+  correctness fixes in 0.7.0 before release.
 
 > Qodana Cloud dashboard (optional, maintainer only): create a project at
 > [qodana.cloud](https://qodana.cloud) and add its token as the `QODANA_TOKEN` repository secret.
@@ -518,7 +519,7 @@ These are the layers that catch problems before they reach you.
 
 ## Roadmap
 
-**Current release: `0.6.0`** on Packagist.
+**Current release: `0.7.0`** on Packagist.
 
 - **0.1.x: models.** Spec → laravel-data classes + validation rules + enums, nested objects,
   collections, and the readOnly/writeOnly split.
@@ -531,7 +532,7 @@ These are the layers that catch problems before they reach you.
   `uniqueItems`, float enums, multi-type unions, strict date-time, defaults), non-object component
   aliasing (no more empty Data classes), parser hardening (boolean `items`, clean OOM message),
   empty-map `{}` encoding, a `--namespace` flag, and a `php -l` compile gate.
-- **0.6.0 (current): drift check + quality.** `php artisan openapi:check` (and
+- **0.6.0: drift check + quality.** `php artisan openapi:check` (and
   `vendor/bin/openapi-laravel check`) regenerates the full file set in memory and compares it
   byte-for-byte against disk, without writing anything. Exit `0` = in sync, `1` = drift, `2` =
   config or spec error. Generate and check share one code path (a `GenerationPlanner`) so they can
@@ -539,6 +540,20 @@ These are the layers that catch problems before they reach you.
   output and catches regressions, and a fix for bug #24 (arrays whose `items` are a
   `oneOf`/`anyOf` union now emit a plain typed `array<int, A|B>` with a docblock, not a
   `#[DataCollectionOf(A|B::class)]` attribute that is wrong at runtime).
+- **0.7.0 (current): correctness and robustness hardening.** A differential validation oracle
+  (issue #23) generates a class per emitted constraint and runs valid and invalid payloads through
+  the real Laravel Validator: a silently-dropped constraint fails the suite, with a known-gap
+  ratchet for acknowledged gaps. The oracle found and drove several fixes in this release. Fixes
+  shipped: nested-array item rules now propagate at every depth (#28, previously silently dropped);
+  numeric and length constraints emitted as JSON strings (e.g. `"minimum":"8"`, a common artifact
+  of some Swagger generators) are coerced to the correct types instead of being dropped (#32, #33);
+  a non-standard per-property `required: true` key now triggers a stderr warning naming the
+  property and schema instead of being silently ignored (#34); `format: hostname` now enforces RFC
+  1123 syntax via a real rule (#29, previously a no-op). Object unions are typed `mixed` for
+  presence-only validation so no valid variant is false-rejected (#31). Real-world robustness sweep:
+  9 large public specs (Stripe, GitHub, Box, Adyen, Asana, Sentry, Twilio) produced 13,378
+  generated files that all compile-clean; two construct-diverse specs (Sentry, Twilio v2010) were
+  added to the permanent corpus.
 - **v3 (maybe): client generation** for consuming a third-party or internal API (e.g. a typed
   PayPal/Stripe/microservice client), built on the `Http::` facade. A decide-later item, not a
   commitment.

@@ -5,7 +5,7 @@ description: What ships in v1 (models) and v2 (server scaffold), the known limit
 
 import { Aside } from '@astrojs/starlight/components'
 
-**The current release is `0.6.0`** on Packagist, which ships the models, the server scaffold, full composition support (`allOf`, `additionalProperties`, `oneOf` / `anyOf`), the security pass, a comprehensive silent-validation correctness sweep, and the drift-check command. The version deliberately stays in `0.x` while the generated output format is still evolving, and tags `1.0.0` (the API-stability promise) only when the feature set settles. This page is the honest account of what is in each version, what is deliberately basic, and what is planned next.
+**The current release is `0.7.0`** on Packagist, which ships the models, the server scaffold, full composition support (`allOf`, `additionalProperties`, `oneOf` / `anyOf`), the security pass, a comprehensive silent-validation correctness sweep, the drift-check command, and a correctness-and-robustness hardening wave. The version deliberately stays in `0.x` while the generated output format is still evolving, and tags `1.0.0` (the API-stability promise) only when the feature set settles. This page is the honest account of what is in each version, what is deliberately basic, and what is planned next.
 
 ## v1: models
 
@@ -100,8 +100,19 @@ page](/guides/limitations) has examples, the fallback rules, and the object-unio
   float enums, multi-type unions, strict date-time, defaults), non-object component aliasing (no
   more empty Data classes that silently failed to hydrate), parser hardening (boolean `items` and
   clean OOM surfacing), empty-map `{}` encoding, a `--namespace` flag, and a `php -l` compile gate.
-- **0.6.0 (current):** the drift-check command (`php artisan openapi:check`), the conformance
-  golden test, and the array-of-union fix (bug #24). See the drift-check section below.
+- **0.6.0:** the drift-check command (`php artisan openapi:check`), the conformance golden test,
+  and the array-of-union fix (bug #24). See the drift-check section below.
+- **0.7.0 (current):** correctness and robustness hardening. A differential validation oracle
+  (issue #23) generates a class per emitted constraint and runs valid and invalid payloads through
+  the real Laravel Validator; a known-gap ratchet prevents silent accumulation of new gaps. Oracle-
+  driven fixes: nested-array item rules now propagate at every depth (#28); numeric and length
+  constraints emitted as JSON strings by some generators are coerced instead of being silently
+  dropped (#32, #33); a non-standard per-property `required: true` key now triggers a named stderr
+  warning instead of being silently ignored (#34); `format: hostname` now enforces RFC 1123 syntax
+  via a real rule (#29). Object unions are typed `mixed` for presence-only validation so no valid
+  variant is false-rejected (#31, interim fix). Real-world robustness sweep: 9 large public specs
+  (Stripe, GitHub, Box, Adyen, Asana, Sentry, Twilio) produced 13,378 files that all
+  compile-clean; Sentry and Twilio v2010 were added to the permanent corpus.
 
 ## Drift check: keeping generated code in sync
 

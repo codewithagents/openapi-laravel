@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: **0.5.0 released on Packagist; 0.6.0 (drift check) prepared and CI-green on `main`.**
+Status: **0.6.0 released on Packagist; 0.7.0 (correctness and robustness hardening) prepared.**
 The v1 models generator and v2 server scaffold are shipped. 0.3.0 added composition keywords
 (allOf merge, additionalProperties maps), a full security-hardening pass, and edge-case fixes mined
 from the openapi-zod-ts sibling history. 0.4.0 shipped **oneOf/anyOf union types** and a
@@ -8,11 +8,71 @@ from the openapi-zod-ts sibling history. 0.4.0 shipped **oneOf/anyOf union types
 correctness-and-robustness pass: a large **silent-validation** sweep, **non-object component
 aliasing** (no more empty Data classes), **parser hardening**, and broader CI tooling. 0.6.0 is the
 enforcement pass: the **drift-check command**, the **conformance golden test**, and the array-of-union
-DataCollectionOf fix (bug #24). The version target stays deliberately in 0.x, not 1.0.0: we stay in
+DataCollectionOf fix (bug #24). 0.7.0 is a second correctness-and-robustness wave: the
+**differential validation oracle**, nested-array depth rules, string-typed-scalar coercion, a
+per-property required warning, hostname enforcement, the object-union false-reject fix, and a
+large real-world corpus sweep. The version target stays deliberately in 0.x, not 1.0.0: we stay in
 0.x while the generated output format is still evolving, and tag 1.0.0 (the API-stability promise)
 only when the feature set settles.
 
-## Done in 0.6.0 (CI-green on main)
+## Done in 0.7.0 (correctness and robustness hardening)
+
+### Differential validation oracle (issue #23)
+
+A data-driven, mutation-based internal quality harness. It generates one Laravel Data class per
+emitted constraint family (string length, numeric bounds, format rules, enum, etc.) and runs a
+conforming payload and a violating payload through the real Laravel Validator for each. A
+constraint that is silently dropped fails the suite immediately. A known-gap ratchet documents every
+acknowledged gap, preventing silent accumulation of new gaps. The oracle found and drove several of
+the fixes below before the release. This is the correctness guarantee that was previously listed as
+a roadmap item; it is now a permanent part of the quality baseline.
+
+### Nested-array item rules at every depth (issue #28)
+
+An array of arrays now propagates its inner item rules at every depth. Previously, the per-item
+rules for the inner array were silently dropped, so invalid inner values passed the Validator
+without error. Found by the oracle.
+
+### String-typed scalar coercion (issues #32, #33)
+
+Some Swagger generators emit numeric and length constraints, and the `nullable` flag, as JSON
+strings (e.g. `"minimum":"8"`, `"nullable":"true"`). These were previously silently ignored,
+dropping the constraint. Strictly-numeric strings and the literals `"true"` / `"false"` are now
+coerced to the proper types before constraint emission. Anything ambiguous is left untouched. Found
+by the oracle.
+
+### Per-property required diagnostic (issue #34)
+
+A non-standard per-property `required: true` key (a boolean set inside an individual property
+schema, which some generators emit) is an OpenAPI anti-pattern: OpenAPI 3.x only honours the
+schema-level `required: [...]` array. The generator already correctly ignored the key and generated
+the property as optional. It now also emits a named stderr warning, giving the property name and
+parent schema, so the silent information loss is surfaced. Both the artisan command and the
+framework-free binary surface this warning channel.
+
+### format: hostname enforcement (issue #29)
+
+`format: hostname` was previously a no-op (only the `string` rule was emitted, so any string was
+accepted). It now enforces RFC 1123 hostname syntax via a dedicated rule, and the duplicate
+redundant `string` rule was removed. `idn-hostname` remains lenient (a non-empty, no-whitespace
+check) to avoid wrongly rejecting valid unicode domain labels.
+
+### Undiscriminated object-union interim fix (issue #31)
+
+An undiscriminated `oneOf` of object refs is now typed `mixed` with presence-only validation, so
+every valid variant is accepted and no valid non-first variant is false-rejected. The variant union
+is preserved in the `@var` docblock. Full discriminator-aware variant validation and hydration is
+tracked as 1.0.0 work (issue #38). See also the limitations documentation updated by the prior
+release.
+
+### Real-world corpus robustness sweep
+
+Nine large public API specs (Stripe, GitHub, Box, Adyen, Asana, Sentry, Twilio) were run through
+the generator as a robustness check. All 13,378 generated files compile-clean with zero generator
+bugs found. Two construct-diverse specs (Sentry, Twilio v2010) were added to the permanent test
+corpus, bringing it to 130 specs.
+
+## Done in 0.6.0 (released)
 
 ### Drift-check command (`php artisan openapi:check`)
 
@@ -253,14 +313,18 @@ later, not a near-term commitment.
 
 ## Next work (toward 1.0.0)
 
-With 0.6.0 the enforcement layer is in place: drift is now a CI gate, not just a property of
-generated code. The remaining open items before 1.0.0 are runtime correctness and format stability.
+With 0.7.0 the enforcement and correctness layers are in place: drift is a CI gate, the differential
+oracle guards every emitted constraint, and the large real-world corpus sweep has found no generator
+bugs. The remaining open items before 1.0.0 are runtime correctness and format stability.
 
-1. **Object-union runtime hydration**: emit a discriminator-driven cast so a `oneOf` of Data classes
-   hydrates at runtime, not just type-checks. Currently the documented residual.
-2. **Differential conformance harness** (issue #23): derive a conforming and a violating payload per
-   emitted constraint and assert Validator agreement across the corpus. Today the executed-validation
-   guarantee covers the behavioral suite and the e2e demo, not every constraint of every corpus spec.
+1. **Discriminator-aware object-union validation and hydration** (issue #38): emit a
+   discriminator-driven cast so a `oneOf` of Data classes validates the correct variant and hydrates
+   at runtime, not just type-checks. Object unions are currently presence-only (`mixed`), which is
+   correct but lenient. Full variant enforcement needs a discriminator.
+2. **`additionalProperties: false` enforcement** (issue #30): a schema with
+   `additionalProperties: false` currently emits no rule preventing extra keys. The spec intent is
+   strict object shape; enforcement would reject payloads carrying undeclared properties. Tracked as a
+   documented limitation until the enforcement strategy is decided.
 3. **Small follow-ups**: richer error messages on bad input, `$ref`-valued request bodies as typed
    Data params instead of the `Request` fallback.
 4. **Cross-repo follow-up**: the openapi-zod-ts `Accept: application/json` gap (issue #289), surfaced
@@ -291,23 +355,31 @@ the vendored parser, so size guard plus OS limits are the mitigation.
 
 ## Test strategy
 
-Pest unit tests per feature (minimal in-memory spec builder) plus snapshots. Corpus: all 128
-fixtures parse and generate valid PHP, passing the import-resolution gate (256 corpus cases across
-the model and server gates), the `php -l` compile gate (catches compile errors `token_get_all`
-misses), plus the allOf/additionalProperties/oneOf non-empty guards. A synthetic OpenAPI 3.1
-conformance fixture covers the full generator surface, with a golden test (wired in 0.6.0) that
-pins the per-construct output, runs `php -l`, and verifies byte-for-byte determinism. Hostile-input
-suite for the security surfaces. Behavioral validator round-trips pin each 0.5.0 constraint
-(exclusive bounds, multipleOf, uniqueItems, float enums, strict date-time, defaults). Regression
-fixtures for the sibling-history edge cases. Pest native mutation (>=90%), 100% type coverage,
-PHPStan max, Pint. The e2e demo adds real-HTTP round-trip proofs across the language boundary, plus
-a Playwright headless-Chrome suite that drives the full browser -> SPA -> generated client ->
-backend loop against a docker-compose stack. Current totals: 840 package tests passing.
+Pest unit tests per feature (minimal in-memory spec builder) plus snapshots. Corpus: all 130
+fixtures (128 original plus Sentry and Twilio v2010 added in 0.7.0) parse and generate valid PHP,
+passing the import-resolution gate (260 corpus cases across the model and server gates), the `php -l`
+compile gate (catches compile errors `token_get_all` misses), plus the allOf/additionalProperties/
+oneOf non-empty guards. A synthetic OpenAPI 3.1 conformance fixture covers the full generator
+surface, with a golden test (wired in 0.6.0) that pins the per-construct output, runs `php -l`, and
+verifies byte-for-byte determinism. Hostile-input suite for the security surfaces. Behavioral
+validator round-trips pin each 0.5.0 constraint (exclusive bounds, multipleOf, uniqueItems, float
+enums, strict date-time, defaults). The differential validation oracle (0.7.0, issue #23) generates
+a class per constraint and runs valid and invalid payloads through the real Laravel Validator; a
+known-gap ratchet documents acknowledged gaps. Regression fixtures for the sibling-history edge
+cases. Pest native mutation (>=90%), 100% type coverage, PHPStan max, Pint. The e2e demo adds
+real-HTTP round-trip proofs across the language boundary, plus a Playwright headless-Chrome suite
+that drives the full browser -> SPA -> generated client -> backend loop against a docker-compose
+stack. Current totals: 580 package tests passing (the number fluctuates as parameterized corpus
+suites are refactored; all gates green).
 
 ## Open questions (genuine design decisions)
 
-- **Object-union hydration**: emit a discriminator-driven cast for `oneOf` of Data classes so object
-  unions hydrate at runtime, not just type-check. Currently the documented residual.
+- **Discriminator-aware object-union validation and hydration** (issue #38): emit a
+  discriminator-driven cast for `oneOf` of Data classes so object unions hydrate at runtime, not just
+  type-check. Currently typed `mixed` for presence-only validation (interim fix, 0.7.0). Full
+  variant enforcement and hydration is the 1.0.0 work.
+- **`additionalProperties: false` enforcement** (issue #30): decide whether to emit a rule rejecting
+  undeclared properties. Currently a documented limitation.
 - **Component request bodies / responses as typed params**: resolve `$ref` to
   `#/components/requestBodies/...` into a typed Data parameter instead of the `Request` fallback.
 - **Map-of-`$ref` value hydration**: a `$ref`-valued `additionalProperties` map is typed in the
@@ -316,8 +388,12 @@ backend loop against a docker-compose stack. Current totals: 840 package tests p
   value hydration).
 
 Resolved: allOf, additionalProperties (including empty-map `{}` encoding), oneOf/anyOf, non-object
-component aliasing, the silent-validation gaps, the parser boolean-items/OOM cases, the security
-surfaces, the two sibling-history bugs, the array-of-union DataCollectionOf bug (#24), and the
-drift-check enforcement layer are all implemented. The cross-language contract loop is proven end to
-end over real HTTP, including the browser-driven Playwright suite; object-union runtime hydration is
-the remaining open case. Floors are PHP 8.2 + Laravel 11/12 + laravel-data v4.
+component aliasing, the silent-validation gaps (0.5.0 sweep plus 0.7.0 oracle-driven fixes),
+the parser boolean-items/OOM cases, the security surfaces, the two sibling-history bugs, the
+array-of-union DataCollectionOf bug (#24), the drift-check enforcement layer, the differential
+validation oracle (#23), nested-array depth rules (#28), string-typed scalar coercion (#32, #33),
+per-property required diagnostic (#34), and hostname enforcement (#29) are all implemented. The
+undiscriminated object-union false-reject is fixed (#31, interim). The cross-language contract loop
+is proven end to end over real HTTP, including the browser-driven Playwright suite; discriminator-
+aware object-union runtime hydration and `additionalProperties: false` enforcement are the
+remaining open cases. Floors are PHP 8.2 + Laravel 11/12 + laravel-data v4.
