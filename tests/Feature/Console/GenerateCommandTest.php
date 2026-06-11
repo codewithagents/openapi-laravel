@@ -64,7 +64,7 @@ it('fails clearly when the spec cannot be read', function () use ($tempOut) {
     $this->artisan('openapi:generate')->assertFailed();
 });
 
-it('generates abstract controllers and a routes file when asked', function () use ($tempOut) {
+it('generates abstract controllers and a routes file by default', function () use ($tempOut) {
     $spec = __DIR__.'/../../Fixtures/server/petstore.yaml';
     $out = $tempOut();
     $controllerOut = $out.'/Http/Controllers/Api';
@@ -77,13 +77,124 @@ it('generates abstract controllers and a routes file when asked', function () us
     $this->artisan('openapi:generate', [
         '--spec' => $spec,
         '--output' => $out,
-        '--controllers' => true,
-        '--routes' => true,
     ])->assertSuccessful();
 
     expect(is_file($controllerOut.'/AbstractPetController.php'))->toBeTrue()
         ->and(is_file($routesOut))->toBeTrue()
         ->and(file_get_contents($routesOut))->toContain("Route::get('/pets'");
+});
+
+it('skips controllers and routes with --no-controllers and --no-routes', function () use ($tempOut) {
+    $spec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+    $controllerOut = $out.'/Http/Controllers/Api';
+    $routesOut = $out.'/routes/api.generated.php';
+
+    config()->set('openapi-laravel.controllers.path', $controllerOut);
+    config()->set('openapi-laravel.routes.path', $routesOut);
+
+    $this->artisan('openapi:generate', [
+        '--spec' => $spec,
+        '--output' => $out,
+        '--no-controllers' => true,
+        '--no-routes' => true,
+    ])->assertSuccessful();
+
+    expect(is_dir($controllerOut))->toBeFalse()
+        ->and(is_file($routesOut))->toBeFalse()
+        ->and(is_file($out.'/PetData.php'))->toBeTrue();
+});
+
+it('lets the config disable the scaffold when no flag is passed', function () use ($tempOut) {
+    $spec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+    $controllerOut = $out.'/Http/Controllers/Api';
+    $routesOut = $out.'/routes/api.generated.php';
+
+    config()->set('openapi-laravel.controllers.enabled', false);
+    config()->set('openapi-laravel.controllers.path', $controllerOut);
+    config()->set('openapi-laravel.routes.enabled', false);
+    config()->set('openapi-laravel.routes.path', $routesOut);
+
+    $this->artisan('openapi:generate', [
+        '--spec' => $spec,
+        '--output' => $out,
+    ])->assertSuccessful();
+
+    expect(is_dir($controllerOut))->toBeFalse()
+        ->and(is_file($routesOut))->toBeFalse();
+});
+
+it('lets --controllers and --routes override a config that disables them', function () use ($tempOut) {
+    $spec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+    $controllerOut = $out.'/Http/Controllers/Api';
+    $routesOut = $out.'/routes/api.generated.php';
+
+    config()->set('openapi-laravel.controllers.enabled', false);
+    config()->set('openapi-laravel.controllers.path', $controllerOut);
+    config()->set('openapi-laravel.routes.enabled', false);
+    config()->set('openapi-laravel.routes.path', $routesOut);
+
+    $this->artisan('openapi:generate', [
+        '--spec' => $spec,
+        '--output' => $out,
+        '--controllers' => true,
+        '--routes' => true,
+    ])->assertSuccessful();
+
+    expect(is_file($controllerOut.'/AbstractPetController.php'))->toBeTrue()
+        ->and(is_file($routesOut))->toBeTrue();
+});
+
+it('lets --no-controllers and --no-routes override a config that enables them', function () use ($tempOut) {
+    $spec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+    $controllerOut = $out.'/Http/Controllers/Api';
+    $routesOut = $out.'/routes/api.generated.php';
+
+    config()->set('openapi-laravel.controllers.enabled', true);
+    config()->set('openapi-laravel.controllers.path', $controllerOut);
+    config()->set('openapi-laravel.routes.enabled', true);
+    config()->set('openapi-laravel.routes.path', $routesOut);
+
+    $this->artisan('openapi:generate', [
+        '--spec' => $spec,
+        '--output' => $out,
+        '--no-controllers' => true,
+        '--no-routes' => true,
+    ])->assertSuccessful();
+
+    expect(is_dir($controllerOut))->toBeFalse()
+        ->and(is_file($routesOut))->toBeFalse();
+});
+
+it('rejects --controllers combined with --no-controllers and writes nothing', function () use ($tempOut) {
+    $spec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+
+    $this->artisan('openapi:generate', [
+        '--spec' => $spec,
+        '--output' => $out,
+        '--controllers' => true,
+        '--no-controllers' => true,
+    ])->assertFailed();
+
+    expect(is_dir($out))->toBeFalse();
+});
+
+it('rejects --routes combined with --no-routes and writes nothing', function () use ($tempOut) {
+    $spec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+
+    $this->artisan('openapi:generate', [
+        '--spec' => $spec,
+        '--output' => $out,
+        '--routes' => true,
+        '--no-routes' => true,
+    ])->assertFailed();
+
+    expect(is_dir($out))->toBeFalse();
 });
 
 it('fails when --controllers is requested but the controllers path is unset', function () use ($tempOut) {

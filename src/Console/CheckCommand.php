@@ -32,8 +32,10 @@ final class CheckCommand extends Command
         {--spec= : Path to the OpenAPI document (defaults to config)}
         {--output= : Output directory for generated classes (defaults to config)}
         {--namespace= : Namespace for generated classes (overrides config)}
-        {--controllers : Also check the abstract controllers}
-        {--routes : Also check the routes file}
+        {--controllers : Check the abstract controllers even when disabled in config (default: on)}
+        {--no-controllers : Skip the abstract controllers}
+        {--routes : Check the routes file even when disabled in config (default: on)}
+        {--no-routes : Skip the routes file}
         {--diff : Print a unified diff for each changed file}';
 
     /**
@@ -43,9 +45,8 @@ final class CheckCommand extends Command
 
     public function handle(): int
     {
-        $request = (new CommandRequestFactory)->fromCommand($this);
-
         try {
+            $request = (new CommandRequestFactory)->fromCommand($this);
             $plan = (new GenerationPlanner)->plan($request);
         } catch (PlanException|OptionException $e) {
             $this->components->error($e->getMessage());

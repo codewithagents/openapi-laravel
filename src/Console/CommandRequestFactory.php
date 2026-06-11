@@ -10,8 +10,15 @@ use Illuminate\Console\Command;
  * Builds a GenerationRequest from an artisan command: the same flag-over-config
  * resolution the generate command always used, lifted out so generate and check
  * read their inputs identically. Both commands accept the same options
- * (--spec, --output, --namespace, --controllers, --routes), so neither can
- * compute a different plan than the other.
+ * (--spec, --output, --namespace, --controllers/--no-controllers,
+ * --routes/--no-routes), so neither can compute a different plan than the other.
+ *
+ * Toggle precedence is strict: an explicit flag beats the config value, the
+ * config value beats the built-in default (enabled). Passing both the enable
+ * and the disable flag is a configuration error, not a silent pick.
+ *
+ * @throws OptionException when --controllers/--no-controllers or
+ *                         --routes/--no-routes are combined
  */
 final readonly class CommandRequestFactory
 {
@@ -33,8 +40,8 @@ final readonly class CommandRequestFactory
         $bytes = config('openapi-laravel.max_bytes');
         $maxBytes = is_int($bytes) ? $bytes : null;
 
-        $controllers = (bool) $command->option('controllers') || (bool) config('openapi-laravel.controllers.enabled');
-        $routes = (bool) $command->option('routes') || (bool) config('openapi-laravel.routes.enabled');
+        $controllers = $this->resolveToggle($command, 'controllers', 'openapi-laravel.controllers.enabled');
+        $routes = $this->resolveToggle($command, 'routes', 'openapi-laravel.routes.enabled');
 
         $controllerPath = $this->configString('openapi-laravel.controllers.path');
         $controllerNamespace = $this->configString('openapi-laravel.controllers.namespace') ?? 'App\\Http\\Controllers\\Api';
@@ -53,6 +60,35 @@ final readonly class CommandRequestFactory
             $routes,
             $routesPath,
         );
+    }
+
+    /**
+     * Resolves an enable/disable flag pair against the config: flag beats
+     * config, config beats the built-in default (enabled). Both flags at once
+     * is a contradiction the operator must resolve, so it fails loudly.
+     *
+     * @throws OptionException when both --{$flag} and --no-{$flag} are passed
+     */
+    private function resolveToggle(Command $command, string $flag, string $configKey): bool
+    {
+        $enable = (bool) $command->option($flag);
+        $disable = (bool) $command->option('no-'.$flag);
+
+        if ($enable && $disable) {
+            throw new OptionException(sprintf('--%s and --no-%s cannot be combined. Pass at most one of them.', $flag, $flag));
+        }
+
+        if ($enable) {
+            return true;
+        }
+
+        if ($disable) {
+            return false;
+        }
+
+        $configured = config($configKey);
+
+        return $configured === null ? true : (bool) $configured;
     }
 
     private function stringOption(Command $command, string $name): ?string

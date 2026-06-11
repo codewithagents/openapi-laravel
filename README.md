@@ -22,9 +22,9 @@ shapes; the drift exists only because humans re-type them.
 
 So make the spec the source of truth and regeneration the sync mechanism. One command emits
 [spatie/laravel-data](https://github.com/spatie/laravel-data) classes with explicit, spec-derived
-`rules()` methods plus native PHP enums, and, when you opt in, an abstract controller per tag and a
-routes file so the request/response types and the routing table derive from the spec too. When the
-spec changes, you re-run the generator and review the diff.
+`rules()` methods plus native PHP enums, an abstract controller per tag, and a routes file, so the
+request/response types and the routing table derive from the spec too. When the spec changes, you
+re-run the generator and review the diff.
 
 Unlike annotation-driven tools that generate a *spec from your code*, this goes the other way: the
 spec drives the code. And unlike most generators, the output is not a black box. It is readable,
@@ -88,18 +88,25 @@ Point it at your spec and generate:
 php artisan openapi:generate --spec=openapi.yaml --output=app/Data
 ```
 
-The artisan command writes into the namespace from `config/openapi-laravel.php` (`output.namespace`,
-default `App\Data`); set it there rather than on the command line. Set `spec` and `output.path` in the
-config too and you can then just run `php artisan openapi:generate`.
-
-Want the server scaffold too? Pass `--controllers` and `--routes` to also emit one abstract
-controller per tag and a `routes/api.generated.php` file, typed by the same Data classes:
+One command emits the full output: Data classes with `rules()`, native enums, one abstract
+controller per tag (`app/Http/Controllers/Api` by default), and a `routes/api.generated.php`
+file, all typed against each other. Models only? Opt out per run:
 
 ```bash
-php artisan openapi:generate --controllers --routes
+php artisan openapi:generate --no-controllers --no-routes
 ```
 
-Not a Laravel project? The same generator ships as a framework-free binary:
+The artisan command writes into the namespace from `config/openapi-laravel.php` (`output.namespace`,
+default `App\Data`), overridable per run with `--namespace`. Set `spec` and `output.path` in the
+config too and you can then just run `php artisan openapi:generate`. Settings resolve with strict
+precedence: flags beat the config, the config beats the built-in defaults (`controllers.enabled` and
+`routes.enabled` can disable the scaffold permanently; `--controllers` / `--routes` force it back on
+for one run).
+
+Not a Laravel project? The same generator ships as a framework-free binary. It reads an optional
+`openapi-laravel.json` from the working directory (or `--config=<path>`) whose keys mirror the
+Laravel config, with the same flag-over-config precedence. Controllers and routes default to
+`<output>/Controllers` and `<output>/routes.php`:
 
 ```bash
 vendor/bin/openapi-laravel --spec=openapi.yaml --output=src/Data --namespace="Acme\\Dto"
@@ -124,8 +131,8 @@ vendor/bin/openapi-laravel check
 Exit codes: `0` the committed files match the spec, `1` drift detected (the build fails), `2` a
 config or spec error. Add `--diff` to print a bounded unified diff per changed file so you can see
 exactly what drifted. The check honors the same flags as `openapi:generate` (`--spec`, `--output`,
-`--namespace`, `--controllers`, `--routes`) and only compares generator-owned files, so hand-written
-concrete controllers are never flagged as drift.
+`--namespace`, `--no-controllers`, `--no-routes`) and only compares generator-owned files, so
+hand-written concrete controllers are never flagged as drift.
 
 ![openapi:check failing the build on contract drift](https://openapi-laravel.codewithagents.de/media/openapi-laravel-drift-check.gif)
 
@@ -142,8 +149,8 @@ openapi.yaml
                           app/Data/CustomerStatus.php        (native backed enum)
                           app/Data/CustomerWritableData.php  (write variant, when the spec
                                                               uses readOnly/writeOnly)
-     --controllers      →  app/Http/Controllers/Api/AbstractCustomerController.php
-     --routes           →  routes/api.generated.php
+                          app/Http/Controllers/Api/AbstractCustomerController.php
+                          routes/api.generated.php
 ```
 
 You write your business logic. The DTOs, their validation, the controller signatures, and the
@@ -187,14 +194,13 @@ What the generator handles today:
 - **Non-object components** → a top-level component that is itself a scalar, an array, or a
   `oneOf`/`anyOf` union is aliased to its underlying type at every `$ref` use site, instead of an
   empty Data class that would silently fail to hydrate
-- **Server scaffold** (opt-in via `--controllers` / `--routes`) → an abstract controller per tag and
-  a routes file, typed by the Data classes, so an unimplemented operation is a PHP fatal and
-  path-level drift is structurally impossible
+- **Server scaffold** (generated by default, opt out with `--no-controllers` / `--no-routes`) → an
+  abstract controller per tag and a routes file, typed by the Data classes, so an unimplemented
+  operation is a PHP fatal and path-level drift is structurally impossible
 - **Determinism** → same spec in, byte-identical files out
 
-With `--controllers --routes`, the same spec also produces a typed abstract controller per tag and a
-routes file. An operation you forget to implement is a PHP fatal at class-definition time, not a gap
-discovered in production:
+The same spec also produces a typed abstract controller per tag and a routes file. An operation you
+forget to implement is a PHP fatal at class-definition time, not a gap discovered in production:
 
 ```php
 // generated: app/Http/Controllers/Api/AbstractPetController.php
@@ -368,7 +374,7 @@ Those are excellent if your code is the source of truth. This tool is for the ot
 | Generates laravel-data DTOs | **Yes** | No | No (custom DTOs) | You do |
 | Spec-derived validation `rules()` | **Yes** | No | Partial | You do |
 | Native PHP enums | **Yes** | No | No | You do |
-| Server scaffold (abstract controllers + routes) | **Yes** (opt-in) | No | Yes | You do |
+| Server scaffold (abstract controllers + routes) | **Yes** (default) | No | Yes | You do |
 | `allOf` / `additionalProperties` | **Yes** | n/a | Partial | You do |
 | `oneOf` / `anyOf` | **Scalar union type hints**; object unions presence-only, no false-reject (discriminator validation/hydration is 1.0.0 work) | n/a | Partial | You do |
 | Minimum Laravel version | **11** | 9+ | 10+ | n/a |

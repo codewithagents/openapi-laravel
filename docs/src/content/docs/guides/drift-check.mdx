@@ -29,8 +29,8 @@ Because generation is deterministic, the comparison is an exact match. There is 
 `openapi:check` only compares **generator-owned** files:
 
 - the generated Data classes and enums,
-- the abstract controllers (`Abstract*Controller.php`), when `--controllers` is on,
-- the generated routes file, when `--routes` is on.
+- the abstract controllers (`Abstract*Controller.php`), on by default, skipped with `--no-controllers`,
+- the generated routes file, on by default, skipped with `--no-routes`.
 
 It never inspects your hand-written concrete controllers or any unrelated file. A file is reported as drifted when it is either:
 
@@ -41,38 +41,38 @@ Stale-file detection (files on disk that the generator would no longer produce) 
 
 ## Usage
 
-`openapi:check` honours the same config and the same flags as `openapi:generate` (`--spec`, `--output`, `--namespace`, `--controllers`, `--routes`), so it always checks exactly what generate would produce.
+`openapi:check` honours the same config and the same flags as `openapi:generate` (`--spec`, `--output`, `--namespace`, `--no-controllers`, `--no-routes`), with the same [precedence rules](/guides/configuration#precedence-flags-beat-config-config-beats-defaults), so it always checks exactly what generate would produce: models, controllers, and routes by default.
 
 <Tabs>
 <TabItem label="Laravel (artisan)">
 
 ```bash
-# Models only (uses config/openapi-laravel.php)
+# Full check: models, controllers, routes (uses config/openapi-laravel.php)
 php artisan openapi:check
 
-# Override the spec and output, and include the server scaffold
+# Override the spec and output, and check the models only
 php artisan openapi:check \
   --spec=openapi.yaml \
   --output=app/Data \
-  --controllers \
-  --routes
+  --no-controllers \
+  --no-routes
 ```
 
 </TabItem>
 <TabItem label="Standalone binary">
 
 ```bash
-# Models only
+# Full check; the scaffold defaults to <output>/Controllers and <output>/routes.php
 vendor/bin/openapi-laravel check \
   --spec=openapi.yaml \
   --output=app/Data
 
-# With the server scaffold
+# With explicit scaffold locations
 vendor/bin/openapi-laravel check \
   --spec=openapi.yaml \
   --output=app/Data \
-  --controllers --controller-output=app/Http/Controllers/Api \
-  --routes --routes-output=routes/api.generated.php
+  --controller-output=app/Http/Controllers/Api \
+  --routes-output=routes/api.generated.php
 ```
 
 </TabItem>
@@ -100,7 +100,7 @@ The exit code is what makes the command a CI gate.
 | ---- | ------- |
 | `0`  | Every generator-owned file on disk matches the spec. In sync. |
 | `1`  | Drift detected. One or more files are missing or changed. |
-| `2`  | Configuration or spec error (no spec configured, an unparseable spec, a missing output path, an illegal namespace). |
+| `2`  | Configuration or spec error (no spec configured, an unparseable spec, a missing output path, an illegal namespace, conflicting flags such as `--controllers --no-controllers`). |
 
 Exit code `2` is distinct on purpose: a broken spec or misconfiguration is a different failure than genuine drift, and CI logs make that distinction clear.
 
@@ -144,7 +144,7 @@ jobs:
           php-version: '8.3'
       - run: composer install --no-interaction --no-progress
       - name: Verify generated code is in sync with the spec
-        run: php artisan openapi:check --controllers --routes
+        run: php artisan openapi:check
 ```
 
 The standalone binary works the same way for non-Laravel projects:

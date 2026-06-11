@@ -32,23 +32,24 @@ return [
     /*
      * Server scaffold: generate one abstract controller per tag with an
      * abstract method per operation, typed against the generated Data classes.
-     * Disabled by default; opt in here or pass --controllers to the command.
-     * Only the Abstract* files are ever written, so your concrete controllers
-     * are never touched or pruned.
+     * Enabled by default; opt out here or pass --no-controllers to the command
+     * (--controllers force-enables it again). Only the Abstract* files are ever
+     * written, so your concrete controllers are never touched or pruned.
      */
     'controllers' => [
-        'enabled' => false,
+        'enabled' => true,
         'path' => app_path('Http/Controllers/Api'),
         'namespace' => 'App\\Http\\Controllers\\Api',
     ],
 
     /*
      * Server scaffold: a single generated routes file with one Route:: entry
-     * per spec operation, pointing at the concrete controller classes. Disabled
-     * by default; opt in here or pass --routes to the command.
+     * per spec operation, pointing at the concrete controller classes. Enabled
+     * by default; opt out here or pass --no-routes to the command (--routes
+     * force-enables it again).
      */
     'routes' => [
-        'enabled' => false,
+        'enabled' => true,
         'path' => base_path('routes/api.generated.php'),
     ],
 
