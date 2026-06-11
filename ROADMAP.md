@@ -44,7 +44,7 @@ passing the import-resolution and `php -l` gates, before anything ships.
 3. **Output style: spatie/laravel-data classes** with explicit, spec-derived `rules()` methods.
    Native backed enums for spec enums.
 4. **Spec fixtures duplicated** from openapi-zod-ts (public artifacts).
-5. **Targets**: PHP 8.2+, Laravel 11/12, laravel-data v4 (^4.15 for the morphable discriminated unions).
+5. **Targets**: PHP 8.2+, Laravel 11/12/13 (13 needs PHP 8.3+), laravel-data v4 (^4.15 for the morphable discriminated unions).
 6. Package name: `codewithagents/openapi-laravel`.
 7. **The sibling history is a test oracle.** openapi-zod-ts's fixed bugs are a checklist of
    real-world edge cases to verify against this generator, independent of the corpus.

@@ -366,7 +366,7 @@ from property types at runtime. What the contract says is what gets validated.
 **Deterministic.** Stable ordering everywhere. Regenerating produces a byte-identical diff or no diff
 at all, so the generator is safe to run in CI and commit.
 
-**Modern only.** PHP 8.2+, Laravel 11/12, laravel-data v4. No legacy shims.
+**Modern only.** PHP 8.2+, Laravel 11/12/13, laravel-data v4. No legacy shims.
 
 ---
 
