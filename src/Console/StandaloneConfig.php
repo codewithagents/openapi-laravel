@@ -8,9 +8,9 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  * The settings a standalone-binary run can read from an openapi-laravel.json
  * config file. The keys mirror config/openapi-laravel.php one to one (spec,
  * output.path/namespace/suffix/prune, controllers.enabled/path/namespace,
- * routes.enabled/path, enforce_closed_objects, max_depth, max_bytes), so a team
- * can keep one mental model across the artisan command and the framework-free
- * binary.
+ * routes.enabled/path/middleware/prefix, enforce_closed_objects, max_depth,
+ * max_bytes), so a team can keep one mental model across the artisan command
+ * and the framework-free binary.
  *
  * Every property is nullable: null means "not set in the file", letting the
  * binary apply its flag-over-config-over-default precedence per value.
@@ -18,6 +18,7 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
 final readonly class StandaloneConfig
 {
     /**
+     * @param  list<string>|null  $routesMiddleware  middleware names for the route group (issue #71), or null when unset
      * @param  list<string>|null  $onlyTags  subset tag selection (issue #44), or null when unset
      * @param  list<string>|null  $onlySchemas  subset schema selection (issue #44), or null when unset
      */
@@ -32,6 +33,15 @@ final readonly class StandaloneConfig
         public ?string $controllerNamespace = null,
         public ?bool $routesEnabled = null,
         public ?string $routesPath = null,
+        /*
+         * Route group settings (issue #71). routes.middleware is a JSON list
+         * of middleware names (never comma-split: a middleware parameter list
+         * legitimately contains commas, e.g. throttle:60,1); routes.prefix is
+         * a URI prefix string. When either is set the generated routes are
+         * wrapped in one Route::group block. Null means the key was not set.
+         */
+        public ?array $routesMiddleware = null,
+        public ?string $routesPrefix = null,
         public ?bool $enforceClosedObjectsEnabled = null,
         public ?int $maxDepth = null,
         public ?int $maxBytes = null,

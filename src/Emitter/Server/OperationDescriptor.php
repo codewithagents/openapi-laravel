@@ -7,9 +7,9 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter\Server;
 /**
  * One spec operation, resolved into everything the controller and route
  * generators need: the HTTP method and spec path, the controller it belongs to
- * (concrete + abstract names), the method name, typed path params, the request
- * body param (or a Request fallback), the return type, and the imports the
- * controller file must `use`.
+ * (concrete + abstract names), the method name, the route name, typed path
+ * params, the request body param (or a Request fallback), the return type, and
+ * the imports the controller file must `use`.
  *
  * A plain immutable value object: no behaviour, just resolved data, so both
  * downstream generators stay trivial and deterministic.
@@ -27,6 +27,14 @@ final readonly class OperationDescriptor
         public string $controllerClass,
         public string $abstractClass,
         public string $methodName,
+        /*
+         * The `->name()` every generated route carries (issue #71). Derived
+         * from the same sanitized identifier as the controller method name
+         * (the operationId when present, otherwise method + path), but made
+         * unique across the WHOLE route table rather than per controller, so
+         * the route() helper can target any operation unambiguously.
+         */
+        public string $routeName,
         public array $pathParams,
         public ?array $bodyParam,
         public bool $bodyRequiresRequest,

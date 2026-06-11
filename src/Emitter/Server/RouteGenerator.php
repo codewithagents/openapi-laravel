@@ -12,6 +12,13 @@ use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
  * (the user's subclass, not the abstract). Because the routing table derives
  * from the spec, path-level spec/code drift is structurally impossible.
  *
+ * Every route carries a `->name()` derived from its operationId (issue #71),
+ * unique across the table, so the route() helper, URL generation, and
+ * route-based authorization can target generated routes. When the config sets
+ * routes.middleware and/or routes.prefix, the routes are wrapped in one
+ * Route::middleware(...)->prefix(...)->group(...) block; with neither set the
+ * output stays the flat list it always was.
+ *
  * Output is deterministic: imports sorted and unique, route lines in the
  * descriptor order (already path then HTTP method).
  */
@@ -42,7 +49,8 @@ final readonly class RouteGenerator
         $lines = [];
         foreach ($descriptors as $descriptor) {
             $lines[] = 'Route::'.$descriptor->httpMethod."('".$this->escape($descriptor->path)."', ["
-                .$descriptor->controllerClass."::class, '".$this->escape($descriptor->methodName)."']);";
+                .$descriptor->controllerClass."::class, '".$this->escape($descriptor->methodName)."'])"
+                ."->name('".$this->escape($descriptor->routeName)."');";
         }
 
         $header = "<?php\n\ndeclare(strict_types=1);\n\n"
@@ -51,9 +59,57 @@ final readonly class RouteGenerator
             ." * Re-run the generator to refresh routes from the spec.\n"
             ." */\n\n";
 
-        $body = $lines === [] ? '' : implode("\n", $lines)."\n";
+        $body = $this->body($lines);
 
         return new GeneratedFile('api.generated', $header.implode("\n", $uses)."\n\n".$body);
+    }
+
+    /**
+     * Render the route lines, wrapped in a Route::middleware/prefix group when
+     * the options configure either (issue #71). No middleware and no prefix
+     * keeps the historical flat list, byte-identical to before.
+     *
+     * @param  list<string>  $lines
+     */
+    private function body(array $lines): string
+    {
+        if ($lines === []) {
+            return '';
+        }
+
+        $group = $this->groupChain();
+        if ($group === null) {
+            return implode("\n", $lines)."\n";
+        }
+
+        $indented = array_map(static fn (string $line): string => '    '.$line, $lines);
+
+        return $group."->group(function (): void {\n".implode("\n", $indented)."\n});\n";
+    }
+
+    /**
+     * The `Route::middleware([...])->prefix('...')` chain opening the group,
+     * or null when neither middleware nor a prefix is configured. The prefix
+     * treats '' like null so an empty config key cannot emit a useless group.
+     */
+    private function groupChain(): ?string
+    {
+        $calls = [];
+
+        if ($this->options->routeMiddleware !== []) {
+            $middleware = array_map(
+                fn (string $name): string => "'".$this->escape($name)."'",
+                $this->options->routeMiddleware,
+            );
+            $calls[] = 'middleware(['.implode(', ', $middleware).'])';
+        }
+
+        $prefix = $this->options->routePrefix;
+        if ($prefix !== null && $prefix !== '') {
+            $calls[] = "prefix('".$this->escape($prefix)."')";
+        }
+
+        return $calls === [] ? null : 'Route::'.implode('->', $calls);
     }
 
     private function escape(string $value): string

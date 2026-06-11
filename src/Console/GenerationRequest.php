@@ -22,6 +22,7 @@ final readonly class GenerationRequest
     /**
      * @param  list<string>  $onlyTags  subset tag selection (issue #44); empty means the full spec
      * @param  list<string>  $onlySchemas  subset schema selection (issue #44); empty means the full spec
+     * @param  list<string>  $routesMiddleware  middleware names the generated routes are grouped under (issue #71); empty means no group
      */
     public function __construct(
         public ?string $spec,
@@ -57,5 +58,15 @@ final readonly class GenerationRequest
          * @var list<string>
          */
         public array $onlySchemas = [],
+        /*
+         * Route group settings (issue #71). When middleware names and/or a URI
+         * prefix are configured (routes.middleware / routes.prefix), the
+         * generated routes are wrapped in one Route::middleware(...)->
+         * prefix(...)->group(...) block. The defaults (no middleware, no
+         * prefix) keep the flat routes file unchanged. Config-only: there are
+         * no CLI flags for these.
+         */
+        public array $routesMiddleware = [],
+        public ?string $routesPrefix = null,
     ) {}
 }

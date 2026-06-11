@@ -43,7 +43,7 @@ final readonly class StandaloneConfigLoader
         'spec' => null,
         'output' => ['path', 'namespace', 'suffix', 'prune'],
         'controllers' => ['enabled', 'path', 'namespace'],
-        'routes' => ['enabled', 'path'],
+        'routes' => ['enabled', 'path', 'middleware', 'prefix'],
         'enforce_closed_objects' => null,
         'max_depth' => null,
         'max_bytes' => null,
@@ -105,6 +105,8 @@ final readonly class StandaloneConfigLoader
             controllerNamespace: $this->string($decoded['controllers'] ?? [], 'namespace', $path, 'controllers.'),
             routesEnabled: $this->bool($decoded['routes'] ?? [], 'enabled', $path, 'routes.'),
             routesPath: $containment->contain($this->string($decoded['routes'] ?? [], 'path', $path, 'routes.'), 'routes.path', $path),
+            routesMiddleware: $this->middlewareList($decoded['routes'] ?? [], $path),
+            routesPrefix: $this->string($decoded['routes'] ?? [], 'prefix', $path, 'routes.'),
             enforceClosedObjectsEnabled: $this->bool($decoded, 'enforce_closed_objects', $path),
             maxDepth: $this->int($decoded, 'max_depth', $path),
             maxBytes: $this->int($decoded, 'max_bytes', $path),
@@ -160,6 +162,43 @@ final readonly class StandaloneConfigLoader
         }
 
         throw new OptionException("Invalid '{$key}' in config file {$path}: expected a comma-separated string or a list of strings.");
+    }
+
+    /**
+     * Read routes.middleware (issue #71) as a JSON list of middleware names,
+     * trimmed and non-empty. Deliberately NOT comma-split (unlike only_tags /
+     * only_schemas): a middleware parameter list legitimately contains commas,
+     * e.g. "throttle:60,1", so a comma-separated string form would corrupt it.
+     * Returns null when the key is absent (no group).
+     *
+     * @param  mixed  $section  the decoded `routes` section
+     * @return list<string>|null
+     *
+     * @throws OptionException when the key is present but not a list of strings
+     */
+    private function middlewareList(mixed $section, string $path): ?array
+    {
+        $value = is_array($section) ? ($section['middleware'] ?? null) : null;
+        if ($value === null) {
+            return null;
+        }
+
+        if (! is_array($value) || ! array_is_list($value)) {
+            throw new OptionException("Invalid 'routes.middleware' in config file {$path}: expected a list of strings (middleware names are never comma-split, pass each as its own entry).");
+        }
+
+        $names = [];
+        foreach ($value as $element) {
+            if (! is_string($element)) {
+                throw new OptionException("Invalid 'routes.middleware' in config file {$path}: every entry must be a string.");
+            }
+            $element = trim($element);
+            if ($element !== '') {
+                $names[] = $element;
+            }
+        }
+
+        return $names;
     }
 
     /**

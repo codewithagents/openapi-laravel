@@ -101,9 +101,14 @@ final class OperationCollector
         /** @var array<string, UniqueNames> $methodNames */
         $methodNames = [];
 
+        // Route names share the method-name identifier but must be unique
+        // across the WHOLE route table (Laravel resolves route() globally), so
+        // they get one global allocator instead of the per-controller ones.
+        $routeNames = new UniqueNames;
+
         $descriptors = [];
         foreach ($rows as $row) {
-            $descriptors[] = $this->describe($row['path'], $row['method'], $row['operation'], $methodNames);
+            $descriptors[] = $this->describe($row['path'], $row['method'], $row['operation'], $methodNames, $routeNames);
         }
 
         return $descriptors;
@@ -112,7 +117,7 @@ final class OperationCollector
     /**
      * @param  array<string, UniqueNames>  $methodNames
      */
-    private function describe(string $path, string $method, Operation $operation, array &$methodNames): OperationDescriptor
+    private function describe(string $path, string $method, Operation $operation, array &$methodNames, UniqueNames $routeNames): OperationDescriptor
     {
         $tag = $this->firstTag($operation);
         $controllerClass = PhpIdentifier::toClassName($tag).$this->options->controllerSuffix;
@@ -122,6 +127,12 @@ final class OperationCollector
             $methodNames[$controllerClass] = new UniqueNames;
         }
         $methodName = $methodNames[$controllerClass]->reserve($this->methodName($operation, $method, $path));
+
+        // The route name reuses the (already per-controller-unique) method
+        // name as its candidate, then the global allocator suffixes any
+        // cross-controller clash (_2, _3, ...). Deterministic because the
+        // descriptor order is.
+        $routeName = $routeNames->reserve($methodName);
 
         $pathParams = $this->pathParams($path, $operation);
         $imports = [];
@@ -138,6 +149,7 @@ final class OperationCollector
             controllerClass: $controllerClass,
             abstractClass: $abstractClass,
             methodName: $methodName,
+            routeName: $routeName,
             pathParams: $pathParams,
             bodyParam: $bodyParam,
             bodyRequiresRequest: $bodyRequiresRequest,

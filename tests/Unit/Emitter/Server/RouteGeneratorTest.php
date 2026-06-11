@@ -2,18 +2,20 @@
 
 declare(strict_types=1);
 
+use cebe\openapi\Reader;
+use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\RouteGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
-function generateRoutes(): string
+function generateRoutes(?ServerOptions $options = null): string
 {
     $doc = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/server/petstore.yaml');
     $generator = new ModelGenerator;
     $generator->generate($doc);
-    $options = new ServerOptions;
+    $options ??= new ServerOptions;
     $descriptors = (new OperationCollector($options, $generator->registry()))->collect($doc);
 
     return (new RouteGenerator($options))->generate($descriptors)->code;
@@ -39,14 +41,14 @@ it('emits a generated-do-not-edit header and the Route facade import', function 
         ->and($code)->toContain('use Illuminate\Support\Facades\Route;');
 });
 
-it('emits one Route line per operation pointing at the concrete controller', function () {
+it('emits one named Route line per operation pointing at the concrete controller', function () {
     $code = generateRoutes();
 
-    expect($code)->toContain("Route::get('/pets', [PetController::class, 'listPets']);")
-        ->and($code)->toContain("Route::post('/pets', [PetController::class, 'createPet']);")
-        ->and($code)->toContain("Route::get('/pets/{petId}', [PetController::class, 'getPetById']);")
-        ->and($code)->toContain("Route::delete('/pets/{petId}', [PetController::class, 'deletePet']);")
-        ->and($code)->toContain("Route::get('/health', [UntaggedController::class, 'getHealth']);");
+    expect($code)->toContain("Route::get('/pets', [PetController::class, 'listPets'])->name('listPets');")
+        ->and($code)->toContain("Route::post('/pets', [PetController::class, 'createPet'])->name('createPet');")
+        ->and($code)->toContain("Route::get('/pets/{petId}', [PetController::class, 'getPetById'])->name('getPetById');")
+        ->and($code)->toContain("Route::delete('/pets/{petId}', [PetController::class, 'deletePet'])->name('deletePet');")
+        ->and($code)->toContain("Route::get('/health', [UntaggedController::class, 'getHealth'])->name('getHealth');");
 });
 
 it('imports the concrete controllers (not the abstracts), sorted and unique', function () {
@@ -65,4 +67,85 @@ it('passes the spec path through verbatim, including braces', function () {
 it('is deterministic and syntactically valid PHP', function () {
     expect(generateRoutes())->toBe(generateRoutes());
     expect(fn () => token_get_all(generateRoutes(), TOKEN_PARSE))->not->toThrow(Throwable::class);
+});
+
+it('stays a flat list with no Route::group when neither middleware nor prefix is configured', function () {
+    $code = generateRoutes();
+
+    expect($code)->not->toContain('->group(')
+        ->and($code)->not->toContain('Route::middleware')
+        ->and($code)->not->toContain('Route::prefix');
+});
+
+it('wraps the routes in a middleware group when routes.middleware is configured (#71)', function () {
+    $code = generateRoutes(new ServerOptions(routeMiddleware: ['api', 'throttle:60,1']));
+
+    expect($code)->toContain("Route::middleware(['api', 'throttle:60,1'])->group(function (): void {")
+        ->and($code)->toContain("    Route::get('/pets', [PetController::class, 'listPets'])->name('listPets');")
+        ->and($code)->toContain("});\n")
+        ->and(fn () => token_get_all($code, TOKEN_PARSE))->not->toThrow(Throwable::class);
+});
+
+it('wraps the routes in a prefix group when routes.prefix is configured (#71)', function () {
+    $code = generateRoutes(new ServerOptions(routePrefix: 'api/v1'));
+
+    expect($code)->toContain("Route::prefix('api/v1')->group(function (): void {")
+        ->and($code)->toContain("    Route::get('/health', [UntaggedController::class, 'getHealth'])->name('getHealth');");
+});
+
+it('chains middleware then prefix in one group when both are configured (#71)', function () {
+    $code = generateRoutes(new ServerOptions(routeMiddleware: ['api'], routePrefix: 'v2'));
+
+    expect($code)->toContain("Route::middleware(['api'])->prefix('v2')->group(function (): void {")
+        ->and(substr_count($code, '->group('))->toBe(1);
+});
+
+it('treats an empty prefix string like no prefix, never emitting a useless group', function () {
+    expect(generateRoutes(new ServerOptions(routePrefix: '')))->not->toContain('->group(');
+});
+
+it('escapes quotes and backslashes in middleware names and the prefix', function () {
+    $code = generateRoutes(new ServerOptions(routeMiddleware: ["o'middleware"], routePrefix: "pre'fix"));
+
+    expect($code)->toContain("Route::middleware(['o\\'middleware'])->prefix('pre\\'fix')->group(function (): void {")
+        ->and(fn () => token_get_all($code, TOKEN_PARSE))->not->toThrow(Throwable::class);
+});
+
+it('suffixes route names to stay unique when method names collide across controllers (#71)', function () {
+    // Two tags, each with an untagged-style synthesized name clash: both
+    // operations carry the same operationId, so the per-controller method
+    // names are both fine, but the global route-name allocator must suffix
+    // the second one (route names resolve globally in Laravel).
+    $document = [
+        'openapi' => '3.0.3',
+        'info' => ['title' => 'Test', 'version' => '1.0.0'],
+        'paths' => [
+            '/a' => [
+                'get' => [
+                    'tags' => ['Alpha'],
+                    'operationId' => 'listThings',
+                    'responses' => ['204' => ['description' => 'No content']],
+                ],
+            ],
+            '/b' => [
+                'get' => [
+                    'tags' => ['Beta'],
+                    'operationId' => 'listThings',
+                    'responses' => ['204' => ['description' => 'No content']],
+                ],
+            ],
+        ],
+    ];
+
+    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    expect($spec)->toBeInstanceOf(OpenApi::class);
+
+    $generator = new ModelGenerator;
+    $generator->generate($spec);
+    $options = new ServerOptions;
+    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($spec);
+    $code = (new RouteGenerator($options))->generate($descriptors)->code;
+
+    expect($code)->toContain("Route::get('/a', [AlphaController::class, 'listThings'])->name('listThings');")
+        ->and($code)->toContain("Route::get('/b', [BetaController::class, 'listThings'])->name('listThings_2');");
 });
