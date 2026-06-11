@@ -18,7 +18,7 @@ operator-controlled locations and never derive them from untrusted input.
 
 | Version | Supported |
 |---------|-----------|
-| Latest 0.x release | Yes |
+| Latest release (the newest minor of the newest major) | Yes |
 | Older releases | No, please upgrade |
 
 ## Reporting a vulnerability

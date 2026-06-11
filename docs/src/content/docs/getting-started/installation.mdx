@@ -15,6 +15,8 @@ import { Steps, Aside } from '@astrojs/starlight/components'
 
 `spatie/laravel-data` v4 is a runtime peer dependency, not a dev dependency: the generated classes extend `Spatie\LaravelData\Data`, so your app loads it at runtime. The standalone binary runs without Laravel, so a Laravel install is only required for the artisan command and the published config file.
 
+Supported platforms are Linux and macOS. The generator's path handling is POSIX-style and Windows is not covered by CI, so Windows is unsupported.
+
 ## Install
 
 <Steps>
