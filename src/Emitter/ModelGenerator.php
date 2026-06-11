@@ -405,7 +405,7 @@ final class ModelGenerator
             $default = $this->defaultValue($propertySchema, $type);
             $isRequired = $listedRequired && $default === null;
 
-            $rendered = $this->renderProperty($wireName, $propertyName, $type, $isRequired, $default);
+            $rendered = $this->renderProperty($wireName, $propertyName, $type, $isRequired, $default, $this->deprecationTag($propertySchema));
 
             if ($isRequired) {
                 $paramsRequired[] = $rendered;
@@ -429,13 +429,21 @@ final class ModelGenerator
         $params = array_merge($paramsRequired, $paramsOptional);
         $imports = $this->collectImports($params, $usesRule, $rules);
 
-        // A mixed object (named properties AND additionalProperties) emits its
-        // named properties normally. laravel-data cannot route unknown keys into
-        // a designated property without a custom cast, so the dynamic overflow
-        // is documented, not silently dropped into a non-functional field.
-        $classDoc = $this->notEmptyArray($properties) && $this->additionalPropertiesSchema($schema) !== null
-            ? 'This schema also declares additionalProperties: dynamic keys beyond the named properties above are not captured by this class.'
-            : null;
+        // Class-level docblock lines, in a stable order: a `@deprecated` tag for
+        // a deprecated component first, then the additionalProperties overflow
+        // note. A mixed object (named properties AND additionalProperties) emits
+        // its named properties normally; laravel-data cannot route unknown keys
+        // into a designated property without a custom cast, so the dynamic
+        // overflow is documented, not silently dropped into a non-functional
+        // field.
+        $classDoc = [];
+        $deprecationTag = $this->deprecationTag($schema);
+        if ($deprecationTag !== null) {
+            $classDoc[] = $deprecationTag;
+        }
+        if ($this->notEmptyArray($properties) && $this->additionalPropertiesSchema($schema) !== null) {
+            $classDoc[] = 'This schema also declares additionalProperties: dynamic keys beyond the named properties above are not captured by this class.';
+        }
 
         $this->files[$className] = new GeneratedFile(
             $className,
@@ -509,9 +517,13 @@ final class ModelGenerator
         }
         $arms[] = '            default => null,';
 
+        // A deprecated discriminated base carries a class-level `@deprecated`.
+        $baseSchema = $this->registry[$baseName]['schema'] ?? null;
+        $deprecationTag = $baseSchema instanceof Schema ? $this->deprecationTag($baseSchema) : null;
+
         $this->files[$className] = new GeneratedFile(
             $className,
-            $this->renderDiscriminatorBase($className, $imports, $mapName, $propertyName, $type, $validationAttributes, $arms),
+            $this->renderDiscriminatorBase($className, $imports, $mapName, $propertyName, $type, $validationAttributes, $arms, $deprecationTag),
         );
     }
 
@@ -611,7 +623,7 @@ final class ModelGenerator
             $default = $this->defaultValue($propertySchema, $type);
             $isRequired = $listedRequired && $default === null;
 
-            $rendered = $this->renderProperty($wireName, $propertyName, $type, $isRequired, $default);
+            $rendered = $this->renderProperty($wireName, $propertyName, $type, $isRequired, $default, $this->deprecationTag($propertySchema));
 
             if ($isRequired) {
                 $paramsRequired[] = $rendered;
@@ -641,7 +653,7 @@ final class ModelGenerator
 
         $this->files[$className] = new GeneratedFile(
             $className,
-            $this->renderVariantClass($className, $baseClass, $discriminatorProperty, $discriminatorDeclaration, $params, $imports, $rules),
+            $this->renderVariantClass($className, $baseClass, $discriminatorProperty, $discriminatorDeclaration, $params, $imports, $rules, $this->deprecationTag($schema)),
         );
     }
 
@@ -772,15 +784,33 @@ final class ModelGenerator
 
     /**
      * @param  array{0: string}|null  $default  the rendered scalar default expression, wrapped, or null for "no default"
+     * @param  ?string  $deprecationTag  the `@deprecated ...` line for a deprecated property, or null
      * @return array{code: string, imports: list<string>}
      */
-    private function renderProperty(string $wireName, string $propertyName, ResolvedType $type, bool $isRequired, ?array $default = null): array
+    private function renderProperty(string $wireName, string $propertyName, ResolvedType $type, bool $isRequired, ?array $default = null, ?string $deprecationTag = null): array
     {
         $imports = $type->imports;
         $lines = [];
 
+        // Per-property docblock. A `@var` (the richer array/union generic) and a
+        // `@deprecated` tag both ride here. With only one tag the block stays a
+        // single line; with both it expands to a multi-line block, `@var` first
+        // then `@deprecated`, for a stable order.
+        $docTags = [];
         if ($type->docType !== null) {
-            $lines[] = '        /** @var '.$type->docType.' */';
+            $docTags[] = '@var '.$type->docType;
+        }
+        if ($deprecationTag !== null) {
+            $docTags[] = $deprecationTag;
+        }
+        if (count($docTags) === 1) {
+            $lines[] = '        /** '.$docTags[0].' */';
+        } elseif (count($docTags) > 1) {
+            $lines[] = '        /**';
+            foreach ($docTags as $tag) {
+                $lines[] = '         * '.$tag;
+            }
+            $lines[] = '         */';
         }
 
         if ($type->dataCollectionOf !== null) {
@@ -1516,12 +1546,17 @@ final class ModelGenerator
      * @param  list<array{code: string, imports: list<string>}>  $params
      * @param  list<string>  $imports
      * @param  array<string, list<string>>  $rules
+     * @param  list<string>  $classDoc  class-level docblock lines, in emit order; empty means no docblock
      */
-    private function renderDataClass(string $className, array $params, array $imports, array $rules, ?string $classDoc = null): string
+    private function renderDataClass(string $className, array $params, array $imports, array $rules, array $classDoc = []): string
     {
         $useBlock = implode("\n", array_map(static fn (string $fqcn): string => 'use '.$fqcn.';', $imports));
 
-        $docBlock = $classDoc !== null ? "/**\n * ".$classDoc."\n */\n" : '';
+        // One doc line renders the established single-`*`-line block (so existing
+        // output stays byte-identical); multiple lines render one ` * ` per line.
+        $docBlock = $classDoc === []
+            ? ''
+            : "/**\n".implode("\n", array_map(static fn (string $line): string => ' * '.$line, $classDoc))."\n */\n";
 
         $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->options->namespace.";\n\n".$useBlock."\n\n".$docBlock.'final class '.$className.' extends Data';
 
@@ -1543,12 +1578,15 @@ final class ModelGenerator
      * @param  list<string>  $imports
      * @param  list<string>  $validationAttributes  short attribute names, e.g. ['Required', 'StringType']
      * @param  list<string>  $arms  match() arm lines, already indented
+     * @param  ?string  $deprecationTag  the class-level `@deprecated ...` line, or null
      */
-    private function renderDiscriminatorBase(string $className, array $imports, string $mapName, string $propertyName, ResolvedType $type, array $validationAttributes, array $arms): string
+    private function renderDiscriminatorBase(string $className, array $imports, string $mapName, string $propertyName, ResolvedType $type, array $validationAttributes, array $arms, ?string $deprecationTag = null): string
     {
         $useBlock = implode("\n", array_map(static fn (string $fqcn): string => 'use '.$fqcn.';', $imports));
 
-        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->options->namespace.";\n\n".$useBlock."\n\n"
+        $docBlock = $deprecationTag !== null ? '/**'."\n".' * '.$deprecationTag."\n".' */'."\n" : '';
+
+        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->options->namespace.";\n\n".$useBlock."\n\n".$docBlock
             .'abstract class '.$className.' extends Data implements PropertyMorphableData';
 
         $attributeLine = '        #[PropertyForMorph, '.implode(', ', $validationAttributes)."]\n";
@@ -1580,8 +1618,9 @@ final class ModelGenerator
      * @param  list<array{code: string, imports: list<string>}>  $params
      * @param  list<string>  $imports
      * @param  array<string, list<string>>  $rules
+     * @param  ?string  $deprecationTag  the class-level `@deprecated ...` line, or null
      */
-    private function renderVariantClass(string $className, string $baseClass, string $discriminatorProperty, string $discriminatorDeclaration, array $params, array $imports, array $rules): string
+    private function renderVariantClass(string $className, string $baseClass, string $discriminatorProperty, string $discriminatorDeclaration, array $params, array $imports, array $rules, ?string $deprecationTag = null): string
     {
         // The base lives in the same namespace, so a variant can have zero
         // imports; emit no `use` block then (avoid stray blank lines).
@@ -1589,7 +1628,9 @@ final class ModelGenerator
             ? ''
             : implode("\n", array_map(static fn (string $fqcn): string => 'use '.$fqcn.';', $imports))."\n\n";
 
-        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->options->namespace.";\n\n".$useBlock
+        $docBlock = $deprecationTag !== null ? '/**'."\n".' * '.$deprecationTag."\n".' */'."\n" : '';
+
+        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->options->namespace.";\n\n".$useBlock.$docBlock
             .'final class '.$className.' extends '.$baseClass;
 
         // The discriminator is a forwarded, non-promoted parameter so only the
@@ -2090,7 +2131,13 @@ final class ModelGenerator
 
         $body = implode("\n", $lines);
 
-        $code = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->options->namespace.";\n\nenum ".$className.': '.$backing."\n{\n".$body."\n}\n";
+        // A deprecated enum component carries a class-level `@deprecated` so the
+        // generated enum gets the same IDE/PHPStan deprecation signal as a Data
+        // class.
+        $deprecationTag = $this->deprecationTag($schema);
+        $docBlock = $deprecationTag !== null ? '/**'."\n".' * '.$deprecationTag."\n".' */'."\n" : '';
+
+        $code = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->options->namespace.";\n\n".$docBlock.'enum '.$className.': '.$backing."\n{\n".$body."\n}\n";
 
         $this->files[$className] = new GeneratedFile($className, $code);
     }
@@ -2255,6 +2302,80 @@ final class ModelGenerator
     private function isWriteOnly(Schema|Reference $schema): bool
     {
         return $schema instanceof Schema && $schema->writeOnly === true;
+    }
+
+    /**
+     * Whether a schema (a component or a single property) is marked
+     * `deprecated: true`. cebe types `deprecated` as a strict bool defaulting to
+     * false, so a missing flag never reads as deprecated.
+     */
+    private function isDeprecated(Schema|Reference $schema): bool
+    {
+        return $schema instanceof Schema && $schema->deprecated === true;
+    }
+
+    /**
+     * The `@deprecated` docblock line for a deprecated schema, including a short
+     * reason when the spec supplies one via the vendor extension
+     * `x-deprecated-reason` or `x-deprecation-reason`. Returns null when the
+     * schema is not deprecated. The reason is spec-derived (untrusted), so it is
+     * run through docblockSafe() before being embedded in the comment.
+     */
+    private function deprecationTag(Schema|Reference $schema): ?string
+    {
+        if (! $this->isDeprecated($schema)) {
+            return null;
+        }
+
+        $reason = $this->deprecationReason($schema);
+
+        return $reason !== null ? '@deprecated '.$reason : '@deprecated';
+    }
+
+    /**
+     * The deprecation reason text from a vendor extension, sanitized, or null
+     * when none is present or it sanitizes to empty. Both the singular
+     * `x-deprecated-reason` and the alternate `x-deprecation-reason` spellings
+     * are accepted; the first non-empty one wins (sorted-key independent: the two
+     * are checked in a fixed order for determinism).
+     */
+    private function deprecationReason(Schema|Reference $schema): ?string
+    {
+        if (! $schema instanceof Schema) {
+            return null;
+        }
+
+        $serialized = (array) $schema->getSerializableData();
+
+        foreach (['x-deprecated-reason', 'x-deprecation-reason'] as $key) {
+            $value = $serialized[$key] ?? null;
+            if (is_string($value)) {
+                $safe = $this->docblockSafe($value);
+                if ($safe !== '') {
+                    return $safe;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Neutralize spec-derived free text before it is placed inside a `/** ... *\/`
+     * docblock. Two hazards: a literal `*\/` would close the comment early and let
+     * the rest of the value inject raw PHP, and newlines or other control
+     * characters would let a value forge extra doc lines or break out. Every `*\/`
+     * becomes `* /` and all control characters (newlines, tabs, etc.) collapse to
+     * a single space. Mirrors the server scaffold's docblockSafe(): the OpenAPI
+     * spec is untrusted input. (The two live in separate emitter layers that
+     * Deptrac keeps apart, so the small duplication is intentional.)
+     */
+    private function docblockSafe(string $value): string
+    {
+        $value = str_replace('*/', '* /', $value);
+        $value = (string) preg_replace('/[\x00-\x1f\x7f]+/', ' ', $value);
+
+        return trim($value);
     }
 
     private function isDataClass(ResolvedType $type): bool
