@@ -12,10 +12,16 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter\Server;
  */
 final readonly class ServerOptions
 {
+    /**
+     * @param  list<string>  $routeMiddleware  middleware names the generated routes are grouped under (issue #71); empty means no group
+     * @param  ?string  $routePrefix  URI prefix the generated routes are grouped under (issue #71); null or '' means no prefix
+     */
     public function __construct(
         public string $controllerNamespace = 'App\\Http\\Controllers\\Api',
         public string $dataNamespace = 'App\\Data',
         public string $abstractPrefix = 'Abstract',
         public string $controllerSuffix = 'Controller',
+        public array $routeMiddleware = [],
+        public ?string $routePrefix = null,
     ) {}
 }

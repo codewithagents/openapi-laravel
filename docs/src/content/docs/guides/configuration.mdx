@@ -57,12 +57,15 @@ return [
     ],
 
     /*
-     * Server scaffold: generate a routes file with one Route:: entry per operation.
-     * Enabled by default. Disable with 'enabled' => false or pass --no-routes.
+     * Server scaffold: generate a routes file with one named Route:: entry per
+     * operation. Enabled by default. Disable with 'enabled' => false or pass
+     * --no-routes. 'middleware' and 'prefix' wrap the routes in a Route::group.
      */
     'routes' => [
-        'enabled' => true,
-        'path'    => base_path('routes/api.generated.php'),
+        'enabled'    => true,
+        'path'       => base_path('routes/api.generated.php'),
+        'middleware' => [],
+        'prefix'     => '',
     ],
 
     /*
@@ -156,12 +159,18 @@ When enabled, the generator writes one `Abstract{Tag}Controller` file per OpenAP
 
 Controls the server scaffold: routes file generation.
 
-| Key       | Default                                     | Description                                                           |
-| --------- | ------------------------------------------- | --------------------------------------------------------------------- |
-| `enabled` | `true`                                      | Generate the routes file. Overridden by `--routes` / `--no-routes`.   |
-| `path`    | `base_path('routes/api.generated.php')`     | Path the generated routes file is written to.                         |
+| Key          | Default                                     | Description                                                           |
+| ------------ | ------------------------------------------- | --------------------------------------------------------------------- |
+| `enabled`    | `true`                                      | Generate the routes file. Overridden by `--routes` / `--no-routes`.   |
+| `path`       | `base_path('routes/api.generated.php')`     | Path the generated routes file is written to.                         |
+| `middleware` | `[]`                                        | List of middleware names; when non-empty the routes are wrapped in a `Route::middleware([...])->group(...)` block. Config-only, no CLI flag. |
+| `prefix`     | `''`                                        | URI prefix for the generated routes, emitted as `->prefix('...')` on the group. Empty means no prefix. Config-only, no CLI flag. |
 
-The generated file contains one `Route::{method}(...)` call per operation, referencing the concrete controller class by tag name. It is overwritten on every run.
+The generated file contains one `Route::{method}(...)` call per operation, referencing the concrete controller class by tag name, each carrying a deterministic `->name()` derived from its `operationId` (unique across the whole table, so `route('getPetById')` works). It is overwritten on every run.
+
+Each `middleware` entry is its own string and is never comma-split, so a parameterized name like
+`'throttle:60,1'` stays intact. With `middleware` empty and `prefix` empty (the defaults) the file
+is a flat route list with no group wrapper.
 
 <Aside type="note">
   `--no-routes` skips the routes file for one run regardless of the config; `--routes` forces it on
@@ -253,7 +262,9 @@ one to one:
   },
   "routes": {
     "enabled": true,
-    "path": "src/routes/api.generated.php"
+    "path": "src/routes/api.generated.php",
+    "middleware": ["api", "throttle:60,1"],
+    "prefix": "api/v1"
   },
   "max_depth": 64,
   "max_bytes": 25165824

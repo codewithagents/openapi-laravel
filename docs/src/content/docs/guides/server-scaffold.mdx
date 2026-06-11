@@ -47,8 +47,10 @@ php artisan vendor:publish --tag=openapi-laravel-config
 ],
 
 'routes' => [
-    'enabled' => true,                                // false disables the routes file
-    'path'    => base_path('routes/api.generated.php'),
+    'enabled'    => true,                             // false disables the routes file
+    'path'       => base_path('routes/api.generated.php'),
+    'middleware' => [],                               // e.g. ['api', 'throttle:60,1'] wraps the routes in a group
+    'prefix'     => '',                               // e.g. 'api/v1' prefixes every generated route
 ],
 ```
 
@@ -248,20 +250,62 @@ use App\Http\Controllers\Api\StoreController;
 use App\Http\Controllers\Api\UserController;
 use Illuminate\Support\Facades\Route;
 
-Route::post('/pet', [PetController::class, 'addPet']);
-Route::put('/pet', [PetController::class, 'updatePet']);
-Route::get('/pet/findByStatus', [PetController::class, 'findPetsByStatus']);
-Route::get('/pet/findByTags', [PetController::class, 'findPetsByTags']);
-Route::get('/pet/{petId}', [PetController::class, 'getPetById']);
-Route::post('/pet/{petId}', [PetController::class, 'updatePetWithForm']);
-Route::delete('/pet/{petId}', [PetController::class, 'deletePet']);
-Route::post('/pet/{petId}/uploadImage', [PetController::class, 'uploadFile']);
-Route::get('/store/inventory', [StoreController::class, 'getInventory']);
-Route::post('/store/order', [StoreController::class, 'placeOrder']);
-Route::get('/store/order/{orderId}', [StoreController::class, 'getOrderById']);
-Route::delete('/store/order/{orderId}', [StoreController::class, 'deleteOrder']);
+Route::post('/pet', [PetController::class, 'addPet'])->name('addPet');
+Route::put('/pet', [PetController::class, 'updatePet'])->name('updatePet');
+Route::get('/pet/findByStatus', [PetController::class, 'findPetsByStatus'])->name('findPetsByStatus');
+Route::get('/pet/findByTags', [PetController::class, 'findPetsByTags'])->name('findPetsByTags');
+Route::get('/pet/{petId}', [PetController::class, 'getPetById'])->name('getPetById');
+Route::post('/pet/{petId}', [PetController::class, 'updatePetWithForm'])->name('updatePetWithForm');
+Route::delete('/pet/{petId}', [PetController::class, 'deletePet'])->name('deletePet');
+Route::post('/pet/{petId}/uploadImage', [PetController::class, 'uploadFile'])->name('uploadFile');
+Route::get('/store/inventory', [StoreController::class, 'getInventory'])->name('getInventory');
+Route::post('/store/order', [StoreController::class, 'placeOrder'])->name('placeOrder');
+Route::get('/store/order/{orderId}', [StoreController::class, 'getOrderById'])->name('getOrderById');
+Route::delete('/store/order/{orderId}', [StoreController::class, 'deleteOrder'])->name('deleteOrder');
 // ... user routes follow
 ```
+
+### Route names
+
+Every generated route carries a `->name()` derived from its `operationId` (the same sanitized
+identifier used for the controller method name; an operation without an `operationId` gets a
+deterministic name synthesized from the HTTP method and path, e.g. `getHealth` for `GET /health`).
+Names are unique across the whole route table: if two operations in different controllers resolve
+to the same identifier, the later one (in path-then-method order) gets a numeric suffix
+(`listThings`, `listThings_2`). That means the `route()` helper, URL generation, and route-based
+authorization can target any generated operation:
+
+```php
+route('getPetById', ['petId' => 7]);   // => /pet/7
+```
+
+### Middleware and prefix groups
+
+Set `routes.middleware` (a list of middleware names) and/or `routes.prefix` (a URI prefix) in the
+config to wrap the generated routes in a single `Route::group` block:
+
+```php
+// config/openapi-laravel.php
+'routes' => [
+    'enabled'    => true,
+    'path'       => base_path('routes/api.generated.php'),
+    'middleware' => ['api', 'throttle:60,1'],
+    'prefix'     => 'api/v1',
+],
+```
+
+```php
+Route::middleware(['api', 'throttle:60,1'])->prefix('api/v1')->group(function (): void {
+    Route::post('/pet', [PetController::class, 'addPet'])->name('addPet');
+    // ...
+});
+```
+
+Each middleware entry is its own string and is never comma-split, so parameterized names like
+`throttle:60,1` stay intact. With both keys empty (the default) the routes file stays a flat list,
+exactly as before. These two keys are config-only: there are no CLI flags for them, in both the
+artisan command and the standalone binary (via `routes.middleware` / `routes.prefix` in
+[`openapi-laravel.json`](/guides/configuration#standalone-binary-openapi-laraveljson)).
 
 ### Registering the routes in Laravel
 

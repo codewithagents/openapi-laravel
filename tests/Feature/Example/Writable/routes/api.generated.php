@@ -10,5 +10,5 @@ declare(strict_types=1);
 use CodeWithAgents\OpenApiLaravel\Tests\Feature\Example\Writable\Http\WidgetsController;
 use Illuminate\Support\Facades\Route;
 
-Route::post('/widgets', [WidgetsController::class, 'createWidget']);
-Route::get('/widgets/{widgetId}', [WidgetsController::class, 'getWidgetById']);
+Route::post('/widgets', [WidgetsController::class, 'createWidget'])->name('createWidget');
+Route::get('/widgets/{widgetId}', [WidgetsController::class, 'getWidgetById'])->name('getWidgetById');

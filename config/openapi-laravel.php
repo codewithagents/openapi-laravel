@@ -51,6 +51,18 @@ return [
     'routes' => [
         'enabled' => true,
         'path' => base_path('routes/api.generated.php'),
+
+        /*
+         * Wrap the generated routes in one Route::group block. `middleware`
+         * is a list of middleware names (each entry its own string, never
+         * comma-split, so parameterized names like 'throttle:60,1' work);
+         * `prefix` is a URI prefix for every generated route. Leave both
+         * empty (the default) for the flat, ungrouped routes file. Every
+         * route also carries a ->name() derived from its operationId, so the
+         * route() helper and route-based authorization can target it.
+         */
+        'middleware' => [],
+        'prefix' => '',
     ],
 
     /*

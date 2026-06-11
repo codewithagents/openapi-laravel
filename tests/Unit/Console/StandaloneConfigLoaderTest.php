@@ -32,7 +32,7 @@ it('maps every supported key onto the config object', function () use ($writeFil
         'spec' => 'openapi.yaml',
         'output' => ['path' => 'app/Data', 'namespace' => 'App\\Data', 'suffix' => 'Dto', 'prune' => true],
         'controllers' => ['enabled' => false, 'path' => 'app/Http', 'namespace' => 'App\\Http'],
-        'routes' => ['enabled' => true, 'path' => 'routes/api.generated.php'],
+        'routes' => ['enabled' => true, 'path' => 'routes/api.generated.php', 'middleware' => ['api', 'throttle:60,1'], 'prefix' => 'api/v1'],
         'max_depth' => 32,
         'max_bytes' => 1024,
     ]));
@@ -49,8 +49,59 @@ it('maps every supported key onto the config object', function () use ($writeFil
         ->and($config->controllerNamespace)->toBe('App\\Http')
         ->and($config->routesEnabled)->toBeTrue()
         ->and($config->routesPath)->toBe('routes/api.generated.php')
+        ->and($config->routesMiddleware)->toBe(['api', 'throttle:60,1'])
+        ->and($config->routesPrefix)->toBe('api/v1')
         ->and($config->maxDepth)->toBe(32)
         ->and($config->maxBytes)->toBe(1024);
+});
+
+it('defaults routes.middleware and routes.prefix to null when absent (#71)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['routes' => ['enabled' => true]]));
+
+    $config = (new StandaloneConfigLoader)->load($path, '/tmp');
+
+    expect($config->routesMiddleware)->toBeNull()
+        ->and($config->routesPrefix)->toBeNull();
+});
+
+it('keeps a parameterized middleware name intact, never comma-splitting it (#71)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['routes' => ['middleware' => ['throttle:60,1']]]));
+
+    $config = (new StandaloneConfigLoader)->load($path, '/tmp');
+
+    expect($config->routesMiddleware)->toBe(['throttle:60,1']);
+});
+
+it('rejects a comma-separated string for routes.middleware (#71)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['routes' => ['middleware' => 'api,auth']]));
+
+    (new StandaloneConfigLoader)->load($path, '/tmp');
+})->throws(OptionException::class, "Invalid 'routes.middleware'");
+
+it('rejects a non-string entry inside routes.middleware (#71)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['routes' => ['middleware' => ['api', 42]]]));
+
+    (new StandaloneConfigLoader)->load($path, '/tmp');
+})->throws(OptionException::class, 'every entry must be a string');
+
+it('rejects an object value for routes.middleware (#71)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['routes' => ['middleware' => ['a' => 'b']]]));
+
+    (new StandaloneConfigLoader)->load($path, '/tmp');
+})->throws(OptionException::class, "Invalid 'routes.middleware'");
+
+it('rejects a non-string routes.prefix (#71)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['routes' => ['prefix' => 42]]));
+
+    (new StandaloneConfigLoader)->load($path, '/tmp');
+})->throws(OptionException::class, "Invalid 'routes.prefix'");
+
+it('drops empty and whitespace-only middleware entries (#71)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['routes' => ['middleware' => ['  api  ', '', '   ']]]));
+
+    $config = (new StandaloneConfigLoader)->load($path, '/tmp');
+
+    expect($config->routesMiddleware)->toBe(['api']);
 });
 
 it('reads only_tags and only_schemas as a comma-separated string', function () use ($writeFile) {

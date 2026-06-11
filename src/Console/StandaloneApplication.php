@@ -220,6 +220,15 @@ final class StandaloneApplication
         $onlyTags = $this->resolveList($options, 'only-tags', $config->onlyTags);
         $onlySchemas = $this->resolveList($options, 'only-schemas', $config->onlySchemas);
 
+        // Route group settings (issue #71). Config-only by design, no CLI
+        // flags: routes.middleware and routes.prefix wrap the generated routes
+        // in one Route::group block. A whitespace-only prefix means "no
+        // prefix" so it can never emit a useless group wrapper.
+        $routesMiddleware = $config->routesMiddleware ?? [];
+        $routesPrefix = $config->routesPrefix !== null && trim($config->routesPrefix) !== ''
+            ? trim($config->routesPrefix)
+            : null;
+
         return new GenerationRequest(
             $spec,
             $output,
@@ -235,6 +244,8 @@ final class StandaloneApplication
             $enforceClosedObjects,
             $onlyTags,
             $onlySchemas,
+            $routesMiddleware,
+            $routesPrefix,
         );
     }
 
@@ -361,9 +372,11 @@ final class StandaloneApplication
         openapi-laravel.json in the working directory (if present), or the
         path given via --config. Its keys mirror config/openapi-laravel.php:
         spec, output.{path,namespace,suffix,prune}, controllers.{enabled,path,
-        namespace}, routes.{enabled,path}, enforce_closed_objects, max_depth,
-        max_bytes, only_tags, only_schemas (the only_* keys each a comma-separated
-        string or a JSON list of names).
+        namespace}, routes.{enabled,path,middleware,prefix}, enforce_closed_objects,
+        max_depth, max_bytes, only_tags, only_schemas (the only_* keys each a
+        comma-separated string or a JSON list of names). routes.middleware (a JSON
+        list of names, never comma-split) and routes.prefix wrap the generated
+        routes in one Route::group block; they are config-only, with no CLI flags.
 
         Options:
           --config=<path>      Path to a JSON config file (default: ./openapi-laravel.json)

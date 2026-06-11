@@ -177,6 +177,40 @@ it('checks generated controllers and the routes file by default', function () us
         ->assertExitCode(1);
 });
 
+it('stays in lockstep with generate when routes.middleware and routes.prefix are configured (#71)', function () use ($serverSpec, $tempOut) {
+    $out = $tempOut();
+    $routesOut = $out.'/routes/api.generated.php';
+
+    config()->set('openapi-laravel.controllers.path', $out.'/Http/Controllers/Api');
+    config()->set('openapi-laravel.routes.path', $routesOut);
+    config()->set('openapi-laravel.routes.middleware', ['api']);
+    config()->set('openapi-laravel.routes.prefix', 'api/v1');
+
+    $this->artisan('openapi:generate', [
+        '--spec' => $serverSpec(),
+        '--output' => $out,
+    ])->assertSuccessful();
+
+    // Same config: generate and check share the planner, so the grouped,
+    // named routes file reads as in sync.
+    $this->artisan('openapi:check', [
+        '--spec' => $serverSpec(),
+        '--output' => $out,
+    ])->assertExitCode(0);
+
+    // Dropping the group config makes the expected output flat again, so the
+    // committed grouped file must now read as drifted.
+    config()->set('openapi-laravel.routes.middleware', []);
+    config()->set('openapi-laravel.routes.prefix', '');
+
+    $this->artisan('openapi:check', [
+        '--spec' => $serverSpec(),
+        '--output' => $out,
+    ])
+        ->expectsOutputToContain('[changed] '.$routesOut)
+        ->assertExitCode(1);
+});
+
 it('skips the scaffold in check with --no-controllers and --no-routes', function () use ($serverSpec, $tempOut) {
     $out = $tempOut();
 

@@ -57,6 +57,14 @@ final readonly class CommandRequestFactory
         $controllerNamespace = $this->configString('openapi-laravel.controllers.namespace') ?? 'App\\Http\\Controllers\\Api';
         $routesPath = $this->configString('openapi-laravel.routes.path');
 
+        // Route group settings (issue #71). Config-only, no CLI flags: a list
+        // of middleware names and/or a URI prefix wrap the generated routes in
+        // a Route::group block. Middleware names are NEVER comma-split, because
+        // a middleware parameter list legitimately contains commas
+        // (throttle:60,1), so the key must be a real array of strings.
+        $routesMiddleware = $this->configStringList('openapi-laravel.routes.middleware');
+        $routesPrefix = $this->normalizePrefix($this->configString('openapi-laravel.routes.prefix'));
+
         // Subset generation (issue #44): a flag (comma-separated) overrides the
         // config key (a comma string or a list); an empty result means "full
         // spec". The closure is resolved later in the planner.
@@ -78,7 +86,48 @@ final readonly class CommandRequestFactory
             $enforceClosedObjects,
             $onlyTags,
             $onlySchemas,
+            $routesMiddleware,
+            $routesPrefix,
         );
+    }
+
+    /**
+     * Read a config key as a list of middleware names: trimmed, non-empty
+     * strings, in order. Anything that is not an array (or an empty one)
+     * resolves to [] which means "no group". Entries are not comma-split.
+     *
+     * @return list<string>
+     */
+    private function configStringList(string $key): array
+    {
+        $configured = config($key);
+        if (! is_array($configured)) {
+            return [];
+        }
+
+        $names = [];
+        foreach ($configured as $value) {
+            if (is_string($value) && trim($value) !== '') {
+                $names[] = trim($value);
+            }
+        }
+
+        return $names;
+    }
+
+    /**
+     * An empty or whitespace-only prefix means "no prefix", so it normalizes
+     * to null and can never emit a useless group wrapper.
+     */
+    private function normalizePrefix(?string $prefix): ?string
+    {
+        if ($prefix === null) {
+            return null;
+        }
+
+        $prefix = trim($prefix);
+
+        return $prefix === '' ? null : $prefix;
     }
 
     /**

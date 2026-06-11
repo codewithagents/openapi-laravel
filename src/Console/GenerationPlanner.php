@@ -151,7 +151,12 @@ final readonly class GenerationPlanner
             throw new PlanException('No routes path configured. Set openapi-laravel.routes.path.');
         }
 
-        $serverOptions = new ServerOptions($request->controllerNamespace, $request->namespace);
+        $serverOptions = new ServerOptions(
+            controllerNamespace: $request->controllerNamespace,
+            dataNamespace: $request->namespace,
+            routeMiddleware: $request->routesMiddleware,
+            routePrefix: $request->routesPrefix,
+        );
 
         // Collect descriptors once and feed the same list to both generators so
         // controller method names and route targets can never drift apart.

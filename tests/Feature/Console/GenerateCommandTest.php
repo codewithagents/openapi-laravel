@@ -125,7 +125,31 @@ it('generates abstract controllers and a routes file by default', function () us
 
     expect(is_file($controllerOut.'/AbstractPetController.php'))->toBeTrue()
         ->and(is_file($routesOut))->toBeTrue()
-        ->and(file_get_contents($routesOut))->toContain("Route::get('/pets'");
+        ->and(file_get_contents($routesOut))->toContain("Route::get('/pets'")
+        // Every route carries a deterministic ->name() from its operationId (#71),
+        // and with no middleware/prefix configured the file stays flat (no group).
+        ->and(file_get_contents($routesOut))->toContain("->name('listPets');")
+        ->and(file_get_contents($routesOut))->not->toContain('->group(');
+});
+
+it('wraps the routes in a Route::group when routes.middleware and routes.prefix are configured (#71)', function () use ($tempOut) {
+    $spec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+    $routesOut = $out.'/routes/api.generated.php';
+
+    config()->set('openapi-laravel.controllers.path', $out.'/Http/Controllers/Api');
+    config()->set('openapi-laravel.routes.path', $routesOut);
+    config()->set('openapi-laravel.routes.middleware', ['api', 'throttle:60,1']);
+    config()->set('openapi-laravel.routes.prefix', 'api/v1');
+
+    $this->artisan('openapi:generate', [
+        '--spec' => $spec,
+        '--output' => $out,
+    ])->assertSuccessful();
+
+    $routes = file_get_contents($routesOut);
+    expect($routes)->toContain("Route::middleware(['api', 'throttle:60,1'])->prefix('api/v1')->group(function (): void {")
+        ->and($routes)->toContain("    Route::get('/pets', [PetController::class, 'listPets'])->name('listPets');");
 });
 
 it('skips controllers and routes with --no-controllers and --no-routes', function () use ($tempOut) {

@@ -223,9 +223,9 @@ abstract class AbstractPetController
 }
 
 // generated: routes/api.generated.php
-Route::post('/pet', [PetController::class, 'addPet']);
-Route::get('/pet/{petId}', [PetController::class, 'getPetById']);
-Route::delete('/pet/{petId}', [PetController::class, 'deletePet']);
+Route::post('/pet', [PetController::class, 'addPet'])->name('addPet');
+Route::get('/pet/{petId}', [PetController::class, 'getPetById'])->name('getPetById');
+Route::delete('/pet/{petId}', [PetController::class, 'deletePet'])->name('deletePet');
 ```
 
 You write only the concrete `PetController extends AbstractPetController`. See the

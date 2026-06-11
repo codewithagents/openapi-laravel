@@ -353,6 +353,39 @@ it('honours the scaffold paths from the config file', function () use ($tempOut,
         ->and(is_file($out.'/api.generated.php'))->toBeTrue();
 });
 
+it('wraps the routes per routes.middleware and routes.prefix from the config file (#71)', function () use ($tempOut, $writeConfig) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+    $configPath = $writeConfig([
+        'spec' => $serverSpec,
+        'output' => ['path' => $out],
+        'routes' => ['middleware' => ['api', 'throttle:60,1'], 'prefix' => 'api/v1'],
+    ], $out);
+
+    $exit = (new StandaloneApplication)->run(['bin', '--config='.$configPath]);
+
+    $routes = file_get_contents($out.'/routes.php');
+    expect($exit)->toBe(0)
+        ->and($routes)->toContain("Route::middleware(['api', 'throttle:60,1'])->prefix('api/v1')->group(function (): void {")
+        ->and($routes)->toContain("    Route::get('/pets', [PetController::class, 'listPets'])->name('listPets');");
+});
+
+it('keeps the routes flat with names when neither routes.middleware nor routes.prefix is set (#71)', function () use ($tempOut, $writeConfig) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+    $configPath = $writeConfig([
+        'spec' => $serverSpec,
+        'output' => ['path' => $out],
+    ], $out);
+
+    $exit = (new StandaloneApplication)->run(['bin', '--config='.$configPath]);
+
+    $routes = file_get_contents($out.'/routes.php');
+    expect($exit)->toBe(0)
+        ->and($routes)->toContain("Route::get('/pets', [PetController::class, 'listPets'])->name('listPets');")
+        ->and($routes)->not->toContain('->group(');
+});
+
 it('honours an asymmetric config: controllers off, routes on', function () use ($tempOut, $writeConfig) {
     $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
     $out = $tempOut();
