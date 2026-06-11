@@ -88,6 +88,8 @@ final class GoldenFidelityCatalog
                         'payload' => [
                             'aDate' => '2024-01-15',
                             'aDateTime' => '2024-01-15T10:30:00Z',
+                            'aTime' => '14:30:00Z',
+                            'aDuration' => 'P3Y6M4DT12H30M5S',
                             'anEmail' => 'a@b.com',
                             'aUuid' => '550e8400-e29b-41d4-a716-446655440000',
                             'aUri' => 'https://example.com/x',
@@ -98,6 +100,8 @@ final class GoldenFidelityCatalog
                         'roundTrip' => [
                             'aDate' => '2024-01-15',
                             'aDateTime' => '2024-01-15T10:30:00Z',
+                            'aTime' => '14:30:00Z',
+                            'aDuration' => 'P3Y6M4DT12H30M5S',
                             'anEmail' => 'a@b.com',
                             'aUuid' => '550e8400-e29b-41d4-a716-446655440000',
                             'aUri' => 'https://example.com/x',
@@ -106,12 +110,27 @@ final class GoldenFidelityCatalog
                             'anIpv6' => '::1',
                         ],
                     ],
+                    // The other valid RFC3339 time spellings (#49): a numeric
+                    // offset, fractional seconds, and a bare local time.
+                    ['label' => 'a time with a numeric offset', 'payload' => ['aTime' => '14:30:00+02:00']],
+                    ['label' => 'a time with fractional seconds', 'payload' => ['aTime' => '14:30:00.123Z']],
+                    ['label' => 'a bare local time', 'payload' => ['aTime' => '14:30:00']],
+                    // Other valid ISO 8601 durations (#49).
+                    ['label' => 'a time-only duration', 'payload' => ['aDuration' => 'PT1H']],
+                    ['label' => 'a single-day duration', 'payload' => ['aDuration' => 'P1D']],
                 ],
                 [
                     ['label' => 'a date-time on a date-only field is rejected', 'payload' => ['aDate' => '2024-01-15T10:30:00Z'], 'violates' => 'format:date'],
                     ['label' => 'an impossible calendar date is rejected', 'payload' => ['aDate' => '2024-13-99'], 'violates' => 'format:date'],
                     ['label' => 'a bare date on a date-time field is rejected', 'payload' => ['aDateTime' => '2024-01-15'], 'violates' => 'format:date-time'],
                     ['label' => 'free text on a date-time field is rejected', 'payload' => ['aDateTime' => 'tomorrow'], 'violates' => 'format:date-time'],
+                    // format: time (#49): out-of-range, a full date-time, and free text.
+                    ['label' => 'an out-of-range time is rejected', 'payload' => ['aTime' => '25:00:00'], 'violates' => 'format:time'],
+                    ['label' => 'a full date-time on a time-only field is rejected', 'payload' => ['aTime' => '2024-01-15T14:30:00Z'], 'violates' => 'format:time'],
+                    ['label' => 'free text on a time field is rejected', 'payload' => ['aTime' => 'noon'], 'violates' => 'format:time'],
+                    // format: duration (#49): a bare P and free text.
+                    ['label' => 'a bare P with no components is rejected', 'payload' => ['aDuration' => 'P'], 'violates' => 'format:duration'],
+                    ['label' => 'free text on a duration field is rejected', 'payload' => ['aDuration' => 'noon'], 'violates' => 'format:duration'],
                     ['label' => 'malformed email is rejected', 'payload' => ['anEmail' => 'nope'], 'violates' => 'format:email'],
                     ['label' => 'malformed uuid is rejected', 'payload' => ['aUuid' => 'not-a-uuid'], 'violates' => 'format:uuid'],
                     ['label' => 'a uri with spaces is rejected', 'payload' => ['aUri' => 'not a uri'], 'violates' => 'format:uri'],

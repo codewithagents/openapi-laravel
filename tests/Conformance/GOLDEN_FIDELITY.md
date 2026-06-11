@@ -18,7 +18,7 @@ Valid payloads accepted, invalid payloads rejected, round-trips clean.
 | construct | valid cases | invalid cases |
 | --------- | ----------- | ------------- |
 | Scalars | 2 | 3 |
-| StringFormats | 1 | 9 |
+| StringFormats | 6 | 14 |
 | StringConstraints | 2 | 3 |
 | NumericConstraints | 3 | 5 |
 | StringEnum (via GadgetInput.kind) | 2 | 3 |

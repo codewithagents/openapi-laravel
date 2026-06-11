@@ -458,6 +458,40 @@ it('emits the RFC3339 rule for format date-time', function () {
         ->and($code)->toContain('use CodeWithAgents\OpenApiLaravel\Support\Rfc3339DateTimeRule;');
 });
 
+// FIX (#49): format: time and format: duration emit a real rule, not just 'string'.
+
+it('emits the RFC3339 time rule for format time', function () {
+    $files = generateConstraintSchemas([
+        'Holder' => [
+            'type' => 'object',
+            'properties' => [
+                't' => ['type' => 'string', 'format' => 'time'],
+            ],
+        ],
+    ]);
+
+    $code = $files['HolderData']->code;
+
+    expect($code)->toContain("'t' => ['sometimes', 'string', new Rfc3339TimeRule],")
+        ->and($code)->toContain('use CodeWithAgents\OpenApiLaravel\Support\Rfc3339TimeRule;');
+});
+
+it('emits the ISO 8601 duration rule for format duration', function () {
+    $files = generateConstraintSchemas([
+        'Holder' => [
+            'type' => 'object',
+            'properties' => [
+                'dur' => ['type' => 'string', 'format' => 'duration'],
+            ],
+        ],
+    ]);
+
+    $code = $files['HolderData']->code;
+
+    expect($code)->toContain("'dur' => ['sometimes', 'string', new Iso8601DurationRule],")
+        ->and($code)->toContain('use CodeWithAgents\OpenApiLaravel\Support\Iso8601DurationRule;');
+});
+
 // FIX 8: never ?mixed.
 
 it('never emits ?mixed for a nullable mixed-fallback property', function () {

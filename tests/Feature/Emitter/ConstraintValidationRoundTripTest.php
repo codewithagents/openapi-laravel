@@ -7,6 +7,7 @@ use App\ConstraintData\HostedData;
 use App\ConstraintData\NestedData;
 use App\ConstraintData\NumberedData;
 use App\ConstraintData\PetHolderData;
+use App\ConstraintData\TimedData;
 use cebe\openapi\Reader;
 use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
@@ -66,6 +67,15 @@ function bootConstraintClasses(): void
                         'items' => ['type' => 'integer', 'minimum' => 0],
                     ],
                 ],
+            ],
+        ],
+        'Timed' => [
+            'type' => 'object',
+            'properties' => [
+                // format: time must enforce RFC3339 full-time (issue #49).
+                't' => ['type' => 'string', 'format' => 'time'],
+                // format: duration must enforce ISO 8601 duration (issue #49).
+                'dur' => ['type' => 'string', 'format' => 'duration'],
             ],
         ],
         // Undiscriminated object union (issue #31): Cat is the FIRST variant,
@@ -145,6 +155,40 @@ it('rejects a bare date on a date-time field', function () {
 
 it('rejects free text on a date-time field', function () {
     DatedData::validate(['ts' => 'not a date']);
+})->throws(ValidationException::class);
+
+it('accepts every RFC3339 time spelling for format time (#49)', function () {
+    foreach (['14:30:00Z', '14:30:00+02:00', '14:30:00.123Z', '14:30:00', '23:59:59.999999-05:00'] as $value) {
+        TimedData::validate(['t' => $value]);
+    }
+    expect(true)->toBeTrue();
+});
+
+it('rejects an out-of-range time for format time (#49)', function () {
+    TimedData::validate(['t' => '25:00:00']);
+})->throws(ValidationException::class);
+
+it('rejects free text for format time (#49)', function () {
+    TimedData::validate(['t' => 'noon']);
+})->throws(ValidationException::class);
+
+it('rejects a full date-time on a time-only field (#49)', function () {
+    TimedData::validate(['t' => '2024-01-15T14:30:00Z']);
+})->throws(ValidationException::class);
+
+it('accepts valid ISO 8601 durations for format duration (#49)', function () {
+    foreach (['P3Y6M4DT12H30M5S', 'PT1H', 'P1D', 'P1Y2M', 'PT0S'] as $value) {
+        TimedData::validate(['dur' => $value]);
+    }
+    expect(true)->toBeTrue();
+});
+
+it('rejects a bare P with no components for format duration (#49)', function () {
+    TimedData::validate(['dur' => 'P']);
+})->throws(ValidationException::class);
+
+it('rejects free text for format duration (#49)', function () {
+    TimedData::validate(['dur' => 'noon']);
 })->throws(ValidationException::class);
 
 it('accepts a multiple and rejects a non-multiple for multipleOf', function () {
