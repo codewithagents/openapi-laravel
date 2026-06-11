@@ -173,10 +173,17 @@ it('exits 2 when check is run with conflicting scaffold flags', function () use 
 });
 
 // Config file: openapi-laravel.json mirrors config/openapi-laravel.php, flags win.
-
-$writeConfig = function (array $config): string {
-    $dir = sys_get_temp_dir().'/oal_standalone_cfg_'.uniqid();
-    mkdir($dir, 0755, true);
+//
+// Config-sourced write paths are contained to the directory the config lives in
+// (issue #54), so a config that points its output at a directory inside that
+// root is the realistic, accepted shape. $writeConfig drops the file at the root
+// of the given output directory so the absolute output path stays contained;
+// escaping paths get their own dedicated containment tests.
+$writeConfig = function (array $config, ?string $root = null): string {
+    $dir = $root ?? sys_get_temp_dir().'/oal_standalone_cfg_'.uniqid();
+    if (! is_dir($dir)) {
+        mkdir($dir, 0755, true);
+    }
     file_put_contents($dir.'/openapi-laravel.json', json_encode($config, JSON_PRETTY_PRINT));
 
     return $dir.'/openapi-laravel.json';
@@ -187,7 +194,7 @@ it('reads spec and output from a --config file', function () use ($spec, $tempOu
     $configPath = $writeConfig([
         'spec' => $spec(),
         'output' => ['path' => $out, 'namespace' => 'Acme\\FromConfig'],
-    ]);
+    ], $out);
 
     $exit = (new StandaloneApplication)->run(['bin', '--config='.$configPath]);
 
@@ -201,7 +208,7 @@ it('discovers openapi-laravel.json in the working directory', function () use ($
     $configPath = $writeConfig([
         'spec' => $spec(),
         'output' => ['path' => $out],
-    ]);
+    ], $out);
 
     $previous = getcwd();
     chdir(dirname($configPath));
@@ -221,7 +228,7 @@ it('lets flags override config file values', function () use ($spec, $tempOut, $
     $configPath = $writeConfig([
         'spec' => $spec(),
         'output' => ['path' => $out, 'namespace' => 'Acme\\FromConfig'],
-    ]);
+    ], $out);
 
     $exit = (new StandaloneApplication)->run(['bin', '--config='.$configPath, '--namespace=Acme\\FromFlag']);
 
@@ -237,7 +244,7 @@ it('honours controllers.enabled=false from the config file', function () use ($t
         'output' => ['path' => $out],
         'controllers' => ['enabled' => false],
         'routes' => ['enabled' => false],
-    ]);
+    ], $out);
 
     $exit = (new StandaloneApplication)->run(['bin', '--config='.$configPath]);
 
@@ -255,7 +262,7 @@ it('lets --controllers and --routes override a config file that disables them', 
         'output' => ['path' => $out],
         'controllers' => ['enabled' => false],
         'routes' => ['enabled' => false],
-    ]);
+    ], $out);
 
     $exit = (new StandaloneApplication)->run(['bin', '--config='.$configPath, '--controllers', '--routes']);
 
@@ -272,7 +279,7 @@ it('honours the scaffold paths from the config file', function () use ($tempOut,
         'output' => ['path' => $out.'/data'],
         'controllers' => ['path' => $out.'/http', 'namespace' => 'Acme\\Http'],
         'routes' => ['path' => $out.'/api.generated.php'],
-    ]);
+    ], $out);
 
     $exit = (new StandaloneApplication)->run(['bin', '--config='.$configPath]);
 
@@ -290,7 +297,7 @@ it('honours an asymmetric config: controllers off, routes on', function () use (
         'output' => ['path' => $out],
         'controllers' => ['enabled' => false],
         'routes' => ['enabled' => true],
-    ]);
+    ], $out);
 
     $exit = (new StandaloneApplication)->run(['bin', '--config='.$configPath]);
 
@@ -307,7 +314,7 @@ it('honours an asymmetric config: controllers on, routes off', function () use (
         'output' => ['path' => $out],
         'controllers' => ['enabled' => true],
         'routes' => ['enabled' => false],
-    ]);
+    ], $out);
 
     $exit = (new StandaloneApplication)->run(['bin', '--config='.$configPath]);
 
