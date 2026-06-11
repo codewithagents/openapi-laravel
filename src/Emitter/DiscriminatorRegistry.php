@@ -54,6 +54,18 @@ final class DiscriminatorRegistry
     private array $variantToBase = [];
 
     /**
+     * Non-fatal diagnostics gathered while classifying discriminated unions,
+     * keyed by message so the same finding is recorded once. Each entry explains
+     * why a schema that looked like a discriminated union was NOT given full
+     * morph handling (a non-object member, a multi-base conflict, or a base left
+     * with no claimable variants), so the silent degrade to presence-only is
+     * visible. The generator merges these into its own warnings() channel.
+     *
+     * @var array<string, true>
+     */
+    private array $warnings = [];
+
+    /**
      * @param  array<string, Schema>  $schemas  component schemas, name => schema
      */
     public function __construct(array $schemas)
@@ -74,16 +86,42 @@ final class DiscriminatorRegistry
         // it can claim; a base left with zero claimable variants is dropped.
         foreach ($candidates as $baseName => $candidate) {
             $claimed = [];
+            $stolen = [];
             foreach ($candidate['variants'] as $variant) {
                 if (isset($this->variantToBase[$variant])) {
-                    // Already owned by an earlier base: skip it for this base.
+                    // Already owned by an earlier base: skip it for this base. PHP
+                    // single inheritance means a variant can extend only one base.
+                    $stolen[$variant] = $this->variantToBase[$variant];
+
                     continue;
                 }
                 $this->variantToBase[$variant] = $baseName;
                 $claimed[] = $variant;
             }
 
+            if ($stolen !== []) {
+                foreach ($stolen as $variant => $owner) {
+                    $this->warnings[sprintf(
+                        'Discriminated union "%s" shares variant "%s" with union "%s"; PHP single inheritance keeps the variant under "%s", '
+                        .'so "%s" cannot fully claim it.',
+                        $baseName,
+                        $variant,
+                        $owner,
+                        $owner,
+                        $baseName,
+                    )] = true;
+                }
+            }
+
             if ($claimed === []) {
+                // Every variant was claimed by an earlier base: this union cannot
+                // become its own base, so it degrades to presence-only behavior.
+                $this->warnings[sprintf(
+                    'Discriminated union "%s" has no variant left to claim (all shared with earlier unions); '
+                    .'it is generated as a presence-only union, not a morphable base.',
+                    $baseName,
+                )] = true;
+
                 continue;
             }
 
@@ -100,6 +138,20 @@ final class DiscriminatorRegistry
                 'variants' => $claimed,
             ];
         }
+    }
+
+    /**
+     * The diagnostics gathered while classifying discriminated unions, sorted for
+     * determinism. Empty when every discriminated union was cleanly handled.
+     *
+     * @return list<string>
+     */
+    public function warnings(): array
+    {
+        $warnings = array_keys($this->warnings);
+        sort($warnings);
+
+        return $warnings;
     }
 
     /**
@@ -187,9 +239,20 @@ final class DiscriminatorRegistry
 
         // Every member must resolve to an OBJECT schema. A scalar/array/union
         // member means this is not a clean discriminated object union: bail so the
-        // caller keeps the existing presence-only behavior.
+        // caller keeps the existing presence-only behavior. This is a genuine
+        // degrade (the schema has a discriminator and a oneOf/anyOf of $refs), so
+        // warn rather than dropping it silently.
         foreach ($members as $memberName) {
             if (! $this->isObjectSchema($schemas[$memberName] ?? null)) {
+                $reason = isset($schemas[$memberName]) ? 'is not an object schema' : 'does not resolve to a component schema';
+                $this->warnings[sprintf(
+                    'Discriminated union "%s" has member "%s" that %s; the union is generated as a presence-only "mixed" '
+                    .'property instead of a morphable base.',
+                    $name,
+                    $memberName,
+                    $reason,
+                )] = true;
+
                 return null;
             }
         }

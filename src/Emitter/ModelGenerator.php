@@ -168,6 +168,14 @@ final class ModelGenerator
         // extend it. Built from the same component map so it is deterministic.
         $this->discriminators = new DiscriminatorRegistry($schemas);
 
+        // Surface why any discriminated union degraded to presence-only (a
+        // non-object member, a multi-base conflict, or a base left with no
+        // claimable variants) through the same diagnostics channel as the other
+        // silent-information-loss warnings.
+        foreach ($this->discriminators->warnings() as $warning) {
+            $this->warnings[$warning] = true;
+        }
+
         foreach ($schemas as $name => $schema) {
             // A discriminated-union base is a Data class (an abstract
             // PropertyMorphableData), even though it is structurally a
@@ -503,7 +511,7 @@ final class ModelGenerator
 
         $this->files[$className] = new GeneratedFile(
             $className,
-            $this->renderDiscriminatorBase($className, $imports, $mapName, $propertyName, $type, $validationAttributes, $wireName, $arms),
+            $this->renderDiscriminatorBase($className, $imports, $mapName, $propertyName, $type, $validationAttributes, $arms),
         );
     }
 
@@ -1432,7 +1440,7 @@ final class ModelGenerator
      * @param  list<string>  $validationAttributes  short attribute names, e.g. ['Required', 'StringType']
      * @param  list<string>  $arms  match() arm lines, already indented
      */
-    private function renderDiscriminatorBase(string $className, array $imports, string $mapName, string $propertyName, ResolvedType $type, array $validationAttributes, string $wireName, array $arms): string
+    private function renderDiscriminatorBase(string $className, array $imports, string $mapName, string $propertyName, ResolvedType $type, array $validationAttributes, array $arms): string
     {
         $useBlock = implode("\n", array_map(static fn (string $fqcn): string => 'use '.$fqcn.';', $imports));
 
@@ -1447,8 +1455,13 @@ final class ModelGenerator
             .'        public readonly '.$type->declaration().' $'.$propertyName.",\n"
             .'    ) {}';
 
+        // spatie's DataMorphClassResolver builds the morph() input keyed by the
+        // PHP PROPERTY name (DataProperty->name), not the wire name, even when a
+        // #[MapName] remaps the input. So match on the property name: a
+        // discriminator that needs a MapName (pet_type -> petType) would otherwise
+        // read a missing key and always morph to null, rejecting every payload.
         $morph = "\n\n    /**\n     * @param  array<string, mixed>  \$properties\n     */\n    public static function morph(array \$properties): ?string\n    {\n"
-            .'        return match ($properties['."'".$this->escapeSingleQuoted($wireName)."'".'] ?? null) {'."\n"
+            .'        return match ($properties['."'".$this->escapeSingleQuoted($propertyName)."'".'] ?? null) {'."\n"
             .implode("\n", $arms)."\n"
             ."        };\n    }";
 
