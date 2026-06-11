@@ -62,7 +62,7 @@ jobs:
         run: composer test:mutate
 
   hygiene:
-    name: Dependency hygiene (fallow-equivalent)
+    name: Dependency hygiene
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
