@@ -199,8 +199,9 @@ final class GoldenFidelityCatalog
                     ['label' => 'a string member', 'payload' => ['value' => 'one'], 'roundTrip' => ['value' => 'one']],
                     ['label' => 'an integer member', 'payload' => ['value' => 2]],
                     ['label' => 'a float member', 'payload' => ['value' => 3.5]],
-                    // KNOWN-GAP probe: `true` is a spec-valid enum member but is
-                    // dropped from Rule::in, so this valid payload is false-rejected.
+                    // `true` is a spec-valid enum member: it now survives into
+                    // Rule::in (the #bool-enum fix), so this valid payload is
+                    // accepted rather than false-rejected.
                     ['label' => 'a boolean enum member must be accepted (true)', 'payload' => ['value' => true]],
                 ],
                 [
@@ -518,15 +519,6 @@ final class GoldenFidelityCatalog
                 'actual' => 'accept',
                 'issue' => '#31',
                 'reason' => 'An undiscriminated object union is presence-only: any object is accepted, no variant shape is enforced. The interim fix traded variant enforcement for not false-rejecting a valid non-first variant.',
-            ],
-            [
-                'construct' => 'MixedTypeEnum',
-                'class' => 'MixedTypeEnumData',
-                'label' => 'a boolean enum member must be accepted (true)',
-                'expected' => 'accept',
-                'actual' => 'reject',
-                'issue' => '#bool-enum',
-                'reason' => 'A boolean member of a mixed-type enum is dropped from Rule::in (enumValues() keeps only string|int|float), so a spec-valid boolean value is false-rejected. Narrow edge: only a heterogeneous enum that mixes a boolean with other scalar types.',
             ],
             [
                 'construct' => 'NullableMixedOneOf',

@@ -133,6 +133,44 @@ it('emits a non-empty valid Data class for a top-level float-enum component', fu
     expect(fn () => token_get_all($code, TOKEN_PARSE))->not->toThrow(Throwable::class);
 });
 
+// FIX (#bool-enum): a boolean member of a mixed-type enum survives into Rule::in.
+
+it('keeps a boolean member of a mixed-type enum in Rule::in', function () {
+    $files = generateConstraintSchemas([
+        // A heterogeneous enum mixing a string, int, bool, and float. The bool
+        // member used to be dropped (enumValues kept only string|int|float), so a
+        // spec-valid `true` was false-rejected. It must now be a `true` literal.
+        'Choice' => ['enum' => ['one', 2, true, 3.5]],
+    ]);
+
+    expect($files)->toHaveKey('ChoiceData');
+    $code = $files['ChoiceData']->code;
+
+    expect($code)->toContain("Rule::in(['one', 2, true, 3.5])")
+        // A bool/float-bearing enum is NOT a native backed enum: it is a Data
+        // class carrying the membership rule.
+        ->and($code)->toContain('public readonly')
+        ->and($code)->toContain('Rule::in');
+
+    expect(fn () => token_get_all($code, TOKEN_PARSE))->not->toThrow(Throwable::class);
+});
+
+it('emits true/false literals for a pure boolean enum, not a backed enum', function () {
+    $files = generateConstraintSchemas([
+        'Flag' => ['enum' => [true, false]],
+    ]);
+
+    expect($files)->toHaveKey('FlagData');
+    $code = $files['FlagData']->code;
+
+    // A boolean cannot back a native PHP enum, so this is a Data class with a
+    // Rule::in carrying the boolean literals.
+    expect($code)->toContain('Rule::in([true, false])')
+        ->and($code)->not->toContain('enum FlagData');
+
+    expect(fn () => token_get_all($code, TOKEN_PARSE))->not->toThrow(Throwable::class);
+});
+
 // FIX 3: multi-type arrays.
 
 it('emits a string|int union for a two-member type array', function () {

@@ -966,7 +966,7 @@ final class ModelGenerator
         if ($this->notEmptyArray($schema->enum)) {
             $values = $this->enumValues($schema);
             if ($values !== []) {
-                $rules[] = 'Rule::in(['.implode(', ', array_map(fn (string|int|float $value): string => $this->scalarLiteral($value), $values)).'])';
+                $rules[] = 'Rule::in(['.implode(', ', array_map(fn (string|int|float|bool $value): string => $this->scalarLiteral($value), $values)).'])';
 
                 return [$rules, [], true];
             }
@@ -1110,7 +1110,7 @@ final class ModelGenerator
         if ($this->notEmptyArray($items->enum)) {
             $values = $this->enumValues($items);
             if ($values !== []) {
-                return [['Rule::in(['.implode(', ', array_map(fn (string|int|float $value): string => $this->scalarLiteral($value), $values)).'])'], true];
+                return [['Rule::in(['.implode(', ', array_map(fn (string|int|float|bool $value): string => $this->scalarLiteral($value), $values)).'])'], true];
             }
         }
 
@@ -1162,7 +1162,7 @@ final class ModelGenerator
         if ($this->notEmptyArray($value->enum)) {
             $values = $this->enumValues($value);
             if ($values !== []) {
-                return [['Rule::in(['.implode(', ', array_map(fn (string|int|float $v): string => $this->scalarLiteral($v), $values)).'])'], true];
+                return [['Rule::in(['.implode(', ', array_map(fn (string|int|float|bool $v): string => $this->scalarLiteral($v), $values)).'])'], true];
             }
         }
 
@@ -1438,8 +1438,12 @@ final class ModelGenerator
         return null;
     }
 
-    private function scalarLiteral(string|int|float $value): string
+    private function scalarLiteral(string|int|float|bool $value): string
     {
+        if (is_bool($value)) {
+            return $value ? 'true' : 'false';
+        }
+
         if (is_int($value) || is_float($value)) {
             return $this->numberLiteral($value);
         }
@@ -2051,19 +2055,23 @@ final class ModelGenerator
     }
 
     /**
-     * The usable scalar values of an `enum`: strings, ints, and floats. Floats
-     * are included so a `{type: number, enum: [1.5, 2.5]}` schema still emits a
-     * `Rule::in([1.5, 2.5])` constraint instead of silently accepting any number.
-     * A float-bearing enum cannot become a native backed enum (PHP enums only
-     * back int/string), so isBackedEnum() screens floats out separately.
+     * The usable scalar values of an `enum`: strings, ints, floats, and bools.
+     * Floats are included so a `{type: number, enum: [1.5, 2.5]}` schema still
+     * emits a `Rule::in([1.5, 2.5])` constraint instead of silently accepting any
+     * number. Bools are included so a mixed-type enum
+     * (`["one", 2, true, 3.5]`) keeps its boolean member in `Rule::in(...)`
+     * rather than silently dropping it (a spec-valid `true` would otherwise be
+     * false-rejected). Neither a float nor a bool can back a native PHP enum (PHP
+     * backs only int/string), so isEnum() screens both out of the backed-enum
+     * path separately, leaving them to the Data-class-with-`Rule::in` fallback.
      *
-     * @return list<string|int|float>
+     * @return list<string|int|float|bool>
      */
     private function enumValues(Schema $schema): array
     {
         $result = [];
         foreach ($this->asArray($schema->enum) as $value) {
-            if (is_string($value) || is_int($value) || is_float($value)) {
+            if (is_string($value) || is_int($value) || is_float($value) || is_bool($value)) {
                 $result[] = $value;
             }
         }
@@ -2074,10 +2082,11 @@ final class ModelGenerator
     /**
      * Whether a component schema should become a native PHP backed enum. It must
      * be an enum with usable values, no named properties, and crucially every
-     * value must be int or string: PHP backed enums cannot back a float. A
-     * float-bearing enum is therefore NOT a backed enum here; it falls through to
-     * a Data class that carries the `Rule::in` constraint instead (see
-     * scalarEnumValueProperty / emitData).
+     * value must be int or string: PHP backed enums cannot back a float or a bool.
+     * A float-bearing or bool-bearing enum is therefore NOT a backed enum here; it
+     * falls through to a Data class that carries the `Rule::in` constraint instead
+     * (see isScalarEnumComponent / emitData), which keeps the bool/float member in
+     * the membership rule rather than dropping it.
      */
     private function isEnum(Schema $schema): bool
     {
@@ -2095,7 +2104,7 @@ final class ModelGenerator
         }
 
         foreach ($values as $value) {
-            if (is_float($value)) {
+            if (is_float($value) || is_bool($value)) {
                 return false;
             }
         }
