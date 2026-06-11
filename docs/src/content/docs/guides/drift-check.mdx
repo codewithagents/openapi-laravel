@@ -5,7 +5,7 @@ description: Verify the committed generated code is in sync with the spec, and f
 
 import { Tabs, TabItem, Steps, Aside } from '@astrojs/starlight/components'
 
-The generated Data classes, abstract controllers, and routes file are deterministic: the same spec in produces byte-identical files out. `openapi:check` turns that property into an enforceable guarantee. It computes exactly what `openapi:generate` would write, then compares it against the files on disk. If anything is missing or different, the command fails.
+The generated Data classes, abstract controllers, and routes file are deterministic: the same spec in produces byte-identical files out. `openapi:check`, the drift gate, turns that property into an enforceable guarantee. It computes exactly what `openapi:generate` would write, then compares it against the files on disk. If anything is missing or different, the command fails. Generate and check share one planner internally, so they are always in lockstep.
 
 This is the enforcement mechanism behind the project's promise that spec/code drift is structurally impossible. Generation makes drift easy to remove; the drift check makes drift impossible to merge.
 

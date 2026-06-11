@@ -153,14 +153,15 @@ payload that is nothing but unknown keys is still rejected. Schemas that do not 
 `additionalProperties: false` are untouched, and the flag changes nothing for the default (off) build,
 whose output is byte-identical to before.
 
-### Empty map encoding (a known issue)
+### Empty map encoding (fixed)
 
-An **empty** `additionalProperties` map currently serializes as a JSON array `[]`, not an object
-`{}`. PHP cannot distinguish an empty associative array from an empty list, so `json_encode([])`
-emits an array. Non-empty maps encode correctly as objects, and a `null` value stays `null`. A strict
-client expecting `Record<string, string>` would receive an array for the empty case. This was
-surfaced by the cross-language [end-to-end demo](/guides/end-to-end-demo) and is tracked as a
-candidate fix (a cast that forces object encoding even when the map is empty).
+An **empty** `additionalProperties` map serializes as a JSON object `{}`, not an array `[]`. PHP
+cannot distinguish an empty associative array from an empty list (`json_encode([])` emits `[]`), so
+every map-typed property carries a `MapObjectTransformer` that forces object encoding for the empty
+case. This was a real wire bug surfaced by the cross-language
+[end-to-end demo](/guides/end-to-end-demo) (a strict client expecting `Record<string, string>`
+received `[]` and rejected it) and was fixed in 0.5.0. It stays documented here because it is the
+kind of seam only a live cross-language round trip exposes.
 
 ## oneOf and anyOf emit union types
 
@@ -308,7 +309,8 @@ variant is shared by two discriminated bases (PHP single inheritance keeps the f
 base is left with no claimable variant. The remaining forms still presence-only: an **inline**
 discriminated union written directly under a property (not a named component schema), and the
 **allOf-inheritance** form where a base object declares properties plus a discriminator and variants
-compose it with `allOf`. Both are tracked for a future phase.
+compose it with `allOf`. Both are tracked in
+[issue #38](https://github.com/codewithagents/openapi-laravel/issues/38).
 
 ### Undiscriminated object unions are presence-only (no false-reject)
 
@@ -363,20 +365,23 @@ base and variants for you. Failing that, sniff a distinguishing field as above (
 only `CatData` defines), or register a custom cast on the property. Scalar unions (`string|int`) need
 none of this: they hydrate directly.
 
-## String formats: some are no-ops
+## String formats: a few are no-ops
 
 A `format` on a string is mapped to the closest Laravel rule where one exists. `email`/`idn-email`
 become `email`, `uuid` becomes `uuid`, `uri`/`url`/`iri` become `url`, and `ipv4`/`ipv6`/`ip` map to
-the matching IP rule. Date formats are mapped strictly: `date` becomes `date_format:Y-m-d` (a bare
-calendar date, a timestamp is rejected) and `date-time` becomes a dedicated RFC3339 rule that accepts
-the `Z`, numeric-offset, and fractional-second timestamp forms and rejects a bare date.
+the matching IP rule. `hostname` enforces RFC 1123 syntax via a dedicated `HostnameRule`. Date and
+time formats are mapped strictly, each with its own rule: `date` becomes `date_format:Y-m-d` (a bare
+calendar date, a timestamp is rejected), `date-time` becomes a dedicated RFC3339 rule that accepts
+the `Z`, numeric-offset, and fractional-second timestamp forms and rejects a bare date, `time`
+becomes an RFC3339 full-time rule, and `duration` becomes an ISO 8601 duration rule.
 
-The following string formats are **intentionally not validated** and emit only the base `string` rule
-(or no extra rule): `hostname` / `idn-hostname`, `byte`, `binary`, and `password`. Laravel has no
-faithful built-in for them, and a hand-rolled regex would be either too loose to add value or too
-strict and wrongly reject valid input, so they are treated as plain strings. The value still arrives
-and round-trips, it is simply not format-checked. Add your own rule if you need to enforce one of
-these.
+The following string formats are **intentionally not validated** and emit only the base `string`
+rule: `byte`, `binary`, and `password`. Laravel has no faithful built-in for them, and a hand-rolled
+regex would be either too loose to add value or too strict and wrongly reject valid input, so they
+are treated as plain strings. `idn-hostname` is deliberately lenient (a non-empty, no-whitespace
+check): a strict ASCII regex would wrongly reject valid unicode labels, and full unicode/punycode
+validation is out of scope. The value still arrives and round-trips, it is simply not (or only
+loosely) format-checked. Add your own rule if you need to enforce one of these.
 
 ## Numeric constraints
 
@@ -395,13 +400,13 @@ it as a one-value enum: the property keeps its concrete type and gains a single-
 constraint.
 
 ```yaml
-version:
+channel:
   type: string
-  const: v1
+  const: stable
 ```
 
-This generates `public readonly ?string $version` with `'version' => ['sometimes', Rule::in(['v1'])]`.
-A bare `const` with no declared `type` infers its PHP type from the literal (`const: v1` is a
+This generates `public readonly ?string $channel` with `'channel' => ['sometimes', Rule::in(['stable'])]`.
+A bare `const` with no declared `type` infers its PHP type from the literal (`const: stable` is a
 `string`, `const: 3` is an `int`). Only scalar `const` values (string and integer) are enforced this
 way; an array, object, boolean, or null `const` falls back to the normal type handling.
 

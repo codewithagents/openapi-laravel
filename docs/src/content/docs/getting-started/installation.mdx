@@ -11,7 +11,7 @@ import { Steps, Aside } from '@astrojs/starlight/components'
 | ------------- | ---------------------------- |
 | PHP           | 8.2 or newer                 |
 | Laravel       | 11 or 12 (for the artisan command) |
-| spatie/laravel-data | v4, a **runtime** dependency of your app: `composer require spatie/laravel-data:^4.0` |
+| spatie/laravel-data | `^4.15`, a **runtime** dependency of your app: `composer require spatie/laravel-data:^4.15` |
 
 `spatie/laravel-data` v4 is a runtime peer dependency, not a dev dependency: the generated classes extend `Spatie\LaravelData\Data`, so your app loads it at runtime. The standalone binary runs without Laravel, so a Laravel install is only required for the artisan command and the published config file.
 
@@ -22,7 +22,7 @@ import { Steps, Aside } from '@astrojs/starlight/components'
 1. **Require `spatie/laravel-data` as a runtime dependency.**
 
    ```bash
-   composer require spatie/laravel-data:^4.0
+   composer require spatie/laravel-data:^4.15
    ```
 
    The generated classes extend `Spatie\LaravelData\Data` and use its attributes (`#[MapName]`, `#[DataCollectionOf]`), so this is a normal runtime dependency of your app, not a dev dependency. Without it, a fresh app hits fatal autoload errors the moment it loads a generated class.

@@ -46,20 +46,6 @@ return [
     ],
 
     /*
-     * Maximum schema nesting depth the parser will follow before bailing out.
-     * Guards against pathological or maliciously deep specs.
-     */
-    'max_depth' => 64,
-
-    /*
-     * Maximum raw spec file size, in bytes, accepted before parsing. The spec is
-     * untrusted input fed to a YAML parser that expands anchors/aliases before we
-     * see it, so a pre-parse size guard caps the alias-bomb blast radius. The
-     * default (24 MiB) sits well above the largest real-world specs.
-     */
-    'max_bytes' => 25_165_824,
-
-    /*
      * Server scaffold: generate one abstract controller per OpenAPI tag,
      * with one abstract method per operation, typed by the generated Data classes.
      * Enabled by default. Disable with 'enabled' => false or pass --no-controllers.
@@ -78,6 +64,28 @@ return [
         'enabled' => true,
         'path'    => base_path('routes/api.generated.php'),
     ],
+
+    /*
+     * Enforce closed object shapes: when true, a schema declaring
+     * `additionalProperties: false` emits a rule that rejects any input key
+     * outside its declared property set. Off by default (lenient keeps
+     * contract evolution safe); opt in here or with --enforce-closed-objects.
+     */
+    'enforce_closed_objects' => false,
+
+    /*
+     * Maximum schema nesting depth the parser will follow before bailing out.
+     * Guards against pathological or maliciously deep specs.
+     */
+    'max_depth' => 64,
+
+    /*
+     * Maximum raw spec file size, in bytes, accepted before parsing. The spec is
+     * untrusted input fed to a YAML parser that expands anchors/aliases before we
+     * see it, so a pre-parse size guard caps the alias-bomb blast radius. The
+     * default (24 MiB) sits well above the largest real-world specs.
+     */
+    'max_bytes' => 25_165_824,
 
 ];
 ```
@@ -161,6 +169,17 @@ The generated file contains one `Route::{method}(...)` call per operation, refer
 </Aside>
 
 See the [server scaffold guide](/guides/server-scaffold) for a complete worked example.
+
+### `enforce_closed_objects`
+
+When `true`, every schema declaring `additionalProperties: false` emits a rule that rejects any
+input key outside its declared property set. Defaults to `false`: strict rejection has a
+forward-compatibility hazard (a producer that adds a new field breaks a consumer that has not
+regenerated yet), so lenient is the safe default. Opt in here, or per run with the
+`--enforce-closed-objects` flag on `openapi:generate` / `openapi:check` (the standalone binary
+accepts the flag too; the `openapi-laravel.json` file has no key for it). See
+[the limitations guide](/guides/limitations#additionalproperties-false-enforceable-via-an-opt-in-flag)
+for the tradeoff in full.
 
 ## Precedence: flags beat config, config beats defaults
 

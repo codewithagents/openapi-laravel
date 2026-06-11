@@ -7,7 +7,7 @@ head:
     content: 'openapi-laravel: spec-first Laravel models from your OpenAPI document'
 hero:
   title: The spec is the source of truth. Your code follows it.
-  tagline: Hand-written DTOs, validation rules, and controllers drift from the API contract silently, and you find out in production or from a consumer. openapi-laravel makes the OpenAPI document the source of truth and regeneration the sync mechanism. It generates spatie/laravel-data classes with explicit, spec-derived rules() methods, native PHP enums, abstract controllers per tag, and a routes file. Readable, deterministic PHP that lives in your repo.
+  tagline: One OpenAPI spec in, a working typed Laravel slice out. A single command generates spatie/laravel-data classes with explicit, spec-derived rules() methods, native PHP enums, abstract controllers per tag, and a routes file, out of the box. The drift gate (openapi:check) fails CI the moment code and contract disagree, and the generated validation is differentially tested against the spec. Readable, deterministic PHP that lives in your repo.
   actions:
     - text: Get started
       link: /getting-started
@@ -136,9 +136,15 @@ The whole loop is proven end to end: one petstore spec drives a generated Larave
     Rules are emitted verbatim from spec constraints (required, nullable, maxLength, pattern, format,
     minimum, maximum, enum), not guessed from property types at runtime.
   </Card>
-  <Card title="Server scaffold" icon="right-arrow">
-    Generate abstract controllers per tag and a routes file. The routing table derives from the spec,
-    so path-level drift is structurally impossible.
+  <Card title="Server scaffold, out of the box" icon="right-arrow">
+    The default run already emits abstract controllers per tag and a routes file. The routing table
+    derives from the spec, so path-level drift is structurally impossible. Opt out with
+    `--no-controllers` / `--no-routes`.
+  </Card>
+  <Card title="Drift gate for CI" icon="approve-check-circle">
+    `openapi:check` recomputes the full file set in memory and compares it byte-for-byte against
+    disk: exit 1 fails the build the moment committed code and spec disagree. Generate and check
+    share one planner, so they are always in lockstep.
   </Card>
   <Card title="Validation that is differentially tested, not assumed" icon="star">
     A differential oracle runs spec-valid and spec-invalid payloads through the generated rules()
@@ -169,16 +175,25 @@ The whole loop is proven end to end: one petstore spec drives a generated Larave
    composer require --dev codewithagents/openapi-laravel
    ```
 
-2. **Point it at your spec and generate.**
+2. **Point it at your spec and generate. One command, full output.**
 
    ```bash
    php artisan openapi:generate --spec=openapi.yaml --output=app/Data
    ```
 
-3. **Use the generated classes.**
+   Out of the box this emits the Data classes with spec-derived `rules()`, the native enums, one
+   abstract controller per tag, and a routes file, all typed against each other. Models only?
+   Pass `--no-controllers --no-routes`.
 
-   The Data classes validate from request payloads and the enums type your domain. When the spec
-   changes, re-run the generator and review the diff.
+3. **Implement the controllers and keep it in sync.**
+
+   Extend each abstract controller with your business logic; an unimplemented operation is a PHP
+   fatal, not silent drift. Add the drift gate to CI so the committed code can never quietly
+   diverge from the spec:
+
+   ```bash
+   php artisan openapi:check   # exit 0 in sync, 1 drift, 2 config error
+   ```
 
 </Steps>
 
