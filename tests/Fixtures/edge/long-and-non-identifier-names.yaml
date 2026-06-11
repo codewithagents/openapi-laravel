@@ -1,0 +1,25 @@
+openapi: 3.0.3
+info:
+  title: Long and non-identifier property names
+  version: 1.0.0
+# Edge-case guard (#40 follow-up): a single object whose property names exercise
+# the invalid-identifier and length class the naming layer must hold:
+#   - a 185-character name (well past 180), to prove no truncation/collision fatal,
+#   - a kebab-case key (`kebab-case-thing`), illegal as a bare PHP identifier,
+#   - a key starting with `+` (`+1`), which PHP coerces to an int array key.
+# The generated Data class plus rules() must stay generable, php -l clean, and
+# Pint/PHPStan idempotent. Kept out of the shared 130-spec corpus on purpose.
+paths: {}
+components:
+  schemas:
+    EdgeNames:
+      type: object
+      properties:
+        this_is_a_pathologically_long_property_name_that_exceeds_any_sane_identifier_length_and_keeps_going_well_past_one_hundred_and_eighty_characters_to_stress_the_naming_and_truncation_layer:
+          type: string
+        kebab-case-thing:
+          type: integer
+        "+1":
+          type: integer
+      required:
+        - kebab-case-thing
