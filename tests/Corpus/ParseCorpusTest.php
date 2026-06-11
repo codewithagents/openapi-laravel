@@ -19,5 +19,5 @@ it('parses every corpus spec', function (string $path) {
 it('covers the full corpus', function () {
     $files = glob(__DIR__.'/../Fixtures/specs/*.{json,yaml,yml}', GLOB_BRACE) ?: [];
 
-    expect(count($files))->toBe(128);
+    expect(count($files))->toBe(130);
 });
