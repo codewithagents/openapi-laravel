@@ -23,6 +23,8 @@ import { Card, CardGrid, Tabs, TabItem, Steps, Aside } from '@astrojs/starlight/
 
 ## See it in action
 
+![openapi-laravel generating typed Data classes from an OpenAPI spec](/media/openapi-laravel-demo.gif)
+
 A single object schema in your spec becomes a `laravel-data` class with an explicit `rules()` method, plus a native backed enum for any enum it references.
 
 <Tabs>
@@ -109,6 +111,10 @@ openapi.yaml
 ```
 
 You write your business logic. The DTOs, validation, controller signatures, and routing table stay in sync when the spec changes. Re-run the generator and the diff tells you exactly what moved.
+
+The whole loop is proven end to end: one petstore spec drives a generated Laravel backend and a TypeScript SPA built with openapi-zod-ts, exercised by a Playwright suite over real HTTP. See the [end-to-end demo guide](/guides/end-to-end-demo).
+
+![The e2e demo SPA listing pets served by the generated Laravel backend](/media/spa-list.png)
 
 ---
 

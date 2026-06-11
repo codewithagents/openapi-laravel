@@ -100,6 +100,10 @@ Not a Laravel project? The same generator ships as a framework-free binary:
 vendor/bin/openapi-laravel --spec=openapi.yaml --output=src/Data --namespace="Acme\\Dto"
 ```
 
+![openapi-laravel generating typed Data classes from an OpenAPI spec](https://openapi-laravel.codewithagents.de/media/openapi-laravel-demo.gif)
+
+*The same flow powers the [cross-language e2e demo](./e2e): one spec, a generated Laravel backend, and a TypeScript SPA.*
+
 ### Keep generated code in sync (CI)
 
 Once the generated files are committed, add `openapi:check` to your CI pipeline. It regenerates
@@ -117,6 +121,8 @@ config or spec error. Add `--diff` to print a bounded unified diff per changed f
 exactly what drifted. The check honors the same flags as `openapi:generate` (`--spec`, `--output`,
 `--namespace`, `--controllers`, `--routes`) and only compares generator-owned files, so hand-written
 concrete controllers are never flagged as drift.
+
+![openapi:check failing the build on contract drift](https://openapi-laravel.codewithagents.de/media/openapi-laravel-drift-check.gif)
 
 See the [drift-check guide](https://openapi-laravel.codewithagents.de/guides/drift-check) for a
 full CI walkthrough.
