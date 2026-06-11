@@ -65,6 +65,7 @@ final class OperationCollector
      */
     public function collect(OpenApi $document): array
     {
+        $componentParameters = $this->componentParameters($document);
         $rows = [];
 
         foreach ($this->pathItems($document) as $path => $pathItem) {
@@ -82,7 +83,12 @@ final class OperationCollector
                     continue;
                 }
 
-                $rows[] = ['path' => $path, 'method' => $method, 'operation' => $operation];
+                $rows[] = [
+                    'path' => $path,
+                    'method' => $method,
+                    'operation' => $operation,
+                    'parameters' => $this->mergedParameters($pathItem, $operation, $componentParameters),
+                ];
             }
         }
 
@@ -103,16 +109,17 @@ final class OperationCollector
 
         $descriptors = [];
         foreach ($rows as $row) {
-            $descriptors[] = $this->describe($row['path'], $row['method'], $row['operation'], $methodNames);
+            $descriptors[] = $this->describe($row['path'], $row['method'], $row['operation'], $row['parameters'], $methodNames);
         }
 
         return $descriptors;
     }
 
     /**
+     * @param  list<Parameter>  $parameters
      * @param  array<string, UniqueNames>  $methodNames
      */
-    private function describe(string $path, string $method, Operation $operation, array &$methodNames): OperationDescriptor
+    private function describe(string $path, string $method, Operation $operation, array $parameters, array &$methodNames): OperationDescriptor
     {
         $tag = $this->firstTag($operation);
         $controllerClass = PhpIdentifier::toClassName($tag).$this->options->controllerSuffix;
@@ -123,7 +130,7 @@ final class OperationCollector
         }
         $methodName = $methodNames[$controllerClass]->reserve($this->methodName($operation, $method, $path));
 
-        $pathParams = $this->pathParams($path, $operation);
+        $pathParams = $this->pathParams($path, $parameters);
         $imports = [];
 
         [$bodyParam, $bodyRequiresRequest] = $this->requestBody($operation, $imports);
@@ -193,11 +200,12 @@ final class OperationCollector
     }
 
     /**
+     * @param  list<Parameter>  $parameters
      * @return list<array{name: string, phpType: string}>
      */
-    private function pathParams(string $path, Operation $operation): array
+    private function pathParams(string $path, array $parameters): array
     {
-        $types = $this->pathParamTypes($operation);
+        $types = $this->pathParamTypes($parameters);
         $params = [];
         $seen = [];
 
@@ -219,14 +227,15 @@ final class OperationCollector
     /**
      * Spec parameter name => declared scalar type, for `in: path` parameters.
      *
+     * @param  list<Parameter>  $parameters
      * @return array<string, string>
      */
-    private function pathParamTypes(Operation $operation): array
+    private function pathParamTypes(array $parameters): array
     {
         $types = [];
 
-        foreach ($this->asArray($operation->parameters) as $parameter) {
-            if (! $parameter instanceof Parameter || $parameter->in !== 'path') {
+        foreach ($parameters as $parameter) {
+            if ($parameter->in !== 'path') {
                 continue;
             }
 
@@ -245,6 +254,93 @@ final class OperationCollector
         }
 
         return $types;
+    }
+
+    /**
+     * The operation-effective parameter list per OpenAPI precedence: PathItem
+     * level parameters apply to every operation under the path, and an
+     * operation-level parameter overrides a path-level one with the same
+     * (name, in) pair. `$ref`s into `components.parameters` are resolved
+     * before the merge. An unresolvable, external, or malformed entry is
+     * skipped silently, the established degrade-never-fatal behavior
+     * (surfacing these as warnings is issue #67).
+     *
+     * This is the single collection point for parameters of every `in` kind,
+     * so the upcoming query-parameter support (#63) can reuse it as-is.
+     *
+     * @param  array<string, Parameter>  $componentParameters
+     * @return list<Parameter>
+     */
+    private function mergedParameters(PathItem $pathItem, Operation $operation, array $componentParameters): array
+    {
+        $byKey = [];
+
+        // Path level first, operation level second: a later write to the same
+        // (in, name) key replaces the earlier one, which is exactly the
+        // override the OpenAPI spec mandates.
+        foreach ([$this->asArray($pathItem->parameters), $this->asArray($operation->parameters)] as $level) {
+            foreach ($level as $candidate) {
+                $parameter = $this->resolveParameter($candidate, $componentParameters);
+
+                if ($parameter === null) {
+                    continue;
+                }
+
+                $name = $parameter->name;
+                $in = $parameter->in;
+                if (! is_string($name) || $name === '' || ! is_string($in) || $in === '') {
+                    continue;
+                }
+
+                $byKey[$in.' '.$name] = $parameter;
+            }
+        }
+
+        return array_values($byKey);
+    }
+
+    /**
+     * @param  array<string, Parameter>  $componentParameters
+     */
+    private function resolveParameter(mixed $candidate, array $componentParameters): ?Parameter
+    {
+        if ($candidate instanceof Parameter) {
+            return $candidate;
+        }
+
+        if ($candidate instanceof Reference) {
+            $name = $this->componentName($candidate->getReference(), 'parameters');
+
+            return $name !== null ? ($componentParameters[$name] ?? null) : null;
+        }
+
+        return null;
+    }
+
+    /**
+     * The document's `components.parameters` map, keyed by component name.
+     * Only direct Parameter entries are kept: a ref-to-ref chain inside the
+     * components is left unresolved and degrades like any other unresolvable
+     * ref.
+     *
+     * @return array<string, Parameter>
+     */
+    private function componentParameters(OpenApi $document): array
+    {
+        $components = $document->components;
+
+        if ($components === null) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($this->asArray($components->parameters) as $name => $parameter) {
+            if (is_string($name) && $name !== '' && $parameter instanceof Parameter) {
+                $result[$name] = $parameter;
+            }
+        }
+
+        return $result;
     }
 
     /**
@@ -588,7 +684,16 @@ final class OperationCollector
 
     private function refName(string $pointer): ?string
     {
-        if (! str_starts_with($pointer, '#/components/schemas/')) {
+        return $this->componentName($pointer, 'schemas');
+    }
+
+    /**
+     * The component name a local `#/components/<section>/<Name>` pointer
+     * targets, or null for an external or differently shaped pointer.
+     */
+    private function componentName(string $pointer, string $section): ?string
+    {
+        if (! str_starts_with($pointer, '#/components/'.$section.'/')) {
             return null;
         }
 
