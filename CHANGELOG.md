@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/codewithagents/openapi-laravel/compare/v0.5.0...v0.6.0) (2026-06-11)
+
+
+### Features
+
+* **check:** add openapi:check drift command (0.6.0 headline) ([e29158e](https://github.com/codewithagents/openapi-laravel/commit/e29158e08face0273f19ae6093c6047817f9ded9))
+
+
+### Bug Fixes
+
+* **emitter:** emit plain array for an array-of-union, not DataCollectionOf(A|B::class) ([aceb9dc](https://github.com/codewithagents/openapi-laravel/commit/aceb9dc39cfc994d4b5cd74a90527dd360d1cea4))
+
 ## [0.5.0](https://github.com/codewithagents/openapi-laravel/compare/v0.4.0...v0.5.0) (2026-06-10)
 
 
