@@ -12,6 +12,16 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  * non-object document, an unknown key, or a wrong value type each fail with a
  * clear message and no file is written. Namespaces and identifiers from the
  * file flow into the same OptionValidator checks the flags go through.
+ *
+ * Output paths get a second, stricter guard (issue #54). cwd discovery means a
+ * hostile config committed to a cloned repository could silently redirect
+ * generated-file writes the moment a developer runs the binary in that
+ * directory, paths the operator never typed. So every write path sourced from
+ * the file (output.path, controllers.path, routes.path) is contained to the
+ * directory the config lives in via PathContainment: a `..` traversal, an
+ * absolute escape, or a symlinked-parent escape fails closed before anything is
+ * written. CLI flags keep full freedom by design (explicit operator input), so
+ * the containment is applied here, not in the shared request builder.
  */
 final readonly class StandaloneConfigLoader
 {
@@ -75,17 +85,23 @@ final readonly class StandaloneConfigLoader
 
         $this->rejectUnknownKeys($decoded, $path);
 
+        // The allowed root for config-sourced write paths is the directory the
+        // config file lives in: the working directory for the discovered default
+        // file, or the --config file's own directory. Every write path is
+        // contained to it before it can reach the writer (issue #54).
+        $containment = new PathContainment(dirname($path));
+
         return new StandaloneConfig(
             spec: $this->string($decoded, 'spec', $path),
-            outputPath: $this->string($decoded['output'] ?? [], 'path', $path, 'output.'),
+            outputPath: $containment->contain($this->string($decoded['output'] ?? [], 'path', $path, 'output.'), 'output.path', $path),
             namespace: $this->string($decoded['output'] ?? [], 'namespace', $path, 'output.'),
             suffix: $this->string($decoded['output'] ?? [], 'suffix', $path, 'output.'),
             prune: $this->bool($decoded['output'] ?? [], 'prune', $path, 'output.'),
             controllersEnabled: $this->bool($decoded['controllers'] ?? [], 'enabled', $path, 'controllers.'),
-            controllerPath: $this->string($decoded['controllers'] ?? [], 'path', $path, 'controllers.'),
+            controllerPath: $containment->contain($this->string($decoded['controllers'] ?? [], 'path', $path, 'controllers.'), 'controllers.path', $path),
             controllerNamespace: $this->string($decoded['controllers'] ?? [], 'namespace', $path, 'controllers.'),
             routesEnabled: $this->bool($decoded['routes'] ?? [], 'enabled', $path, 'routes.'),
-            routesPath: $this->string($decoded['routes'] ?? [], 'path', $path, 'routes.'),
+            routesPath: $containment->contain($this->string($decoded['routes'] ?? [], 'path', $path, 'routes.'), 'routes.path', $path),
             maxDepth: $this->int($decoded, 'max_depth', $path),
             maxBytes: $this->int($decoded, 'max_bytes', $path),
         );
