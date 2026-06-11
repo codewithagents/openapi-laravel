@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.7.0](https://github.com/codewithagents/openapi-laravel/compare/v0.6.0...v0.7.0) (2026-06-11)
+
+
+### Features
+
+* **emitter:** warn on non-standard per-property required key ([6cca300](https://github.com/codewithagents/openapi-laravel/commit/6cca300d93f19cf392d2376bc9658b02237ccb22)), closes [#34](https://github.com/codewithagents/openapi-laravel/issues/34)
+
+
+### Bug Fixes
+
+* **emitter:** enforce format: hostname with a real RFC1123 rule (Closes [#29](https://github.com/codewithagents/openapi-laravel/issues/29)) ([0713a2e](https://github.com/codewithagents/openapi-laravel/commit/0713a2edceb354ed863e250ffc13beae9ea77424))
+* **emitter:** enforce nested-array item rules at every depth ([6282058](https://github.com/codewithagents/openapi-laravel/commit/628205879b106810dd7253367d8f440d00a1675a))
+* **emitter:** type undiscriminated object unions as mixed to stop false-reject (Refs [#31](https://github.com/codewithagents/openapi-laravel/issues/31)) ([4c0fd4e](https://github.com/codewithagents/openapi-laravel/commit/4c0fd4e998fdf64891df9782da2b347a38298bb3))
+* **parser:** avoid int-cast warning for out-of-range numeric-string bounds ([56d2963](https://github.com/codewithagents/openapi-laravel/commit/56d2963d976ec7c3a509da2cc50d43684a7ba13e))
+* **parser:** coerce string-typed scalar constraints and nullable ([a0f767e](https://github.com/codewithagents/openapi-laravel/commit/a0f767e6190a222f6946d0e32d337a69529dba99)), closes [#32](https://github.com/codewithagents/openapi-laravel/issues/32) [#33](https://github.com/codewithagents/openapi-laravel/issues/33)
+
 ## [0.6.0](https://github.com/codewithagents/openapi-laravel/compare/v0.5.0...v0.6.0) (2026-06-11)
 
 
