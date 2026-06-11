@@ -5,7 +5,9 @@
     ".": {
       "release-type": "php",
       "package-name": "codewithagents/openapi-laravel",
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false
     }
   }
 }
