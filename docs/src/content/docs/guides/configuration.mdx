@@ -132,7 +132,7 @@ Maximum schema nesting depth the parser follows before it bails out. Defaults to
 
 ### `max_bytes`
 
-Maximum raw spec file size, in bytes, accepted before parsing. Defaults to `25_165_824` (24 MiB). The spec is untrusted input fed to a YAML parser that expands anchors and aliases before the generator sees the data, a classic alias-bomb vector the underlying parser cannot disable. This pre-parse size guard caps the blast radius and sits well above the largest real-world specs. Overridden by the `--max-bytes` flag. Raise it only for trusted inputs, and prefer OS-level resource limits when running against genuinely untrusted specs. See the [limitations page](/guides/limitations#security-specs-are-untrusted-input) for the full threat model.
+Maximum raw spec file size, in bytes, accepted before parsing. Defaults to `25_165_824` (24 MiB). The spec is untrusted input fed to a YAML parser that expands anchors and aliases before the generator sees the data, a classic alias-bomb vector the underlying parser cannot disable. This pre-parse size guard caps the blast radius and sits well above the largest real-world specs. Overridden by the `--max-bytes` flag on the standalone binary; artisan users set it here in the config file (see [which surface has which flags](#which-surface-has-which-flags-intentional-asymmetry)). Raise it only for trusted inputs, and prefer OS-level resource limits when running against genuinely untrusted specs. See the [limitations page](/guides/limitations#security-specs-are-untrusted-input) for the full threat model.
 
 ### `controllers`
 
@@ -205,6 +205,31 @@ says `enabled => true`. Passing an enable flag together with its disable flag (f
 
 The output **namespace** follows the same chain: `--namespace`, then `output.namespace` in the
 config file, then the built-in default `App\Data`.
+
+## Which surface has which flags (intentional asymmetry)
+
+The two CLI surfaces do not expose the same flag set, and that is a deliberate design, not an
+oversight ([issue #73](https://github.com/codewithagents/openapi-laravel/issues/73)).
+
+**Shared by both surfaces** (the artisan commands and the standalone binary): `--spec`,
+`--output`, `--namespace`, `--controllers` / `--no-controllers`, `--routes` / `--no-routes`,
+`--enforce-closed-objects` / `--no-enforce-closed-objects`, `--only-tags`, `--only-schemas`,
+plus `--prune` (generate only) and `--diff` (check only).
+
+**Standalone binary only:** `--config`, `--suffix`, `--max-depth`, `--max-bytes`,
+`--controller-output`, `--controller-namespace`, `--routes-output`.
+
+The rationale: the artisan command is **config-file-first**, because the publishable
+`config/openapi-laravel.php` is the Laravel-idiomatic place for settings you commit. Every
+standalone-only flag corresponds one to one to a config key an artisan user sets there instead:
+`output.suffix`, `max_depth`, `max_bytes`, `controllers.path`, `controllers.namespace`, and
+`routes.path` (and `--config` exists only to locate the JSON file the binary uses in place of the
+Laravel config). The standalone binary carries these as flags because it has no framework config
+to fall back on, only the optional `openapi-laravel.json` described below.
+
+This split is part of the frozen 1.0 surface. Giving the artisan command any of these flags later
+would be a purely **additive, non-breaking** change (a new flag whose absence preserves today's
+behavior), so nothing is lost by freezing the asymmetry now.
 
 ## Standalone binary (`openapi-laravel.json`)
 
