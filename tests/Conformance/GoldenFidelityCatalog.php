@@ -326,9 +326,10 @@ final class GoldenFidelityCatalog
                 'NullableMixedOneOf', 'NullableMixedOneOfData',
                 [
                     ['label' => 'a present scalar satisfies required mixed', 'payload' => ['value' => 'x'], 'roundTrip' => ['value' => 'x']],
-                    // KNOWN-GAP probe: the oneOf includes type:"null", so a present
-                    // null is spec-valid, but the #8 mixed fallback emits a bare
-                    // `required` rule which rejects null. Tracked as a false-reject.
+                    // The oneOf includes type:"null", so a present null is
+                    // spec-valid. The required+nullable mixed fallback now emits
+                    // `present` + `nullable` (the #8 fix), so a present null is
+                    // accepted while a missing key is still rejected.
                     ['label' => 'a present null satisfies the nullable oneOf member', 'payload' => ['value' => null]],
                 ],
                 [
@@ -519,15 +520,6 @@ final class GoldenFidelityCatalog
                 'actual' => 'accept',
                 'issue' => '#31',
                 'reason' => 'An undiscriminated object union is presence-only: any object is accepted, no variant shape is enforced. The interim fix traded variant enforcement for not false-rejecting a valid non-first variant.',
-            ],
-            [
-                'construct' => 'NullableMixedOneOf',
-                'class' => 'NullableMixedOneOfData',
-                'label' => 'a present null satisfies the nullable oneOf member',
-                'expected' => 'accept',
-                'actual' => 'reject',
-                'issue' => '#8',
-                'reason' => 'A required oneOf that includes type:"null" resolves to a bare `required` rule on a mixed property (the #8 ?mixed fallback). Laravel `required` rejects null, so a spec-valid present-null is false-rejected. Adding `nullable` would also relax the missing-key case, so the interim fallback keeps strict presence.',
             ],
             [
                 'construct' => 'OneOfDiscriminated (variant const discriminator)',

@@ -1686,7 +1686,21 @@ final class ModelGenerator
             return new ResolvedType('mixed', $this->isNullable($schema));
         }
 
+        // Pre-scan every member for the `null` type up front, not incrementally,
+        // so a union whose `type: null` member sits AFTER a messy member still
+        // resolves as nullable. Without this, an early messy-member fallback (a
+        // `type: object` member before the `null` member) returned a non-nullable
+        // `mixed`, and a required+nullable oneOf then emitted a bare `required`
+        // rule that false-rejected a spec-valid present null (issue #8).
         $nullable = $this->isNullable($schema);
+        foreach ($members as $member) {
+            if ($this->isNullTypeMember($member)) {
+                $nullable = true;
+
+                break;
+            }
+        }
+
         $declarations = [];
         $imports = [];
         $hasObjectMember = false;
@@ -1694,14 +1708,12 @@ final class ModelGenerator
         foreach ($members as $member) {
             // A `{type: null}` member contributes nullability, not a type.
             if ($this->isNullTypeMember($member)) {
-                $nullable = true;
-
                 continue;
             }
 
             if (! $this->isCleanUnionMember($member)) {
                 // Any messy member collapses the whole union to mixed. The
-                // nullability already gathered still informs the fallback so a
+                // nullability pre-scanned above still informs the fallback so a
                 // nullable union does not silently lose its null.
                 return new ResolvedType('mixed', $nullable);
             }

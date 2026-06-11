@@ -115,6 +115,34 @@ it('adds null to the union when a member is the null type', function () {
         ->and($code)->toContain("'value' => ['sometimes', 'nullable']");
 });
 
+it('keeps a required mixed-fallback union nullable when a null member follows a messy member (issue #8)', function () {
+    $files = generateUnionSchemas([
+        'Holder' => [
+            'type' => 'object',
+            'required' => ['value'],
+            'properties' => [
+                // A `type: object` member forces the mixed fallback, and the
+                // `type: null` member sits AFTER it. The null member's nullability
+                // must still reach the mixed result, so a required+nullable union
+                // emits `present` + `nullable` (accepting a present null) rather
+                // than a bare `required` that false-rejects null.
+                'value' => ['oneOf' => [
+                    ['type' => 'string'],
+                    ['type' => 'integer'],
+                    ['type' => 'object'],
+                    ['type' => 'null'],
+                ]],
+            ],
+        ],
+    ]);
+
+    $code = $files['HolderData']->code;
+
+    expect($code)->toContain('public readonly mixed $value')
+        ->and($code)->toContain("'value' => ['present', 'nullable']")
+        ->and($code)->not->toContain("'value' => ['required']");
+});
+
 it('adds null to the union when a member schema is itself nullable', function () {
     $files = generateUnionSchemas([
         'Holder' => [
