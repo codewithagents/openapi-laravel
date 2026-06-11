@@ -1,0 +1,76 @@
+openapi: 3.0.3
+info:
+  title: PathItem-level and $ref parameters
+  version: 1.0.0
+paths:
+  /users/{userId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags:
+        - user
+      operationId: getUser
+      responses:
+        '204':
+          description: No body.
+    put:
+      tags:
+        - user
+      operationId: replaceUser
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: No body.
+  /orders/{orderId}:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    get:
+      tags:
+        - order
+      operationId: getOrder
+      responses:
+        '204':
+          description: No body.
+  /reports/{reportId}:
+    get:
+      tags:
+        - report
+      operationId: getReport
+      parameters:
+        - $ref: '#/components/parameters/ReportId'
+      responses:
+        '204':
+          description: No body.
+  /legacy/{legacyId}:
+    get:
+      tags:
+        - legacy
+      operationId: getLegacy
+      parameters:
+        - $ref: '#/components/parameters/DoesNotExist'
+      responses:
+        '204':
+          description: No body.
+components:
+  parameters:
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema:
+        type: integer
+    ReportId:
+      name: reportId
+      in: path
+      required: true
+      schema:
+        type: integer
