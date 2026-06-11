@@ -363,6 +363,32 @@ bugs. The remaining open items before 1.0.0 are runtime correctness and format s
 4. **Cross-repo follow-up**: the openapi-zod-ts `Accept: application/json` gap (issue #289), surfaced
    by the e2e demo. Fix lives in the sibling repo, not here.
 
+### 1.0.0 readiness docs (issues #40, #41, #42)
+
+Three documentation pages prepared for the 1.0.0 cutover. They live under
+`docs/src/content/docs/guides/` and are wired into the docs sidebar:
+
+- **Supported OpenAPI versions** (`guides/openapi-versions.mdx`, issue #42, **finalized**): the
+  explicit version matrix. 3.0.x and 3.1.0 supported, Swagger 2.0 and non-3.x rejected; how the 3.0
+  and 3.1 spellings (nullability, exclusive bounds, boolean `items`, multi-type arrays, `const`) are
+  normalized; and the declared 3.1 boundaries (`webhooks` not generated from, tuple `prefixItems`,
+  advanced JSON Schema applicators, `additionalProperties: false`). Factual, no open decision.
+- **Versioning and upgrades** (`guides/versioning-policy.mdx`, issue #41, **DRAFT proposal**): what
+  semver means for a code generator (the tool surface vs the output surface), the proposed
+  breaking-change definition, the regenerate-on-upgrade flow, the drift-check interaction, and how
+  0.x differs from the 1.0.0 output freeze. **Open decision (Benjamin):** (a) adopt the pragmatic
+  freeze where intentional output changes are major-only but correctness patches may ship in a patch
+  with an explicit changelog call-out, vs a stricter byte-frozen promise; (b) the support-class
+  breaking-change wording depends on #40, so settle #40 first.
+- **Runtime coupling** (`guides/runtime-coupling.mdx`, issue #40, **DRAFT proposal**): generated code
+  currently imports four support classes (`HostnameRule`, `MultipleOfRule`, `Rfc3339DateTimeRule`,
+  `MapObjectTransformer`) from the generator's `Support\` namespace, so the generator is a runtime
+  dependency of every consuming app. **Open decision (Benjamin):** option A keep the runtime
+  dependency, option B inline the support classes into the consumer's namespace (**recommended**,
+  fully-owned output, no silent runtime change), or option C a tiny frozen runtime package. Must
+  settle before 1.0.0 because the import namespace is part of the frozen output format, and it
+  compounds with the discriminator cast (#38). Analysis only, nothing implemented.
+
 Lower-severity lossy cases (document or improve, not blockers): tuple `prefixItems`
 (`array<int, mixed>`), int64/bignum literal bounds, non-JSON responses (JsonResponse fallback),
 `$ref`-valued map values (typed in docblock, not auto-hydrated at runtime), mixed-object overflow

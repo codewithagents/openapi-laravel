@@ -72,8 +72,11 @@ export default defineConfig({
             { label: 'Generated output', slug: 'guides/generated-output' },
             { label: 'Server scaffold', slug: 'guides/server-scaffold' },
             { label: 'Drift check', slug: 'guides/drift-check' },
+            { label: 'Supported OpenAPI versions', slug: 'guides/openapi-versions' },
             { label: 'End-to-end demo', slug: 'guides/end-to-end-demo' },
             { label: 'Limitations', slug: 'guides/limitations' },
+            { label: 'Versioning & upgrades (draft)', slug: 'guides/versioning-policy' },
+            { label: 'Runtime coupling (draft)', slug: 'guides/runtime-coupling' },
           ],
         },
         {

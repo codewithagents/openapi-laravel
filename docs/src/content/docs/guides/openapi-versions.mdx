@@ -1,0 +1,93 @@
+---
+title: Supported OpenAPI versions
+description: The exact OpenAPI version matrix. OpenAPI 3.0.x and 3.1.0 are supported, Swagger 2.0 is rejected. What is handled per version, how 3.0 and 3.1 spellings are normalized, and the declared boundaries of 3.1 support.
+---
+
+import { Aside } from '@astrojs/starlight/components'
+
+A stability promise is only meaningful against a declared input surface. This page states exactly which OpenAPI versions the generator accepts, what it does and does not handle per version, and how the 3.0 and 3.1 spellings of the same construct are normalized to one code path.
+
+## Version matrix
+
+| Version | Status | Notes |
+| ------- | ------ | ----- |
+| OpenAPI 3.1.x | **Supported** | The primary target. Most constructs are exercised by the 3.1 conformance fixture. See the 3.1 exceptions below. |
+| OpenAPI 3.0.x | **Supported** | The 3.0-divergent spellings (`nullable: true`, boolean exclusive bounds) are handled on dedicated code paths and pinned by a 3.0 conformance fixture. |
+| OpenAPI 3.x (other patch/minor) | **Accepted** | Any `openapi:` string beginning with `3.` is accepted. The generator does not branch on the patch level beyond the 3.0-versus-3.1 spelling differences listed here. |
+| Swagger 2.0 (`swagger: "2.0"`) | **Rejected** | Has no `openapi:` version key, so it is rejected with a clear error. Convert to OpenAPI 3.x first. |
+| Any non-3.x or missing version | **Rejected** | A document without an `openapi:` string beginning with `3.`, or without an `info` object, is rejected up front rather than silently parsing into an empty result. |
+
+<Aside type="note" title="How the version gate works">
+  The parser does not run full OpenAPI schema validation (that would risk rejecting real-world corpus specs that work today). It runs a lightweight structural check: the document must carry an `openapi:` string that starts with `3.` and an `info` object. A Swagger 2.0 document fails the first check because its version key is `swagger`, not `openapi`. The error names what was found, for example `Not an OpenAPI 3.x document: missing 'openapi' version string. Swagger 2.0 and other formats are not supported.`
+</Aside>
+
+## What "supported" covers
+
+Across both 3.0.x and 3.1.0, the generator handles the common modeling surface: object schemas with `properties`, `$ref`s between component schemas, `allOf` composition (merged into a flat class), `additionalProperties` maps, `oneOf` / `anyOf` (scalar unions emit native PHP unions, object unions are presence-only), enums (native PHP backed enums), arrays and nested objects (`DataCollection`), the readOnly / writeOnly split, and scalar constraints (`minLength`, `maxLength`, `pattern`, `format`, `minimum` / `maximum`, `exclusiveMinimum` / `exclusiveMaximum`, `multipleOf`, `uniqueItems`, `enum`, `const`, `default`). The [limitations guide](/guides/limitations) documents the exact behavior and the honest residuals for each.
+
+The matrix below is only about what differs **between** the two versions, since that is where a "which version is supported" question actually bites.
+
+## 3.0 versus 3.1: how the spellings are normalized
+
+OpenAPI 3.1 realigned with JSON Schema, so several constructs have two legal spellings depending on the document version. The generator normalizes each pair to a single internal representation, so the same construct produces the same output regardless of which version spelled it.
+
+### Nullability
+
+| | OpenAPI 3.0.x | OpenAPI 3.1.0 |
+| --- | --- | --- |
+| Spelling | `type: string` plus `nullable: true` | `type: ["string", "null"]` (a type array including `"null"`) |
+| Handled | Yes | Yes |
+
+Both forms produce a nullable PHP property (`?string`, defaulting to `= null`) with `nullable` in the generated `rules()`. The 3.1 type-array form is recognized: a `["string", "null"]` resolves to a nullable scalar, not a multi-type union. A type array with two real types (for example `["string", "integer"]`) is a genuine multi-type union and is handled separately (see below).
+
+### Exclusive bounds
+
+| | OpenAPI 3.0.x | OpenAPI 3.1.0 |
+| --- | --- | --- |
+| Spelling | `minimum: N` plus `exclusiveMinimum: true` (boolean companion) | `exclusiveMinimum: N` (a numeric keyword on its own) |
+| Handled | Yes | Yes |
+
+Both emit a strict bound: `gt:N` for an exclusive minimum, `lt:N` for an exclusive maximum. Inclusive `minimum` / `maximum` emit `min:` / `max:`. The generator reads the schema's serialized data to tell an explicit `exclusiveMinimum: false` (inclusive) apart from the parser's default, so a 3.0 inclusive bound is never mistaken for an exclusive one.
+
+### Boolean `items` (3.1 only)
+
+| | OpenAPI 3.0.x | OpenAPI 3.1.0 |
+| --- | --- | --- |
+| `items: true` | not legal | rewritten to `items: {}` (an "any" schema) |
+| `items: false` | not legal | the key is dropped (closed-tuple "no extra items", which has no Laravel representation) |
+
+OpenAPI 3.1 allows a boolean `items`. The vendored parser cannot instantiate a schema from a boolean, so a [pre-parse normalizer](/guides/limitations) rewrites boolean `items` before the parser sees it: `true` becomes an empty any-schema, `false` is dropped. This is faithful to JSON Schema and avoids inventing a fake "match nothing" schema.
+
+### Multi-type arrays (3.1 only)
+
+The JSON Schema multi-type form `type: ["string", "integer"]` (two or more real types) is a 3.1 construct. It is handled as a native PHP union (`string|int`) with presence-only rules, reusing the same union machinery as `oneOf` / `anyOf`. The special case `["string", "null"]` (one real type plus `"null"`) is treated as a nullable scalar, not a union, as noted under nullability.
+
+### `const` (3.1 only)
+
+`const` (the JSON Schema single-value form) is a 3.1 construct. It is treated as a one-value enum: the property keeps its concrete type and gains a single-value `Rule::in([...])` constraint. See [const is a single-value enum](/guides/limitations#const-is-a-single-value-enum).
+
+### String-typed scalar keywords (both versions, lenient)
+
+Some generators (across both versions) emit numeric keywords or the `nullable` flag as JSON strings, for example `"minimum": "8"` or `"nullable": "true"`. The normalizer coerces the unambiguous cases (a strictly-numeric string, the literals `"true"` / `"false"`) to their proper types so the constraint is not silently dropped. Anything ambiguous is left untouched. This is a robustness affordance, not a spec requirement.
+
+## 3.1 features that are out of scope
+
+3.1 support is real, but it has declared boundaries. The following 3.1 (or JSON Schema) features are **not** generated from, by design:
+
+- **`webhooks`** (the 3.1 top-level `webhooks` object). The generator does not emit controllers, routes, or Data classes from `webhooks`. Only `paths` drives the server scaffold. A spec with `webhooks` still generates cleanly from its `components` and `paths`; the `webhooks` entries are simply not a generation source.
+- **Tuple `prefixItems`**. A positional tuple degrades to `array<int, mixed>` rather than a per-position typed structure. See the [roadmap](/roadmap) and [limitations](/guides/limitations).
+- **Advanced JSON Schema applicators** beyond `allOf` / `oneOf` / `anyOf`: `if` / `then` / `else`, `not`, `dependentSchemas`, `patternProperties`, and `unevaluatedProperties` are not translated into rules. A schema using them still generates a class from its plain `properties`; the conditional or pattern constraints are not enforced.
+- **`additionalProperties: false`** is not enforced (standard Laravel has no rule to reject unknown keys on a nested structure). See [additionalProperties: false](/guides/limitations#additionalproperties-false).
+
+These are completeness gaps, not crashes. Even a schema that leans on an unsupported feature produces code that parses and compiles; the unsupported part is simply not represented in the generated rules.
+
+## Validation mode
+
+The parser is invoked with full OpenAPI validation **off** by default. It applies the lightweight structural check above (version string plus `info` object) rather than asserting the document is fully spec-conformant. This is deliberate: many real-world specs in the wild are slightly non-conformant yet still useful, and the corpus gate proves the generator produces valid PHP for 130 of them. Strict validation can be opted into at the parser level, but the shipped commands run in lenient mode so a minor spec wart does not block generation.
+
+## Summary
+
+- **OpenAPI 3.0.x and 3.1.0 are supported.** Both are pinned by a conformance fixture and exercised by the 130-spec corpus.
+- **Swagger 2.0 and any non-3.x document are rejected** with a clear, named error.
+- **The 3.0 and 3.1 spellings** of nullability and exclusive bounds are normalized to one code path; boolean `items`, multi-type arrays, and `const` are 3.1-only constructs that are handled.
+- **`webhooks`, tuple `prefixItems`, advanced JSON Schema applicators, and `additionalProperties: false`** are the declared 3.1 boundaries: not generated from or not enforced, by design, and documented here and in [Limitations](/guides/limitations).
