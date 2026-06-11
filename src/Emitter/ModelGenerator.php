@@ -1476,7 +1476,16 @@ final class ModelGenerator
         }
 
         $itemType = $this->resolveType($items, $nameHint.'Item', $depth + 1, $variant);
-        $dataCollectionOf = $this->isDataClass($itemType) ? $itemType->declaration : null;
+
+        // A DataCollectionOf argument must be a single `Foo::class`. A union item
+        // ('GadgetAlphaData|GadgetBetaData', 'string|int') would render the
+        // invalid `#[DataCollectionOf(A|B::class)]`, which php -l silently
+        // accepts (operator precedence parses it as `A | (B::class)`) but is
+        // semantically wrong. For a union element, emit a plain typed array with
+        // an `array<int, A|B>` docblock and no collection attribute instead.
+        $dataCollectionOf = $this->isDataClass($itemType) && ! $itemType->isUnion
+            ? $itemType->declaration
+            : null;
 
         return new ResolvedType(
             'array',

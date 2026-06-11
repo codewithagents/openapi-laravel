@@ -288,6 +288,19 @@ it('emits a DataCollection for an array of $ref objects (Exerciser)', function (
         ->and($code)->toContain('public readonly ?array $refArray = null');
 });
 
+it('emits a plain typed array, never DataCollectionOf(A|B::class), for an array of a union (#24)', function () {
+    $code = conformanceCode('ExerciserData');
+
+    // A union element is a plain `array` with an `array<int, A|B>` docblock and
+    // no collection attribute. The invalid `#[DataCollectionOf(A|B::class)]`
+    // (which php -l accepts via operator precedence but is wrong at runtime)
+    // must never be emitted.
+    expect($code)->toContain('/** @var array<int, GadgetAlphaData|GadgetBetaData> */')
+        ->and($code)->toContain('public readonly ?array $unionArray = null')
+        ->and($code)->not->toContain('GadgetAlphaData|GadgetBetaData::class')
+        ->and($code)->not->toContain('DataCollectionOf(GadgetAlphaData');
+});
+
 // --- Non-object component aliases (#9): NO empty Data class -----------------
 
 it('inlines non-object alias components instead of emitting empty Data classes (#9)', function () {
