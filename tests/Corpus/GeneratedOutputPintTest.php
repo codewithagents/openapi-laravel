@@ -25,7 +25,11 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  */
 it('generates Pint-idempotent output (pint --test reports no reformats)', function (string $path) {
     $document = (new SpecParser)->parseFile($path);
-    $files = (new ModelGenerator)->generate($document);
+    $generator = new ModelGenerator;
+    $files = $generator->generate($document);
+    // The inlined runtime support classes (issue #40) are owned, drift-checked
+    // output too, so they must be born Pint-clean exactly like the Data classes.
+    $supportFiles = $generator->supportFiles();
 
     expect(count($files))->toBeGreaterThan(0, "spec generated no files: {$path}");
 
@@ -33,6 +37,9 @@ it('generates Pint-idempotent output (pint --test reports no reformats)', functi
     expect(mkdir($dir, 0700, true) || is_dir($dir))->toBeTrue("could not create temp dir {$dir}");
 
     foreach ($files as $file) {
+        file_put_contents($dir.'/'.$file->filename(), $file->code);
+    }
+    foreach ($supportFiles as $file) {
         file_put_contents($dir.'/'.$file->filename(), $file->code);
     }
 
@@ -46,7 +53,7 @@ it('generates Pint-idempotent output (pint --test reports no reformats)', functi
         $command = escapeshellarg($pint).' --test --config='.escapeshellarg($config).' '.escapeshellarg($dir).' 2>&1';
         exec($command, $output, $exitCode);
     } finally {
-        foreach ($files as $file) {
+        foreach ([...$files, ...$supportFiles] as $file) {
             @unlink($dir.'/'.$file->filename());
         }
         @rmdir($dir);

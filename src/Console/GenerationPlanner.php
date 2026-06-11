@@ -95,6 +95,19 @@ final readonly class GenerationPlanner
             );
         }
 
+        // Inline the runtime support classes the generated Data files reference
+        // into the consumer's own `<output>/Support/` directory (issue #40), so
+        // generated output is self-contained with no runtime dependency on the
+        // generator package. Only the classes this spec used are emitted, and
+        // they are owned, drift-checked output like the Data classes themselves.
+        foreach ($generator->supportFiles() as $supportFile) {
+            $files[] = new PlannedFile(
+                $target.'/Support/'.$supportFile->filename(),
+                $supportFile->code,
+                PlannedFile::CATEGORY_SUPPORT,
+            );
+        }
+
         $files = [...$files, ...$this->planServer($request, $document, $generator->registry(), $closure)];
 
         return new GenerationPlan($files, $modelFiles === [], $generator->warnings());

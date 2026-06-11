@@ -138,6 +138,17 @@ final class ModelGenerator
      */
     private array $warnings = [];
 
+    /**
+     * Runtime support classes the current generate() run actually referenced
+     * (issue #40), keyed by short name so each is recorded once. Drives the
+     * inlined Support file set: only the support classes a spec uses are emitted
+     * into the consumer's Support namespace, so the set stays minimal and
+     * deterministic. Rebuilt per generate() call.
+     *
+     * @var array<string, true>
+     */
+    private array $usedSupportClasses = [];
+
     public function __construct(
         private readonly GeneratorOptions $options = new GeneratorOptions,
     ) {
@@ -158,6 +169,7 @@ final class ModelGenerator
         $this->aliasSchemas = [];
         $this->files = [];
         $this->warnings = [];
+        $this->usedSupportClasses = [];
 
         $schemas = $this->componentSchemas($document);
         ksort($schemas);
@@ -760,20 +772,27 @@ final class ModelGenerator
     }
 
     /**
-     * Support-rule classes referenced by name inside emitted rule expressions
-     * (`new MultipleOfRule(...)`, `new Rfc3339DateTimeRule`). Keyed by the short
-     * class name the generated code uses; the value is the FQCN to import.
-     *
-     * @var array<string, string>
+     * Support-rule classes referenced by short name inside emitted rule
+     * expressions (`new MultipleOfRule(...)`, `new Rfc3339DateTimeRule`). When a
+     * rule string references one, its FQCN is resolved against the consumer's own
+     * Support namespace and the class is recorded for inlining (issue #40).
      */
-    private const RULE_CLASS_IMPORTS = [
-        'HostnameRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\HostnameRule',
-        'Iso8601DurationRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\Iso8601DurationRule',
-        'MultipleOfRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\MultipleOfRule',
-        'NoUnknownPropertiesRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\NoUnknownPropertiesRule',
-        'Rfc3339DateTimeRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\Rfc3339DateTimeRule',
-        'Rfc3339TimeRule' => 'CodeWithAgents\\OpenApiLaravel\\Support\\Rfc3339TimeRule',
+    private const RULE_CLASS_NAMES = [
+        'HostnameRule',
+        'Iso8601DurationRule',
+        'MultipleOfRule',
+        'NoUnknownPropertiesRule',
+        'Rfc3339DateTimeRule',
+        'Rfc3339TimeRule',
     ];
+
+    /**
+     * The map transformer short name. A map-typed property gets a
+     * `#[WithTransformer(MapObjectTransformer::class)]` attribute plus an import
+     * of this class, resolved (like the rule classes) against the consumer's own
+     * Support namespace so generated output owns it (issue #40).
+     */
+    private const MAP_TRANSFORMER = 'MapObjectTransformer';
 
     /**
      * The rules() key under which the opt-in closed-object rule is attached. It
@@ -782,6 +801,48 @@ final class ModelGenerator
      * practice, and even if one did, the implicit rule keyed here is harmless).
      */
     private const CLOSED_OBJECT_SENTINEL = '__openapi_laravel_no_unknown_properties';
+
+    /**
+     * The import FQCN for a runtime support class, resolved against the
+     * consumer's own Support namespace (issue #40), and recorded as used so it is
+     * inlined into the consumer's output. Generated code therefore imports its
+     * rules and transformer from `<DataNamespace>\Support`, never from the
+     * generator package, leaving the output self-contained.
+     */
+    private function supportImport(string $shortName): string
+    {
+        $this->usedSupportClasses[$shortName] = true;
+
+        return $this->options->supportNamespace().'\\'.$shortName;
+    }
+
+    /**
+     * The inlined runtime support classes for the last generate() run (issue
+     * #40), keyed and ordered by class name. Only the classes the run actually
+     * referenced are present, each rendered into the consumer's Support namespace
+     * from its canonical `src/Support/X.php` template. These are owned, drift-
+     * checked output: the planner writes them into `<output>/Support/` and the
+     * check command compares them byte-for-byte like every other generated file.
+     *
+     * Exposed as a getter (not folded into the generate() return) so the existing
+     * Data-class callers keep compiling unchanged: a caller that needs the support
+     * set opts in by calling this after generate(), mirroring warnings().
+     *
+     * @return array<string, GeneratedFile>
+     */
+    public function supportFiles(): array
+    {
+        $emitter = new SupportClassEmitter($this->options->supportNamespace());
+
+        $files = [];
+        foreach (array_keys($this->usedSupportClasses) as $shortName) {
+            $files[$shortName] = $emitter->emit($shortName);
+        }
+
+        ksort($files);
+
+        return $files;
+    }
 
     /**
      * @param  list<array{code: string, imports: list<string>}>  $params
@@ -804,13 +865,15 @@ final class ModelGenerator
 
         // A custom Rule class (`new MultipleOfRule(...)`) appears as a bare short
         // name in the rule expression; import its FQCN so the reference resolves.
+        // The FQCN points at the consumer's own Support namespace (issue #40), and
+        // the class is recorded so it is inlined into the consumer's output.
         $ruleText = '';
         foreach ($rules as $expressions) {
             $ruleText .= implode(' ', $expressions).' ';
         }
-        foreach (self::RULE_CLASS_IMPORTS as $shortName => $fqcn) {
+        foreach (self::RULE_CLASS_NAMES as $shortName) {
             if (str_contains($ruleText, 'new '.$shortName)) {
-                $imports[] = $fqcn;
+                $imports[] = $this->supportImport($shortName);
             }
         }
 
@@ -868,7 +931,7 @@ final class ModelGenerator
         // unaffected.
         if ($type->isMap) {
             $imports[] = 'Spatie\\LaravelData\\Attributes\\WithTransformer';
-            $imports[] = 'CodeWithAgents\\OpenApiLaravel\\Support\\MapObjectTransformer';
+            $imports[] = $this->supportImport(self::MAP_TRANSFORMER);
             $lines[] = '        #[WithTransformer(MapObjectTransformer::class)]';
         }
 

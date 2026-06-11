@@ -50,6 +50,42 @@ it('reports a deleted generated file as missing', function () use ($customerSpec
         ->assertExitCode(1);
 });
 
+it('drift-checks the inlined support classes like any other owned file (#40)', function () use ($tempOut) {
+    // The inlined support classes are part of the owned, drift-checked output.
+    // A spec with a date-time field drives one, so deleting it must register as
+    // drift exactly like a deleted Data class.
+    $spec = $tempOut().'.json';
+    file_put_contents($spec, json_encode([
+        'openapi' => '3.0.3',
+        'info' => ['title' => 'Support drift', 'version' => '1.0.0'],
+        'paths' => new stdClass,
+        'components' => ['schemas' => [
+            'Event' => [
+                'type' => 'object',
+                'properties' => ['at' => ['type' => 'string', 'format' => 'date-time']],
+            ],
+        ]],
+    ]));
+
+    $out = $tempOut();
+    config()->set('openapi-laravel.spec', $spec);
+    config()->set('openapi-laravel.output.path', $out);
+    config()->set('openapi-laravel.output.namespace', 'App\\Data');
+
+    $this->artisan('openapi:generate')->assertSuccessful();
+
+    // In sync right after generation (the support file is on disk and checked).
+    $this->artisan('openapi:check')->assertExitCode(0);
+
+    $support = $out.'/Support/Rfc3339DateTimeRule.php';
+    expect(is_file($support))->toBeTrue();
+    unlink($support);
+
+    $this->artisan('openapi:check')
+        ->expectsOutputToContain('[missing] '.$support)
+        ->assertExitCode(1);
+});
+
 it('detects drift when the spec gains a property but the code is not regenerated', function () use ($tempOut) {
     $out = $tempOut();
 

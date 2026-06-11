@@ -542,14 +542,13 @@ These are the layers that catch problems before they reach you.
 **Current release: `0.8.0`** on Packagist. The full feature set described above ships today:
 models, spec-derived validation, enums, controllers, and routes out of the box; the drift gate
 (`openapi:check`); the differential validation oracle; discriminated object-union validation and
-hydration; opt-in `additionalProperties: false` enforcement; and the config surfaces
-(`config/openapi-laravel.php` and the standalone `openapi-laravel.json`).
+hydration; opt-in `additionalProperties: false` enforcement; self-contained output (the support
+classes inlined into the consumer's own namespace, so generated code has no runtime dependency on
+the generator package, issue #40); and the config surfaces (`config/openapi-laravel.php` and the
+standalone `openapi-laravel.json`).
 
 Next up:
 
-- **Self-contained output** (issue #40, decided): inline the handful of support classes
-  (`MultipleOfRule`, the RFC3339 date/time rules, ...) into the consumer's own namespace, so
-  generated code has no runtime dependency on the generator package.
 - **Remaining discriminator forms** (issue #38): the inline discriminated union and the
   allOf-inheritance form still degrade to presence-only with a build warning.
 - **Subset generation** (issue #44): `--only-tags` / `--only-schemas` with dependency closure.

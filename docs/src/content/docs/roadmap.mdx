@@ -18,6 +18,7 @@ Spec in, generated `app/Data/*` out:
 - Nested objects become nested Data classes; arrays become typed collections with `#[DataCollectionOf]`. An array whose `items` are a `oneOf`/`anyOf` union emits a plain `array<int, A|B>` with a docblock instead of a broken `#[DataCollectionOf(A|B::class)]` attribute (fixed in 0.6.0, bug #24).
 - A naming layer: StudlyCaps classes, camelCase properties with `#[MapName]` when the wire name differs, collision handling, and PHP reserved-word escaping.
 - Two ways to run it: `php artisan openapi:generate` via the service provider, and a framework-free `vendor/bin/openapi-laravel` for non-Laravel CI.
+- **Self-contained output** ([issue #40](https://github.com/codewithagents/openapi-laravel/issues/40)): the support classes a spec references (`MultipleOfRule`, the RFC3339 date/time rules, the map transformer, ...) are inlined into your own `Support` namespace (the Data namespace plus a `\Support` suffix), emitted into `<output>/Support/` and drift-checked like every other file. Generated code imports them from there, so it has no runtime dependency on the generator package. See [runtime coupling](/guides/runtime-coupling).
 - Determinism: the same spec in produces byte-identical files out.
 
 ## Server scaffold: controllers and routes
@@ -164,10 +165,6 @@ generated backend, all from one spec. See the [end-to-end demo page](/guides/end
 
 ## What is next
 
-- **Self-contained generated output** ([issue #40](https://github.com/codewithagents/openapi-laravel/issues/40),
-  decided): inline the seven support classes the generated code imports (`MultipleOfRule`, the
-  RFC3339 date/time rules, ...) into the consumer's own namespace, so generated code has no runtime
-  dependency on the generator package. See [runtime coupling](/guides/runtime-coupling).
 - **Remaining discriminator forms** ([issue #38](https://github.com/codewithagents/openapi-laravel/issues/38)):
   the inline discriminated union and the allOf-inheritance form, which currently degrade to
   presence-only with a build warning.

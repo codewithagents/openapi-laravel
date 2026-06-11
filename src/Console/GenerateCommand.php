@@ -63,6 +63,19 @@ final class GenerateCommand extends Command
             $this->components->info(sprintf('Generated %d %s into %s', count($written), count($written) === 1 ? 'class' : 'classes', $request->output));
         }
 
+        // The inlined runtime support classes (issue #40) live in a `Support/`
+        // subdirectory of the Data output. Prune it too on --prune so a support
+        // class that a spec stopped using does not linger as a stale, drift-
+        // flagging file. The output path is non-null here: the planner rejects a
+        // null output before any plan is produced.
+        if ($request->output !== null && $request->output !== '') {
+            $supportDir = rtrim($request->output, '/').'/Support';
+            $written = $writer->write($plan, PlannedFile::CATEGORY_SUPPORT, $prune ? $supportDir : null);
+            if ($written !== []) {
+                $this->components->info(sprintf('Generated %d support %s into %s', count($written), count($written) === 1 ? 'class' : 'classes', $supportDir));
+            }
+        }
+
         if ($request->controllers) {
             $written = $writer->write($plan, PlannedFile::CATEGORY_CONTROLLER);
             $this->components->info(sprintf('Generated %d abstract %s into %s', count($written), count($written) === 1 ? 'controller' : 'controllers', $request->controllerPath));

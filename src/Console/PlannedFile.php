@@ -10,13 +10,16 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  * `openapi:generate` can write them and `openapi:check` can compare them against
  * what is already on disk.
  *
- * The category names which generator produced the file (Data class, abstract
- * controller, or routes file). Only generator-owned files appear here, so a
- * drift check never flags a user's hand-written concrete controllers.
+ * The category names which generator produced the file (Data class, inlined
+ * runtime support class, abstract controller, or routes file). Only
+ * generator-owned files appear here, so a drift check never flags a user's
+ * hand-written concrete controllers.
  */
 final readonly class PlannedFile
 {
     public const CATEGORY_DATA = 'data';
+
+    public const CATEGORY_SUPPORT = 'support';
 
     public const CATEGORY_CONTROLLER = 'controller';
 

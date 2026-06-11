@@ -1,38 +1,40 @@
 ---
 title: Runtime coupling of generated code
-description: Generated code currently imports seven support classes from the generator package, making it a runtime dependency. The 1.0.0 question, keep that dependency or make generation self-contained, is decided, Option B (inline into the consumer's output), with the analysis and tradeoffs that led there. Implementation is planned for 0.9.0.
+description: Generated code used to import seven support classes from the generator package, making it a runtime dependency. The 1.0.0 question, keep that dependency or make generation self-contained, is decided and shipped, Option B (inline into the consumer's output), with the analysis and tradeoffs that led there.
 ---
 
 import { Aside } from '@astrojs/starlight/components'
 
-<Aside type="note" title="Decided: Option B (inline), implementation planned for 0.9.0">
-  This decision is made ([issue #40](https://github.com/codewithagents/openapi-laravel/issues/40)): **Option B is adopted.** The generator will inline the support classes into the consumer's own namespace (for example `App\Data\Support\...`) so generated output is fully self-contained, with no runtime dependency on the generator. The analysis and options below are kept as the rationale for that choice. **This is decided but not yet implemented:** inlining is planned as the headline of the next release (0.9.0). Until it ships, the support classes still live in the generator package, exactly as the "current state" section describes.
+<Aside type="tip" title="Implemented: Option B (inline) shipped">
+  This is done ([issue #40](https://github.com/codewithagents/openapi-laravel/issues/40)): **Option B is implemented.** The generator inlines the support classes into the consumer's own namespace (the Data namespace plus a `\Support` suffix, for example `App\Data\Support\...`), so generated output is fully self-contained with **no runtime dependency on the generator**. The classes are emitted into `<output>/Support/`, owned and drift-checked like every other generated file, and only the support classes a given spec actually references are emitted. The analysis and options below are kept as the rationale for that choice.
 </Aside>
 
-## Current state: generated code depends on the generator at runtime
+## What the generated code does now: self-contained, no generator at runtime
 
-The generated Data classes do not just stand alone in your repo. Some of them **import support classes from the generator's own namespace**:
+The generated Data classes stand alone in your repo. When a class needs a rule or transformer Laravel does not ship, the generator **inlines that support class into your own `Support` namespace** alongside the Data classes:
 
-- `CodeWithAgents\OpenApiLaravel\Support\HostnameRule` (a `format: hostname` property)
-- `CodeWithAgents\OpenApiLaravel\Support\MultipleOfRule` (a `multipleOf` property)
-- `CodeWithAgents\OpenApiLaravel\Support\Rfc3339DateTimeRule` (a `format: date-time` property)
-- `CodeWithAgents\OpenApiLaravel\Support\Rfc3339TimeRule` (a `format: time` property)
-- `CodeWithAgents\OpenApiLaravel\Support\Iso8601DurationRule` (a `format: duration` property)
-- `CodeWithAgents\OpenApiLaravel\Support\MapObjectTransformer` (every `additionalProperties` map property, via `#[WithTransformer(...)]`)
-- `CodeWithAgents\OpenApiLaravel\Support\NoUnknownPropertiesRule` (the opt-in `additionalProperties: false` enforcement)
+- `App\Data\Support\HostnameRule` (a `format: hostname` property)
+- `App\Data\Support\MultipleOfRule` (a `multipleOf` property)
+- `App\Data\Support\Rfc3339DateTimeRule` (a `format: date-time` property)
+- `App\Data\Support\Rfc3339TimeRule` (a `format: time` property)
+- `App\Data\Support\Iso8601DurationRule` (a `format: duration` property)
+- `App\Data\Support\MapObjectTransformer` (every `additionalProperties` map property, via `#[WithTransformer(...)]`)
+- `App\Data\Support\NoUnknownPropertiesRule` (the opt-in `additionalProperties: false` enforcement)
 
-These imports are part of the **committed generated output** (they are pinned by the conformance golden test), not an accident. They exist because Laravel has no native rule for `multipleOf`, no strict RFC3339 `date-time`/`time` rule, no ISO 8601 `duration` rule, no hostname rule, no way to reject undeclared properties on a closed object, and no way to force an empty map to serialize as `{}` rather than `[]`. The generator supplies those seven small classes and the generated code references them.
+(The `App\Data` prefix mirrors whatever Data namespace you configured: the support namespace is always the Data namespace plus a `\Support` suffix.)
 
-The consequence is the headline this decision resolves: **today `codewithagents/openapi-laravel` is a runtime dependency of every consuming application, not just a dev-time tool.** If you generate a class that uses `multipleOf` or a date-time format, your production app loads `MultipleOfRule` from the generator package at request time. Option B (adopted, landing in 0.9.0) removes exactly this coupling.
+These classes are part of the **committed generated output** (they are pinned by the conformance golden test), emitted into `<output>/Support/` and drift-checked byte-for-byte like every Data class. Only the support classes a spec actually references are emitted: a spec with no `multipleOf` carries no `MultipleOfRule`, and `NoUnknownPropertiesRule` appears only under `--enforce-closed-objects`. They exist because Laravel has no native rule for `multipleOf`, no strict RFC3339 `date-time`/`time` rule, no ISO 8601 `duration` rule, no hostname rule, no way to reject undeclared properties on a closed object, and no way to force an empty map to serialize as `{}` rather than `[]`. The generator supplies those small classes and inlines the referenced ones into your code.
 
-### Why that sits in tension with the philosophy
+The result is the headline this decision delivers: **`codewithagents/openapi-laravel` is no longer a runtime dependency of consuming applications, it is a pure dev-time tool.** A class that uses `multipleOf` or a date-time format loads `MultipleOfRule` from *your own* `App\Data\Support` namespace, not from the generator package. The historical coupling described below is the problem this shipped change removed.
 
-The project's stated philosophy is [you own the output](/philosophy): readable PHP in your repo that keeps working even if you stop using the generator. The runtime coupling dents that in two ways:
+### Why the old coupling sat in tension with the philosophy
 
-- **It is not fully owned.** Seven classes that your generated `rules()` depend on live in `vendor/`, outside the code you committed and review in diffs.
-- **A `composer update` can change runtime behavior under committed code.** Because the support classes are versioned with the generator, upgrading the generator can change how your already-generated, already-committed classes validate and serialize, without you regenerating anything. That is the exact silent-change surface the [versioning policy](/guides/versioning-policy) pins down.
+The project's stated philosophy is [you own the output](/philosophy): readable PHP in your repo that keeps working even if you stop using the generator. The runtime coupling (now removed) dented that in two ways:
 
-`spatie/laravel-data` itself is a genuine runtime dependency under **every** option below, that is unavoidable and expected, the generated classes *are* laravel-data classes. The decision below concerned only the seven `openapi-laravel`-owned support classes.
+- **It was not fully owned.** Seven classes that your generated `rules()` depended on lived in `vendor/`, outside the code you committed and review in diffs.
+- **A `composer update` could change runtime behavior under committed code.** Because the support classes were versioned with the generator, upgrading the generator could change how your already-generated, already-committed classes validate and serialize, without you regenerating anything. That was the exact silent-change surface the [versioning policy](/guides/versioning-policy) pins down. Inlining closes it: a rule changes only when you regenerate and review the diff.
+
+`spatie/laravel-data` itself is a genuine runtime dependency under **every** option below, that is unavoidable and expected, the generated classes *are* laravel-data classes. The decision below concerned only the seven `openapi-laravel`-owned support classes, which now live in your own `Support` namespace.
 
 ## The 1.0.0 question
 
@@ -55,9 +57,9 @@ Generated code keeps importing the support classes from the generator package. `
 - **Silent runtime-behavior changes on upgrade**, as above. This is the strongest argument against A.
 - **The generator is a heavier dependency than it needs to be.** Consumers pull the whole generator (parser, emitter, cebe, symfony/yaml) into production just to get seven small runtime classes.
 
-## Option B: inline the support classes into the consumer's output (adopted)
+## Option B: inline the support classes into the consumer's output (adopted and shipped)
 
-The generator emits the seven support classes into the consumer's own namespace alongside the Data classes (for example `App\Data\Support\MultipleOfRule`), and the generated code imports from there. They are owned, committed, and drift-checked like everything else. **This is the adopted choice; implementation lands in 0.9.0.**
+The generator emits the referenced support classes into the consumer's own namespace alongside the Data classes (for example `App\Data\Support\MultipleOfRule`), and the generated code imports from there. They are owned, committed, and drift-checked like everything else. **This is the adopted choice, and it has shipped.**
 
 **Pros**
 
@@ -107,10 +109,10 @@ Option C was the reasonable fallback if duplication had been judged unacceptable
 
 ## Decision
 
-<Aside type="note" title="Decision made: Option B adopted (implementation in 0.9.0)">
-  **Option B is adopted.** The generator will inline the seven support classes into the consumer's own namespace (for example `App\Data\Support\...`), making generated output fully self-contained with no runtime dependency on the generator.
+<Aside type="tip" title="Decision made and shipped: Option B (inline)">
+  **Option B is implemented.** The generator inlines the referenced support classes into the consumer's own namespace (the Data namespace plus a `\Support` suffix, for example `App\Data\Support\...`), making generated output fully self-contained with no runtime dependency on the generator.
 
-  - **Status:** decided, not yet implemented. Inlining is planned as the headline of the next release (0.9.0); until then the classes still ship from the generator package.
+  - **Status:** done. The support classes are emitted into `<output>/Support/`, imported by the generated Data classes from there, and drift-checked byte-for-byte by `openapi:check`. Only the classes a spec references are emitted.
   - **No growing set from [#38](https://github.com/codewithagents/openapi-laravel/issues/38):** the discriminator-aware cast shipped on spatie's native `PropertyMorphableData`, adding zero support classes. The inlined set is the seven listed above (including the opt-in `NoUnknownPropertiesRule`).
-  - **It resolves [#41 (versioning policy)](/guides/versioning-policy):** once inlined (0.9.0), the support classes fall under the **output** surface and are governed by the same major-bump rule as the rest of the generated code. Until then they remain part of the tool surface.
+  - **It resolves [#41 (versioning policy)](/guides/versioning-policy):** now that they are inlined, the support classes fall under the **output** surface and are governed by the same major-bump rule as the rest of the generated code.
 </Aside>

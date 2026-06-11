@@ -18,6 +18,50 @@ it('generates classes from the configured spec', function () use ($customerSpec,
         ->and(is_file($out.'/CustomerAddressData.php'))->toBeTrue();
 });
 
+it('inlines the referenced support classes into <output>/Support and imports them from there (#40)', function () use ($tempOut) {
+    // A spec with a date-time field drives exactly one support class. The
+    // generator must inline it into the consumer's own Support namespace so the
+    // output has no runtime dependency on the generator package.
+    $spec = $tempOut().'.json';
+    file_put_contents($spec, json_encode([
+        'openapi' => '3.0.3',
+        'info' => ['title' => 'Support inline', 'version' => '1.0.0'],
+        'paths' => new stdClass,
+        'components' => ['schemas' => [
+            'Event' => [
+                'type' => 'object',
+                'properties' => ['at' => ['type' => 'string', 'format' => 'date-time']],
+            ],
+        ]],
+    ]));
+
+    $out = $tempOut();
+    config()->set('openapi-laravel.output.namespace', 'App\\Data');
+
+    $this->artisan('openapi:generate', ['--spec' => $spec, '--output' => $out])->assertSuccessful();
+
+    $support = $out.'/Support/Rfc3339DateTimeRule.php';
+    expect(is_file($support))->toBeTrue('expected the inlined support class on disk')
+        // It lives in the consumer's own Support namespace, self-contained.
+        ->and(file_get_contents($support))->toContain('namespace App\Data\Support;')
+        ->and(file_get_contents($support))->not->toContain('CodeWithAgents\OpenApiLaravel\Support')
+        // and the Data class imports it from there, not from the generator.
+        ->and(file_get_contents($out.'/EventData.php'))->toContain('use App\Data\Support\Rfc3339DateTimeRule;')
+        ->and(file_get_contents($out.'/EventData.php'))->not->toContain('CodeWithAgents\OpenApiLaravel\Support');
+});
+
+it('writes no Support directory for a spec that references no support class (#40)', function () use ($customerSpec, $tempOut) {
+    $out = $tempOut();
+    config()->set('openapi-laravel.spec', $customerSpec());
+    config()->set('openapi-laravel.output.path', $out);
+
+    $this->artisan('openapi:generate')->assertSuccessful();
+
+    // The customer fixture uses no rule/transformer support class, so only the
+    // referenced classes are emitted: no empty Support directory is created.
+    expect(is_dir($out.'/Support'))->toBeFalse();
+});
+
 it('honours the --spec and --output options', function () use ($customerSpec, $tempOut) {
     $out = $tempOut();
 

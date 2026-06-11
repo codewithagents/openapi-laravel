@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
+use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
@@ -82,13 +83,38 @@ function conformanceCode(string $class): string
     return $files[$class]->code;
 }
 
+/**
+ * The inlined runtime support classes (issue #40) for the 3.1 fixture, memoized.
+ * The fixture exercises date-time, duration, hostname, multipleOf, and map
+ * transformer constructs, so it drives the full inlined support set.
+ *
+ * @return array<string, GeneratedFile>
+ */
+function conformanceSupport(): array
+{
+    static $support = null;
+    if ($support === null) {
+        $document = (new SpecParser)->parseFile(CONFORMANCE_31);
+        $generator = new ModelGenerator;
+        $generator->generate($document);
+        $support = $generator->supportFiles();
+    }
+
+    return $support;
+}
+
 // ===========================================================================
 // LAYER 1: COMPILE GATE (full surface, no cap, no exemptions)
 // ===========================================================================
 
 it('compiles every generated file with php -l, both conformance documents', function (string $path) {
     $document = (new SpecParser)->parseFile($path);
-    $files = (new ModelGenerator)->generate($document);
+    $generator = new ModelGenerator;
+    $files = $generator->generate($document);
+    // The inlined runtime support classes (issue #40) are owned output too, so
+    // lint them alongside the Data classes: they must compile as real PHP in the
+    // consumer namespace.
+    $files = [...$files, ...$generator->supportFiles()];
 
     // The conformance fixtures are the comprehensive construct surface: lint
     // EVERY emitted file, uncapped. phpLintFailures runs the real `php -l`
@@ -138,11 +164,63 @@ it('emits date_format:Y-m-d for date and the Rfc3339 rule for date-time (StringF
 
     expect($code)->toContain("'aDate' => ['sometimes', 'string', 'date_format:Y-m-d'],")
         ->and($code)->toContain("'aDateTime' => ['sometimes', 'string', new Rfc3339DateTimeRule],")
-        ->and($code)->toContain('use CodeWithAgents\OpenApiLaravel\Support\Rfc3339DateTimeRule;')
+        // The rule is imported from the consumer's own Support namespace (issue
+        // #40), never from the generator package, so the output is self-contained.
+        ->and($code)->toContain('use App\Data\Support\Rfc3339DateTimeRule;')
         // A documented no-op format (password / custom) stays a plain string
         // with no extra rule, never a fatal or an invented rule.
         ->and($code)->toContain("'aPassword' => ['sometimes', 'string'],")
         ->and($code)->toContain("'aCustomFormat' => ['sometimes', 'string'],");
+});
+
+// --- Inlined runtime support classes (#40) ---------------------------------
+
+it('inlines only the referenced support classes into the consumer Support namespace, self-contained (#40)', function () {
+    $support = conformanceSupport();
+
+    // Only the support classes the fixture actually references are emitted, and
+    // the set is deterministic and sorted. The fixture exercises hostname,
+    // duration, multipleOf, date-time, and time formats; it does not exercise
+    // the opt-in closed-object rule (that needs --enforce-closed-objects), so
+    // NoUnknownPropertiesRule is correctly absent here.
+    expect(array_keys($support))->toBe([
+        'HostnameRule',
+        'Iso8601DurationRule',
+        'MapObjectTransformer',
+        'MultipleOfRule',
+        'Rfc3339DateTimeRule',
+        'Rfc3339TimeRule',
+    ]);
+
+    foreach ($support as $shortName => $file) {
+        expect($file->code)
+            // Each inlined copy lives in the consumer's own Support namespace.
+            ->toContain('namespace App\Data\Support;')
+            // and carries NO reference to the generator's own Support namespace,
+            // so generated output is fully self-contained (zero runtime coupling).
+            ->not->toContain('CodeWithAgents\OpenApiLaravel\Support')
+            ->and($file->code)->toContain('class '.$shortName);
+    }
+});
+
+it('inlines NoUnknownPropertiesRule only under --enforce-closed-objects (#40, #30)', function () {
+    $document = (new SpecParser)->parseFile(CONFORMANCE_31);
+
+    // Without the flag the closed-object rule is never referenced, so it is not
+    // inlined: the support set is the same six classes the default run emits.
+    $lenient = new ModelGenerator;
+    $lenient->generate($document);
+    expect(array_keys($lenient->supportFiles()))->not->toContain('NoUnknownPropertiesRule');
+
+    // With the flag set, any spec that declares a closed object pulls the rule
+    // into the inlined set. The conformance fixture exercises closed objects, so
+    // the rule appears and is itself self-contained.
+    $strict = new ModelGenerator(new GeneratorOptions(enforceClosedObjects: true));
+    $strict->generate($document);
+    $strictSupport = $strict->supportFiles();
+    expect(array_keys($strictSupport))->toContain('NoUnknownPropertiesRule')
+        ->and($strictSupport['NoUnknownPropertiesRule']->code)->toContain('namespace App\Data\Support;')
+        ->and($strictSupport['NoUnknownPropertiesRule']->code)->not->toContain('CodeWithAgents\OpenApiLaravel\Support');
 });
 
 // --- Numeric constraints: exclusive bounds + multipleOf (#10, #14) ---------
@@ -156,7 +234,7 @@ it('emits gt/lt (not min/max) for 3.1 numeric exclusive bounds and a MultipleOfR
         ->and($code)->not->toContain("'gt:0', 'min:0'")
         // multipleOf becomes the MultipleOfRule, imported.
         ->and($code)->toContain('new MultipleOfRule(5)')
-        ->and($code)->toContain('use CodeWithAgents\OpenApiLaravel\Support\MultipleOfRule;');
+        ->and($code)->toContain('use App\Data\Support\MultipleOfRule;');
 });
 
 it('emits gt/lt for the 3.0 boolean exclusive-bounds form (BooleanExclusiveBounds)', function () {
@@ -266,7 +344,9 @@ it('represents additionalProperties maps as typed array<string, T> with wildcard
         // every map carries the {} transformer so an empty map serializes as {} not [].
         ->and($code)->toContain('#[WithTransformer(MapObjectTransformer::class)]')
         ->and($code)->toContain('use Spatie\LaravelData\Attributes\WithTransformer;')
-        ->and($code)->toContain('use CodeWithAgents\OpenApiLaravel\Support\MapObjectTransformer;');
+        // The transformer is imported from the consumer's own Support namespace
+        // (issue #40), not the generator package.
+        ->and($code)->toContain('use App\Data\Support\MapObjectTransformer;');
 });
 
 // --- Arrays: scalar items + uniqueItems, array of $ref, scalar alias (#14, #9) -

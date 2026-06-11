@@ -39,6 +39,7 @@ function regenerateDemo(): array
 
     return [
         'data' => $dataFiles,
+        'support' => $modelGenerator->supportFiles(),
         'controllers' => $controllerFiles,
         'routes' => $routeFile,
     ];
@@ -50,6 +51,25 @@ it('regenerates Data classes byte-identical to the committed demo', function () 
 
         expect(is_file($committed))->toBeTrue("Missing committed file: {$file->filename()}")
             ->and(file_get_contents($committed))->toBe($file->code);
+    }
+});
+
+it('regenerates the inlined support classes byte-identical to the committed demo (#40)', function () {
+    $support = regenerateDemo()['support'];
+
+    // The demo's date-time field drives exactly one inlined support class. It is
+    // owned, committed output, living in the consumer's own Support namespace.
+    expect(array_keys($support))->toBe(['Rfc3339DateTimeRule']);
+
+    foreach ($support as $file) {
+        $committed = DEMO_DIR.'/Data/Support/'.$file->filename();
+
+        expect(is_file($committed))->toBeTrue("Missing committed support file: {$file->filename()}")
+            ->and(file_get_contents($committed))->toBe($file->code)
+            // The inlined copy lives in the consumer's namespace and carries no
+            // import of the generator's own Support namespace: fully self-contained.
+            ->and($file->code)->toContain('namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Support;')
+            ->and($file->code)->not->toContain('CodeWithAgents\OpenApiLaravel\Support');
     }
 });
 

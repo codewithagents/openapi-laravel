@@ -38,14 +38,19 @@ function loadMapHolder(): string
     $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
     expect($spec)->toBeInstanceOf(OpenApi::class);
 
-    $files = (new ModelGenerator)->generate($spec);
+    $generator = new ModelGenerator;
+    $files = $generator->generate($spec);
+    // The map property uses MapObjectTransformer, imported from the consumer's
+    // own Support namespace (issue #40), so the inlined support class must be
+    // written and loaded too or the transformer reference would be undefined.
+    $supportFiles = $generator->supportFiles();
 
     $dir = sys_get_temp_dir().'/oal_mapser_'.getmypid();
     if (! is_dir($dir)) {
         mkdir($dir, 0777, true);
     }
 
-    foreach ($files as $file) {
+    foreach ([...array_values($files), ...array_values($supportFiles)] as $file) {
         $path = $dir.'/'.$file->filename();
         file_put_contents($path, $file->code);
         require_once $path;

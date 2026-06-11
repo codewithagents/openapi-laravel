@@ -65,11 +65,17 @@ function differentialGenerate(string $namespace, array $schemas): void
     $normalized = SchemaNormalizer::normalize($decoded);
 
     $spec = Reader::readFromJson((string) json_encode($normalized), OpenApi::class);
-    $files = (new ModelGenerator(new GeneratorOptions($namespace)))->generate($spec);
+    $generator = new ModelGenerator(new GeneratorOptions($namespace));
+    $files = $generator->generate($spec);
+    // The generated rules() reference rule/transformer classes from the consumer's
+    // own Support namespace (issue #40), so the inlined support classes must be
+    // loaded too or the validate() calls would hit undefined classes.
+    $supportFiles = $generator->supportFiles();
 
     // A discriminated-union variant `extends <Base>Data`, so the abstract base
     // must be declared before the variant is required. Load abstract bases first;
-    // the rest keep their (deterministic) order.
+    // the rest keep their (deterministic) order. The inlined support classes have
+    // no inter-dependencies, so they can be loaded up front.
     $ordered = [];
     $rest = [];
     foreach ($files as $name => $file) {
@@ -81,7 +87,7 @@ function differentialGenerate(string $namespace, array $schemas): void
     }
     $ordered += $rest;
 
-    foreach ($ordered as $file) {
+    foreach ([...array_values($supportFiles), ...array_values($ordered)] as $file) {
         $path = $dir.'/'.str_replace('\\', '_', $namespace).'_'.$file->filename();
         file_put_contents($path, $file->code);
         require_once $path;

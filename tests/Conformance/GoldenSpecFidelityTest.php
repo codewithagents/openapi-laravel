@@ -62,10 +62,16 @@ function goldenFidelityBoot(): void
 
     foreach ([GOLDEN_FIDELITY_31, GOLDEN_FIDELITY_30] as $path) {
         $document = (new SpecParser)->parseFile($path);
-        $files = (new ModelGenerator(new GeneratorOptions(GOLDEN_FIDELITY_NS)))->generate($document);
+        $generator = new ModelGenerator(new GeneratorOptions(GOLDEN_FIDELITY_NS));
+        $files = $generator->generate($document);
+        // The generated rules() reference rule/transformer classes from the
+        // consumer's own Support namespace (issue #40), so the inlined support
+        // classes must be loaded too or validate() would hit undefined classes.
+        $supportFiles = $generator->supportFiles();
 
         // Load abstract bases first: a variant `extends <Base>Data`, so the base
-        // must be declared before the variant is required.
+        // must be declared before the variant is required. The inlined support
+        // classes have no inter-dependencies, so load them up front.
         $ordered = [];
         $rest = [];
         foreach ($files as $name => $file) {
@@ -77,7 +83,7 @@ function goldenFidelityBoot(): void
         }
         $ordered += $rest;
 
-        foreach ($ordered as $file) {
+        foreach ([...array_values($supportFiles), ...array_values($ordered)] as $file) {
             $target = $dir.'/'.$file->filename();
             file_put_contents($target, $file->code);
             require_once $target;

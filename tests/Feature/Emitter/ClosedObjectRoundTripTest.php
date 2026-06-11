@@ -50,13 +50,23 @@ function bootClosedObjectClasses(): void
     $base = sys_get_temp_dir().'/oal_closed_'.getmypid();
 
     // Strict variant: enforcement on, into App\ClosedStrict.
-    $strict = (new ModelGenerator(new GeneratorOptions('App\\ClosedStrict', 'Data', 64, true)))->generate($spec);
+    $strictGen = new ModelGenerator(new GeneratorOptions('App\\ClosedStrict', 'Data', 64, true));
+    $strict = $strictGen->generate($spec);
     // Lenient variant (default behavior): enforcement off, into App\ClosedLenient.
-    $lenient = (new ModelGenerator(new GeneratorOptions('App\\ClosedLenient', 'Data', 64, false)))->generate($spec);
+    $lenientGen = new ModelGenerator(new GeneratorOptions('App\\ClosedLenient', 'Data', 64, false));
+    $lenient = $lenientGen->generate($spec);
+
+    // The strict variant references NoUnknownPropertiesRule from its own Support
+    // namespace (issue #40), so the inlined support classes must be written and
+    // loaded too or the rule reference would be undefined at runtime.
+    $variants = [
+        'strict' => [...array_values($strict), ...array_values($strictGen->supportFiles())],
+        'lenient' => [...array_values($lenient), ...array_values($lenientGen->supportFiles())],
+    ];
 
     // Both variants emit AccountData.php, so write each into its own directory to
     // avoid the second require_once shadowing the first on a shared filename.
-    foreach (['strict' => $strict, 'lenient' => $lenient] as $label => $files) {
+    foreach ($variants as $label => $files) {
         $dir = $base.'/'.$label;
         if (! is_dir($dir)) {
             mkdir($dir, 0777, true);

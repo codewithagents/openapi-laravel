@@ -56,10 +56,9 @@ Deptrac architecture enforcement, and a Qodana workflow. 1021 tests green; all 1
 
 **Honest residuals (documented, not hidden):** an undiscriminated object union does not
 auto-hydrate (typed `mixed`, presence-only, #31), and the inline-union and allOf-inheritance
-discriminator forms are presence-only with a build warning (#38); generated code imports seven
-support classes from the generator package until the inlining decided in #40 lands; a component
-`$ref` request body falls back to `Illuminate\Http\Request` instead of a typed Data param; tuple
-`prefixItems`, int64 bounds, and non-JSON responses degrade gracefully.
+discriminator forms are presence-only with a build warning (#38); a component `$ref` request body
+falls back to `Illuminate\Http\Request` instead of a typed Data param; tuple `prefixItems`, int64
+bounds, and non-JSON responses degrade gracefully.
 
 **Cross-language e2e demo (`e2e/`, owned by another agent, do not edit):** one petstore-plus spec
 drives a generated Laravel backend and an openapi-zod-ts TypeScript client + SPA, with a Playwright
@@ -71,7 +70,7 @@ headless-Chrome suite over real HTTP against a docker-compose stack. The full lo
 src/Parser/    wraps devizzent/cebe-php-openapi, normalization, depth bounds
 src/Naming/    spec names -> PHP identifiers (StudlyCaps, collisions, reserved words)
 src/Emitter/   Data classes, enums, rules(), controllers, routes emission
-src/Support/   runtime support classes the generated code imports (rules, transformer)
+src/Support/   canonical runtime support classes (rules, transformer); inlined into the consumer's own \Support namespace per spec (#40), not imported from the package at runtime
 src/Console/   artisan commands (generate, check) + standalone bin entry + config loading
 tests/Fixtures/specs/   130 real-world OpenAPI specs (shared corpus with openapi-zod-ts)
 ```

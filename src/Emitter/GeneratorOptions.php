@@ -38,4 +38,17 @@ final readonly class GeneratorOptions
          */
         public ?array $keepSchemas = null,
     ) {}
+
+    /**
+     * The namespace the inlined runtime support classes are emitted into (issue
+     * #40). It mirrors the Data namespace with a `\Support` suffix (Data at
+     * `App\Data` -> support at `App\Data\Support`), so generated code imports its
+     * rules and transformer from the consumer's own namespace and carries no
+     * runtime dependency on the generator package. Derived, never configured
+     * separately, so it always tracks the Data namespace.
+     */
+    public function supportNamespace(): string
+    {
+        return $this->namespace.'\\Support';
+    }
 }

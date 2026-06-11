@@ -55,7 +55,7 @@ it('aliases a scalar component to its scalar type with the format rule, no empty
     // The property is typed string and carries the date-time rule.
     expect($code)->toContain('public readonly ?string $at = null')
         ->and($code)->toContain('new Rfc3339DateTimeRule')
-        ->and($code)->toContain('use CodeWithAgents\OpenApiLaravel\Support\Rfc3339DateTimeRule;')
+        ->and($code)->toContain('use App\Data\Support\Rfc3339DateTimeRule;')
         ->and($code)->not->toContain('TimeData');
 });
 

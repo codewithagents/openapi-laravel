@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data;
 
-use CodeWithAgents\OpenApiLaravel\Support\Rfc3339DateTimeRule;
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Support\Rfc3339DateTimeRule;
 use Illuminate\Validation\Rule;
 use Spatie\LaravelData\Data;
 

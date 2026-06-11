@@ -47,7 +47,7 @@ it('represents a scalar value map as array<string, int> with a wildcard value ru
         // A map carries the transformer so an empty map serializes as {} not [].
         ->and($code)->toContain('#[WithTransformer(MapObjectTransformer::class)]')
         ->and($code)->toContain('use Spatie\LaravelData\Attributes\WithTransformer;')
-        ->and($code)->toContain('use CodeWithAgents\OpenApiLaravel\Support\MapObjectTransformer;');
+        ->and($code)->toContain('use App\Data\Support\MapObjectTransformer;');
 });
 
 it('carries the value-schema constraint into the wildcard rule', function () {

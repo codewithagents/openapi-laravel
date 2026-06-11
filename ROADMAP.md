@@ -384,12 +384,12 @@ later, not a near-term commitment.
 
 With 0.8.0 the enforcement and correctness layers are in place: the full output ships by default,
 drift is a CI gate, the differential oracle guards every emitted constraint, and the large
-real-world corpus sweep has found no generator bugs. The remaining open items before 1.0.0 are
-runtime self-containment and format stability.
+real-world corpus sweep has found no generator bugs. Runtime self-containment has since shipped
+(#40), so the remaining open item before 1.0.0 is format stability.
 
-1. **Inline the support classes into the consumer's output** (issue #40, decided, the planned
-   headline of the next release): emit the seven support classes into the consumer's own namespace
-   so generated code has no runtime dependency on the generator package.
+1. **Inline the support classes into the consumer's output** (issue #40): **shipped.** The generator
+   emits the support classes a spec references into the consumer's own namespace (the Data namespace
+   plus a `\Support` suffix), so generated code has no runtime dependency on the generator package.
 2. **Remaining discriminator forms** (issue #38): the named-component `oneOf`/`anyOf` +
    `discriminator` form **landed in 0.8.0** (see "Done in 0.8.0" above). Remaining follow-up: the
    **inline** discriminated union (discriminator written directly under a property, not a named
@@ -426,15 +426,16 @@ Three documentation pages prepared for the 1.0.0 cutover. They live under
   validation changes are major-only, correctness patches (non-compiling output, a dropped or wrong
   constraint) may ship in a patch with an explicit changelog call-out. The support-class wording
   follows #40 below (output surface once inlined, tool surface until then).
-- **Runtime coupling** (`guides/runtime-coupling.mdx`, issue #40, **decided**): generated code
-  currently imports seven support classes (`HostnameRule`, `MultipleOfRule`, `Rfc3339DateTimeRule`,
+- **Runtime coupling** (`guides/runtime-coupling.mdx`, issue #40, **shipped**): generated code used
+  to import seven support classes (`HostnameRule`, `MultipleOfRule`, `Rfc3339DateTimeRule`,
   `Rfc3339TimeRule`, `Iso8601DurationRule`, `MapObjectTransformer`, and the opt-in
-  `NoUnknownPropertiesRule`) from the generator's `Support\` namespace, so the generator is a runtime
-  dependency of every consuming app. **Decision:** Option B is adopted, inline the support classes
-  into the consumer's namespace (e.g. `App\Data\Support\...`) for fully-owned output with no runtime
-  dependency on the generator. Decided but not yet implemented: planned as the headline of 0.9.0. The
-  discriminator cast (#38) shipped on spatie's native `PropertyMorphableData` and added no support
-  class, so the inlined set is the current seven.
+  `NoUnknownPropertiesRule`) from the generator's `Support\` namespace, making the generator a runtime
+  dependency of every consuming app. **Resolved:** Option B is implemented. The generator inlines the
+  support classes a spec references into the consumer's own namespace (the Data namespace plus a
+  `\Support` suffix, e.g. `App\Data\Support\...`), emitted into `<output>/Support/` and drift-checked
+  byte-for-byte like every other generated file. Only the referenced classes are emitted
+  (deterministic; `NoUnknownPropertiesRule` only under `--enforce-closed-objects`). Generated output
+  is now fully self-contained with no runtime dependency on the generator. See the done section below.
 
 Lower-severity lossy cases (document or improve, not blockers): tuple `prefixItems`
 (`array<int, mixed>`), int64/bignum literal bounds, non-JSON responses (JsonResponse fallback),
@@ -487,17 +488,10 @@ suites are refactored; all gates green).
 
 ## Open questions (genuine design decisions)
 
-- **Runtime coupling of generated code** (issue #40): **decided, Option B (inline).** The generator
-  will emit the support classes into the consumer's own namespace (e.g. `App\Data\Support\...`) so
-  generated output is self-contained with no runtime dependency on the generator. Decided but not yet
-  implemented: planned as the headline of the next release (0.9.0). The discriminator cast (#38)
-  shipped on spatie's native `PropertyMorphableData` and added no support class, so the inlined set is
-  the current seven (`HostnameRule`, `MultipleOfRule`, `Rfc3339DateTimeRule`, `Rfc3339TimeRule`,
-  `Iso8601DurationRule`, `MapObjectTransformer`, and the opt-in `NoUnknownPropertiesRule`).
 - **Versioning policy** (issue #41): **decided, pragmatic.** Intentional output-shape/validation
   changes are major-only; correctness patches (non-compiling output, a dropped or wrong constraint)
-  may ship in a patch with an explicit changelog call-out. Once #40 lands (0.9.0) the inlined support
-  classes fall under the output surface and the same major-bump rule; until then they are tool surface.
+  may ship in a patch with an explicit changelog call-out. Now that #40 has shipped, the inlined
+  support classes fall under the output surface and the same major-bump rule.
 - **Discriminator-aware object-union validation and hydration** (issue #38): **landed** for the
   named-component `oneOf`/`anyOf` + `discriminator` form (abstract morphable base plus variants, both
   validated and hydrated). The inline-union and allOf-inheritance discriminator forms remain
@@ -521,9 +515,9 @@ array-of-union DataCollectionOf bug (#24), the drift-check enforcement layer, th
 validation oracle (#23), nested-array depth rules (#28), string-typed scalar coercion (#32, #33),
 per-property required diagnostic (#34), hostname enforcement (#29), default full generation (#45),
 discriminated object-union validation and hydration for the named-component form (#38), opt-in
-`additionalProperties: false` enforcement (#30), and config output-path containment (#54) are all
+`additionalProperties: false` enforcement (#30), config output-path containment (#54), and
+self-contained output via support-class inlining into the consumer's own namespace (#40) are all
 implemented. The undiscriminated object-union false-reject is fixed (#31). The cross-language
 contract loop is proven end to end over real HTTP, including the browser-driven Playwright suite.
-The remaining open cases are the inline and allOf-inheritance discriminator forms (#38) and the
-support-class inlining (#40). Floors are PHP 8.2 + Laravel 11/12 + laravel-data v4 (^4.15 for the
-morphable discriminated unions).
+The remaining open case is the inline and allOf-inheritance discriminator forms (#38). Floors are
+PHP 8.2 + Laravel 11/12 + laravel-data v4 (^4.15 for the morphable discriminated unions).

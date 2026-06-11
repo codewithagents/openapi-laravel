@@ -15,10 +15,11 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  * Laravel CI) must not get red from our output through no fault of their own.
  *
  * It runs the real `phpstan analyse --level=max` over generated output in a temp
- * dir, autoloading the generator's own support classes (the generated code
- * imports `CodeWithAgents\OpenApiLaravel\Support\...`, which are real and
- * autoloadable) plus larastan so the spatie/laravel-data attributes resolve. Any
- * error fails the test.
+ * dir. Since issue #40, the generated code imports its rules and transformer
+ * from the consumer's own `App\Data\Support\...` namespace, so the inlined
+ * support classes are written alongside the Data classes and analysed too (the
+ * generator package is no longer a runtime dependency of the output). Larastan is
+ * included so the spatie/laravel-data attributes resolve. Any error fails the test.
  *
  * Two emission bugs this locks down (both real, not just docblock gaps):
  *   - missingType.iterableValue: a nested array/map element must carry its own
@@ -72,7 +73,13 @@ it('generates PHPStan-max-clean output (phpstan analyse reports no errors)', fun
         expect(is_file($path))->toBeTrue("missing corpus spec for PHPStan gate: {$path}");
 
         $document = (new SpecParser)->parseFile($path);
-        $files = (new ModelGenerator)->generate($document);
+        $generator = new ModelGenerator;
+        $files = $generator->generate($document);
+        // The inlined runtime support classes (issue #40) are owned output and
+        // the Data classes import them, so analyse them too: both to prove the
+        // support code is itself PHPStan-max-clean in the consumer namespace, and
+        // so the Data classes' `use App\Data\Support\...` imports resolve.
+        $supportFiles = $generator->supportFiles();
         expect(count($files))->toBeGreaterThan(0, "spec generated no files: {$path}");
 
         // One subdir per spec so identically-named classes across specs (e.g. a
@@ -83,13 +90,24 @@ it('generates PHPStan-max-clean output (phpstan analyse reports no errors)', fun
         foreach ($files as $file) {
             file_put_contents($subDir.'/'.$file->filename(), $file->code);
         }
-        $totalFiles += count($files);
+        // The support classes live in `<Data>\Support`, so a `Support/` subdir
+        // keeps their files namespaced realistically next to the Data classes.
+        if ($supportFiles !== []) {
+            $supportSubDir = $subDir.'/Support';
+            expect(mkdir($supportSubDir, 0700, true) || is_dir($supportSubDir))->toBeTrue("could not create temp dir {$supportSubDir}");
+            foreach ($supportFiles as $file) {
+                file_put_contents($supportSubDir.'/'.$file->filename(), $file->code);
+            }
+        }
+        $totalFiles += count($files) + count($supportFiles);
     }
 
-    // The generated code declares `namespace App\Data;` and imports the real
-    // support classes from the generator package, so the package autoloader plus
-    // larastan (for the spatie/laravel-data attribute classes) is all PHPStan
-    // needs. A unique tmpDir keeps the result cache from leaking across runs.
+    // The generated code declares `namespace App\Data;` and imports its support
+    // classes from the consumer's own `App\Data\Support` namespace (issue #40),
+    // both of which are written into the analysed tree above, so the package
+    // autoloader plus larastan (for the spatie/laravel-data attribute classes) is
+    // all PHPStan needs. A unique tmpDir keeps the result cache from leaking
+    // across runs.
     $neon = $base.'/phpstan.neon';
     $config = implode("\n", [
         'includes:',

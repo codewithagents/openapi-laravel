@@ -49,7 +49,7 @@ it('emits the closed-object rule when enforcement is opted in', function () {
     $code = generateClosedSchemas(CLOSED_SCHEMA, enforce: true)['ClosedData']->code;
 
     expect($code)
-        ->toContain('use CodeWithAgents\OpenApiLaravel\Support\NoUnknownPropertiesRule;')
+        ->toContain('use App\Data\Support\NoUnknownPropertiesRule;')
         ->toContain("'__openapi_laravel_no_unknown_properties' => [new NoUnknownPropertiesRule(['known', 'count'])]");
 });
 

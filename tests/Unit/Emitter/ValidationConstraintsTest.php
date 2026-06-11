@@ -240,7 +240,7 @@ it('emits a MultipleOfRule for a numeric multipleOf', function () {
     $code = $files['HolderData']->code;
 
     expect($code)->toContain('new MultipleOfRule(3)')
-        ->and($code)->toContain('use CodeWithAgents\OpenApiLaravel\Support\MultipleOfRule;');
+        ->and($code)->toContain('use App\Data\Support\MultipleOfRule;');
 });
 
 // FIX 5: uniqueItems.
@@ -455,7 +455,7 @@ it('emits the RFC3339 rule for format date-time', function () {
     $code = $files['HolderData']->code;
 
     expect($code)->toContain("'ts' => ['sometimes', 'string', new Rfc3339DateTimeRule],")
-        ->and($code)->toContain('use CodeWithAgents\OpenApiLaravel\Support\Rfc3339DateTimeRule;');
+        ->and($code)->toContain('use App\Data\Support\Rfc3339DateTimeRule;');
 });
 
 // FIX (#49): format: time and format: duration emit a real rule, not just 'string'.
@@ -473,7 +473,7 @@ it('emits the RFC3339 time rule for format time', function () {
     $code = $files['HolderData']->code;
 
     expect($code)->toContain("'t' => ['sometimes', 'string', new Rfc3339TimeRule],")
-        ->and($code)->toContain('use CodeWithAgents\OpenApiLaravel\Support\Rfc3339TimeRule;');
+        ->and($code)->toContain('use App\Data\Support\Rfc3339TimeRule;');
 });
 
 it('emits the ISO 8601 duration rule for format duration', function () {
@@ -489,7 +489,7 @@ it('emits the ISO 8601 duration rule for format duration', function () {
     $code = $files['HolderData']->code;
 
     expect($code)->toContain("'dur' => ['sometimes', 'string', new Iso8601DurationRule],")
-        ->and($code)->toContain('use CodeWithAgents\OpenApiLaravel\Support\Iso8601DurationRule;');
+        ->and($code)->toContain('use App\Data\Support\Iso8601DurationRule;');
 });
 
 // FIX 8: never ?mixed.

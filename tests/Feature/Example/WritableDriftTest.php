@@ -41,10 +41,19 @@ function regenerateWritable(): array
 
     return [
         'data' => $dataFiles,
+        'support' => $modelGenerator->supportFiles(),
         'controllers' => $controllerFiles,
         'routes' => $routeFile,
     ];
 }
+
+it('inlines no support classes for a spec that references none (#40)', function () {
+    // The writable example uses no rule/transformer support class, so the inlined
+    // support set is empty: only the classes a spec references are emitted, and
+    // no `Support/` directory is committed.
+    expect(regenerateWritable()['support'])->toBe([])
+        ->and(is_dir(WRITABLE_DIR.'/Data/Support'))->toBeFalse();
+});
 
 it('regenerates writable Data classes byte-identical to the committed example', function () {
     $data = regenerateWritable()['data'];
