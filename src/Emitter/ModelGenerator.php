@@ -459,10 +459,7 @@ final class ModelGenerator
         // The discriminator type comes from a variant that declares it (every
         // variant shares the discriminator property). Default to string when no
         // variant types it explicitly: a discriminator is a string in practice.
-        $discriminatorSchema = $this->discriminatorPropertySchema($baseName, $wireName);
-        $type = $discriminatorSchema !== null
-            ? $this->resolveType($discriminatorSchema, $this->stripSuffix($className).PhpIdentifier::toClassName($wireName), 1, 'all')
-            : new ResolvedType('string');
+        $type = $this->discriminatorType($baseName, $className);
 
         // The discriminator's rules are emitted as VALIDATION ATTRIBUTES, not a
         // rules() method. spatie adds its morph guard (EnsurePropertyMorphable)
@@ -498,14 +495,17 @@ final class ModelGenerator
 
         // match() arm per discriminator value -> variant Data class, sorted by
         // value for determinism, with a `default => null` so an unmapped value
-        // stays abstract and is rejected by spatie's morph guard.
+        // stays abstract and is rejected by spatie's morph guard. The arm literal
+        // is typed by the discriminator: for an int discriminator the payload
+        // value arrives as an int, and match is strict, so the arm must be an int
+        // literal (1 not '1') or it would never compare equal.
         $arms = [];
         foreach ($this->discriminators->valueToVariant($baseName) as $value => $variantSchemaName) {
             $variantClass = $this->registry[$variantSchemaName]['class'] ?? null;
             if ($variantClass === null) {
                 continue;
             }
-            $arms[] = '            '.$this->scalarLiteral($value).' => '.$variantClass.'::class,';
+            $arms[] = '            '.$this->discriminatorValueLiteral((string) $value, $type).' => '.$variantClass.'::class,';
         }
         $arms[] = '            default => null,';
 
@@ -531,6 +531,24 @@ final class ModelGenerator
     }
 
     /**
+     * Render a discriminator mapping value as a PHP literal for a morph() match
+     * arm, typed by the discriminator's resolved type. OpenAPI mapping keys (and
+     * implicit schema-name values) are always strings, but for an INT
+     * discriminator the runtime payload value is an int and `match` compares
+     * strictly, so a numeric value must be emitted as an int literal (1, not '1')
+     * to compare equal. A non-numeric value under an int discriminator (a
+     * malformed mapping) falls back to a string literal so the arm still compiles.
+     */
+    private function discriminatorValueLiteral(string $value, ResolvedType $type): string
+    {
+        if ($type->declaration === 'int' && preg_match('/^-?\d+$/', $value) === 1) {
+            return $this->numberLiteral((int) $value);
+        }
+
+        return $this->scalarLiteral($value);
+    }
+
+    /**
      * Emit a variant of a discriminated union. It extends the abstract base,
      * forwards the discriminator to the parent constructor (a non-promoted param
      * so the base owns the single declared discriminator property), and declares
@@ -542,6 +560,12 @@ final class ModelGenerator
         $baseClass = $this->registry[$baseName]['class'] ?? 'Data';
         $discriminatorWire = (string) $this->discriminators->propertyName($baseName);
         $discriminatorProperty = PhpIdentifier::toPropertyName($discriminatorWire);
+
+        // Forward the discriminator with the SAME type the base declares it with
+        // (string or int), or the parent::__construct() call type-mismatches the
+        // base property under strict_types. Resolved off the base so it is
+        // identical to the base's own property declaration.
+        $discriminatorDeclaration = $this->discriminatorType($baseName, $baseClass)->declaration();
 
         $properties = $this->objectProperties($schema);
         $required = $this->requiredNames($schema);
@@ -604,8 +628,28 @@ final class ModelGenerator
 
         $this->files[$className] = new GeneratedFile(
             $className,
-            $this->renderVariantClass($className, $baseClass, $discriminatorProperty, $params, $imports, $rules),
+            $this->renderVariantClass($className, $baseClass, $discriminatorProperty, $discriminatorDeclaration, $params, $imports, $rules),
         );
+    }
+
+    /**
+     * The resolved PHP type of a discriminated union's discriminator property.
+     * Both the abstract base (which declares the property) and each variant
+     * (which forwards it as a non-promoted parameter) must use the SAME type, or
+     * the forwarded parameter type mismatches the base property under
+     * strict_types and constructing a variant throws a TypeError. Derived from a
+     * variant's declared schema; defaults to `string` when no variant types it.
+     */
+    private function discriminatorType(string $baseName, string $className): ResolvedType
+    {
+        $wireName = (string) $this->discriminators->propertyName($baseName);
+        $schema = $this->discriminatorPropertySchema($baseName, $wireName);
+
+        if ($schema === null) {
+            return new ResolvedType('string');
+        }
+
+        return $this->resolveType($schema, $this->stripSuffix($className).PhpIdentifier::toClassName($wireName), 1, 'all');
     }
 
     /**
@@ -1477,7 +1521,7 @@ final class ModelGenerator
      * @param  list<string>  $imports
      * @param  array<string, list<string>>  $rules
      */
-    private function renderVariantClass(string $className, string $baseClass, string $discriminatorProperty, array $params, array $imports, array $rules): string
+    private function renderVariantClass(string $className, string $baseClass, string $discriminatorProperty, string $discriminatorDeclaration, array $params, array $imports, array $rules): string
     {
         // The base lives in the same namespace, so a variant can have zero
         // imports; emit no `use` block then (avoid stray blank lines).
@@ -1491,7 +1535,8 @@ final class ModelGenerator
         // The discriminator is a forwarded, non-promoted parameter so only the
         // base declares it as a property (PHP forbids redeclaring a parent's
         // promoted property). It comes first, then the variant's own properties.
-        $forwarded = '        string $'.$discriminatorProperty.','.($params !== [] ? "\n" : '');
+        // Its type matches the base property exactly (string or int).
+        $forwarded = '        '.$discriminatorDeclaration.' $'.$discriminatorProperty.','.($params !== [] ? "\n" : '');
         $body = implode("\n", array_map(static fn (array $p): string => $p['code'], $params));
 
         $constructor = "    public function __construct(\n"

@@ -264,7 +264,16 @@ final class DiscriminatorRegistry
 
         $mapping = is_array($discriminator->mapping) ? $discriminator->mapping : [];
         foreach ($mapping as $value => $target) {
-            if (! is_string($value) || $value === '' || ! is_string($target)) {
+            if (! is_string($target)) {
+                continue;
+            }
+            // PHP coerces a numeric-string mapping key (e.g. "1", the int
+            // discriminator case) to an int array key, so $value can be an int
+            // here. Normalize to a string for storage; the emitter re-types the
+            // literal from the discriminator's resolved type. An empty key is
+            // skipped (a non-string, non-int key cannot occur on a PHP array).
+            $value = (string) $value;
+            if ($value === '') {
                 continue;
             }
             $targetName = $this->resolveMappingTarget($target);
