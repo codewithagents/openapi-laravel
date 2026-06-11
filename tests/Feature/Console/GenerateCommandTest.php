@@ -169,7 +169,7 @@ it('lets --no-controllers and --no-routes override a config that enables them', 
         ->and(is_file($routesOut))->toBeFalse();
 });
 
-it('rejects --controllers combined with --no-controllers and writes nothing', function () use ($tempOut) {
+it('rejects --controllers combined with --no-controllers with exit 2 and writes nothing', function () use ($tempOut) {
     $spec = __DIR__.'/../../Fixtures/server/petstore.yaml';
     $out = $tempOut();
 
@@ -178,12 +178,12 @@ it('rejects --controllers combined with --no-controllers and writes nothing', fu
         '--output' => $out,
         '--controllers' => true,
         '--no-controllers' => true,
-    ])->assertFailed();
+    ])->assertExitCode(2);
 
     expect(is_dir($out))->toBeFalse();
 });
 
-it('rejects --routes combined with --no-routes and writes nothing', function () use ($tempOut) {
+it('rejects --routes combined with --no-routes with exit 2 and writes nothing', function () use ($tempOut) {
     $spec = __DIR__.'/../../Fixtures/server/petstore.yaml';
     $out = $tempOut();
 
@@ -192,7 +192,7 @@ it('rejects --routes combined with --no-routes and writes nothing', function () 
         '--output' => $out,
         '--routes' => true,
         '--no-routes' => true,
-    ])->assertFailed();
+    ])->assertExitCode(2);
 
     expect(is_dir($out))->toBeFalse();
 });

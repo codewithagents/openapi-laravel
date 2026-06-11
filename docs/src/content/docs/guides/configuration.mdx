@@ -178,8 +178,8 @@ built-in defaults           (full output: controllers and routes enabled)
 For the scaffold toggles this means: `--controllers` / `--routes` force generation on even when the
 config says `enabled => false`, and `--no-controllers` / `--no-routes` skip it even when the config
 says `enabled => true`. Passing an enable flag together with its disable flag (for example
-`--controllers --no-controllers`) is a configuration error: `openapi:generate` fails with a clear
-message and `openapi:check` exits `2`.
+`--controllers --no-controllers`) is a configuration error: every surface (`openapi:generate`,
+`openapi:check`, and both standalone subcommands) prints a clear message and exits `2`.
 
 The output **namespace** follows the same chain: `--namespace`, then `output.namespace` in the
 config file, then the built-in default `App\Data`.
@@ -215,9 +215,9 @@ one to one:
 
 Every key is optional, and flags override the file per value (the same
 [precedence](#precedence-flags-beat-config-config-beats-defaults) as the artisan commands). The file
-is validated strictly before anything is generated: malformed JSON, an unknown key, or a wrong value
-type fails with a clear message and no file is written, and namespaces from the file go through the
-same identifier validation as the flags.
+is validated strictly before anything is generated: a file larger than 1 MiB, malformed JSON, an
+unknown key, or a wrong value type fails with a clear message and exit code `2`, no file is written,
+and namespaces from the file go through the same identifier validation as the flags.
 
 When neither the flags nor the file set a scaffold path, the binary derives deterministic defaults
 relative to the model output directory: controllers go to `<output>/Controllers` and the routes

@@ -61,6 +61,23 @@ it('discovers the default file name in the given directory', function () use ($w
     expect($config->spec)->toBe('discovered.yaml');
 });
 
+it('rejects a config file larger than 1 MiB before reading it', function () use ($writeFile) {
+    // One byte over the limit; the content is valid JSON so only the size
+    // guard can be the reason for the rejection.
+    $path = $writeFile('{"spec": "'.str_repeat('a', 1_048_576 - 11).'"}');
+
+    (new StandaloneConfigLoader)->load($path, '/tmp');
+})->throws(OptionException::class, 'exceeds the 1048576 byte limit');
+
+it('accepts a config file exactly at the 1 MiB limit', function () use ($writeFile) {
+    $value = str_repeat('a', 1_048_576 - 12);
+    $path = $writeFile('{"spec": "'.$value.'"}');
+
+    $config = (new StandaloneConfigLoader)->load($path, '/tmp');
+
+    expect($config->spec)->toBe($value);
+});
+
 it('rejects malformed JSON', function () use ($writeFile) {
     $path = $writeFile('{not json');
 

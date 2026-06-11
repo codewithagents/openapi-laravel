@@ -36,13 +36,14 @@ it('exits non-zero when the spec cannot be read', function () use ($tempOut) {
 });
 
 // C-3: operator-supplied identifiers are validated before any file is written.
+// An invalid option is a configuration error, so it exits 2 on every surface.
 
 it('rejects an illegal --namespace and writes nothing', function () use ($spec, $tempOut) {
     $out = $tempOut();
 
     $exit = (new StandaloneApplication)->run(['bin', '--spec='.$spec(), '--output='.$out, "--namespace=App\\Data'); system('x'); //"]);
 
-    expect($exit)->toBe(1)
+    expect($exit)->toBe(2)
         ->and(is_file($out.'/CustomerData.php'))->toBeFalse();
 });
 
@@ -51,7 +52,7 @@ it('rejects an illegal --suffix and writes nothing', function () use ($spec, $te
 
     $exit = (new StandaloneApplication)->run(['bin', '--spec='.$spec(), '--output='.$out, '--suffix=Da ta']);
 
-    expect($exit)->toBe(1)
+    expect($exit)->toBe(2)
         ->and(is_dir($out))->toBeFalse();
 });
 
@@ -68,7 +69,7 @@ it('rejects an illegal --controller-namespace and writes nothing', function () u
         '--controller-namespace=Bad Namespace',
     ]);
 
-    expect($exit)->toBe(1)
+    expect($exit)->toBe(2)
         ->and(is_dir($out.'/controllers'))->toBeFalse();
 });
 
@@ -126,7 +127,7 @@ it('skips the scaffold with --no-controllers and --no-routes', function () use (
         ->and(is_file($out.'/routes.php'))->toBeFalse();
 });
 
-it('exits non-zero when --controllers is combined with --no-controllers', function () use ($tempOut) {
+it('exits 2 when --controllers is combined with --no-controllers', function () use ($tempOut) {
     $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
     $out = $tempOut();
 
@@ -138,11 +139,11 @@ it('exits non-zero when --controllers is combined with --no-controllers', functi
         '--no-controllers',
     ]);
 
-    expect($exit)->toBe(1)
+    expect($exit)->toBe(2)
         ->and(is_dir($out))->toBeFalse();
 });
 
-it('exits non-zero when --routes is combined with --no-routes', function () use ($tempOut) {
+it('exits 2 when --routes is combined with --no-routes', function () use ($tempOut) {
     $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
 
     $exit = (new StandaloneApplication)->run([
@@ -153,7 +154,22 @@ it('exits non-zero when --routes is combined with --no-routes', function () use 
         '--no-routes',
     ]);
 
-    expect($exit)->toBe(1);
+    expect($exit)->toBe(2);
+});
+
+it('exits 2 when check is run with conflicting scaffold flags', function () use ($tempOut) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+
+    $exit = (new StandaloneApplication)->run([
+        'bin',
+        'check',
+        '--spec='.$serverSpec,
+        '--output='.$tempOut(),
+        '--controllers',
+        '--no-controllers',
+    ]);
+
+    expect($exit)->toBe(2);
 });
 
 // Config file: openapi-laravel.json mirrors config/openapi-laravel.php, flags win.
@@ -266,6 +282,40 @@ it('honours the scaffold paths from the config file', function () use ($tempOut,
         ->and(is_file($out.'/api.generated.php'))->toBeTrue();
 });
 
+it('honours an asymmetric config: controllers off, routes on', function () use ($tempOut, $writeConfig) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+    $configPath = $writeConfig([
+        'spec' => $serverSpec,
+        'output' => ['path' => $out],
+        'controllers' => ['enabled' => false],
+        'routes' => ['enabled' => true],
+    ]);
+
+    $exit = (new StandaloneApplication)->run(['bin', '--config='.$configPath]);
+
+    expect($exit)->toBe(0)
+        ->and(is_dir($out.'/Controllers'))->toBeFalse()
+        ->and(is_file($out.'/routes.php'))->toBeTrue();
+});
+
+it('honours an asymmetric config: controllers on, routes off', function () use ($tempOut, $writeConfig) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+    $configPath = $writeConfig([
+        'spec' => $serverSpec,
+        'output' => ['path' => $out],
+        'controllers' => ['enabled' => true],
+        'routes' => ['enabled' => false],
+    ]);
+
+    $exit = (new StandaloneApplication)->run(['bin', '--config='.$configPath]);
+
+    expect($exit)->toBe(0)
+        ->and(is_file($out.'/Controllers/AbstractPetController.php'))->toBeTrue()
+        ->and(is_file($out.'/routes.php'))->toBeFalse();
+});
+
 it('rejects malformed JSON in the config file and writes nothing', function () use ($tempOut) {
     $dir = sys_get_temp_dir().'/oal_standalone_cfg_'.uniqid();
     mkdir($dir, 0755, true);
@@ -274,8 +324,33 @@ it('rejects malformed JSON in the config file and writes nothing', function () u
 
     $exit = (new StandaloneApplication)->run(['bin', '--config='.$dir.'/openapi-laravel.json', '--spec=ignored', '--output='.$out]);
 
-    expect($exit)->toBe(1)
+    expect($exit)->toBe(2)
         ->and(is_dir($out))->toBeFalse();
+});
+
+it('rejects an oversized config file and writes nothing', function () use ($tempOut) {
+    $dir = sys_get_temp_dir().'/oal_standalone_cfg_'.uniqid();
+    mkdir($dir, 0755, true);
+    // Just over the 1 MiB limit; the padding lives inside a valid JSON string
+    // so only the size guard can be the reason for the rejection.
+    file_put_contents($dir.'/openapi-laravel.json', '{"spec": "'.str_repeat('a', 1_048_576).'"}');
+    $out = $tempOut();
+
+    $exit = (new StandaloneApplication)->run(['bin', '--config='.$dir.'/openapi-laravel.json', '--output='.$out]);
+
+    expect($exit)->toBe(2)
+        ->and(is_dir($out))->toBeFalse();
+});
+
+it('exits 2 when the --config file does not exist', function () use ($spec, $tempOut) {
+    $exit = (new StandaloneApplication)->run([
+        'bin',
+        '--config=/no/such/openapi-laravel.json',
+        '--spec='.$spec(),
+        '--output='.$tempOut(),
+    ]);
+
+    expect($exit)->toBe(2);
 });
 
 it('rejects an unknown key in the config file and writes nothing', function () use ($spec, $tempOut, $writeConfig) {
@@ -288,19 +363,8 @@ it('rejects an unknown key in the config file and writes nothing', function () u
 
     $exit = (new StandaloneApplication)->run(['bin', '--config='.$configPath]);
 
-    expect($exit)->toBe(1)
+    expect($exit)->toBe(2)
         ->and(is_dir($out))->toBeFalse();
-});
-
-it('exits non-zero when the --config file does not exist', function () use ($spec, $tempOut) {
-    $exit = (new StandaloneApplication)->run([
-        'bin',
-        '--config=/no/such/openapi-laravel.json',
-        '--spec='.$spec(),
-        '--output='.$tempOut(),
-    ]);
-
-    expect($exit)->toBe(1);
 });
 
 it('validates a namespace from the config file like a flag', function () use ($spec, $tempOut, $writeConfig) {
@@ -312,6 +376,6 @@ it('validates a namespace from the config file like a flag', function () use ($s
 
     $exit = (new StandaloneApplication)->run(['bin', '--config='.$configPath]);
 
-    expect($exit)->toBe(1)
+    expect($exit)->toBe(2)
         ->and(is_dir($out))->toBeFalse();
 });

@@ -18,6 +18,14 @@ final readonly class StandaloneConfigLoader
     private const DEFAULT_FILENAME = 'openapi-laravel.json';
 
     /**
+     * Maximum config file size accepted before reading (1 MiB). A real config
+     * file is a few hundred bytes; the guard mirrors the max_bytes posture on
+     * the spec input and caps the blast radius of a hostile or accidental
+     * multi-gigabyte file before file_get_contents() loads it into memory.
+     */
+    private const MAX_BYTES = 1_048_576;
+
+    /**
      * Allowed keys per section. A null value means "scalar key", an array
      * value lists the allowed sub-keys of an object section.
      */
@@ -34,7 +42,7 @@ final readonly class StandaloneConfigLoader
      * @param  ?string  $explicitPath  the --config flag value, or null to discover
      * @param  string  $cwd  directory searched for the default file name
      *
-     * @throws OptionException on a missing explicit file, malformed JSON, an unknown key, or a wrong value type
+     * @throws OptionException on a missing explicit file, an oversized file, malformed JSON, an unknown key, or a wrong value type
      */
     public function load(?string $explicitPath, string $cwd): StandaloneConfig
     {
@@ -46,6 +54,12 @@ final readonly class StandaloneConfigLoader
             }
 
             return new StandaloneConfig;
+        }
+
+        $size = filesize($path);
+        if ($size === false || $size > self::MAX_BYTES) {
+            $limit = self::MAX_BYTES;
+            throw new OptionException("Config file {$path} exceeds the {$limit} byte limit (or its size could not be determined). A config file should be a few hundred bytes; nothing was generated.");
         }
 
         $raw = file_get_contents($path);

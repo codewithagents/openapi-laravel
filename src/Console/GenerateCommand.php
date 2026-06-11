@@ -33,7 +33,14 @@ final class GenerateCommand extends Command
         try {
             $request = (new CommandRequestFactory)->fromCommand($this);
             $plan = (new GenerationPlanner)->plan($request);
-        } catch (PlanException|OptionException $e) {
+        } catch (OptionException $e) {
+            // Invalid options (conflicting flags, illegal identifiers) are a
+            // configuration error and exit 2 on every surface, matching
+            // openapi:check and the standalone binary.
+            $this->components->error($e->getMessage());
+
+            return self::INVALID;
+        } catch (PlanException $e) {
             $this->components->error($e->getMessage());
 
             return self::FAILURE;

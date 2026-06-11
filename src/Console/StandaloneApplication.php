@@ -56,7 +56,13 @@ final class StandaloneApplication
             $config = $this->loadConfig($options);
             $request = $this->buildRequest($options, $config);
             $plan = (new GenerationPlanner)->plan($request);
-        } catch (PlanException|OptionException $e) {
+        } catch (OptionException $e) {
+            // Invalid options or config file: a configuration error exits 2
+            // on every surface (artisan and standalone, generate and check).
+            fwrite(STDERR, $e->getMessage()."\n");
+
+            return self::EXIT_ERROR;
+        } catch (PlanException $e) {
             fwrite(STDERR, $e->getMessage()."\n");
 
             return 1;
@@ -323,7 +329,7 @@ final class StandaloneApplication
         Exit codes:
           0  success / in sync
           1  drift detected (check) or a generate error
-          2  configuration or spec error (check)
+          2  invalid options or config file (generate and check), or a spec error in check
 
         TXT;
     }
