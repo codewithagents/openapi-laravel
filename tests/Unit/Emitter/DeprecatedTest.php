@@ -110,8 +110,10 @@ it('composes @deprecated with an existing @var on the same property', function (
         ],
     ])['HolderData']->code;
 
-    // Both tags appear in a multi-line block, @var first then @deprecated.
-    expect($code)->toContain("        /**\n         * @var array<int, string>\n         * @deprecated\n         */\n        public readonly ?array \$tags");
+    // Both tags appear in a multi-line block, @var first then @deprecated, with a
+    // blank ` *` separator between the two distinct annotation groups so the
+    // Laravel Pint `phpdoc_separation` fixer leaves the output untouched.
+    expect($code)->toContain("        /**\n         * @var array<int, string>\n         *\n         * @deprecated\n         */\n        public readonly ?array \$tags");
 });
 
 it('emits a sanitized reason on a deprecated property', function () {

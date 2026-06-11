@@ -109,9 +109,12 @@ it('adds null to the union when a member is the null type', function () {
 
     $code = $files['HolderData']->code;
 
-    // The null member contributes nullability and a null docblock variant.
+    // The null member contributes nullability and a null docblock variant. With a
+    // single non-null member the declaration uses the `?T` shorthand (Pint-clean),
+    // not a `string|null` union, but the docblock keeps the explicit union form.
     expect($code)->toContain('/** @var string|null */')
-        ->and($code)->toContain('public readonly string|null $value = null')
+        ->and($code)->toContain('public readonly ?string $value = null')
+        ->and($code)->not->toContain('public readonly string|null $value')
         ->and($code)->toContain("'value' => ['sometimes', 'nullable']");
 });
 
