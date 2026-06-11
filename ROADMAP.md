@@ -388,21 +388,22 @@ Three documentation pages prepared for the 1.0.0 cutover. They live under
   and 3.1 spellings (nullability, exclusive bounds, boolean `items`, multi-type arrays, `const`) are
   normalized; and the declared 3.1 boundaries (`webhooks` not generated from, tuple `prefixItems`,
   advanced JSON Schema applicators, `additionalProperties: false`). Factual, no open decision.
-- **Versioning and upgrades** (`guides/versioning-policy.mdx`, issue #41, **DRAFT proposal**): what
-  semver means for a code generator (the tool surface vs the output surface), the proposed
-  breaking-change definition, the regenerate-on-upgrade flow, the drift-check interaction, and how
-  0.x differs from the 1.0.0 output freeze. **Open decision (Benjamin):** (a) adopt the pragmatic
-  freeze where intentional output changes are major-only but correctness patches may ship in a patch
-  with an explicit changelog call-out, vs a stricter byte-frozen promise; (b) the support-class
-  breaking-change wording depends on #40, so settle #40 first.
-- **Runtime coupling** (`guides/runtime-coupling.mdx`, issue #40, **DRAFT proposal**): generated code
-  currently imports four support classes (`HostnameRule`, `MultipleOfRule`, `Rfc3339DateTimeRule`,
-  `MapObjectTransformer`) from the generator's `Support\` namespace, so the generator is a runtime
-  dependency of every consuming app. **Open decision (Benjamin):** option A keep the runtime
-  dependency, option B inline the support classes into the consumer's namespace (**recommended**,
-  fully-owned output, no silent runtime change), or option C a tiny frozen runtime package. Must
-  settle before 1.0.0 because the import namespace is part of the frozen output format, and it
-  compounds with the discriminator cast (#38). Analysis only, nothing implemented.
+- **Versioning and upgrades** (`guides/versioning-policy.mdx`, issue #41, **decided**): what
+  semver means for a code generator (the tool surface vs the output surface), the breaking-change
+  definition, the regenerate-on-upgrade flow, the drift-check interaction, and how 0.x differs from
+  the 1.0.0 output freeze. **Decision:** the pragmatic policy is adopted, intentional output-shape and
+  validation changes are major-only, correctness patches (non-compiling output, a dropped or wrong
+  constraint) may ship in a patch with an explicit changelog call-out. The support-class wording
+  follows #40 below (output surface once inlined, tool surface until then).
+- **Runtime coupling** (`guides/runtime-coupling.mdx`, issue #40, **decided**): generated code
+  currently imports seven support classes (`HostnameRule`, `MultipleOfRule`, `Rfc3339DateTimeRule`,
+  `Rfc3339TimeRule`, `Iso8601DurationRule`, `MapObjectTransformer`, and the opt-in
+  `NoUnknownPropertiesRule`) from the generator's `Support\` namespace, so the generator is a runtime
+  dependency of every consuming app. **Decision:** Option B is adopted, inline the support classes
+  into the consumer's namespace (e.g. `App\Data\Support\...`) for fully-owned output with no runtime
+  dependency on the generator. Decided but not yet implemented: planned as the headline of 0.9.0. The
+  discriminator cast (#38) shipped on spatie's native `PropertyMorphableData` and added no support
+  class, so the inlined set is the current seven.
 
 Lower-severity lossy cases (document or improve, not blockers): tuple `prefixItems`
 (`array<int, mixed>`), int64/bignum literal bounds, non-JSON responses (JsonResponse fallback),
@@ -448,6 +449,17 @@ suites are refactored; all gates green).
 
 ## Open questions (genuine design decisions)
 
+- **Runtime coupling of generated code** (issue #40): **decided, Option B (inline).** The generator
+  will emit the support classes into the consumer's own namespace (e.g. `App\Data\Support\...`) so
+  generated output is self-contained with no runtime dependency on the generator. Decided but not yet
+  implemented: planned as the headline of the next release (0.9.0). The discriminator cast (#38)
+  shipped on spatie's native `PropertyMorphableData` and added no support class, so the inlined set is
+  the current seven (`HostnameRule`, `MultipleOfRule`, `Rfc3339DateTimeRule`, `Rfc3339TimeRule`,
+  `Iso8601DurationRule`, `MapObjectTransformer`, and the opt-in `NoUnknownPropertiesRule`).
+- **Versioning policy** (issue #41): **decided, pragmatic.** Intentional output-shape/validation
+  changes are major-only; correctness patches (non-compiling output, a dropped or wrong constraint)
+  may ship in a patch with an explicit changelog call-out. Once #40 lands (0.9.0) the inlined support
+  classes fall under the output surface and the same major-bump rule; until then they are tool surface.
 - **Discriminator-aware object-union validation and hydration** (issue #38): **landed** for the
   named-component `oneOf`/`anyOf` + `discriminator` form (abstract morphable base plus variants, both
   validated and hydrated). The inline-union and allOf-inheritance discriminator forms remain

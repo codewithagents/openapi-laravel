@@ -1,12 +1,12 @@
 ---
-title: Runtime coupling of generated code (DRAFT proposal)
-description: Generated code currently imports four support classes from the generator package, making it a runtime dependency. The 1.0.0 question, keep that dependency or make generation self-contained, with options, tradeoffs, and a recommendation. A draft proposal pending a maintainer decision.
+title: Runtime coupling of generated code
+description: Generated code currently imports seven support classes from the generator package, making it a runtime dependency. The 1.0.0 question, keep that dependency or make generation self-contained, is decided, Option B (inline into the consumer's output), with the analysis and tradeoffs that led there. Implementation is planned for 0.9.0.
 ---
 
 import { Aside } from '@astrojs/starlight/components'
 
-<Aside type="caution" title="DRAFT proposal, not yet adopted">
-  This page is a **draft proposal** written for the 1.0.0 readiness pass ([issue #40](https://github.com/codewithagents/openapi-laravel/issues/40)). It analyzes a decision the project has not yet made and does **not** describe shipped behavior beyond the "current state" section. The decision is the maintainer's; it is flagged at the bottom. Nothing here is implemented.
+<Aside type="note" title="Decided: Option B (inline), implementation planned for 0.9.0">
+  This decision is made ([issue #40](https://github.com/codewithagents/openapi-laravel/issues/40)): **Option B is adopted.** The generator will inline the support classes into the consumer's own namespace (for example `App\Data\Support\...`) so generated output is fully self-contained, with no runtime dependency on the generator. The analysis and options below are kept as the rationale for that choice. **This is decided but not yet implemented:** inlining is planned as the headline of the next release (0.9.0). Until it ships, the support classes still live in the generator package, exactly as the "current state" section describes.
 </Aside>
 
 ## Current state: generated code depends on the generator at runtime
@@ -16,24 +16,27 @@ The generated Data classes do not just stand alone in your repo. Some of them **
 - `CodeWithAgents\OpenApiLaravel\Support\HostnameRule` (a `format: hostname` property)
 - `CodeWithAgents\OpenApiLaravel\Support\MultipleOfRule` (a `multipleOf` property)
 - `CodeWithAgents\OpenApiLaravel\Support\Rfc3339DateTimeRule` (a `format: date-time` property)
+- `CodeWithAgents\OpenApiLaravel\Support\Rfc3339TimeRule` (a `format: time` property)
+- `CodeWithAgents\OpenApiLaravel\Support\Iso8601DurationRule` (a `format: duration` property)
 - `CodeWithAgents\OpenApiLaravel\Support\MapObjectTransformer` (every `additionalProperties` map property, via `#[WithTransformer(...)]`)
+- `CodeWithAgents\OpenApiLaravel\Support\NoUnknownPropertiesRule` (the opt-in `additionalProperties: false` enforcement)
 
-These imports are part of the **committed generated output** (they are pinned by the conformance golden test), not an accident. They exist because Laravel has no native rule for `multipleOf`, no strict RFC3339 `date-time` rule, no hostname rule, and no way to force an empty map to serialize as `{}` rather than `[]`. The generator supplies those four small classes and the generated code references them.
+These imports are part of the **committed generated output** (they are pinned by the conformance golden test), not an accident. They exist because Laravel has no native rule for `multipleOf`, no strict RFC3339 `date-time`/`time` rule, no ISO 8601 `duration` rule, no hostname rule, no way to reject undeclared properties on a closed object, and no way to force an empty map to serialize as `{}` rather than `[]`. The generator supplies those seven small classes and the generated code references them.
 
-The consequence is the headline of this proposal: **`codewithagents/openapi-laravel` is a runtime dependency of every consuming application, not just a dev-time tool.** If you generate a class that uses `multipleOf` or a date-time format, your production app loads `MultipleOfRule` from the generator package at request time.
+The consequence is the headline this decision resolves: **today `codewithagents/openapi-laravel` is a runtime dependency of every consuming application, not just a dev-time tool.** If you generate a class that uses `multipleOf` or a date-time format, your production app loads `MultipleOfRule` from the generator package at request time. Option B (adopted, landing in 0.9.0) removes exactly this coupling.
 
 ### Why that sits in tension with the philosophy
 
 The project's stated philosophy is [you own the output](/philosophy): readable PHP in your repo that keeps working even if you stop using the generator. The runtime coupling dents that in two ways:
 
-- **It is not fully owned.** Four classes that your generated `rules()` depend on live in `vendor/`, outside the code you committed and review in diffs.
-- **A `composer update` can change runtime behavior under committed code.** Because the support classes are versioned with the generator, upgrading the generator can change how your already-generated, already-committed classes validate and serialize, without you regenerating anything. That is the exact silent-change surface the [versioning proposal](/guides/versioning-policy) is trying to pin down.
+- **It is not fully owned.** Seven classes that your generated `rules()` depend on live in `vendor/`, outside the code you committed and review in diffs.
+- **A `composer update` can change runtime behavior under committed code.** Because the support classes are versioned with the generator, upgrading the generator can change how your already-generated, already-committed classes validate and serialize, without you regenerating anything. That is the exact silent-change surface the [versioning policy](/guides/versioning-policy) pins down.
 
-`spatie/laravel-data` itself is a genuine runtime dependency under **every** option below, that is unavoidable and expected, the generated classes *are* laravel-data classes. The open question is only about the four `openapi-laravel`-owned support classes.
+`spatie/laravel-data` itself is a genuine runtime dependency under **every** option below, that is unavoidable and expected, the generated classes *are* laravel-data classes. The decision below concerned only the seven `openapi-laravel`-owned support classes.
 
 ## The 1.0.0 question
 
-This must settle **before** 1.0.0, because the import lines are part of the frozen output format. Moving the namespace later (for example from `CodeWithAgents\OpenApiLaravel\Support\...` to `App\Data\Support\...`) is a breaking output change, exactly what the 1.0.0 freeze is meant to prevent. The decision also compounds: the discriminator-aware cast planned for 1.0.0 ([#38](https://github.com/codewithagents/openapi-laravel/issues/38)) will likely add another runtime class, so whatever rule we set now applies to a growing set.
+This had to settle **before** 1.0.0, because the import lines are part of the frozen output format. Moving the namespace later (for example from `CodeWithAgents\OpenApiLaravel\Support\...` to `App\Data\Support\...`) is a breaking output change, exactly what the 1.0.0 freeze is meant to prevent. The discriminator-aware cast ([#38](https://github.com/codewithagents/openapi-laravel/issues/38)) has since **shipped using spatie's native `PropertyMorphableData`** (an abstract morphable base plus `morph()`), so it added **no** new runtime support class. The inlined set under Option B is therefore the seven classes above (including the opt-in `NoUnknownPropertiesRule`), not a growing list driven by #38.
 
 ## Option A: keep the runtime dependency (status quo)
 
@@ -50,11 +53,11 @@ Generated code keeps importing the support classes from the generator package. `
 
 - **Generated code is not self-contained.** "Stop using the generator and your code still works" is false: remove the package and the classes that import `Support\...` break.
 - **Silent runtime-behavior changes on upgrade**, as above. This is the strongest argument against A.
-- **The generator is a heavier dependency than it needs to be.** Consumers pull the whole generator (parser, emitter, cebe, symfony/yaml) into production just to get four small runtime classes.
+- **The generator is a heavier dependency than it needs to be.** Consumers pull the whole generator (parser, emitter, cebe, symfony/yaml) into production just to get seven small runtime classes.
 
-## Option B: inline the support classes into the consumer's output
+## Option B: inline the support classes into the consumer's output (adopted)
 
-The generator emits the four support classes into the consumer's own namespace alongside the Data classes (for example `App\Data\Support\MultipleOfRule`), and the generated code imports from there. They are owned, committed, and drift-checked like everything else.
+The generator emits the seven support classes into the consumer's own namespace alongside the Data classes (for example `App\Data\Support\MultipleOfRule`), and the generated code imports from there. They are owned, committed, and drift-checked like everything else. **This is the adopted choice; implementation lands in 0.9.0.**
 
 **Pros**
 
@@ -64,17 +67,17 @@ The generator emits the four support classes into the consumer's own namespace a
 
 **Cons**
 
-- **Duplication across projects.** Every consuming project carries its own copy of the four classes. A fix to a rule reaches them only on regeneration (which is consistent with the owned-output model, but means no automatic propagation).
-- **More generated files** (four extra per project) and a small amount of generator complexity (emitting them, namespacing them, drift-checking them).
+- **Duplication across projects.** Every consuming project carries its own copy of the support classes. A fix to a rule reaches them only on regeneration (which is consistent with the owned-output model, but means no automatic propagation).
+- **More generated files** (the support classes emitted per project) and a small amount of generator complexity (emitting them, namespacing them, drift-checking them).
 - **The drift check now covers the support classes too**, which is arguably more correct but is more surface.
 
 ## Option C: a tiny frozen runtime package
 
-Split the four support classes into a separate, minimal, semver-frozen package (for example `codewithagents/openapi-laravel-runtime`) that changes essentially never. The generator depends on it; generated code imports from it; consumers `require` only the tiny runtime, not the whole generator.
+Split the seven support classes into a separate, minimal, semver-frozen package (for example `codewithagents/openapi-laravel-runtime`) that changes essentially never. The generator depends on it; generated code imports from it; consumers `require` only the tiny runtime, not the whole generator.
 
 **Pros**
 
-- **Runtime footprint shrinks** to four classes plus laravel-data, no parser or emitter in production.
+- **Runtime footprint shrinks** to the support classes plus laravel-data, no parser or emitter in production.
 - **One canonical implementation** (no duplication), like Option A.
 - **A frozen package has a clean, narrow versioning story:** it changes almost never, so the silent-upgrade risk is small and explicitly bounded.
 
@@ -82,7 +85,7 @@ Split the four support classes into a separate, minimal, semver-frozen package (
 
 - **Still a runtime dependency**, so the "owned output, survives removing the generator" promise is only partly satisfied (you still need the runtime package).
 - **A second package to publish, version, and maintain**, plus the coordination of keeping the generator's emitted imports in lockstep with the runtime package's namespace.
-- **Splitting a package for four small classes** can feel heavier than the problem warrants.
+- **Splitting a package for a handful of small classes** can feel heavier than the problem warrants.
 
 ## How the options compare
 
@@ -96,19 +99,18 @@ Split the four support classes into a separate, minimal, semver-frozen package (
 | Generator/maintenance complexity | Lowest | Medium (emit + drift-check) | Medium (second package) |
 | Aligns with "you own the output" | Partly | **Fully** | Partly |
 
-## Recommendation
+## Why Option B (the adopted choice)
 
-**Option B (inline into the consumer's output).** It is the only option that makes the [you own the output](/philosophy) promise literally true, it removes the silent-runtime-change surface entirely (rule behavior changes only on a reviewed regeneration, like everything else), and it makes the generator a clean dev-time tool. The cost, four extra generated files and a little emitter work, is small and exactly the kind of owned, drift-checked output the project already produces. The duplication tradeoff is consistent with the model: you already re-own every Data class per project, the support classes are no different.
+**Option B (inline into the consumer's output) is adopted.** It is the only option that makes the [you own the output](/philosophy) promise literally true, it removes the silent-runtime-change surface entirely (rule behavior changes only on a reviewed regeneration, like everything else), and it makes the generator a clean dev-time tool. The cost, the support classes emitted per project plus a little emitter work, is small and exactly the kind of owned, drift-checked output the project already produces. The duplication tradeoff is consistent with the model: you already re-own every Data class per project, the support classes are no different.
 
-Option C is the reasonable fallback if duplication is judged unacceptable: it keeps one canonical implementation while shrinking the runtime footprint and bounding the upgrade risk to a near-frozen package. Option A is the lowest-effort path but is the weakest fit for the stated philosophy and carries the silent-upgrade surface that the versioning proposal is otherwise trying to close.
+Option C was the reasonable fallback if duplication had been judged unacceptable: it keeps one canonical implementation while shrinking the runtime footprint and bounding the upgrade risk to a near-frozen package. Option A is the lowest-effort path but is the weakest fit for the stated philosophy and carries the silent-upgrade surface that the versioning policy otherwise closes.
 
-## Open decision for the maintainer
+## Decision
 
-<Aside type="caution" title="Decision needed before 1.0.0">
-  **This is Benjamin's call, and it must be made before 1.0.0** because the import namespace is part of the frozen output format.
+<Aside type="note" title="Decision made: Option B adopted (implementation in 0.9.0)">
+  **Option B is adopted.** The generator will inline the seven support classes into the consumer's own namespace (for example `App\Data\Support\...`), making generated output fully self-contained with no runtime dependency on the generator.
 
-  - **The choice:** A (keep the runtime dependency), B (inline the four support classes into the consumer's namespace, recommended), or C (a tiny frozen runtime package).
-  - **It compounds with [#38](https://github.com/codewithagents/openapi-laravel/issues/38):** the discriminator-aware cast will likely add a fifth runtime class, so the rule chosen now governs a growing set.
-  - **It feeds [#41 (versioning policy)](/guides/versioning-policy):** the breaking-change wording for the support classes depends on where they live. Decide #40 first, then finalize #41's third breaking-change bullet.
-  - Nothing is implemented yet; this page is analysis only.
+  - **Status:** decided, not yet implemented. Inlining is planned as the headline of the next release (0.9.0); until then the classes still ship from the generator package.
+  - **No growing set from [#38](https://github.com/codewithagents/openapi-laravel/issues/38):** the discriminator-aware cast shipped on spatie's native `PropertyMorphableData`, adding zero support classes. The inlined set is the seven listed above (including the opt-in `NoUnknownPropertiesRule`).
+  - **It resolves [#41 (versioning policy)](/guides/versioning-policy):** once inlined (0.9.0), the support classes fall under the **output** surface and are governed by the same major-bump rule as the rest of the generated code. Until then they remain part of the tool surface.
 </Aside>

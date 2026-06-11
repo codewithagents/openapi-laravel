@@ -1,36 +1,36 @@
 ---
-title: Versioning and upgrades (DRAFT proposal)
-description: What semver means for a code generator, what counts as a breaking change, the regeneration upgrade flow, and how 0.x differs from 1.0.0. A draft proposal pending a maintainer decision.
+title: Versioning and upgrades
+description: What semver means for a code generator, what counts as a breaking change, the regeneration upgrade flow, and how 0.x differs from 1.0.0. The adopted policy, pragmatic, intentional output changes are major-only while correctness patches may ship in a patch with an explicit changelog call-out.
 ---
 
 import { Aside } from '@astrojs/starlight/components'
 
-<Aside type="caution" title="DRAFT proposal, not yet adopted">
-  This page is a **draft proposal** written for the 1.0.0 readiness pass ([issue #41](https://github.com/codewithagents/openapi-laravel/issues/41)). It states a policy the project does not yet formally promise. The open decision is flagged at the bottom. Until it is adopted, treat this as the intended direction, not a guarantee.
+<Aside type="note" title="Adopted policy">
+  This is the **adopted** versioning policy ([issue #41](https://github.com/codewithagents/openapi-laravel/issues/41)): the pragmatic stance below, where *intentional* output-shape and validation-behavior changes are major-only, while *correctness patches* (non-compiling output, a dropped or wrong constraint) may ship in a patch with an explicit changelog call-out. It also reflects the resolution of [#40 (runtime coupling)](/guides/runtime-coupling) to Option B (inline the support classes into the consumer's output, landing in 0.9.0).
 </Aside>
 
 Semantic versioning answers one question: "will this upgrade break me?" For a normal library that means the public API, the functions and classes you call. For a **code generator** the question is subtler, because the thing that can break you is not the generator's own API: it is the **code the generator writes**. A patch to the emitter can change every Data class in your repo without changing a single method signature you call.
 
-This page proposes how `openapi-laravel` defines a breaking change, what it promises to keep stable, and the upgrade flow that follows from those promises.
+This page states how `openapi-laravel` defines a breaking change, what it promises to keep stable, and the upgrade flow that follows from those promises.
 
 ## The two surfaces
 
 A code generator has two distinct compatibility surfaces, and they version differently.
 
-1. **The tool surface.** The CLI commands and flags (`openapi:generate`, `openapi:check`, `--spec`, `--controllers`, ...), the config file keys, and the runtime support classes the generated code imports. This is the classic library API.
+1. **The tool surface.** The CLI commands and flags (`openapi:generate`, `openapi:check`, `--spec`, `--controllers`, ...) and the config file keys. This is the classic library API. (Today the support classes the generated code imports also sit here, because they ship from the generator package; once [#40](/guides/runtime-coupling) lands in 0.9.0 they move into the output surface instead, see below.)
 2. **The output surface.** The actual PHP the generator writes for a given spec: class and property names, the shape of `rules()`, the type hints, the file set. You do not call this as an API, but you commit it, and your application depends on its behavior.
 
 A normal library only has surface 1. A generator's stability promise has to cover surface 2 as well, because a silent change there is exactly what consumers cannot see coming.
 
-## Proposed: what counts as a breaking change
+## What counts as a breaking change
 
-Under this proposal, a **major** version bump (post-1.0.0) is required for any of:
+Under this policy, a **major** version bump (post-1.0.0) is required for any of:
 
 **Output-surface breaks (the generator-specific part):**
 
 - A change to the **generated output for an unchanged spec** that alters its shape: different class or property names, a changed `rules()` result, a different type hint, a moved or renamed file, a changed `#[MapName]` or attribute. Pure formatting churn counts too, because the [drift check](/guides/drift-check) compares byte-for-byte.
 - A change to **validation behavior**: a payload that the generated `rules()` previously accepted is now rejected, or vice versa. This is the most consequential break, because it can start rejecting real production traffic.
-- A change to the **runtime support classes** (`MultipleOfRule`, `Rfc3339DateTimeRule`, `HostnameRule`, `MapObjectTransformer`) that changes their validation or serialization behavior. (Where these classes live, and therefore how their own versioning works, is the subject of the separate [runtime-coupling proposal](/guides/runtime-coupling), issue #40. This policy reads slightly differently depending on that outcome, see the note below.)
+- A change to the **support classes** (`MultipleOfRule`, `Rfc3339DateTimeRule`, `Rfc3339TimeRule`, `Iso8601DurationRule`, `HostnameRule`, `MapObjectTransformer`, and the opt-in `NoUnknownPropertiesRule`) that changes their validation or serialization behavior. Where these classes live, and therefore which surface governs them, is settled by [#40 (runtime coupling)](/guides/runtime-coupling): **Option B is adopted**, the classes are inlined into the consumer's own output (landing in 0.9.0). Once inlined they are part of the **output surface**, owned, committed, and drift-checked, so a change to their behavior is an output-shape change under the same major-bump rule above. Until 0.9.0 ships, they still live in the generator package and are part of the **tool surface** (a `composer update` can change their behavior under committed code); that transitional window is exactly the silent-change surface Option B closes.
 
 **Tool-surface breaks (the classic part):**
 
@@ -45,10 +45,10 @@ What is explicitly **not** breaking (a minor or patch, no major bump needed):
 - A **bug fix in the generator** that changes output to be *more* correct is still technically an output change, see the honest caveat below.
 
 <Aside type="note" title="The honest caveat on correctness fixes">
-  A generator that promises byte-stable output forever can never fix an emitter bug, which is absurd: the whole point is to correct the code it writes. So the realistic promise is narrower than "output never changes". The proposal is: **intentional output changes ship in a major release with a documented changelog entry and a regeneration note**, and the project does not change output shape in a patch except to fix a clearly broken result (non-compiling code, a dropped constraint that let invalid data through). Those correctness patches are called out explicitly in the changelog so a surprised drift check after `composer update` is expected, not mysterious. This is the same posture the 0.x correctness sweeps already took.
+  A generator that promises byte-stable output forever can never fix an emitter bug, which is absurd: the whole point is to correct the code it writes. So the realistic promise is narrower than "output never changes". The policy is: **intentional output changes ship in a major release with a documented changelog entry and a regeneration note**, and the project does not change output shape in a patch except to fix a clearly broken result (non-compiling code, a dropped constraint that let invalid data through). Those correctness patches are called out explicitly in the changelog so a surprised drift check after `composer update` is expected, not mysterious. This is the same posture the 0.x correctness sweeps already took.
 </Aside>
 
-## Proposed: the upgrade flow (regeneration is the contract)
+## The upgrade flow (regeneration is the contract)
 
 Because you own the generated code, an upgrade is not "install and trust". It is **install, regenerate, review, commit**:
 
@@ -69,7 +69,7 @@ The [drift check](/guides/drift-check) (`openapi:check`) compares your committed
 
 Practically: pin the generator version (Composer does this), and treat a generator bump as a deliberate, reviewed change set, a PR that bumps the version *and* commits the regenerated output together, so the drift check passes on that PR and your history shows exactly what the upgrade did to your code.
 
-## Proposed: 0.x versus 1.0.0
+## 0.x versus 1.0.0
 
 The project is deliberately in 0.x while the output format is still settling ([decision 8](/roadmap)).
 
@@ -78,12 +78,12 @@ The project is deliberately in 0.x while the output format is still settling ([d
 
 In short: 0.x says "expect output churn, always regenerate"; 1.0.0 says "output is stable across minors and patches, output changes are a major release you opt into".
 
-## Open decision for the maintainer
+## Decision
 
-<Aside type="caution" title="Decision needed before 1.0.0">
-  **Two points need Benjamin's sign-off:**
+<Aside type="note" title="Decided">
+  Both points are settled.
 
-  1. **Adopt this breaking-change definition as the formal 1.0.0 promise?** Specifically the boundary that *intentional* output-shape and validation-behavior changes are major-only, while *correctness patches* (non-compiling output, dropped constraints) may ship in a patch with an explicit changelog call-out. The alternative, stricter promise is "output is byte-frozen, even correctness fixes wait for a major", which is cleaner to state but means known-broken output ships until the next major. Recommendation: adopt the pragmatic version (correctness patches allowed, always changelogged), because a generator that cannot fix its own broken output in a patch is worse for users than one that documents the rare exception.
+  1. **The pragmatic breaking-change definition is adopted as the formal 1.0.0 promise.** *Intentional* output-shape and validation-behavior changes are major-only, while *correctness patches* (non-compiling output, a dropped or wrong constraint) may ship in a patch with an explicit changelog call-out. The stricter alternative ("output is byte-frozen, even correctness fixes wait for a major") was rejected: a generator that cannot fix its own broken output in a patch is worse for users than one that documents the rare, always-changelogged exception.
 
-  2. **This policy depends on [#40 (runtime coupling)](/guides/runtime-coupling).** If the support classes stay in the generator package, their runtime behavior is part of this versioning surface (a `composer update` can change validation under committed code). If they move into the consumer's output or a frozen runtime package, they fall under the output surface or a separately-frozen package instead, and the third breaking-change bullet above should be reworded. Resolve #40 first, then finalize the wording here.
+  2. **[#40 (runtime coupling)](/guides/runtime-coupling) is resolved to Option B:** the support classes are inlined into the consumer's own output (landing in 0.9.0). Once inlined they fall under the **output surface** and are governed by the same major-bump rule as the rest of the generated code. Until 0.9.0 ships they remain part of the tool surface, as the third breaking-change bullet above describes.
 </Aside>
