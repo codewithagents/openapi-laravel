@@ -26,7 +26,7 @@ import { Card, CardGrid, Tabs, TabItem, Steps, Aside } from '@astrojs/starlight/
 
 ## See it in action
 
-![openapi-laravel generating typed Data classes from an OpenAPI spec](/media/openapi-laravel-demo.gif)
+![Full flow: generate models, rules, controllers and routes from an OpenAPI spec, catch drift in CI, regenerate without touching hand-written code](/media/openapi-laravel-full-flow.gif)
 
 A single object schema in your spec becomes a `laravel-data` class with an explicit `rules()` method, plus a native backed enum for any enum it references.
 
@@ -109,8 +109,8 @@ openapi.yaml
   └── openapi-laravel  →  app/Data/CustomerData.php                    (laravel-data class + rules())
                           app/Data/CustomerStatus.php                  (native backed enum)
                           app/Data/CustomerWritableData.php            (write variant, when spec uses readOnly/writeOnly)
-                          app/Http/Controllers/Api/AbstractPetController.php  (--controllers)
-                          routes/api.generated.php                     (--routes)
+                          app/Http/Controllers/Api/AbstractPetController.php  (abstract controller per tag)
+                          routes/api.generated.php                     (generated routing table)
 ```
 
 You write your business logic. The DTOs, validation, controller signatures, and routing table stay in sync when the spec changes. Re-run the generator and the diff tells you exactly what moved.

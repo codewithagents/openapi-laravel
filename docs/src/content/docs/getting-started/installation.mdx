@@ -47,9 +47,8 @@ import { Steps, Aside } from '@astrojs/starlight/components'
 
 <Aside type="tip">
   If you skip publishing the config, the artisan command still accepts `--spec` and `--output` on the
-  command line. The output **namespace** is set only in the config file (`output.namespace`); the
-  artisan command has no `--namespace` flag. The standalone binary does accept `--namespace`, because
-  it has no config file to read from.
+  command line. The output **namespace** defaults to `output.namespace` in the config file, and both the
+  artisan command and the standalone binary accept a `--namespace` flag that overrides it per run.
 </Aside>
 
 ## Next

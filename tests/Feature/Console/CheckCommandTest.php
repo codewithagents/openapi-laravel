@@ -111,7 +111,7 @@ it('prints a unified diff for a changed file with --diff', function () use ($cus
         ->assertExitCode(1);
 });
 
-it('checks generated controllers and the routes file too', function () use ($serverSpec, $tempOut) {
+it('checks generated controllers and the routes file by default', function () use ($serverSpec, $tempOut) {
     $out = $tempOut();
     $controllerOut = $out.'/Http/Controllers/Api';
     $routesOut = $out.'/routes/api.generated.php';
@@ -123,28 +123,49 @@ it('checks generated controllers and the routes file too', function () use ($ser
     $this->artisan('openapi:generate', [
         '--spec' => $serverSpec(),
         '--output' => $out,
-        '--controllers' => true,
-        '--routes' => true,
     ])->assertSuccessful();
 
     $this->artisan('openapi:check', [
         '--spec' => $serverSpec(),
         '--output' => $out,
-        '--controllers' => true,
-        '--routes' => true,
     ])->assertExitCode(0);
 
-    // Tamper the routes file: it must now read as drifted.
+    // Tamper the routes file: it must now read as drifted, no flags needed.
     file_put_contents($routesOut, file_get_contents($routesOut)."\n// edited\n");
 
     $this->artisan('openapi:check', [
         '--spec' => $serverSpec(),
         '--output' => $out,
-        '--controllers' => true,
-        '--routes' => true,
     ])
         ->expectsOutputToContain('[changed] '.$routesOut)
         ->assertExitCode(1);
+});
+
+it('skips the scaffold in check with --no-controllers and --no-routes', function () use ($serverSpec, $tempOut) {
+    $out = $tempOut();
+
+    config()->set('openapi-laravel.controllers.path', $out.'/Http/Controllers/Api');
+    config()->set('openapi-laravel.routes.path', $out.'/routes/api.generated.php');
+
+    // Generate models only; a default check would flag the scaffold as missing.
+    $this->artisan('openapi:generate', [
+        '--spec' => $serverSpec(),
+        '--output' => $out,
+        '--no-controllers' => true,
+        '--no-routes' => true,
+    ])->assertSuccessful();
+
+    $this->artisan('openapi:check', [
+        '--spec' => $serverSpec(),
+        '--output' => $out,
+        '--no-controllers' => true,
+        '--no-routes' => true,
+    ])->assertExitCode(0);
+
+    $this->artisan('openapi:check', [
+        '--spec' => $serverSpec(),
+        '--output' => $out,
+    ])->assertExitCode(1);
 });
 
 it('never flags the user hand-written concrete controllers', function () use ($serverSpec, $tempOut) {
@@ -169,6 +190,15 @@ it('never flags the user hand-written concrete controllers', function () use ($s
         '--output' => $out,
         '--controllers' => true,
     ])->assertExitCode(0);
+});
+
+it('exits 2 when --controllers is combined with --no-controllers', function () use ($serverSpec, $tempOut) {
+    $this->artisan('openapi:check', [
+        '--spec' => $serverSpec(),
+        '--output' => $tempOut(),
+        '--controllers' => true,
+        '--no-controllers' => true,
+    ])->assertExitCode(2);
 });
 
 it('exits 2 on a configuration error (no spec)', function () use ($tempOut) {

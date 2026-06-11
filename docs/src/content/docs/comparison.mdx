@@ -17,7 +17,7 @@ The Laravel ecosystem is full of **code-first** tools that generate an OpenAPI d
 | Generates laravel-data DTOs | **Yes** | No | No (custom DTOs) | You do |
 | Spec-derived validation `rules()` | **Yes** | No | Partial | You do |
 | Native PHP enums | **Yes** | No | No | You do |
-| Server scaffold (abstract controllers + routes) | **Yes** (opt-in) | No | Yes | You do |
+| Server scaffold (abstract controllers + routes) | **Yes** (default) | No | Yes | You do |
 | `allOf` / `additionalProperties` | **Yes** | n/a | Partial | You do |
 | `oneOf` / `anyOf` | **Union type hints** (object unions need a discriminator at runtime) | n/a | Partial | You do |
 | Minimum Laravel version | **11** | 9+ | 10+ | n/a |
@@ -41,7 +41,7 @@ Pick them when your code is authoritative and you want documentation generated f
 
 [ensi-platform/laravel-openapi-server-generator](https://github.com/ensi-platform/laravel-openapi-server-generator) is one of the few spec-first generators in the ecosystem. It generates server scaffolding, but it relies on custom OpenAPI extensions, so the input is not a plain standard spec, and it produces its own DTO shape rather than `laravel-data` classes with derived validation.
 
-`openapi-laravel` reads standard OpenAPI with no custom extensions, emits `laravel-data` classes with explicit `rules()` and native enums, and offers an opt-in server scaffold (abstract controllers per tag plus a routes file) typed by those same classes. See the [server scaffold guide](/guides/server-scaffold).
+`openapi-laravel` reads standard OpenAPI with no custom extensions, emits `laravel-data` classes with explicit `rules()` and native enums, and a server scaffold (abstract controllers per tag plus a routes file) typed by those same classes, all in one default run. See the [server scaffold guide](/guides/server-scaffold).
 
 ## Hand-writing
 

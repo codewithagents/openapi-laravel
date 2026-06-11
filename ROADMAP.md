@@ -46,6 +46,21 @@ change, every generated file passes `php -l` and import resolution, and the diff
 a fully-enforced discriminated case with no known-gap entry. The undiscriminated object-union case
 (#31) stays a tracked, documented limitation.
 
+### Default full generation (issue #45)
+
+`openapi:generate` / `openapi:check` and the standalone binary now emit and check models,
+controllers, and routes by default. `--no-controllers` / `--no-routes` opt out, precedence is flags
+over config over defaults, and the standalone binary reads an optional `openapi-laravel.json` with
+derived scaffold paths (`<output>/Controllers`, `<output>/routes.php`). The v1/v2 tier framing was
+retired from user-facing docs.
+
+### Format: time and duration validation (issue #49), @deprecated docblocks (issue #43)
+
+`format: time` and `format: duration` now emit real validation (`Rfc3339TimeRule`,
+`Iso8601DurationRule`) instead of silently accepting any string, closing a fidelity blind spot the
+golden harness was not asserting. Deprecated schemas and properties now carry `@deprecated`
+docblocks (with an optional reason from the `x-deprecated-reason` vendor extension).
+
 ## Done in 0.7.0 (correctness and robustness hardening)
 
 ### Differential validation oracle (issue #23)
