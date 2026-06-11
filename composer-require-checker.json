@@ -5,6 +5,7 @@
         "Illuminate\\Console\\Command",
         "Illuminate\\Support\\ServiceProvider",
         "Illuminate\\Contracts\\Validation\\ValidationRule",
+        "Illuminate\\Contracts\\Validation\\DataAwareRule",
         "Symfony\\Component\\Yaml\\Yaml"
     ]
 }
