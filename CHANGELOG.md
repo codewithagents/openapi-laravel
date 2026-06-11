@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.8.0](https://github.com/codewithagents/openapi-laravel/compare/v0.7.0...v0.8.0) (2026-06-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* openapi:generate and openapi:check now emit and check the full output by default; use --no-controllers / --no-routes to opt out. Closes #45
+
+### Features
+
+* **console:** contain output paths from discovered config ([#54](https://github.com/codewithagents/openapi-laravel/issues/54)) ([8c7b152](https://github.com/codewithagents/openapi-laravel/commit/8c7b1522ebbe9242779802cdfffc1b1929f25adf))
+* **emitter:** discriminator-aware oneOf/anyOf union base + variant generation ([0adcf08](https://github.com/codewithagents/openapi-laravel/commit/0adcf08bc57cd6347af7cc05062f3474ba87727e))
+* **emitter:** emit [@deprecated](https://github.com/deprecated) docblocks for deprecated schemas and properties ([94a30aa](https://github.com/codewithagents/openapi-laravel/commit/94a30aaa9f6dc2965001b19272c4862b29543023))
+* **emitter:** opt-in additionalProperties:false enforcement ([#30](https://github.com/codewithagents/openapi-laravel/issues/30)) ([f3f632e](https://github.com/codewithagents/openapi-laravel/commit/f3f632e315146c3cd86773d37a6a18fced8083fd))
+* generate models, rules, controllers and routes by default ([#46](https://github.com/codewithagents/openapi-laravel/issues/46)) ([0a9acc9](https://github.com/codewithagents/openapi-laravel/commit/0a9acc99f35ba334c7e33ea2b3b2a8a515522e3a))
+
+
+### Bug Fixes
+
+* **ci:** whitelist Illuminate DataAwareRule for require-checker ([c7570d3](https://github.com/codewithagents/openapi-laravel/commit/c7570d330af820aab9578f9ed3181c40d8ac2f71))
+* **deps:** require spatie/laravel-data ^4.15 for PropertyMorphableData morph support ([57b969b](https://github.com/codewithagents/openapi-laravel/commit/57b969b101a8cb4b35dfc5ab44d2676994c0d209))
+* **emitter:** integer discriminator forwards int param and int morph arms ([e630b56](https://github.com/codewithagents/openapi-laravel/commit/e630b5646b94d4903e3e519bba3b7b16ad29b5e2))
+* **emitter:** keep boolean members of a mixed-type enum in Rule::in ([ae8717e](https://github.com/codewithagents/openapi-laravel/commit/ae8717e991e81deb6749887ea1e2bc704b60f6c8))
+* **emitter:** morph() reads PHP property name + warn on discriminated-union degrades ([98ef4cf](https://github.com/codewithagents/openapi-laravel/commit/98ef4cffad53c60ec8a094cf0d9a3932130c8e15))
+* **emitter:** nullable mixed union accepts a present null ([#8](https://github.com/codewithagents/openapi-laravel/issues/8)) ([0026271](https://github.com/codewithagents/openapi-laravel/commit/0026271251c0c3dcde857f9789ca9485a707b876))
+* **emitter:** pin a variant discriminator const for standalone validation (#disc-const) ([008cab7](https://github.com/codewithagents/openapi-laravel/commit/008cab7dc808658ac30ba93b9432f3cae4632fbc))
+* **emitter:** validate format: time and duration ([9dbdf55](https://github.com/codewithagents/openapi-laravel/commit/9dbdf5548464393026443a9859d471a519f66a3b))
+
+
+### Miscellaneous Chores
+
+* bump minor for pre-major breaking changes in release-please ([646061f](https://github.com/codewithagents/openapi-laravel/commit/646061fca40756ff37c82f998d0594c28369e512))
+* **release:** set bump-minor-pre-major to keep breaking changes in 0.x ([4d71261](https://github.com/codewithagents/openapi-laravel/commit/4d71261d399018da116e78a6cc8211171447600a))
+
 ## [0.7.0](https://github.com/codewithagents/openapi-laravel/compare/v0.6.0...v0.7.0) (2026-06-11)
 
 
