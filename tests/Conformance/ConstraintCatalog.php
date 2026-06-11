@@ -773,6 +773,53 @@ final class ConstraintCatalog
                     ['label' => 'matches neither variant must be rejected', 'payload' => ['pet' => ['quack' => 'q']], 'violates' => 'oneOf.no-match'],
                 ],
             ],
+            // DISCRIMINATED oneOf (issue #38): the same Pet union, now WITH a
+            // discriminator. Unlike the undiscriminated PetHolder above (which is
+            // presence-only and a tracked known gap), this is FULLY enforced: the
+            // generator emits an abstract morphable base, so the right variant is
+            // selected and its own rules are applied. The oracle proves the
+            // accept/reject behaviour with no known-gap entry, demonstrating real
+            // variant validation, not just type-checking.
+            [
+                'construct' => 'DiscriminatedPetHolder',
+                'root' => 'DiscriminatedPetHolder',
+                'schemas' => [
+                    'DiscPet' => [
+                        'oneOf' => [
+                            ['$ref' => '#/components/schemas/DiscCat'],
+                            ['$ref' => '#/components/schemas/DiscDog'],
+                        ],
+                        'discriminator' => [
+                            'propertyName' => 'petType',
+                            'mapping' => ['cat' => 'DiscCat', 'dog' => 'DiscDog'],
+                        ],
+                    ],
+                    'DiscCat' => [
+                        'type' => 'object',
+                        'required' => ['petType', 'meow'],
+                        'properties' => ['petType' => ['type' => 'string'], 'meow' => ['type' => 'string']],
+                    ],
+                    'DiscDog' => [
+                        'type' => 'object',
+                        'required' => ['petType', 'bark'],
+                        'properties' => ['petType' => ['type' => 'string'], 'bark' => ['type' => 'string']],
+                    ],
+                    'DiscriminatedPetHolder' => [
+                        'type' => 'object',
+                        'required' => ['pet'],
+                        'properties' => ['pet' => ['$ref' => '#/components/schemas/DiscPet']],
+                    ],
+                ],
+                'valid' => [
+                    ['label' => 'cat discriminator with a valid cat shape', 'payload' => ['pet' => ['petType' => 'cat', 'meow' => 'mrr']]],
+                    ['label' => 'dog discriminator with a valid dog shape', 'payload' => ['pet' => ['petType' => 'dog', 'bark' => 'woof']]],
+                ],
+                'invalid' => [
+                    ['label' => 'cat discriminator missing the cat-required meow', 'payload' => ['pet' => ['petType' => 'cat', 'bark' => 'woof']], 'violates' => 'discriminator.variant.required'],
+                    ['label' => 'unmapped discriminator value', 'payload' => ['pet' => ['petType' => 'fish']], 'violates' => 'discriminator.unmapped'],
+                    ['label' => 'missing the discriminator property', 'payload' => ['pet' => ['meow' => 'mrr']], 'violates' => 'discriminator.missing'],
+                ],
+            ],
         ];
     }
 }

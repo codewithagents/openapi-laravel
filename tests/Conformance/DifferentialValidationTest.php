@@ -67,7 +67,21 @@ function differentialGenerate(string $namespace, array $schemas): void
     $spec = Reader::readFromJson((string) json_encode($normalized), OpenApi::class);
     $files = (new ModelGenerator(new GeneratorOptions($namespace)))->generate($spec);
 
-    foreach ($files as $file) {
+    // A discriminated-union variant `extends <Base>Data`, so the abstract base
+    // must be declared before the variant is required. Load abstract bases first;
+    // the rest keep their (deterministic) order.
+    $ordered = [];
+    $rest = [];
+    foreach ($files as $name => $file) {
+        if (str_contains($file->code, 'abstract class ')) {
+            $ordered[$name] = $file;
+        } else {
+            $rest[$name] = $file;
+        }
+    }
+    $ordered += $rest;
+
+    foreach ($ordered as $file) {
         $path = $dir.'/'.str_replace('\\', '_', $namespace).'_'.$file->filename();
         file_put_contents($path, $file->code);
         require_once $path;
