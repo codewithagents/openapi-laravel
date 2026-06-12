@@ -52,11 +52,28 @@ final class RequestDataSynthesizer
      * emitting per-operation duplicates. Only successful syntheses are cached:
      * a failed one (non-object shape) warns per referencing operation. Per-run
      * state, like everything else here: the synthesizer is recreated together
-     * with the GenerationState on every generate() run.
+     * with the GenerationState on every generate() run. Note: per GENERATOR
+     * lifecycle (one generate() call), not per collect() call, so a generator
+     * reused across different documents would return a stale class name.
      *
      * @var array<string, string>
      */
     private array $componentBodyClasses = [];
+
+    /**
+     * Component response name => the SHARED Data class synthesized for it
+     * (issue #116), mirroring $componentBodyClasses: several operations
+     * routinely `$ref` one `#/components/responses/<Name>` entry, and the
+     * shared shape gets ONE class instead of per-operation duplicates. Only
+     * successful syntheses are cached: a failed one (non-object shape) warns
+     * per referencing operation. Per-run state, like everything else here.
+     * Note: per GENERATOR lifecycle (one generate() call), not per collect()
+     * call, so a generator reused across different documents would return a
+     * stale class name.
+     *
+     * @var array<string, string>
+     */
+    private array $componentResponseClasses = [];
 
     /**
      * Emit a per-operation query Data class (issue #63) for an operation's
@@ -435,6 +452,72 @@ final class RequestDataSynthesizer
         $this->state->files = $mainFiles;
 
         return $this->componentBodyClasses[$componentName] = $className;
+    }
+
+    /**
+     * Emit the SHARED Data class of a component response (issue #116) whose
+     * JSON content schema is an inline object, mirroring
+     * {@see generateComponentBodyData()} exactly with ONE deliberate
+     * difference: a response is server OUTPUT, so a schema that splits fields
+     * with readOnly/writeOnly emits the READ shape (writeOnly properties
+     * dropped, readOnly kept), the opposite of the write variant a request
+     * body takes. The shared shape gets ONE class named after the component
+     * (`<Component>ResponseData`); the first referencing operation
+     * synthesizes it and every later one reuses the cached name.
+     *
+     * Only a SUCCESSFUL synthesis is cached: a non-object shape returns null
+     * with a warning naming the operation AND the component, and the next
+     * referencing operation warns again (each fallback is per-operation
+     * information the user should see).
+     *
+     * @param  string  $componentName  the raw `components.responses` key
+     * @param  string  $operationLabel  "GET /pets", for warning messages
+     * @param  ?string  $tag  the single tag shared by every operation referencing this component, or null (mixed tag groups or tagless), which places the shared class at the flat root, mirroring how multi-group schemas stay at the root (issue #93)
+     * @return string|null the shared response class name, or null when the schema cannot type a response
+     */
+    public function generateComponentResponseData(string $componentName, string $operationLabel, SchemaNode $schema, ?string $tag = null): ?string
+    {
+        $existing = $this->componentResponseClasses[$componentName] ?? null;
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        // Degradation warnings inside the emission name the component, not
+        // whichever operation happened to trigger the synthesis first: the
+        // class is shared, so the finding is component-grained.
+        $this->state->warningContext = sprintf('Response component "%s"', $componentName);
+
+        $reason = $this->bodySkipReason($schema);
+        if ($reason !== null) {
+            $this->state->warnings[sprintf(
+                'Operation %s: the response component "%s" was not generated as a typed Data class (%s); the return type falls back to JsonResponse.',
+                $operationLabel,
+                $componentName,
+                $reason,
+            )] = true;
+
+            return null;
+        }
+
+        $className = $this->state->names->reserve(
+            $this->state->options->withSuffix(PhpIdentifier::toClassName($componentName).'Response'),
+        );
+        $this->state->fileGroups[$className] = $this->groupForTag($tag);
+
+        // Same bucket discipline as generateComponentBodyData(): emit into a
+        // clean bucket and collect into $responseFiles for the planner.
+        $mainFiles = $this->state->files;
+        $this->state->files = [];
+
+        $variant = ($this->hasReadWriteFlags)($schema) ? 'read' : 'all';
+        ($this->emitData)($className, $schema, 0, $variant, ['Response component "'.PhpLiteral::docblockSafe($componentName).'".']);
+
+        foreach ($this->state->files as $name => $file) {
+            $this->state->responseFiles[$name] = $file;
+        }
+        $this->state->files = $mainFiles;
+
+        return $this->componentResponseClasses[$componentName] = $className;
     }
 
     /**

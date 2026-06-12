@@ -36,8 +36,9 @@ it('generates valid controllers and routes for every corpus spec', function (str
     $routes = (new RouteGenerator($options))->generate($descriptors);
     $queryFiles = array_values($generator->queryFiles());
     $bodyFiles = array_values($generator->bodyFiles());
+    $responseFiles = array_values($generator->responseFiles());
 
-    $files = array_merge(array_values($controllers), $queryFiles, $bodyFiles);
+    $files = array_merge(array_values($controllers), $queryFiles, $bodyFiles, $responseFiles);
     $files[] = $routes;
 
     foreach ($files as $file) {

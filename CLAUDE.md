@@ -55,6 +55,11 @@ A `#/components/requestBodies/...` $ref body resolves to the component and route
 content-type logic (#110): a wrapped schema $ref reuses that component's existing Data class, an
 inline object schema emits ONE shared `<Component>RequestData` class for every referencing
 operation (single shared tag group, or the flat root when they span groups).
+A `#/components/responses/...` $ref on the selected success response resolves the same way (#116):
+a wrapped schema $ref reuses the existing Data class as the return type, an inline object schema
+emits ONE shared `<Component>ResponseData` class (READ variant: readOnly stays, writeOnly drops)
+with the same tag-group placement, the #64 status semantics are unchanged (a 204 $ref stays `void`
+with no resolution attempt), and a non-object shape keeps the warned JsonResponse fallback.
 A `oneOf`/`anyOf`-of-Data-class response is typed as a union return. Every
 route carries a deterministic `->name()` from its operationId (globally unique, `_2` suffix on
 cross-controller clashes), and the config-only `routes.middleware` / `routes.prefix` keys wrap the
@@ -103,8 +108,11 @@ a wrong value when validated standalone (morph routing through the base is unaff
 `$ref` request bodies (`#/components/requestBodies/...`) resolve to typed Data params (#110);
 inline JSON OBJECT bodies are generated as `<Operation>RequestData` classes (#76) and
 multipart/form-data OBJECT bodies too (#75), but a body that is not an object shape (array, scalar,
-union, enum, free-form map, whole-body binary multipart) keeps the warned Request fallback, and a
-`#/components/responses/...` $ref still falls back to JsonResponse. Multipart residuals (#75):
+union, enum, free-form map, whole-body binary multipart) keeps the warned Request fallback.
+Component `$ref` responses resolve to typed returns (#116); a component response whose JSON schema
+is not an object shape keeps the warned JsonResponse fallback, an unresolvable response $ref
+(external, `#/paths/...`, missing, ref-to-ref) keeps it too, and an inline (non-component) object
+response schema is still not synthesized. Multipart residuals (#75):
 no file-size rule (OpenAPI has no standard byte-size
 keyword), `encoding.contentType` is not read (only `contentMediaType` feeds `mimetypes:`), and a
 binary string nested below the multipart root stays a plain string; tuple `prefixItems` validates

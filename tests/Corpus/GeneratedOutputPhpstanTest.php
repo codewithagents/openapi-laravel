@@ -81,13 +81,13 @@ it('generates PHPStan-max-clean output (phpstan analyse reports no errors)', fun
         $document = $parser104->parseFileToDocument($path);
         $generator = new ModelGenerator;
         $files = $generator->generate($document);
-        // The per-operation query (issue #63) and inline request-body (issue
-        // #76) Data classes are generated output too: run the collector with
-        // the generator wired in, exactly like the planner, so they are
-        // analysed alongside the model classes. Stripe in particular emits
-        // hundreds of them.
+        // The per-operation query (issue #63), inline request-body (issue
+        // #76), and shared component-response (issue #116) Data classes are
+        // generated output too: run the collector with the generator wired
+        // in, exactly like the planner, so they are analysed alongside the
+        // model classes. Stripe in particular emits hundreds of them.
         (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($document);
-        $files = array_merge($files, $generator->queryFiles(), $generator->bodyFiles());
+        $files = array_merge($files, $generator->queryFiles(), $generator->bodyFiles(), $generator->responseFiles());
         // The inlined runtime support classes (issue #40) are owned output and
         // the Data classes import them, so analyse them too: both to prove the
         // support code is itself PHPStan-max-clean in the consumer namespace, and

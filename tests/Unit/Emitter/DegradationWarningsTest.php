@@ -477,7 +477,26 @@ it('warns when the request body $ref is external or dangling', function () {
     );
 });
 
-it('warns when the selected success response is a $ref into components.responses', function () {
+it('warns when the selected success response $ref does not resolve to a component response', function () {
+    [$warnings] = degradationCollectorRun([
+        '/pets' => [
+            'get' => [
+                'operationId' => 'listPets',
+                'responses' => ['200' => ['$ref' => '#/components/responses/Missing']],
+            ],
+        ],
+    ], [
+        'responses' => [
+            'PetList' => ['description' => 'ok'],
+        ],
+    ]);
+
+    expect($warnings)->toContain(
+        'Operation GET /pets: the "200" response $ref ("#/components/responses/Missing") does not resolve to a component response; the return type falls back to JsonResponse.',
+    );
+});
+
+it('stays silent for a resolved component response without JSON content (issue #116)', function () {
     [$warnings] = degradationCollectorRun([
         '/pets' => [
             'get' => [
@@ -491,8 +510,31 @@ it('warns when the selected success response is a $ref into components.responses
         ],
     ]);
 
-    expect($warnings)->toContain(
-        'Operation GET /pets: the "200" response is a $ref ("#/components/responses/PetList") and component responses are not resolved yet; the return type falls back to JsonResponse.',
+    // The $ref resolves (issue #116); a resolved response with no JSON
+    // content keeps the same silent JsonResponse fallback an inline non-JSON
+    // response takes.
+    expect($warnings)->toBe([]);
+});
+
+it('warns when a component response resolves to an inline non-object schema (issue #116)', function () {
+    [$warnings, $modelWarnings] = degradationCollectorRun([
+        '/pets' => [
+            'get' => [
+                'operationId' => 'listPets',
+                'responses' => ['200' => ['$ref' => '#/components/responses/PetList']],
+            ],
+        ],
+    ], [
+        'responses' => [
+            'PetList' => [
+                'description' => 'ok',
+                'content' => ['application/json' => ['schema' => ['type' => 'array', 'items' => ['type' => 'string']]]],
+            ],
+        ],
+    ]);
+
+    expect([...$warnings, ...$modelWarnings])->toContain(
+        'Operation GET /pets: the response component "PetList" was not generated as a typed Data class (it is not an object schema); the return type falls back to JsonResponse.',
     );
 });
 
@@ -516,12 +558,12 @@ it('stays silent for a $ref response selected at 204 (the method is void either 
     expect($warnings)->toBe([]);
 });
 
-it('warns when the default response is a bypassed $ref', function () {
+it('warns when the default response is an unresolvable $ref', function () {
     [$warnings] = degradationCollectorRun([
         '/pets' => [
             'get' => [
                 'operationId' => 'listPets',
-                'responses' => ['default' => ['$ref' => '#/components/responses/Anything']],
+                'responses' => ['default' => ['$ref' => '#/components/responses/Missing']],
             ],
         ],
     ], [
@@ -531,7 +573,7 @@ it('warns when the default response is a bypassed $ref', function () {
     ]);
 
     expect($warnings)->toContain(
-        'Operation GET /pets: the "default" response is a $ref ("#/components/responses/Anything") and component responses are not resolved yet; the return type falls back to JsonResponse.',
+        'Operation GET /pets: the "default" response $ref ("#/components/responses/Missing") does not resolve to a component response; the return type falls back to JsonResponse.',
     );
 });
 

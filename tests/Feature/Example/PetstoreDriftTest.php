@@ -41,10 +41,10 @@ function regenerateDemo(): array
     $routeFile = (new RouteGenerator($serverOptions))->generate($descriptors);
 
     return [
-        // The query and inline-body classes live next to the model Data
-        // classes, same namespace and directory, exactly as the planner
-        // writes them.
-        'data' => [...$dataFiles, ...$modelGenerator->queryFiles(), ...$modelGenerator->bodyFiles()],
+        // The query, inline-body, and component-response classes live next to
+        // the model Data classes, same namespace and directory, exactly as
+        // the planner writes them.
+        'data' => [...$dataFiles, ...$modelGenerator->queryFiles(), ...$modelGenerator->bodyFiles(), ...$modelGenerator->responseFiles()],
         // Collected AFTER the query and body classes so their rule references count.
         'support' => $modelGenerator->supportFiles(),
         'controllers' => $controllerFiles,

@@ -71,7 +71,7 @@ it('generates valid, namespace-resolvable PHP with the grouped layout', function
     $controllers = (new ControllerGenerator($serverOptions))->generate($descriptors);
     $routes = (new RouteGenerator($serverOptions))->generate($descriptors);
 
-    $dataFiles = [...array_values($modelFiles), ...array_values($generator->queryFiles()), ...array_values($generator->bodyFiles())];
+    $dataFiles = [...array_values($modelFiles), ...array_values($generator->queryFiles()), ...array_values($generator->bodyFiles()), ...array_values($generator->responseFiles())];
     $allFiles = [...$dataFiles, ...array_values($generator->supportFiles()), ...array_values($controllers), $routes];
 
     // Syntax gate: every emitted file must parse.

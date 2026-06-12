@@ -139,13 +139,13 @@ paths:
         '422':                    # 422 with NO content schema (validation error, body-less)
           description: Validation failed (no response body schema)
 
-  # requestBody as a $ref to a COMPONENT REQUESTBODY (the Request-fallback case).
+  # requestBody as a $ref to a COMPONENT REQUESTBODY (resolved since #110).
   /gizmos:
     post:
       operationId: createGizmo
       summary: requestBody $ref to a component requestBody object
       tags: [gizmos]
-      requestBody:                # $ref to components.requestBodies (Request fallback)
+      requestBody:                # $ref to components.requestBodies (#110)
         $ref: '#/components/requestBodies/GizmoBody'
       responses:
         '200':
@@ -154,6 +154,47 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Gizmo'
+
+  # Component RESPONSES (#116): a response that is a $ref into
+  # components.responses resolves to a typed return. Three forms: a wrapped
+  # schema $ref (reuses GizmoData), an inline object schema (synthesizes the
+  # shared GizmoSummaryResponseData class), and a body-less 204 (stays void).
+  /gizmos/{gizmoId}:
+    get:
+      operationId: getGizmo
+      summary: 200 response $ref to a component response wrapping a schema $ref
+      tags: [gizmos]
+      parameters:
+        - name: gizmoId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':                    # $ref into components.responses (schema-$ref form)
+          $ref: '#/components/responses/GizmoResponse'
+    delete:
+      operationId: deleteGizmo
+      summary: 204 component response $ref stays void
+      tags: [gizmos]
+      parameters:
+        - name: gizmoId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':                    # 204 $ref into components.responses (void path)
+          $ref: '#/components/responses/GizmoDeleted'
+
+  /gizmos/summary:
+    get:
+      operationId: getGizmoSummary
+      summary: component response with an inline object schema (shared synthesized class)
+      tags: [gizmos]
+      responses:
+        '200':                    # $ref into components.responses (inline-object form)
+          $ref: '#/components/responses/GizmoSummary'
 
   # Non-JSON response (application/octet-stream binary download).
   /widgets/{widgetId}/blob:
@@ -267,7 +308,7 @@ components:
 
   requestBodies:
 
-    # Component requestBody, referenced by /gizmos (Request-fallback case).
+    # Component requestBody, referenced by /gizmos (resolved since #110).
     GizmoBody:
       description: Reusable request body referenced by $ref
       required: true
@@ -275,6 +316,37 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/GizmoInput'
+
+  responses:
+
+    # Component response wrapping a schema $ref (#116): the return type
+    # reuses the existing GizmoData class, nothing is synthesized.
+    GizmoResponse:
+      description: A single gizmo as JSON
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Gizmo'
+
+    # Component response with an INLINE object schema (#116): synthesizes ONE
+    # shared GizmoSummaryResponseData class through the model pipeline.
+    GizmoSummary:
+      description: Aggregate gizmo counts
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [total]
+            properties:
+              total:
+                type: integer
+                minimum: 0
+              newestName:
+                type: string
+
+    # Body-less 204 component response (#116): the method stays void.
+    GizmoDeleted:
+      description: Gizmo deleted, no content
 
   schemas:
 

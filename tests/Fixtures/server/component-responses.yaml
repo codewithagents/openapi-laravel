@@ -1,0 +1,61 @@
+openapi: 3.0.3
+info:
+  title: Component Responses
+  version: 1.0.0
+paths:
+  /widgets:
+    get:
+      tags:
+        - widget
+      operationId: listWidgets
+      responses:
+        '200':
+          # Inline-object component response (#116): synthesizes the shared
+          # WidgetPageResponseData class through the model pipeline.
+          $ref: '#/components/responses/WidgetPage'
+  /widgets/{widgetId}:
+    get:
+      tags:
+        - widget
+      operationId: getWidget
+      parameters:
+        - name: widgetId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          # Component response wrapping a schema $ref (#116): the return type
+          # reuses the existing WidgetData class, nothing is synthesized.
+          $ref: '#/components/responses/WidgetItem'
+components:
+  responses:
+    WidgetPage:
+      description: A page of widgets
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [total]
+            properties:
+              total:
+                type: integer
+                minimum: 0
+              cursor:
+                type: string
+    WidgetItem:
+      description: A single widget
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Widget'
+  schemas:
+    Widget:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string

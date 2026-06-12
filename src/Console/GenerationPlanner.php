@@ -140,11 +140,12 @@ final readonly class GenerationPlanner
         // two views can never disagree about which operations exist.
         [$serverFiles, $serverWarnings] = $this->planServer($request, $document, $generator, $closure);
 
-        // The per-operation query Data classes (issue #63) and inline
-        // request-body Data classes (issue #76) live next to the model Data
-        // classes: same namespace, same output directory, same drift-checked
-        // CATEGORY_DATA bucket.
-        foreach ([...$generator->queryFiles(), ...$generator->bodyFiles()] as $operationFile) {
+        // The per-operation query Data classes (issue #63), inline
+        // request-body Data classes (issue #76), and shared component-response
+        // Data classes (issue #116) live next to the model Data classes: same
+        // namespace, same output directory, same drift-checked CATEGORY_DATA
+        // bucket.
+        foreach ([...$generator->queryFiles(), ...$generator->bodyFiles(), ...$generator->responseFiles()] as $operationFile) {
             $files[] = new PlannedFile(
                 $target.'/'.$operationFile->filename(),
                 $operationFile->code,
@@ -259,10 +260,11 @@ final readonly class GenerationPlanner
     /**
      * Plan the server scaffold (controllers + routes). The model generator is
      * handed through so the operation collector can emit the per-operation
-     * query Data classes (issue #63) and inline request-body Data classes
-     * (issue #76) with the exact rules pipeline the model classes used; the
-     * planner collects those files via queryFiles() / bodyFiles() after this
-     * returns.
+     * query Data classes (issue #63), inline request-body Data classes
+     * (issue #76), and shared component-response Data classes (issue #116)
+     * with the exact rules pipeline the model classes used; the planner
+     * collects those files via queryFiles() / bodyFiles() / responseFiles()
+     * after this returns.
      *
      * The collector runs even when controllers AND routes are both disabled:
      * the query and body Data classes are data-layer output (CATEGORY_DATA,

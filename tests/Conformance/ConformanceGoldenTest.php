@@ -5,6 +5,9 @@ declare(strict_types=1);
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
+use CodeWithAgents\OpenApiLaravel\Emitter\Server\ControllerGenerator;
+use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
+use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
 /**
@@ -81,6 +84,29 @@ function conformanceCode(string $class): string
     expect($files)->toHaveKey($class);
 
     return $files[$class]->code;
+}
+
+/**
+ * The server scaffold of the 3.1 fixture (issue #116), memoized: the
+ * abstract controllers plus the generator that ran the collection, so the
+ * component-response assertions can read both the controller signatures and
+ * the synthesized response classes. Wired exactly like the planner.
+ *
+ * @return array{0: array<string, GeneratedFile>, 1: ModelGenerator}
+ */
+function conformance31Server(): array
+{
+    static $result = null;
+    if ($result === null) {
+        $document = (new SpecParser)->parseFileToDocument(CONFORMANCE_31);
+        $generator = new ModelGenerator;
+        $generator->generate($document);
+        $options = new ServerOptions;
+        $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($document);
+        $result = [(new ControllerGenerator($options))->generate($descriptors), $generator];
+    }
+
+    return $result;
 }
 
 /**
@@ -673,6 +699,41 @@ it('emits a recursive self-referential schema and a deep ref chain (TreeNode, Ch
         // The chain links resolve A -> B -> C.
         ->and($files['ChainAData']->code)->toContain('ChainBData')
         ->and($files['ChainBData']->code)->toContain('ChainCData');
+});
+
+// --- Component $ref responses (#116) ----------------------------------------
+
+it('resolves component $ref responses to typed returns in the abstract controllers (#116)', function () {
+    [$controllers] = conformance31Server();
+    expect($controllers)->toHaveKey('AbstractGizmosController');
+
+    $code = $controllers['AbstractGizmosController']->code;
+
+    // (a) A component response wrapping a schema $ref reuses the existing
+    // Data class as the return type; nothing is synthesized for it.
+    expect($code)->toContain('abstract public function show(int $gizmoId): GizmoData;')
+        // (b) A component response with an INLINE object schema returns the
+        // shared synthesized class, named after the component.
+        ->and($code)->toContain('abstract public function index(): GizmoSummaryResponseData;')
+        // (c) A 204 component response $ref stays void (issue #64 semantics:
+        // the route middleware sets the status, the body stays empty).
+        ->and($code)->toContain('abstract public function destroy(int $gizmoId): void;')
+        // The synthesized class is imported from its single tag group: every
+        // referencing operation carries the gizmos tag (issue #93 placement).
+        ->and($code)->toContain('use App\Data\Gizmos\GizmoSummaryResponseData;');
+});
+
+it('synthesizes the shared component-response class through the full rules pipeline (#116)', function () {
+    [, $generator] = conformance31Server();
+
+    $files = $generator->responseFiles();
+    expect(array_keys($files))->toBe(['GizmoSummaryResponseData']);
+
+    $code = $files['GizmoSummaryResponseData']->code;
+    expect($code)->toContain('Response component "GizmoSummary".')
+        ->and($code)->toContain('final class GizmoSummaryResponseData extends Data')
+        ->and($code)->toContain("'total' => ['required', 'integer', 'min:0'],")
+        ->and($code)->toContain("'newestName' => ['sometimes', 'string'],");
 });
 
 // --- 3.0 nullable spellings ------------------------------------------------
