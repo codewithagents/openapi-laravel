@@ -299,3 +299,35 @@ it('folds the boolean items normalization into the document path (#20, #82)', fu
         ->and($closedTuple->prefixItems)->toHaveCount(2)
         ->and($closedTuple->maxItems)->toBe(2);
 });
+
+// #104 T3: the comparison toggle must be demonstrably live. The one place the
+// two paths legitimately differ is SchemaNormalizer's blunt key-based rewrite
+// INSIDE data blobs: `default: {nullable: "true"}` is user data, but the
+// normalizer walks every array and coerces the `nullable` key anyway. The
+// reader keeps default values verbatim (it coerces only at schema keyword
+// positions). No corpus spec triggers this (the byte-identical gate is green);
+// this test pins both behaviors so the toggle can never silently route both
+// modes through the same code path.
+
+it('routes through the new reader when the comparison toggle is set (#104 T3)', function () {
+    $path = writeTempSpec('quirk.json', json_encode([
+        'openapi' => '3.1.0',
+        'info' => ['title' => 'T', 'version' => '1.0.0'],
+        'paths' => [],
+        'components' => ['schemas' => ['X' => [
+            'type' => 'object',
+            'default' => ['nullable' => 'true'],
+        ]]],
+    ], JSON_THROW_ON_ERROR));
+
+    $viaCebe = (new SpecParser)->parseFile($path);
+    $viaReader = (new SpecParser(useNewReader: true))->parseFile($path);
+
+    $cebeDefault = (array) ((array) $viaCebe->components->schemas['X']->getSerializableData())['default'];
+    $readerDefault = (array) ((array) $viaReader->components->schemas['X']->getSerializableData())['default'];
+
+    // cebe path: the normalizer mutated the user data inside the blob.
+    expect($cebeDefault)->toBe(['nullable' => true])
+        // reader path: the blob survives verbatim, proving the toggle is live.
+        ->and($readerDefault)->toBe(['nullable' => 'true']);
+});
