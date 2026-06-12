@@ -52,7 +52,9 @@ final class RequestDataSynthesizer
      * emitting per-operation duplicates. Only successful syntheses are cached:
      * a failed one (non-object shape) warns per referencing operation. Per-run
      * state, like everything else here: the synthesizer is recreated together
-     * with the GenerationState on every generate() run.
+     * with the GenerationState on every generate() run. Note: per GENERATOR
+     * lifecycle (one generate() call), not per collect() call, so a generator
+     * reused across different documents would return a stale class name.
      *
      * @var array<string, string>
      */
@@ -65,6 +67,9 @@ final class RequestDataSynthesizer
      * shared shape gets ONE class instead of per-operation duplicates. Only
      * successful syntheses are cached: a failed one (non-object shape) warns
      * per referencing operation. Per-run state, like everything else here.
+     * Note: per GENERATOR lifecycle (one generate() call), not per collect()
+     * call, so a generator reused across different documents would return a
+     * stale class name.
      *
      * @var array<string, string>
      */

@@ -82,6 +82,24 @@ it('plans query Data classes even when controllers and routes are both disabled 
         ->and($plan->filesByCategory(PlannedFile::CATEGORY_ROUTES))->toBe([]);
 });
 
+it('plans component ResponseData classes even when controllers and routes are both disabled (#111)', function () use ($tempOut, $request) {
+    $out = $tempOut();
+    $spec = __DIR__.'/../../Fixtures/server/component-responses.yaml';
+    $plan = (new GenerationPlanner)->plan($request($spec, $out));
+
+    // The shared component-response classes are data-layer output exactly
+    // like the query and inline-body classes: a --no-controllers/--no-routes
+    // run must still emit them, in the CATEGORY_DATA bucket (here in the
+    // single Widget tag group its referencing operation owns), while
+    // planning no scaffold files.
+    $dataPaths = array_map(static fn (PlannedFile $f): string => $f->path, $plan->filesByCategory(PlannedFile::CATEGORY_DATA));
+
+    expect($dataPaths)->toContain($out.'/Widget/WidgetPageResponseData.php')
+        ->and($dataPaths)->toContain($out.'/WidgetData.php')
+        ->and($plan->filesByCategory(PlannedFile::CATEGORY_CONTROLLER))->toBe([])
+        ->and($plan->filesByCategory(PlannedFile::CATEGORY_ROUTES))->toBe([]);
+});
+
 it('plans byte-identical Data files with and without the server scaffold (lockstep)', function () use ($querySpec, $tempOut, $request) {
     $out = $tempOut();
     $planner = new GenerationPlanner;

@@ -204,6 +204,41 @@ it('reuses the existing Data class when the component response content schema is
         ->and($collector->warnings())->toBe([]);
 });
 
+it('keeps a silent JsonResponse fallback when the component response wraps a $ref to a non-Data component', function () {
+    // The registry path where the schema $ref NAME resolves but the kind is
+    // not 'data': an enum component and a scalar alias (which never enters
+    // the registry as a Data class). Both are the documented graceful
+    // fallback an inline response takes, silent because only an object shape
+    // can type the return; no synthesis is attempted (the resolved schema is
+    // a ReferenceNode, not an inline SchemaNode).
+    $paths = sharedComponentResponsePaths();
+    $paths['/shelter-pets']['get']['responses']['200'] = ['$ref' => '#/components/responses/PetName'];
+
+    [$descriptors, $generator, $collector] = collectComponentResponse(
+        $paths,
+        [
+            'PetPage' => [
+                'description' => 'A status enum',
+                'content' => ['application/json' => ['schema' => ['$ref' => '#/components/schemas/PetStatus']]],
+            ],
+            'PetName' => [
+                'description' => 'A scalar alias',
+                'content' => ['application/json' => ['schema' => ['$ref' => '#/components/schemas/PetName']]],
+            ],
+        ],
+        [
+            'PetStatus' => ['type' => 'string', 'enum' => ['available', 'sold']],
+            'PetName' => ['type' => 'string', 'maxLength' => 64],
+        ],
+    );
+
+    expect($descriptors[0]->returnType)->toBe('JsonResponse')
+        ->and($descriptors[1]->returnType)->toBe('JsonResponse')
+        ->and($descriptors[0]->imports)->toContain('Illuminate\\Http\\JsonResponse')
+        ->and($generator->responseFiles())->toBe([])
+        ->and($collector->warnings())->toBe([]);
+});
+
 it('keeps the oneOf union return when the component response wraps a union of Data-class $refs', function () {
     [$descriptors, $generator] = collectComponentResponse(
         sharedComponentResponsePaths(),
