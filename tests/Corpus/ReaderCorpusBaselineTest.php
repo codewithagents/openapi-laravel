@@ -23,9 +23,10 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  * tag v0.11.0) with the byte-for-byte identical recipe.
  *
  * Anything the reader path drops, moves, retypes, coerces, or renames, in any
- * file, by even one byte, changes the spec's hash and fails here. The
- * baseline file and this test are throwaway scaffolding for the migration,
- * revisited in Task 7 when the cebe path is deleted.
+ * file, by even one byte, changes the spec's hash and fails here. The gate
+ * outlived the migration (Task 7 removed the cebe dependency entirely): it
+ * stays as the frozen-baseline proof that the reader pipeline emits exactly
+ * what the v0.11.0 cebe pipeline emitted.
  *
  * Regenerating the baseline is only legitimate from v0.11.0 itself:
  *   git worktree add /tmp/openapi-laravel-v0110 v0.11.0

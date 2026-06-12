@@ -173,8 +173,8 @@ it('does not add an extra-key rule for additionalProperties: false', function ()
 });
 
 it('keeps a plain object (no additionalProperties) as a Data class, not an array', function () {
-    // cebe defaults additionalProperties to true; a plain object must not be
-    // mistaken for an untyped map.
+    // Absent additionalProperties means an open object; a plain object must
+    // not be mistaken for an untyped map.
     $files = generateMapSchemas([
         'Plain' => ['type' => 'object', 'properties' => ['id' => ['type' => 'string']]],
         'Holder' => [

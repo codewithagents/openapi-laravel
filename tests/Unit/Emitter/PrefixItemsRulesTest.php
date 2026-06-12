@@ -5,19 +5,16 @@ declare(strict_types=1);
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
-use CodeWithAgents\OpenApiLaravel\Parser\SchemaNormalizer;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 
 /**
  * Tuple `prefixItems` per-index rules (issue #82). Laravel addresses tuple
  * positions directly (`field.0`, `field.1`), so each prefixItems position gets
  * the rules its schema pins, reusing the shared inline-value constraint
- * mapping. The closed-tuple form (`items: false`) survives the SchemaNormalizer
- * rewrite as a synthesized `maxItems` and lands in the count rules. Typing
- * keeps degrading gracefully (`array<int, mixed>`); this issue is rules-only.
- *
- * The helper runs the document through SchemaNormalizer like the real pipeline,
- * since the closed-tuple spelling needs the boolean-items rewrite (#20).
+ * mapping. The closed-tuple form (`items: false`) survives the reader's
+ * normalization rewrite (#20) as a synthesized `maxItems` and lands in the
+ * count rules. Typing keeps degrading gracefully (`array<int, mixed>`); this
+ * issue is rules-only.
  *
  * @param  array<string, mixed>  $schemas
  * @return array<string, GeneratedFile>
@@ -32,9 +29,8 @@ function generatePrefixItemsSchemas(array $schemas): array
     ];
 
     $decoded = json_decode((string) json_encode($document), true);
-    $normalized = SchemaNormalizer::normalize($decoded);
 
-    $spec = (new OpenApiReader)->read($normalized);
+    $spec = (new OpenApiReader)->read($decoded);
     expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     return (new ModelGenerator)->generate($spec);

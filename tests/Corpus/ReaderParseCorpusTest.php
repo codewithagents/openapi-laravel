@@ -6,12 +6,12 @@ use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
 /**
- * #104 T2 smoke gate: the new reader path must hydrate the heaviest, most
- * keyword-dense real-world specs in the corpus without throwing. The full
- * 130-spec byte-identical comparison against the cebe path is Task 3; this
- * pins the reader against the specs most likely to expose hydration gaps.
+ * #104 smoke gate: the reader must hydrate the heaviest, most keyword-dense
+ * real-world specs in the corpus without throwing, and produce a non-trivial
+ * graph. ParseCorpusTest covers all 130 specs; this adds shape assertions for
+ * the specs most likely to expose hydration gaps.
  */
-it('hydrates the most complex corpus specs through the new reader path', function (string $fixture) {
+it('hydrates the most complex corpus specs through the reader', function (string $fixture) {
     $document = (new SpecParser)->parseFileToDocument(__DIR__.'/../Fixtures/specs/'.$fixture);
 
     expect($document)->toBeInstanceOf(OpenApiDocument::class)

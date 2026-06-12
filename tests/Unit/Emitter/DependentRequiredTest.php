@@ -5,7 +5,6 @@ declare(strict_types=1);
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
-use CodeWithAgents\OpenApiLaravel\Parser\SchemaNormalizer;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 
 /**
@@ -29,9 +28,7 @@ function generateDependentRequiredSchemas(array $schemas, ?ModelGenerator $gener
         'components' => ['schemas' => $schemas],
     ];
 
-    $normalized = SchemaNormalizer::normalize(json_decode((string) json_encode($document), true));
-
-    $spec = (new OpenApiReader)->read($normalized);
+    $spec = (new OpenApiReader)->read(json_decode((string) json_encode($document), true));
     expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     return ($generator ?? new ModelGenerator)->generate($spec);

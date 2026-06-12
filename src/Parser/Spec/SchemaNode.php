@@ -6,7 +6,7 @@ namespace CodeWithAgents\OpenApiLaravel\Parser\Spec;
 
 /**
  * A Schema Object (issue #104). The replacement for cebe's Schema and for every
- * `getSerializableData()` escape hatch the emitter uses today: each keyword the
+ * `getSerializableData()` escape hatch the emitter used: each keyword the
  * generator consumes is a first-class typed property, including the OpenAPI 3.1
  * keywords cebe never typed (`const`, `prefixItems`, `patternProperties`,
  * `dependentRequired`, `contentMediaType`) and the vendor deprecation
@@ -16,8 +16,8 @@ namespace CodeWithAgents\OpenApiLaravel\Parser\Spec;
  *   - `hasDefault` / `hasConst` flags, because `default: null` and `const: null`
  *     are valid explicit values that a nullable property alone cannot encode.
  *   - `hasAdditionalProperties` distinguishes an absent key from an explicit
- *     `additionalProperties: true|false|{...}` (cebe silently defaults to true,
- *     which the closed-object rule, issue #30, must see through).
+ *     `additionalProperties: true|false|{...}` (an absent key means an open
+ *     object, which the closed-object rule, issue #30, must see through).
  *   - `exclusiveMinimum` / `exclusiveMaximum` are `int|float|bool|null` to carry
  *     both the 3.0 boolean form and the 3.1 numeric form verbatim.
  *   - `required` is `list<string>|bool|null` so the real-world boolean misuse

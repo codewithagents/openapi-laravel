@@ -243,10 +243,8 @@ it('is deterministic: regenerating non-object aliases produces byte-identical ou
 it('produces no empty classes for the issue #9 conformance aliases', function () {
     // The conformance fixture defines ScalarAlias (string), ArrayAlias (array),
     // and OneOfAlias (oneOf int|string) as non-object alias components. None must
-    // become an empty Data class.
-    // Go through SpecParser (not Reader directly) so the SchemaNormalizer runs:
-    // the fixture's closed tuple uses a boolean `items: false` that cebe cannot
-    // instantiate raw, which the normalizer rewrites before cebe sees it.
+    // become an empty Data class. The fixture's closed tuple uses a boolean
+    // `items: false`, which the reader's normalization rewrites (#20).
     $path = dirname(__DIR__, 2).'/Fixtures/conformance/conformance-3.1.yaml';
     $spec = (new SpecParser)->parseFileToDocument($path);
     $files = (new ModelGenerator)->generate($spec);
