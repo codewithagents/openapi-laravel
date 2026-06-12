@@ -369,6 +369,32 @@ final class ModelGenerator
     }
 
     /**
+     * Emit (or reuse) the SHARED Data class of a component request body whose
+     * JSON schema is an inline object (issue #110). Must be called AFTER
+     * generate(); see {@see RequestDataSynthesizer::generateComponentBodyData()}
+     * for the full contract.
+     *
+     * @return string|null the shared body class name, or null when the schema cannot type a body
+     */
+    public function generateComponentBodyData(string $componentName, string $operationLabel, SchemaNode $schema, ?string $tag = null): ?string
+    {
+        return $this->bodies->generateComponentBodyData($componentName, $operationLabel, $schema, $tag);
+    }
+
+    /**
+     * Emit (or reuse) the SHARED Data class of a multipart/form-data component
+     * request body (issue #110). Must be called AFTER generate(); see
+     * {@see RequestDataSynthesizer::generateComponentMultipartBodyData()} for
+     * the full contract.
+     *
+     * @return string|null the shared body class name, or null when the schema cannot type a body
+     */
+    public function generateComponentMultipartBodyData(string $componentName, string $operationLabel, SchemaNode|ReferenceNode $schema, ?string $tag = null): ?string
+    {
+        return $this->bodies->generateComponentMultipartBodyData($componentName, $operationLabel, $schema, $tag);
+    }
+
+    /**
      * The per-operation query Data classes emitted since the last generate()
      * run (issue #63), keyed and ordered by class name. Exposed as a getter,
      * mirroring supportFiles(): generate() already returned its file set when

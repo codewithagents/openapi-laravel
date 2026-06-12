@@ -46,6 +46,19 @@ final class RequestDataSynthesizer
     private const QUERY_MAX_ARRAY_DEPTH = 4;
 
     /**
+     * Component requestBody name => the SHARED Data class synthesized for it
+     * (issue #110), so several operations referencing one
+     * `#/components/requestBodies/<Name>` entry reuse one class instead of
+     * emitting per-operation duplicates. Only successful syntheses are cached:
+     * a failed one (non-object shape) warns per referencing operation. Per-run
+     * state, like everything else here: the synthesizer is recreated together
+     * with the GenerationState on every generate() run.
+     *
+     * @var array<string, string>
+     */
+    private array $componentBodyClasses = [];
+
+    /**
      * Emit a per-operation query Data class (issue #63) for an operation's
      * `in: query` parameters, reusing the EXACT rules/type pipeline the body
      * Data classes go through (resolveType, buildRules, renderProperty), so a
@@ -355,6 +368,146 @@ final class RequestDataSynthesizer
         $this->state->files = $mainFiles;
 
         return $className;
+    }
+
+    /**
+     * Emit the SHARED Data class of a component request body (issue #110)
+     * whose JSON content schema is an inline object. Several operations
+     * routinely `$ref` the same `#/components/requestBodies/<Name>` entry; the
+     * shared shape gets ONE class named after the component
+     * (`<Component>RequestData`) instead of N per-operation duplicates, so the
+     * first referencing operation synthesizes it and every later one reuses
+     * the cached name. The synthesis itself is the exact generateBodyData()
+     * pipeline (emitData: properties, rules(), nested classes, read/write
+     * split), only the name, the class docblock, and the warning wording are
+     * component-grained.
+     *
+     * Only a SUCCESSFUL synthesis is cached: a non-object shape returns null
+     * with a warning naming the operation AND the component, and the next
+     * referencing operation warns again (each fallback is per-operation
+     * information the user should see).
+     *
+     * @param  string  $componentName  the raw `components.requestBodies` key
+     * @param  string  $operationLabel  "POST /pets", for warning messages
+     * @param  ?string  $tag  the single tag shared by every operation referencing this component, or null (mixed tag groups or tagless), which places the shared class at the flat root, mirroring how multi-group schemas stay at the root (issue #93)
+     * @return string|null the shared body class name, or null when the schema cannot type a body
+     */
+    public function generateComponentBodyData(string $componentName, string $operationLabel, SchemaNode $schema, ?string $tag = null): ?string
+    {
+        $existing = $this->componentBodyClasses[$componentName] ?? null;
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        // Degradation warnings inside the emission name the component, not
+        // whichever operation happened to trigger the synthesis first: the
+        // class is shared, so the finding is component-grained.
+        $this->state->warningContext = sprintf('Request body component "%s"', $componentName);
+
+        $reason = $this->bodySkipReason($schema);
+        if ($reason !== null) {
+            $this->state->warnings[sprintf(
+                'Operation %s: the request body component "%s" was not generated as a typed Data class (%s); the controller method falls back to Illuminate\Http\Request.',
+                $operationLabel,
+                $componentName,
+                $reason,
+            )] = true;
+
+            return null;
+        }
+
+        $className = $this->state->names->reserve(
+            $this->state->options->withSuffix(PhpIdentifier::toClassName($componentName).'Request'),
+        );
+        $this->state->fileGroups[$className] = $this->groupForTag($tag);
+
+        // Same bucket discipline as generateBodyData(): emit into a clean
+        // bucket and collect into $bodyFiles for the planner.
+        $mainFiles = $this->state->files;
+        $this->state->files = [];
+
+        $variant = ($this->hasReadWriteFlags)($schema) ? 'write' : 'all';
+        ($this->emitData)($className, $schema, 0, $variant, ['Request body component "'.PhpLiteral::docblockSafe($componentName).'".']);
+
+        foreach ($this->state->files as $name => $file) {
+            $this->state->bodyFiles[$name] = $file;
+        }
+        $this->state->files = $mainFiles;
+
+        return $this->componentBodyClasses[$componentName] = $className;
+    }
+
+    /**
+     * Emit the SHARED Data class of a component request body (issue #110)
+     * whose content is multipart/form-data, mirroring
+     * {@see generateComponentBodyData()} exactly but through the multipart
+     * pipeline of {@see generateMultipartBodyData()}: binary root parts type
+     * UploadedFile with file rules, and a schema-level `$ref` is re-emitted
+     * with multipart semantics rather than typed against the JSON-semantics
+     * component class. One shared `<Component>RequestData` class, cached on
+     * success only.
+     *
+     * @param  string  $componentName  the raw `components.requestBodies` key
+     * @param  string  $operationLabel  "POST /pets", for warning messages
+     * @param  ?string  $tag  the single tag shared by every operation referencing this component, or null (mixed tag groups or tagless), which places the shared class at the flat root (issue #93)
+     * @return string|null the shared body class name, or null when the schema cannot type a body
+     */
+    public function generateComponentMultipartBodyData(string $componentName, string $operationLabel, SchemaNode|ReferenceNode $schema, ?string $tag = null): ?string
+    {
+        $existing = $this->componentBodyClasses[$componentName] ?? null;
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $this->state->warningContext = sprintf('Multipart request body component "%s"', $componentName);
+
+        if ($schema instanceof ReferenceNode) {
+            $name = SchemaPointer::refName($schema->pointer());
+            if ($name === null || ! isset($this->state->registry[$name]) || $this->state->registry[$name]['kind'] !== 'data') {
+                $this->state->warnings[sprintf(
+                    'Operation %s: the multipart/form-data request body component "%s" has a $ref schema ("%s") that does not resolve to an object component schema; the controller method falls back to Illuminate\Http\Request.',
+                    $operationLabel,
+                    $componentName,
+                    $schema->pointer(),
+                )] = true;
+
+                return null;
+            }
+
+            $schema = $this->state->registry[$name]['schema'];
+        }
+
+        $reason = $this->bodySkipReason($schema);
+        if ($reason !== null) {
+            $this->state->warnings[sprintf(
+                'Operation %s: the multipart/form-data request body component "%s" was not generated as a typed Data class (%s); the controller method falls back to Illuminate\Http\Request.',
+                $operationLabel,
+                $componentName,
+                $reason,
+            )] = true;
+
+            return null;
+        }
+
+        $className = $this->state->names->reserve(
+            $this->state->options->withSuffix(PhpIdentifier::toClassName($componentName).'Request'),
+        );
+        $this->state->fileGroups[$className] = $this->groupForTag($tag);
+
+        $mainFiles = $this->state->files;
+        $this->state->files = [];
+        $this->state->multipartBody = true;
+
+        $variant = ($this->hasReadWriteFlags)($schema) ? 'write' : 'all';
+        ($this->emitData)($className, $schema, 0, $variant, ['Multipart request body component "'.PhpLiteral::docblockSafe($componentName).'".']);
+
+        $this->state->multipartBody = false;
+        foreach ($this->state->files as $name => $file) {
+            $this->state->bodyFiles[$name] = $file;
+        }
+        $this->state->files = $mainFiles;
+
+        return $this->componentBodyClasses[$componentName] = $className;
     }
 
     /**

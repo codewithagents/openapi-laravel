@@ -51,6 +51,10 @@ A multipart/form-data object body (#75, inline or schema-$ref) synthesizes the s
 `format: binary` root parts typed `UploadedFile` (`file` rule, plus `mimetypes:` from a well-formed
 `contentMediaType`), arrays of binary as `array<int, UploadedFile>` with `field.*` file rules, and
 non-binary parts validated like JSON fields; JSON wins when an operation declares both media types.
+A `#/components/requestBodies/...` $ref body resolves to the component and routes through the same
+content-type logic (#110): a wrapped schema $ref reuses that component's existing Data class, an
+inline object schema emits ONE shared `<Component>RequestData` class for every referencing
+operation (single shared tag group, or the flat root when they span groups).
 A `oneOf`/`anyOf`-of-Data-class response is typed as a union return. Every
 route carries a deterministic `->name()` from its operationId (globally unique, `_2` suffix on
 cross-controller clashes), and the config-only `routes.middleware` / `routes.prefix` keys wrap the
@@ -95,12 +99,13 @@ fixtures added in #104 T8) generate valid PHP.
 auto-hydrate (typed `mixed`, presence-only, #31). All three DISCRIMINATED forms (named-component,
 inline-union, allOf-inheritance) now validate and hydrate (#38); the only discriminator residual is
 that an allOf-inheritance variant whose discriminator is not pinned by a `const` is not rejected for
-a wrong value when validated standalone (morph routing through the base is unaffected). A component
-`$ref` request body (`#/components/requestBodies/...`) falls back to `Illuminate\Http\Request`
-instead of a typed Data param; inline JSON OBJECT bodies are generated as `<Operation>RequestData`
-classes (#76) and multipart/form-data OBJECT bodies too (#75), but a body that is not an object
-shape (array, scalar, union, enum, free-form map, whole-body binary multipart) keeps the warned
-Request fallback. Multipart residuals (#75): no file-size rule (OpenAPI has no standard byte-size
+a wrong value when validated standalone (morph routing through the base is unaffected). Component
+`$ref` request bodies (`#/components/requestBodies/...`) resolve to typed Data params (#110);
+inline JSON OBJECT bodies are generated as `<Operation>RequestData` classes (#76) and
+multipart/form-data OBJECT bodies too (#75), but a body that is not an object shape (array, scalar,
+union, enum, free-form map, whole-body binary multipart) keeps the warned Request fallback, and a
+`#/components/responses/...` $ref still falls back to JsonResponse. Multipart residuals (#75):
+no file-size rule (OpenAPI has no standard byte-size
 keyword), `encoding.contentType` is not read (only `contentMediaType` feeds `mimetypes:`), and a
 binary string nested below the multipart root stays a plain string; tuple `prefixItems` validates
 per position (#82, incl. a length cap for the closed `items: false` form) but still types as

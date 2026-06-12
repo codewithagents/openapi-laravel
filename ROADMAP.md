@@ -122,7 +122,13 @@ wildcard form), arrays of binary items as `array<int, UploadedFile>` with per-it
 rules, and every non-binary part validated like a JSON field. JSON wins when an operation declares
 both media types, and a `$ref` multipart schema is re-emitted per operation rather than typed
 against the component class (that class carries JSON semantics, whose `string` rule would
-false-reject actual uploads). Hybrid
+false-reject actual uploads). A request body that is a `$ref` to
+`#/components/requestBodies/<Name>` (#110) resolves to the component and routes through the same
+content-type logic: a wrapped schema `$ref` types the param with that component schema's existing
+Data class (write variant when split), an inline object schema synthesizes ONE shared
+`<Component>RequestData` class reused by every referencing operation (placed in the single tag
+group they share, or the flat root when they span groups), and a non-object shape keeps the warned
+Request fallback. Hybrid
 injection: body-less operations get the class type-hinted into the signature (laravel-data routes
 container injection through `fromQuery`); operations with a request body get a docblock pointer to
 `::fromQuery($request)` instead, so body and query inputs never bleed into each other. Boolean
@@ -156,11 +162,11 @@ collisions failing loudly.
 - Undiscriminated object unions (no `discriminator`) stay `mixed`, presence-only by design (#31).
 - An allOf-inheritance variant that does not pin its discriminator with a `const` is not rejected for
   a wrong value when validated STANDALONE (morph routing through the base is unaffected).
-- A component `$ref` request body (`#/components/requestBodies/...`) falls back to
-  `Illuminate\Http\Request` instead of a typed Data param. Inline JSON OBJECT bodies are generated
-  (#76) and multipart/form-data OBJECT bodies too (#75); a body that is NOT an object shape (an
-  array, scalar, union, enum, free-form map, or a whole-body binary multipart schema) keeps the
-  Request fallback, warned per operation.
+- Component `$ref` request bodies resolve to typed Data params (#110); only a body that is NOT an
+  object shape (an array, scalar, union, enum, free-form map, or a whole-body binary multipart
+  schema) keeps the warned `Illuminate\Http\Request` fallback, whether it arrives inline (#76),
+  as multipart (#75), or through a component requestBody (#110). A `$ref` into
+  `#/components/responses/...` still falls back to JsonResponse (responses remain unresolved).
 - Multipart residuals (#75): no file-size rule is derived (OpenAPI has no standard byte-size
   keyword; `maxLength` is a string bound and Laravel's file `max:` counts kilobytes, no clean
   mapping), the `encoding.contentType` map is not read (only schema-level `contentMediaType` feeds
@@ -203,7 +209,6 @@ and runtime coupling (`runtime-coupling.mdx`).
 
 Remaining smaller follow-ups (not blockers):
 - Richer error messages on bad input.
-- `$ref`-valued request bodies as typed Data params instead of the `Request` fallback.
 - `@deprecated` docblocks on abstract controller methods for deprecated operations.
 - Cross-repo: the openapi-zod-ts `Accept: application/json` gap (openapi-zod-ts #289), surfaced by the
   e2e demo. The fix lives in the sibling repo, not here.
@@ -213,8 +218,8 @@ checks `strict: true`, and move from the direct-push flow to a PR + review workf
 
 ## Open questions (genuine design decisions)
 
-- **Component request bodies / responses as typed params**: resolve `$ref` to
-  `#/components/requestBodies/...` into a typed Data parameter instead of the `Request` fallback.
+- **Component responses as typed returns**: request bodies are resolved (#110); a `$ref` to
+  `#/components/responses/...` still falls back to JsonResponse and could be typed the same way.
 - **Map-of-`$ref` value hydration**: a `$ref`-valued `additionalProperties` map is typed in the
   docblock but not auto-hydrated into Data objects at runtime.
 - **Exact laravel-data v4 feature surface** for casts/transformers (dates, enums, nested and

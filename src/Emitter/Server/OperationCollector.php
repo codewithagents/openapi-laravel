@@ -7,6 +7,7 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter\Server;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\ResolvedClosure;
 use CodeWithAgents\OpenApiLaravel\Emitter\SchemaPointer;
+use CodeWithAgents\OpenApiLaravel\Emitter\TagGroups;
 use CodeWithAgents\OpenApiLaravel\Naming\PhpIdentifier;
 use CodeWithAgents\OpenApiLaravel\Naming\UniqueNames;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\MediaTypeNode;
@@ -105,6 +106,32 @@ final class OperationCollector
     private array $warnings = [];
 
     /**
+     * The document's `components.requestBodies` map for the current collect()
+     * run (issue #110), keyed by component name, so an operation whose
+     * requestBody is a `$ref` resolves through the same content-type routing
+     * an inline body takes. Only direct RequestBody entries are kept: a
+     * ref-to-ref chain inside the components stays unresolved and degrades
+     * like any other unresolvable ref, mirroring componentParameters().
+     *
+     * @var array<string, RequestBodyNode>
+     */
+    private array $componentRequestBodies = [];
+
+    /**
+     * Component requestBody name => the single first tag shared by EVERY
+     * operation in the document that references it, or null when the
+     * referencing operations span different tag groups (or are tagless). The
+     * shared body class follows that single group under the tag-grouped
+     * layout (issue #93) and stays at the flat root otherwise, mirroring how
+     * a schema reachable from several tag groups stays at the root. Computed
+     * over the whole document (not the subset closure) so the placement is
+     * stable across subset runs, exactly like the schema attribution walk.
+     *
+     * @var array<string, ?string>
+     */
+    private array $componentBodyTags = [];
+
+    /**
      * @return list<string>
      */
     public function warnings(): array
@@ -122,6 +149,8 @@ final class OperationCollector
     {
         $this->warnings = [];
         $componentParameters = $this->componentParameters($document);
+        $this->componentRequestBodies = $this->collectComponentRequestBodies($document);
+        $this->componentBodyTags = $this->collectComponentBodyTags($document);
 
         // Security-to-middleware resolution (issue #77): one resolver per run,
         // seeded with the configured map and the document-level security so
@@ -682,20 +711,103 @@ final class OperationCollector
     }
 
     /**
+     * The document's `components.requestBodies` map, keyed by component name
+     * (issue #110). Only direct RequestBody entries are kept: a ref-to-ref
+     * chain inside the components is left unresolved and degrades like any
+     * other unresolvable ref, mirroring {@see componentParameters()}.
+     *
+     * @return array<string, RequestBodyNode>
+     */
+    private function collectComponentRequestBodies(OpenApiDocument $document): array
+    {
+        $components = $document->components;
+
+        if ($components === null) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($components->requestBodies as $name => $body) {
+            if (is_string($name) && $name !== '' && $body instanceof RequestBodyNode) {
+                $result[$name] = $body;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Attribute each component requestBody to the single tag its referencing
+     * operations share, or null when they span different tag groups (issue
+     * #110, mirroring the multi-group rule of the tag-grouped data layout,
+     * issue #93). Walks every operation in the document, not the subset
+     * closure, so a component body's placement is stable across subset runs,
+     * exactly like the schema attribution walk. Tags are compared by their
+     * GROUP ('pet store' and 'PetStore' normalize to one group, so they agree)
+     * and the first tag seen is kept as the representative.
+     *
+     * @return array<string, ?string>
+     */
+    private function collectComponentBodyTags(OpenApiDocument $document): array
+    {
+        $tags = [];
+        $groups = [];
+
+        foreach ($document->paths as $pathItem) {
+            foreach (self::HTTP_METHODS as $method) {
+                $operation = $pathItem->{$method} ?? null;
+                if (! $operation instanceof OperationNode) {
+                    continue;
+                }
+
+                $body = $operation->requestBody;
+                if (! $body instanceof ReferenceNode) {
+                    continue;
+                }
+
+                $name = SchemaPointer::componentName($body->pointer(), 'requestBodies');
+                if ($name === null || ! isset($this->componentRequestBodies[$name])) {
+                    continue;
+                }
+
+                $tag = $this->firstTag($operation);
+                $group = TagGroups::forTag($tag);
+
+                if (! array_key_exists($name, $groups)) {
+                    $groups[$name] = $group;
+                    $tags[$name] = $tag;
+                } elseif ($groups[$name] !== $group) {
+                    // A second referencing operation in a DIFFERENT tag group:
+                    // the shared class belongs to no single group, flat root.
+                    $tags[$name] = null;
+                }
+            }
+        }
+
+        return $tags;
+    }
+
+    /**
      * Resolve the request body into a typed Data param, or fall back to
      * injecting `Illuminate\Http\Request`. Every fallback emits a warning
      * naming the operation and the cause (issue #67): the fallback compiles
      * and runs, but it silently drops the spec-declared body validation,
      * which a user should learn at generation time.
      *
-     * A `$ref` body is typed against the registry; an INLINE object body
-     * (issue #76) synthesizes a per-operation Data class
+     * A schema-level `$ref` body is typed against the registry; an INLINE
+     * object body (issue #76) synthesizes a per-operation Data class
      * (`<Operation>RequestData`) through the model generator's emission
      * pipeline, so the inline shape gets the same rules() and typed param a
      * component schema would. A multipart/form-data object body (issue #75,
      * inline or `$ref`) synthesizes the same per-operation class with
      * UploadedFile typing for its binary file parts; JSON wins when an
-     * operation declares both media types.
+     * operation declares both media types. A body that is itself a `$ref` to
+     * `#/components/requestBodies/<Name>` (issue #110) resolves to the
+     * component and routes through exactly this logic, with one twist: a
+     * synthesized class is SHARED across every operation referencing the
+     * component and named after it (`<Component>RequestData`), and a content
+     * schema that is a `$ref` to a component schema reuses that component's
+     * existing Data class like any schema-level `$ref` body.
      *
      * @param  list<string>  $imports
      * @param  string  $label  "GET /pets", for warning messages
@@ -707,23 +819,42 @@ final class OperationCollector
     {
         $body = $operation->requestBody;
 
-        if (! $body instanceof RequestBodyNode) {
-            // No body, or an unresolved $ref body we cannot inspect: a Reference
-            // here means a component requestBody, which we treat as untyped and
-            // therefore inject Request. The import must be pushed too, exactly
-            // like the other requiresRequest paths below, or the generated
-            // controller references Request without a matching use statement.
-            if ($body instanceof ReferenceNode) {
+        // A `$ref` body resolves against components.requestBodies (issue
+        // #110) and then routes through the SAME content-type logic an inline
+        // body takes: JSON object => typed Data param, multipart object =>
+        // typed Data param with UploadedFile parts, non-object shapes keep
+        // the warned Request fallback. The component name is carried so the
+        // synthesis emits ONE shared class per component instead of one per
+        // referencing operation.
+        $componentBodyName = null;
+        if ($body instanceof ReferenceNode) {
+            $pointer = $body->pointer();
+            $componentBodyName = SchemaPointer::componentName($pointer, 'requestBodies');
+            $resolved = $componentBodyName !== null
+                ? ($this->componentRequestBodies[$componentBodyName] ?? null)
+                : null;
+
+            if ($resolved === null) {
+                // External pointer, a non-requestBodies pointer, a missing
+                // component, or a ref-to-ref chain: nothing to inspect, so the
+                // documented Request fallback stays. The import must be pushed
+                // too, exactly like the other requiresRequest paths below, or
+                // the generated controller references Request without a
+                // matching use statement.
                 $this->warnings[sprintf(
-                    'Operation %s: the request body is a $ref ("%s") and component request bodies are not resolved yet; the controller method falls back to Illuminate\Http\Request.',
+                    'Operation %s: the request body $ref ("%s") does not resolve to a component request body; the controller method falls back to Illuminate\Http\Request.',
                     $label,
-                    $body->pointer(),
+                    $pointer,
                 )] = true;
                 $imports[] = self::REQUEST_FQCN;
 
                 return [null, true];
             }
 
+            $body = $resolved;
+        }
+
+        if (! $body instanceof RequestBodyNode) {
             return [null, false];
         }
 
@@ -743,8 +874,13 @@ final class OperationCollector
                     // The operation's first tag rides along so the grouped
                     // data layout (issue #93) can place the multipart body
                     // class in its operation's tag group; the flat layout
-                    // ignores it.
-                    $class = $this->models->generateMultipartBodyData($bodyBaseName, $label, $multipart, $this->firstTag($operation));
+                    // ignores it. A component body (issue #110) emits ONE
+                    // shared class named after the component instead, placed
+                    // in the single tag group its referencing operations
+                    // share (or the flat root when they span groups).
+                    $class = $componentBodyName !== null
+                        ? $this->models->generateComponentMultipartBodyData($componentBodyName, $label, $multipart, $this->componentBodyTags[$componentBodyName] ?? null)
+                        : $this->models->generateMultipartBodyData($bodyBaseName, $label, $multipart, $this->firstTag($operation));
 
                     if ($class !== null) {
                         $imports[] = $this->dataFqcn($class);
@@ -814,8 +950,13 @@ final class OperationCollector
             // The operation's first tag rides along so the grouped data
             // layout (issue #93) can place the body class (and its nested
             // classes) in its operation's tag group; the flat layout
-            // ignores it.
-            $class = $this->models->generateBodyData($bodyBaseName, $label, $schema, $this->firstTag($operation));
+            // ignores it. A component body (issue #110) emits ONE shared
+            // class named after the component instead, placed in the single
+            // tag group its referencing operations share (or the flat root
+            // when they span groups).
+            $class = $componentBodyName !== null
+                ? $this->models->generateComponentBodyData($componentBodyName, $label, $schema, $this->componentBodyTags[$componentBodyName] ?? null)
+                : $this->models->generateBodyData($bodyBaseName, $label, $schema, $this->firstTag($operation));
 
             if ($class !== null) {
                 $imports[] = $this->dataFqcn($class);

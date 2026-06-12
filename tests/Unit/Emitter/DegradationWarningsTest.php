@@ -307,7 +307,7 @@ it('keeps two warnings for the same pointer hit in two distinct schemas', functi
 // OperationCollector: Request / JsonResponse fallbacks
 // ---------------------------------------------------------------------------
 
-it('warns when the request body is a $ref into components.requestBodies', function () {
+it('stays silent for a request body $ref into components.requestBodies, which is now resolved (issue #110)', function () {
     [$warnings] = degradationCollectorRun([
         '/pets' => [
             'post' => [
@@ -319,13 +319,30 @@ it('warns when the request body is a $ref into components.requestBodies', functi
     ], [
         'requestBodies' => [
             'PetBody' => [
-                'content' => ['application/json' => ['schema' => ['type' => 'object']]],
+                'content' => ['application/json' => ['schema' => [
+                    'type' => 'object',
+                    'properties' => ['name' => ['type' => 'string']],
+                ]]],
+            ],
+        ],
+    ]);
+
+    expect($warnings)->toBe([]);
+});
+
+it('warns when the request body $ref does not resolve to a component request body', function () {
+    [$warnings] = degradationCollectorRun([
+        '/pets' => [
+            'post' => [
+                'operationId' => 'createPet',
+                'requestBody' => ['$ref' => '#/components/requestBodies/Missing'],
+                'responses' => ['201' => ['description' => 'ok']],
             ],
         ],
     ]);
 
     expect($warnings)->toContain(
-        'Operation POST /pets: the request body is a $ref ("#/components/requestBodies/PetBody") and component request bodies are not resolved yet; the controller method falls back to Illuminate\Http\Request.',
+        'Operation POST /pets: the request body $ref ("#/components/requestBodies/Missing") does not resolve to a component request body; the controller method falls back to Illuminate\Http\Request.',
     );
 });
 

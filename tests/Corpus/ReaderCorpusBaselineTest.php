@@ -73,6 +73,51 @@ const READER_BASELINE_REBASELINED_108 = [
     'google_compute.json' => 'HttpHealthCheck / HTTPHealthCheck, HttpsHealthCheck / HTTPSHealthCheck',
     'zoom.json' => 'AccountSettingsTsp / AccountSettingsTSP, UserSettingsTsp / UserSettingsTSP',
 ];
+
+/*
+ * INTENTIONAL post-freeze rebaseline (#110): the fourteen specs in
+ * READER_BASELINE_REBASELINED_110 carry a post-#110 hash instead of the
+ * pristine v0.11.0 one, because they use `#/components/requestBodies/...`
+ * refs, which v0.11.0 left as a warned Illuminate\Http\Request fallback.
+ * Issue #110 resolves the component and routes it through the same
+ * content-type logic an inline body takes: a wrapped schema `$ref` types the
+ * param with the existing Data class, an inline object schema synthesizes ONE
+ * shared `<Component>RequestData` class, and a non-object shape keeps the
+ * fallback with a reworded component-grained warning. Every divergence is
+ * therefore a strict improvement (typed params and removed/reworded
+ * fallback warnings). docusign and zoom sit in BOTH lists: their hashes
+ * carry the #108 case-insensitive dedup AND the #110 typed bodies. Every
+ * spec outside the two rebaseline lists stays the frozen v0.11.0 freeze,
+ * byte for byte.
+ */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-#110 output
+ * (component request bodies resolved to typed Data params), keyed by spec
+ * basename, with the dominant change for auditability. The per-spec test
+ * below still compares against the JSON baseline, which now holds these
+ * specs' post-#110 hashes; the coverage test pins that every listed name
+ * exists on disk and in the baseline, so the list cannot rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_110 = [
+    'bitbucket.json' => 'schema-$ref component bodies typed against existing Data classes',
+    'clevercloud.json' => 'schema-$ref component bodies typed against existing Data classes',
+    'clicksend.json' => 'inline-object component bodies synthesize 7 shared classes',
+    'docker.json' => 'array-shaped component body keeps the fallback with the component-grained warning',
+    'docusign.json' => 'schema-$ref component bodies typed against existing Data classes (hash also carries the #108 case-insensitive dedup)',
+    'reverb.json' => 'inline-object component bodies synthesize 3 shared classes',
+    'sendgrid.json' => 'mixed: schema-$ref bodies typed, 4 non-object bodies keep the warned fallback',
+    'slack.json' => 'schema-$ref component bodies typed against existing Data classes',
+    'snyk.json' => 'inline-object component bodies synthesize 6 shared classes',
+    'square.json' => 'schema-$ref component bodies typed against existing Data classes',
+    'trello.json' => 'schema-$ref component bodies typed against existing Data classes',
+    'xero.json' => 'schema-$ref component body typed against the existing Data class',
+    'zoom.json' => 'inline-object component bodies synthesize 3 shared classes (hash also carries the #108 case-insensitive dedup)',
+    'zuora.json' => 'schema-$ref component bodies typed against existing Data classes',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -139,6 +184,14 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
         expect($specs)->toContain($rebaselined)
             ->and($baseline)->toHaveKey($rebaselined)
             ->and(READER_BASELINE_POST_FREEZE_SPECS)->not->toHaveKey($rebaselined);
+    }
+
+    // Every spec rebaselined for #110 must still exist on disk and carry a
+    // hash in the baseline (it is an update, not an exemption): a renamed or
+    // deleted spec would make the documented rebaseline list rot silently.
+    foreach (array_keys(READER_BASELINE_REBASELINED_110) as $spec) {
+        expect($specs)->toContain($spec)
+            ->and($baseline)->toHaveKey($spec);
     }
 });
 
