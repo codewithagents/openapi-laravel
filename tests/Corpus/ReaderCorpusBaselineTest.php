@@ -14,13 +14,23 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  * the T3 dual-path comparison (which died when the emitter stopped accepting
  * the cebe object model) into a frozen-baseline check. For every corpus spec
  * (the `corpus_specs` dataset globs the entire tests/Fixtures/specs
- * directory, all 130 files, no exclusions) the full generation pipeline runs
+ * directory; the 130 specs the v0.11.0 freeze saw, no exclusions among them)
+ * the full generation pipeline runs
  * through the typed spec graph and the result is hashed: sha256 over every
  * generated file, sorted by filename, covering the exact name AND the full
  * byte content of each one, plus the merged warning list. The hash must equal
  * the frozen v0.11.0 baseline in tests/Fixtures/corpus-baseline-v0.11.0.json,
  * which was generated from a pristine v0.11.0 worktree (the cebe pipeline at
  * tag v0.11.0) with the byte-for-byte identical recipe.
+ *
+ * The OpenAPI 3.2 fixtures added in #104 T8 (POST-v0.11.0 additions, listed
+ * in READER_BASELINE_POST_FREEZE_SPECS) are explicitly exempt: v0.11.0 never
+ * saw them, so they cannot be in the frozen baseline, and the baseline file
+ * must NOT be regenerated to include them. Their end-to-end coverage
+ * (parse, warnings, hydration, generation, php -l, import resolution) lives
+ * in OpenApi32CorpusTest; the coverage assertion below pins that every
+ * exempt name exists on disk and is absent from the baseline, so the list
+ * cannot rot into a silent skip.
  *
  * Anything the reader path drops, moves, retypes, coerces, or renames, in any
  * file, by even one byte, changes the spec's hash and fails here. The gate
@@ -33,9 +43,33 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  * then run this exact pipeline + recipe there (cebe parseFile instead of
  * parseFileToDocument, everything else identical).
  */
+/**
+ * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
+ * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
+ * the per-spec comparison exempts exactly these names; everything else in
+ * the glob must hash-match the freeze. OpenApi32CorpusTest owns their
+ * end-to-end coverage.
+ *
+ * @var array<string, true>
+ */
+const READER_BASELINE_POST_FREEZE_SPECS = [
+    'openapi-3.2-cdn-additional-operations.yaml' => true,
+    'openapi-3.2-logstream-item-schema.yaml' => true,
+    'openapi-3.2-museum.yaml' => true,
+    'openapi-3.2-payments-default-mapping.yaml' => true,
+    'openapi-3.2-query-flights.yaml' => true,
+];
+
 it('generates output byte-identical to the frozen v0.11.0 baseline', function (string $path) {
     $baseline = readerBaselineHashes();
     $spec = basename($path);
+
+    if (isset(READER_BASELINE_POST_FREEZE_SPECS[$spec])) {
+        $this->markTestSkipped(
+            "{$spec} was added after the v0.11.0 baseline freeze (#104 T8, OpenAPI 3.2 corpus); ".
+            'it is exempt by READER_BASELINE_POST_FREEZE_SPECS and covered end-to-end by OpenApi32CorpusTest.'
+        );
+    }
 
     expect($baseline)->toHaveKey($spec);
 
@@ -54,7 +88,18 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
     );
     sort($specs, SORT_STRING);
 
-    expect(array_keys(readerBaselineHashes()))->toBe($specs);
+    // Every exempt post-freeze spec must actually exist on disk (no stale
+    // exemptions) and the baseline must consist of exactly the glob minus
+    // the exemptions: the frozen file gains nothing and loses nothing.
+    $frozen = [];
+    foreach ($specs as $spec) {
+        if (! isset(READER_BASELINE_POST_FREEZE_SPECS[$spec])) {
+            $frozen[] = $spec;
+        }
+    }
+    expect(array_intersect_key(READER_BASELINE_POST_FREEZE_SPECS, array_flip($specs)))
+        ->toHaveCount(count(READER_BASELINE_POST_FREEZE_SPECS))
+        ->and(array_keys(readerBaselineHashes()))->toBe($frozen);
 });
 
 /**

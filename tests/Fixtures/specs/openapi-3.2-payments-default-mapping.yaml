@@ -1,0 +1,168 @@
+openapi: 3.2.0
+info:
+  title: Checkout Payments API
+  description: >
+    Payment instrument API exercising the OpenAPI 3.2 Discriminator Object
+    `defaultMapping` field: an incoming payment method whose `method` value
+    matches no mapping entry falls back to the bank-transfer variant.
+    Authored against the OpenAPI 3.2.0 specification text
+    (https://spec.openapis.org/oas/v3.2.0.html#discriminator-object) for the
+    openapi-laravel 3.2 corpus (#104 T8).
+  version: 2.3.0
+servers:
+  - url: https://api.payments.example.com/v2
+tags:
+  - name: payments
+    description: Payment capture and lookup.
+paths:
+  /payments:
+    post:
+      tags:
+        - payments
+      summary: Capture a payment
+      operationId: capturePayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRequest'
+      responses:
+        '201':
+          description: Captured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResult'
+  /payments/{paymentId}:
+    get:
+      tags:
+        - payments
+      summary: Get a payment
+      operationId: getPayment
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The payment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResult'
+components:
+  schemas:
+    PaymentRequest:
+      type: object
+      required:
+        - amount
+        - currency
+        - paymentMethod
+      properties:
+        amount:
+          type: integer
+          minimum: 1
+          description: Amount in minor units.
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        paymentMethod:
+          $ref: '#/components/schemas/PaymentMethod'
+    PaymentMethod:
+      description: >
+        Discriminated union of payment instruments. The 3.2 `defaultMapping`
+        routes any unrecognized `method` value to the bank-transfer variant
+        instead of failing the lookup.
+      oneOf:
+        - $ref: '#/components/schemas/CardPayment'
+        - $ref: '#/components/schemas/WalletPayment'
+        - $ref: '#/components/schemas/BankTransferPayment'
+      discriminator:
+        propertyName: method
+        mapping:
+          card: '#/components/schemas/CardPayment'
+          wallet: '#/components/schemas/WalletPayment'
+          bank_transfer: '#/components/schemas/BankTransferPayment'
+        defaultMapping: '#/components/schemas/BankTransferPayment'
+    CardPayment:
+      type: object
+      required:
+        - method
+        - cardNumber
+        - expiryMonth
+        - expiryYear
+      properties:
+        method:
+          type: string
+          const: card
+        cardNumber:
+          type: string
+          minLength: 12
+          maxLength: 19
+        expiryMonth:
+          type: integer
+          minimum: 1
+          maximum: 12
+        expiryYear:
+          type: integer
+          minimum: 2024
+        cardholderName:
+          type: string
+    WalletPayment:
+      type: object
+      required:
+        - method
+        - walletProvider
+        - walletToken
+      properties:
+        method:
+          type: string
+          const: wallet
+        walletProvider:
+          type: string
+          enum:
+            - applepay
+            - googlepay
+            - paypal
+        walletToken:
+          type: string
+    BankTransferPayment:
+      type: object
+      required:
+        - method
+        - iban
+      properties:
+        method:
+          type: string
+          const: bank_transfer
+        iban:
+          type: string
+          minLength: 15
+          maxLength: 34
+        reference:
+          type: string
+          maxLength: 140
+    PaymentResult:
+      type: object
+      required:
+        - paymentId
+        - status
+        - paymentMethod
+      properties:
+        paymentId:
+          type: string
+        status:
+          type: string
+          enum:
+            - authorized
+            - captured
+            - declined
+        paymentMethod:
+          $ref: '#/components/schemas/PaymentMethod'
+        capturedAt:
+          type: string
+          format: date-time

@@ -1,0 +1,137 @@
+openapi: 3.2.0
+info:
+  title: Edge Cache API
+  description: >
+    Content delivery cache management API. Exercises the OpenAPI 3.2
+    `additionalOperations` Path Item field: cached objects support the
+    non-standard PURGE method (a long-standing CDN convention, e.g. Varnish
+    and Fastly) and collections support QUERY for complex invalidation
+    searches. Authored against the OpenAPI 3.2.0 specification text
+    (https://spec.openapis.org/oas/v3.2.0.html#path-item-object) for the
+    openapi-laravel 3.2 corpus (#104 T8).
+  version: 1.0.0
+servers:
+  - url: https://api.edgecache.example.com/v1
+tags:
+  - name: objects
+    description: Cached objects at the edge.
+paths:
+  /objects:
+    get:
+      tags:
+        - objects
+      summary: List cached objects
+      operationId: listCachedObjects
+      parameters:
+        - name: zone
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A page of cached objects.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CachedObject'
+  /objects/{objectId}:
+    parameters:
+      - name: objectId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - objects
+      summary: Get cache metadata for one object
+      operationId: getCachedObject
+      responses:
+        '200':
+          description: Cache metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CachedObject'
+        '404':
+          description: Not cached.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    additionalOperations:
+      PURGE:
+        tags:
+          - objects
+        summary: Purge one object from the edge cache
+        description: >
+          The CDN-conventional PURGE method, expressible in OpenAPI since
+          3.2 via `additionalOperations`.
+        operationId: purgeCachedObject
+        responses:
+          '200':
+            description: Purge result.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/PurgeResult'
+      LOCK:
+        tags:
+          - objects
+        summary: Pin an object so purges skip it
+        operationId: lockCachedObject
+        responses:
+          '204':
+            description: Pinned.
+components:
+  schemas:
+    CachedObject:
+      type: object
+      required:
+        - objectId
+        - url
+        - status
+      properties:
+        objectId:
+          type: string
+        url:
+          type: string
+          format: uri
+        status:
+          type: string
+          enum:
+            - hit
+            - miss
+            - stale
+        sizeBytes:
+          type: integer
+          minimum: 0
+        cachedAt:
+          type: string
+          format: date-time
+    PurgeResult:
+      type: object
+      required:
+        - objectId
+        - purged
+      properties:
+        objectId:
+          type: string
+        purged:
+          type: boolean
+        purgedAt:
+          type: string
+          format: date-time
+    Error:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string

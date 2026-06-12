@@ -25,8 +25,9 @@ The version target stays deliberately in 0.x while the generated output format i
 models and a server scaffold from it. The sibling of `openapi-zod-ts` (same author, same philosophy:
 owned output, readable generated code, zero magic) for the Laravel ecosystem.
 
-Quality bar: valid, PHPStan-max-clean output for all 130 real-world specs in `tests/Fixtures/specs/`,
-passing the import-resolution and `php -l` gates, before anything ships.
+Quality bar: valid, PHPStan-max-clean output for all 135 real-world specs in `tests/Fixtures/specs/`
+(130 shared with openapi-zod-ts plus 5 OpenAPI 3.2 fixtures, #104 T8), passing the import-resolution
+and `php -l` gates, before anything ships.
 
 ## Market context (researched 2026-06-10)
 
@@ -45,8 +46,9 @@ passing the import-resolution and `php -l` gates, before anything ships.
    escapes), 3.2 fixed fields are stubbed (feeding #102), and lazy `$ref` resolution, the depth
    bound, the size guard, and the structural check are preserved. The swap was proven byte-identical
    for all 130 corpus specs against the frozen v0.11.0 baseline (`ReaderCorpusBaselineTest`, kept as
-   a permanent gate); the cebe dependency is removed from composer.json. Not breaking for users: the
-   PHP class API is `@internal` (#69).
+   a permanent gate; the 5 OpenAPI 3.2 fixtures added afterwards in #104 T8 are exempt by name since
+   v0.11.0 never saw them, covered by `OpenApi32CorpusTest` instead); the cebe dependency is removed
+   from composer.json. Not breaking for users: the PHP class API is `@internal` (#69).
 3. **Output style: spatie/laravel-data classes** with explicit, spec-derived `rules()` methods.
    Native backed enums for spec enums.
 4. **Spec fixtures duplicated** from openapi-zod-ts (public artifacts).
@@ -239,9 +241,14 @@ guard plus OS limits are the mitigation.
 
 ## Test strategy
 
-Pest unit tests per feature (a minimal in-memory spec builder) plus snapshots. Corpus: all 130
+Pest unit tests per feature (a minimal in-memory spec builder) plus snapshots. Corpus: all 135
 fixtures parse and generate valid PHP, passing the import-resolution gate (model and server gates),
-the `php -l` compile gate, and the allOf/additionalProperties/oneOf non-empty guards. A synthetic
+the `php -l` compile gate, and the allOf/additionalProperties/oneOf non-empty guards. The 5
+OpenAPI 3.2 fixtures (#104 T8: the official Learn OpenAPI QUERY example, the Redocly Museum API
+upgraded to 3.2, and three per-construct fixtures) additionally prove the #103 best-effort path
+end-to-end in `OpenApi32CorpusTest`: the loud 3.2 warning, per-construct dropped warnings, typed
+stub hydration (query, additionalOperations, defaultMapping, itemSchema), and compilable generated
+output. A synthetic
 OpenAPI 3.1 conformance fixture covers the full generator surface with a golden test that pins the
 per-construct output and verifies byte-for-byte determinism. The differential validation oracle (#23)
 generates a class per constraint and runs valid and invalid payloads through the real Laravel
