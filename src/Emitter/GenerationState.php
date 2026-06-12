@@ -120,6 +120,18 @@ final class GenerationState
     public array $bodyFiles = [];
 
     /**
+     * Shared component-response Data classes (issue #111), emitted on demand
+     * AFTER generate() ran, keyed by class name. The bucket also holds every
+     * nested class an inline component-response schema spawned. Kept apart
+     * from $bodyFiles so the request and response synthesis stay auditable
+     * as distinct surfaces; the planner collects both into the same
+     * drift-checked data output.
+     *
+     * @var array<string, GeneratedFile>
+     */
+    public array $responseFiles = [];
+
+    /**
      * Non-fatal diagnostics gathered during a generate() run, keyed by the
      * warning text so the same finding (re-seen across the read/write variants of
      * one schema, or a recursive inline emit) is recorded only once. The CLI

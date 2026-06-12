@@ -395,6 +395,19 @@ final class ModelGenerator
     }
 
     /**
+     * Emit (or reuse) the SHARED Data class of a component response whose
+     * JSON schema is an inline object (issue #111). Must be called AFTER
+     * generate(); see {@see RequestDataSynthesizer::generateComponentResponseData()}
+     * for the full contract.
+     *
+     * @return string|null the shared response class name, or null when the schema cannot type a response
+     */
+    public function generateComponentResponseData(string $componentName, string $operationLabel, SchemaNode $schema, ?string $tag = null): ?string
+    {
+        return $this->bodies->generateComponentResponseData($componentName, $operationLabel, $schema, $tag);
+    }
+
+    /**
      * The per-operation query Data classes emitted since the last generate()
      * run (issue #63), keyed and ordered by class name. Exposed as a getter,
      * mirroring supportFiles(): generate() already returned its file set when
@@ -421,6 +434,23 @@ final class ModelGenerator
     public function bodyFiles(): array
     {
         $files = $this->state->bodyFiles;
+        ksort($files);
+
+        return $files;
+    }
+
+    /**
+     * The shared component-response Data classes emitted since the last
+     * generate() run (issue #111), keyed and ordered by class name. A
+     * dedicated bucket mirroring bodyFiles() rather than an overload of it,
+     * so the request and response synthesis stay auditable as distinct
+     * surfaces; the planner collects both into the same data output.
+     *
+     * @return array<string, GeneratedFile>
+     */
+    public function responseFiles(): array
+    {
+        $files = $this->state->responseFiles;
         ksort($files);
 
         return $files;

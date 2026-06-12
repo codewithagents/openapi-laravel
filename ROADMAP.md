@@ -128,7 +128,13 @@ content-type logic: a wrapped schema `$ref` types the param with that component 
 Data class (write variant when split), an inline object schema synthesizes ONE shared
 `<Component>RequestData` class reused by every referencing operation (placed in the single tag
 group they share, or the flat root when they span groups), and a non-object shape keeps the warned
-Request fallback. Hybrid
+Request fallback. A selected success response that is a `$ref` to `#/components/responses/<Name>`
+(#111) resolves the same way on the output side: a wrapped schema `$ref` types the return with that
+component schema's existing Data class, an inline object schema synthesizes ONE shared
+`<Component>ResponseData` class (READ variant: responses are server output, so readOnly fields stay
+and writeOnly fields drop) with the same tag-group placement rule, the #64 status semantics are
+preserved unchanged (smallest 2xx, `RespondsWithStatus` middleware, a 204 `$ref` stays `void`
+without any resolution attempt), and a non-object shape keeps the warned JsonResponse fallback. Hybrid
 injection: body-less operations get the class type-hinted into the signature (laravel-data routes
 container injection through `fromQuery`); operations with a request body get a docblock pointer to
 `::fromQuery($request)` instead, so body and query inputs never bleed into each other. Boolean
@@ -165,8 +171,11 @@ collisions failing loudly.
 - Component `$ref` request bodies resolve to typed Data params (#110); only a body that is NOT an
   object shape (an array, scalar, union, enum, free-form map, or a whole-body binary multipart
   schema) keeps the warned `Illuminate\Http\Request` fallback, whether it arrives inline (#76),
-  as multipart (#75), or through a component requestBody (#110). A `$ref` into
-  `#/components/responses/...` still falls back to JsonResponse (responses remain unresolved).
+  as multipart (#75), or through a component requestBody (#110). Component `$ref` responses resolve
+  to typed returns the same way (#111); a component response whose JSON schema is NOT an object
+  shape keeps the warned JsonResponse fallback, an unresolvable response `$ref` (external,
+  `#/paths/...`, missing, or ref-to-ref) keeps it too, and an INLINE (non-component) object
+  response schema is still not synthesized (nothing names a shared class; JsonResponse, silent).
 - Multipart residuals (#75): no file-size rule is derived (OpenAPI has no standard byte-size
   keyword; `maxLength` is a string bound and Laravel's file `max:` counts kilobytes, no clean
   mapping), the `encoding.contentType` map is not read (only schema-level `contentMediaType` feeds
@@ -218,8 +227,6 @@ checks `strict: true`, and move from the direct-push flow to a PR + review workf
 
 ## Open questions (genuine design decisions)
 
-- **Component responses as typed returns**: request bodies are resolved (#110); a `$ref` to
-  `#/components/responses/...` still falls back to JsonResponse and could be typed the same way.
 - **Map-of-`$ref` value hydration**: a `$ref`-valued `additionalProperties` map is typed in the
   docblock but not auto-hydrated into Data objects at runtime.
 - **Exact laravel-data v4 feature surface** for casts/transformers (dates, enums, nested and

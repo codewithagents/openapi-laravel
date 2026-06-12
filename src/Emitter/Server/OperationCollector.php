@@ -132,6 +132,33 @@ final class OperationCollector
     private array $componentBodyTags = [];
 
     /**
+     * The document's `components.responses` map for the current collect()
+     * run (issue #111), keyed by component name, so an operation whose
+     * selected success response is a `$ref` resolves through the same
+     * content-type routing an inline response takes. Only direct Response
+     * entries are kept: a ref-to-ref chain inside the components stays
+     * unresolved and degrades like any other unresolvable ref, mirroring
+     * componentRequestBodies.
+     *
+     * @var array<string, ResponseNode>
+     */
+    private array $componentResponses = [];
+
+    /**
+     * Component response name => the single first tag shared by EVERY
+     * operation in the document that references it, or null when the
+     * referencing operations span different tag groups (or are tagless). The
+     * shared response class follows that single group under the tag-grouped
+     * layout (issue #93) and stays at the flat root otherwise, exactly like
+     * the component requestBody attribution (issue #110). Computed over the
+     * whole document (not the subset closure) so the placement is stable
+     * across subset runs.
+     *
+     * @var array<string, ?string>
+     */
+    private array $componentResponseTags = [];
+
+    /**
      * @return list<string>
      */
     public function warnings(): array
@@ -151,6 +178,8 @@ final class OperationCollector
         $componentParameters = $this->componentParameters($document);
         $this->componentRequestBodies = $this->collectComponentRequestBodies($document);
         $this->componentBodyTags = $this->collectComponentBodyTags($document);
+        $this->componentResponses = $this->collectComponentResponses($document);
+        $this->componentResponseTags = $this->collectComponentResponseTags($document);
 
         // Security-to-middleware resolution (issue #77): one resolver per run,
         // seeded with the configured map and the document-level security so
@@ -788,6 +817,90 @@ final class OperationCollector
     }
 
     /**
+     * The document's `components.responses` map, keyed by component name
+     * (issue #111). Only direct Response entries are kept: a ref-to-ref
+     * chain inside the components is left unresolved and degrades like any
+     * other unresolvable ref, mirroring {@see collectComponentRequestBodies()}.
+     *
+     * @return array<string, ResponseNode>
+     */
+    private function collectComponentResponses(OpenApiDocument $document): array
+    {
+        $components = $document->components;
+
+        if ($components === null) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($components->responses as $name => $response) {
+            if (is_string($name) && $name !== '' && $response instanceof ResponseNode) {
+                $result[$name] = $response;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Attribute each component response to the single tag its referencing
+     * operations share, or null when they span different tag groups (issue
+     * #111, mirroring {@see collectComponentBodyTags()} exactly). Walks every
+     * `$ref` entry in every operation's responses map across the whole
+     * document (not the subset closure, and not only the selected success
+     * response), so a component response's placement is stable across subset
+     * runs and across selection changes. Tags are compared by their GROUP and
+     * the first tag seen is kept as the representative.
+     *
+     * @return array<string, ?string>
+     */
+    private function collectComponentResponseTags(OpenApiDocument $document): array
+    {
+        $tags = [];
+        $groups = [];
+
+        foreach ($document->paths as $pathItem) {
+            foreach (self::HTTP_METHODS as $method) {
+                $operation = $pathItem->{$method} ?? null;
+                if (! $operation instanceof OperationNode) {
+                    continue;
+                }
+
+                $responses = $operation->responses;
+                if (! $responses instanceof ResponsesNode) {
+                    continue;
+                }
+
+                foreach ($responses->responses as $response) {
+                    if (! $response instanceof ReferenceNode) {
+                        continue;
+                    }
+
+                    $name = SchemaPointer::componentName($response->pointer(), 'responses');
+                    if ($name === null || ! isset($this->componentResponses[$name])) {
+                        continue;
+                    }
+
+                    $tag = $this->firstTag($operation);
+                    $group = TagGroups::forTag($tag);
+
+                    if (! array_key_exists($name, $groups)) {
+                        $groups[$name] = $group;
+                        $tags[$name] = $tag;
+                    } elseif ($groups[$name] !== $group) {
+                        // A second referencing operation in a DIFFERENT tag
+                        // group: the shared class belongs to no single group,
+                        // flat root.
+                        $tags[$name] = null;
+                    }
+                }
+            }
+        }
+
+        return $tags;
+    }
+
+    /**
      * Resolve the request body into a typed Data param, or fall back to
      * injecting `Illuminate\Http\Request`. Every fallback emits a warning
      * naming the operation and the cause (issue #67): the fallback compiles
@@ -1003,13 +1116,21 @@ final class OperationCollector
      * nothing for the implementation to return, and the generated route
      * middleware sets the status and guarantees the empty body.
      *
+     * A selected response that was a `$ref` to `#/components/responses/<Name>`
+     * (issue #111) arrives here already resolved, with the component name
+     * carried alongside: the schema-level `$ref`, array-of-Data, and
+     * oneOf/anyOf union paths below apply to the resolved content unchanged,
+     * and the one NEW case is an inline JSON object schema, which synthesizes
+     * ONE shared `<Component>ResponseData` class for every referencing
+     * operation through the model generator's emission pipeline.
+     *
      * @param  list<string>  $imports
      * @param  string  $label  "GET /pets", for warning messages
      * @return array{0: string, 1: ?string, 2: ?int} returnType, returnDoc, successStatus
      */
     private function responseType(OperationNode $operation, array &$imports, string $label): array
     {
-        [$response, $status] = $this->successResponse($operation->responses, $label);
+        [$response, $status, $componentName] = $this->successResponse($operation->responses, $label);
 
         if ($status === 204) {
             return ['void', null, 204];
@@ -1067,6 +1188,23 @@ final class OperationCollector
                 }
 
                 return [implode('|', $union), null, $status];
+            }
+
+            // A component response with an INLINE object schema (issue #111)
+            // synthesizes ONE shared class named after the component, placed
+            // in the single tag group its referencing operations share (or
+            // the flat root when they span groups). A non-object shape
+            // returns null with a warning and keeps the JsonResponse
+            // fallback below. Inline (non-component) response schemas keep
+            // the documented silent fallback: nothing names a shared class.
+            if ($componentName !== null && $this->models !== null) {
+                $class = $this->models->generateComponentResponseData($componentName, $label, $schema, $this->componentResponseTags[$componentName] ?? null);
+
+                if ($class !== null) {
+                    $imports[] = $this->dataFqcn($class);
+
+                    return [$class, null, $status];
+                }
             }
         }
 
@@ -1161,20 +1299,23 @@ final class OperationCollector
      * keys at hydration time, and the selection (in particular the
      * first-response fallback) must keep seeing the same map.
      *
-     * A selected response that is an unresolved `$ref` (a pointer into
-     * `components.responses`, which this generator does not resolve) is
+     * A selected response that is a `$ref` resolves against
+     * `components.responses` (issue #111) and carries the component name
+     * forward, so {@see responseType()} can emit one shared class per
+     * component. An UNRESOLVABLE `$ref` (an external pointer, a
+     * non-responses pointer, a missing component, or a ref-to-ref chain) is
      * demoted to null exactly as before, but the demotion warns with the
      * pointer (issue #67) instead of silently typing JsonResponse. A `$ref`
-     * selected for a 204 stays silent: the method is `void` either way, so
-     * nothing degrades.
+     * selected for a 204 stays silent and unresolved: the method is `void`
+     * either way, so nothing degrades and nothing needs the body.
      *
      * @param  string  $label  "GET /pets", for warning messages
-     * @return array{0: ?ResponseNode, 1: ?int}
+     * @return array{0: ?ResponseNode, 1: ?int, 2: ?string} response, status, component-response name (when the response came from a resolved `$ref`)
      */
     private function successResponse(?ResponsesNode $responses, string $label): array
     {
         if ($responses === null) {
-            return [null, null];
+            return [null, null, null];
         }
 
         $all = [];
@@ -1185,7 +1326,7 @@ final class OperationCollector
         }
 
         if ($all === []) {
-            return [null, null];
+            return [null, null, null];
         }
 
         // Smallest 2xx status numerically wins.
@@ -1205,42 +1346,75 @@ final class OperationCollector
         }
 
         if ($bestCode !== null) {
+            // The 204 short-circuit stays ahead of any resolution attempt:
+            // the method is `void`, so the response body (resolved or not)
+            // is never consulted and never warned about.
             if ($best instanceof ReferenceNode && $bestCode !== 204) {
-                $this->warnRefResponse($label, (string) $bestCode, $best);
+                [$best, $componentName] = $this->resolveComponentResponse($best, (string) $bestCode, $label);
+
+                if ($best !== null) {
+                    return [$best, $bestCode, $componentName];
+                }
             }
 
-            return [$best instanceof ResponseNode ? $best : null, $bestCode];
+            return [$best instanceof ResponseNode ? $best : null, $bestCode, null];
         }
 
         $default = $all['default'] ?? null;
         if ($default instanceof ResponseNode) {
-            return [$default, null];
+            return [$default, null, null];
         }
         if ($default instanceof ReferenceNode) {
-            $this->warnRefResponse($label, 'default', $default);
+            [$resolved, $componentName] = $this->resolveComponentResponse($default, 'default', $label);
+
+            if ($resolved !== null) {
+                return [$resolved, null, $componentName];
+            }
         }
 
         $first = reset($all);
         if ($first instanceof ReferenceNode && $first !== $default) {
-            $this->warnRefResponse($label, (string) array_key_first($all), $first);
+            [$resolved, $componentName] = $this->resolveComponentResponse($first, (string) array_key_first($all), $label);
+
+            if ($resolved !== null) {
+                return [$resolved, null, $componentName];
+            }
         }
 
-        return [$first instanceof ResponseNode ? $first : null, null];
+        return [$first instanceof ResponseNode ? $first : null, null, null];
     }
 
     /**
-     * One warning per unresolved `$ref` response the selection had to bypass
-     * (issue #67): component responses are not resolved, so the operation
-     * cannot derive a typed return from them and falls back to JsonResponse.
+     * Resolve a selected `$ref` response against `components.responses`
+     * (issue #111), returning the resolved node plus the component name. An
+     * unresolvable `$ref` (external pointer, non-responses pointer, missing
+     * component, or ref-to-ref chain) returns [null, null] with one warning
+     * naming the pointer (issue #67): the operation cannot derive a typed
+     * return from it and falls back to JsonResponse.
+     *
+     * @param  string  $label  "GET /pets", for warning messages
+     * @return array{0: ?ResponseNode, 1: ?string}
      */
-    private function warnRefResponse(string $label, string $status, ReferenceNode $response): void
+    private function resolveComponentResponse(ReferenceNode $response, string $status, string $label): array
     {
-        $this->warnings[sprintf(
-            'Operation %s: the "%s" response is a $ref ("%s") and component responses are not resolved yet; the return type falls back to JsonResponse.',
-            $label,
-            $status,
-            $response->pointer(),
-        )] = true;
+        $pointer = $response->pointer();
+        $componentName = SchemaPointer::componentName($pointer, 'responses');
+        $resolved = $componentName !== null
+            ? ($this->componentResponses[$componentName] ?? null)
+            : null;
+
+        if ($resolved === null) {
+            $this->warnings[sprintf(
+                'Operation %s: the "%s" response $ref ("%s") does not resolve to a component response; the return type falls back to JsonResponse.',
+                $label,
+                $status,
+                $pointer,
+            )] = true;
+
+            return [null, null];
+        }
+
+        return [$resolved, $componentName];
     }
 
     /**

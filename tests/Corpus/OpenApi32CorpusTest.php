@@ -202,6 +202,7 @@ it('generates valid compilable PHP for each 3.2 fixture (best-effort, #103)', fu
         ...array_values($generator->supportFiles()),
         ...array_values($generator->queryFiles()),
         ...array_values($generator->bodyFiles()),
+        ...array_values($generator->responseFiles()),
         ...array_values($controllers),
         $routes,
     ];
