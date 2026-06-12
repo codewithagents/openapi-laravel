@@ -693,3 +693,169 @@ it('surfaces every external-$ref degradation of a multi-file spec instead of hol
         // And the degraded output itself is unchanged: hollow but valid.
         ->and($files['HolderData']->code)->toContain('public readonly mixed $thing');
 });
+
+// ---------------------------------------------------------------------------
+// Response headers, callbacks, webhooks: warned drops, not silent (#114/#115)
+// ---------------------------------------------------------------------------
+
+it('warns when the selected success response declares response headers (issue #114)', function () {
+    [$warnings] = degradationCollectorRun([
+        '/pets' => [
+            'get' => [
+                'operationId' => 'listPets',
+                'responses' => [
+                    '200' => [
+                        'description' => 'ok',
+                        'headers' => [
+                            'X-Rate-Limit' => ['schema' => ['type' => 'integer']],
+                            'ETag' => ['schema' => ['type' => 'string']],
+                        ],
+                        'content' => ['application/json' => ['schema' => ['type' => 'object', 'properties' => ['id' => ['type' => 'integer']]]]],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    expect($warnings)->toContain(
+        'Operation GET /pets: response header(s) "X-Rate-Limit", "ETag" on the selected success response are not generated (response headers are not supported yet).',
+    );
+});
+
+it('warns for response headers on a component-$ref-resolved success response (issue #114)', function () {
+    [$warnings] = degradationCollectorRun([
+        '/pets' => [
+            'get' => [
+                'operationId' => 'listPets',
+                'responses' => ['200' => ['$ref' => '#/components/responses/PetList']],
+            ],
+        ],
+    ], [
+        'responses' => [
+            'PetList' => [
+                'description' => 'ok',
+                'headers' => ['X-Next-Cursor' => ['schema' => ['type' => 'string']]],
+                'content' => ['application/json' => ['schema' => ['type' => 'object', 'properties' => ['id' => ['type' => 'integer']]]]],
+            ],
+        ],
+    ]);
+
+    expect($warnings)->toContain(
+        'Operation GET /pets: response header(s) "X-Next-Cursor" on the selected success response are not generated (response headers are not supported yet).',
+    );
+});
+
+it('stays silent for headers declared on error responses (only the selected success response is consumed)', function () {
+    [$warnings] = degradationCollectorRun([
+        '/pets' => [
+            'get' => [
+                'operationId' => 'listPets',
+                'responses' => [
+                    '200' => [
+                        'description' => 'ok',
+                        'content' => ['application/json' => ['schema' => ['type' => 'object', 'properties' => ['id' => ['type' => 'integer']]]]],
+                    ],
+                    '429' => [
+                        'description' => 'slow down',
+                        'headers' => ['Retry-After' => ['schema' => ['type' => 'integer']]],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    // Error responses are never consumed by the generator in any form, so a
+    // warning about their headers would describe output the scaffold never
+    // touches; only the SELECTED success response warns (issue #114).
+    expect($warnings)->toBe([]);
+});
+
+it('warns for headers on a body-less inline 204 success response (issue #114)', function () {
+    [$warnings] = degradationCollectorRun([
+        '/pets/{petId}' => [
+            'delete' => [
+                'operationId' => 'deletePet',
+                'parameters' => [
+                    ['name' => 'petId', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'integer']],
+                ],
+                'responses' => [
+                    '204' => [
+                        'description' => 'gone',
+                        'headers' => ['X-Audit-Id' => ['schema' => ['type' => 'string']]],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    // The method is void either way, but the declared headers are still
+    // dropped, so the drop is reported before the 204 shortcut fires.
+    expect($warnings)->toContain(
+        'Operation DELETE /pets/{petId}: response header(s) "X-Audit-Id" on the selected success response are not generated (response headers are not supported yet).',
+    );
+});
+
+it('warns per operation when callbacks are declared (issue #115)', function () {
+    [$warnings] = degradationCollectorRun([
+        '/subscriptions' => [
+            'post' => [
+                'operationId' => 'subscribe',
+                'callbacks' => [
+                    'onData' => ['{$request.body#/callbackUrl}' => ['post' => ['responses' => ['200' => ['description' => 'ok']]]]],
+                    'onError' => ['{$request.body#/errorUrl}' => ['post' => ['responses' => ['200' => ['description' => 'ok']]]]],
+                ],
+                'responses' => ['201' => ['description' => 'created']],
+            ],
+        ],
+    ]);
+
+    expect($warnings)->toContain(
+        'Operation POST /subscriptions: callback(s) "onData", "onError" are not generated (callbacks are not supported yet).',
+    );
+});
+
+it('warns once at document level when root webhooks are declared (issue #115)', function () {
+    $spec = degradationSpec([
+        'openapi' => '3.1.0',
+        'info' => ['title' => 'Test', 'version' => '1.0.0'],
+        'paths' => [
+            '/pets' => [
+                'get' => [
+                    'operationId' => 'listPets',
+                    'responses' => ['200' => ['description' => 'ok']],
+                ],
+            ],
+        ],
+        'webhooks' => [
+            'newPet' => ['post' => ['responses' => ['200' => ['description' => 'ok']]]],
+            'petDeleted' => ['post' => ['responses' => ['200' => ['description' => 'ok']]]],
+        ],
+    ]);
+
+    $generator = new ModelGenerator;
+    $generator->generate($spec);
+    $collector = new OperationCollector(new ServerOptions, $generator->registry(), null, $generator);
+    $collector->collect($spec);
+
+    expect($collector->warnings())->toBe([
+        'Document webhook(s) "newPet", "petDeleted" are not generated (webhooks are not supported yet).',
+    ]);
+});
+
+it('emits no header, callback, or webhook warning when none are declared', function () {
+    [$warnings] = degradationCollectorRun([
+        '/pets' => [
+            'get' => [
+                'operationId' => 'listPets',
+                'responses' => [
+                    '200' => [
+                        'description' => 'ok',
+                        'content' => ['application/json' => ['schema' => ['type' => 'object', 'properties' => ['id' => ['type' => 'integer']]]]],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    expect($warnings)->toBe([]);
+});

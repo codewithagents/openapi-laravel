@@ -88,11 +88,12 @@ function conformanceCode(string $class): string
 
 /**
  * The server scaffold of the 3.1 fixture (issue #116), memoized: the
- * abstract controllers plus the generator that ran the collection, so the
- * component-response assertions can read both the controller signatures and
- * the synthesized response classes. Wired exactly like the planner.
+ * abstract controllers plus the generator and collector that ran the
+ * collection, so the component-response assertions can read the controller
+ * signatures, the synthesized response classes, and the degradation-warning
+ * channel. Wired exactly like the planner.
  *
- * @return array{0: array<string, GeneratedFile>, 1: ModelGenerator}
+ * @return array{0: array<string, GeneratedFile>, 1: ModelGenerator, 2: OperationCollector}
  */
 function conformance31Server(): array
 {
@@ -102,8 +103,9 @@ function conformance31Server(): array
         $generator = new ModelGenerator;
         $generator->generate($document);
         $options = new ServerOptions;
-        $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($document);
-        $result = [(new ControllerGenerator($options))->generate($descriptors), $generator];
+        $collector = new OperationCollector($options, $generator->registry(), null, $generator);
+        $descriptors = $collector->collect($document);
+        $result = [(new ControllerGenerator($options))->generate($descriptors), $generator, $collector];
     }
 
     return $result;
@@ -754,6 +756,22 @@ it('types non-JSON-only responses as the base Symfony Response in the abstract c
     expect($controllers['AbstractWidgetsController']->code)
         ->toContain('use Symfony\Component\HttpFoundation\Response;')
         ->toContain('abstract public function index(int $widgetId): Response;');
+});
+
+// --- Warned silent drops: response headers and callbacks (#114/#115) --------
+
+it('warns for the fixture response header and operation callback instead of dropping them silently (#114/#115)', function () {
+    [, , $collector] = conformance31Server();
+
+    // The getWidget 200 response declares X-Request-Id (#114) and
+    // createWidget declares the widgetCreated callback (#115): neither is
+    // generated, both must surface on the warnings channel end-to-end
+    // through the real fixture, not just in the synthetic unit specs.
+    expect($collector->warnings())->toContain(
+        'Operation GET /widgets/{widgetId}: response header(s) "X-Request-Id" on the selected success response are not generated (response headers are not supported yet).',
+    )->toContain(
+        'Operation POST /widgets: callback(s) "widgetCreated" are not generated (callbacks are not supported yet).',
+    );
 });
 
 // --- 3.0 nullable spellings ------------------------------------------------

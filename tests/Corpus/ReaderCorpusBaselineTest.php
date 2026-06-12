@@ -234,6 +234,63 @@ const READER_BASELINE_REBASELINED_120 = [
     'zuora.json' => '1 non-JSON-only response typed as base Response',
 ];
 
+/*
+ * INTENTIONAL post-freeze rebaseline (#122, issues #114/#115): the
+ * twenty-six specs in READER_BASELINE_REBASELINED_122 carry a post-#122
+ * hash, because they declare response headers on a selected success response
+ * (#114) or root webhooks (#115), which v0.11.0 dropped in total silence.
+ * #122 changes NO generated file for them: the divergence is purely the new
+ * degradation warnings, which feed the frozen hash recipe alongside the file
+ * contents. Headers warn per operation on the SELECTED success response only
+ * (the one response the generator consumes; error-response headers stay
+ * silent by design); webhooks warn once per document naming the keys. No
+ * corpus spec declares operation-level callbacks (airflow carries only an
+ * empty components.callbacks map), so the callbacks warning (#115) appears
+ * in no rebaselined hash. A spec also present in an earlier rebaseline list
+ * accumulates the changes; every spec outside the rebaseline lists stays the
+ * frozen v0.11.0 freeze, byte for byte.
+ */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-#122 output
+ * (warned drops for response headers on selected success responses and for
+ * root webhooks, issues #114/#115), keyed by spec basename, with the number
+ * of new warnings for auditability. The per-spec test below still compares
+ * against the JSON baseline, which now holds these specs' post-#122 hashes;
+ * the coverage test pins that every listed name exists on disk and in the
+ * baseline, so the list cannot rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_122 = [
+    '1password-connect.yaml' => '2 response-header warnings',
+    'ably.json' => '22 response-header warnings',
+    'adyen-checkout.yaml' => '22 response-header warnings',
+    'bitbucket.json' => '28 response-header warnings',
+    'box.json' => '2 response-header warnings',
+    'bunq.json' => '421 response-header warnings',
+    'canada_holidays.json' => '1 response-header warning',
+    'circleci.json' => '1 response-header warning',
+    'clickup.json' => '1 response-header warning',
+    'digitalocean.json' => '169 response-header warnings',
+    'docker.json' => '2 response-header warnings',
+    'ebay_fulfillment.json' => '1 response-header warning',
+    'ebay_marketing.json' => '8 response-header warnings',
+    'github.json' => '201 response-header warnings',
+    'here_positioning.json' => '1 response-header warning',
+    'notion.json' => '13 response-header warnings',
+    'openai.yaml' => '2 response-header warnings plus the document webhook warning',
+    'openbanking.json' => '6 response-header warnings',
+    'petstore-3.0.yaml' => '1 response-header warning (the classic /user/login rate-limit headers)',
+    'redocly-museum.yaml' => 'the document webhook warning only',
+    'shipstation.json' => '1 response-header warning',
+    'snyk.json' => '8 response-header warnings',
+    'twilio_api_v2010.json' => '165 response-header warnings',
+    'webflow.json' => '121 response-header warnings',
+    'zoom.json' => '10 response-header warnings',
+    'zuora.json' => '428 response-header warnings',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -302,11 +359,11 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
             ->and(READER_BASELINE_POST_FREEZE_SPECS)->not->toHaveKey($rebaselined);
     }
 
-    // Every spec rebaselined for #110, #116, or #120 must still exist on
-    // disk and carry a hash in the baseline (it is an update, not an
+    // Every spec rebaselined for #110, #116, #120, or #122 must still exist
+    // on disk and carry a hash in the baseline (it is an update, not an
     // exemption): a renamed or deleted spec would make the documented
     // rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120)] as $spec) {
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }
