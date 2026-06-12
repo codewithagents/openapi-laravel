@@ -20,13 +20,15 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  */
 it('generates valid controllers and routes under the Laravel-convention naming', function (string $spec) {
     $path = __DIR__.'/../Fixtures/specs/'.$spec;
-    $document = (new SpecParser)->parseFile($path);
+    $parser104 = new SpecParser;
+    $document = $parser104->parseFileToDocument($path);
+    $documentCebe = $parser104->buildCebeModel($document, $path);
 
     $generator = new ModelGenerator;
     $generator->generate($document);
     $options = new ServerOptions;
 
-    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($document);
+    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($documentCebe);
     $controllers = (new ControllerGenerator($options))->generate($descriptors);
     $routes = (new RouteGenerator($options))->generate($descriptors);
 

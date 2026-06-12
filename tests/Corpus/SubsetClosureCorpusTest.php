@@ -2,13 +2,12 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\spec\OpenApi;
-use cebe\openapi\spec\Operation;
-use cebe\openapi\spec\PathItem;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\SchemaClosure;
 use CodeWithAgents\OpenApiLaravel\Emitter\SubsetSelection;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OperationNode;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
 /**
@@ -22,7 +21,7 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  */
 it('generates a self-consistent, dangling-free slice from a real spec', function (array $case) {
     $path = __DIR__.'/../Fixtures/specs/'.$case['spec'];
-    $document = (new SpecParser)->parseFile($path);
+    $document = (new SpecParser)->parseFileToDocument($path);
 
     $closure = (new SchemaClosure)->resolve($document, SubsetSelection::of([], [$case['schema']]));
     expect($closure->hasUnknown())->toBeFalse();
@@ -65,7 +64,7 @@ it('generates a self-consistent, dangling-free slice from a real spec', function
  * slice has no dangling reference.
  */
 it('resolves a tag-scoped closure over every corpus spec without dangling refs', function (string $path) {
-    $document = (new SpecParser)->parseFile($path);
+    $document = (new SpecParser)->parseFileToDocument($path);
 
     // Pick the first tag carried by any operation, deterministically.
     $tag = firstOperationTag($document);
@@ -94,31 +93,20 @@ it('resolves a tag-scoped closure over every corpus spec without dangling refs',
  * The first tag carried by any operation in a document, scanning paths and
  * methods in a stable order, or null when no operation is tagged.
  */
-function firstOperationTag(OpenApi $document): ?string
+function firstOperationTag(OpenApiDocument $document): ?string
 {
-    $paths = $document->paths;
-    if ($paths === null) {
-        return null;
-    }
-
     $methods = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'trace'];
-    $rows = [];
-    foreach ($paths->getPaths() as $path => $pathItem) {
-        if (! $pathItem instanceof PathItem) {
-            continue;
-        }
-        $rows[(string) $path] = $pathItem;
-    }
+    $rows = $document->paths;
     ksort($rows);
 
     foreach ($rows as $pathItem) {
         foreach ($methods as $method) {
             $operation = $pathItem->{$method} ?? null;
-            if (! $operation instanceof Operation || ! is_array($operation->tags)) {
+            if (! $operation instanceof OperationNode) {
                 continue;
             }
             foreach ($operation->tags as $tag) {
-                if (is_string($tag) && trim($tag) !== '') {
+                if (trim($tag) !== '') {
                     return trim($tag);
                 }
             }

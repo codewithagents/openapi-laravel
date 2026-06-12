@@ -7,10 +7,10 @@ use App\DiscriminatedArrayData\CarData;
 use App\DiscriminatedArrayData\CatData;
 use App\DiscriminatedArrayData\DogData;
 use App\DiscriminatedArrayData\MappedHolderData;
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -109,8 +109,8 @@ function bootDiscriminatedArrayClasses(): void
         'components' => ['schemas' => $schemas],
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $files = (new ModelGenerator(new GeneratorOptions('App\\DiscriminatedArrayData')))->generate($spec);
 

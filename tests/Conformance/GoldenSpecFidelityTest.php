@@ -68,7 +68,7 @@ function goldenFidelityBoot(): array
 
     $classes = [];
     foreach ([GOLDEN_FIDELITY_31, GOLDEN_FIDELITY_30] as $path) {
-        $document = (new SpecParser)->parseFile($path);
+        $document = (new SpecParser)->parseFileToDocument($path);
         $generator = new ModelGenerator(new GeneratorOptions(GOLDEN_FIDELITY_NS));
         $files = $generator->generate($document);
         // The generated rules() reference rule/transformer classes from the

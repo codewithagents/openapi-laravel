@@ -9,6 +9,8 @@ use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ControllerGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 
 /**
  * Build a server scaffold from an inline document, returning every generated
@@ -19,14 +21,15 @@ use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
  */
 function generateUnionResponseScaffold(array $document): array
 {
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $modelFiles = $generator->generate($spec);
     $options = new ServerOptions;
 
-    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($spec);
+    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($specCebe);
     $controllers = (new ControllerGenerator($options))->generate($descriptors);
 
     return array_merge($modelFiles, $controllers);

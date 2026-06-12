@@ -23,7 +23,7 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 const LONG_NAME_SPEC = __DIR__.'/../Fixtures/edge/long-and-non-identifier-names.yaml';
 
 it('generates a compilable Data class for long and non-identifier property names', function () {
-    $document = (new SpecParser)->parseFile(LONG_NAME_SPEC);
+    $document = (new SpecParser)->parseFileToDocument(LONG_NAME_SPEC);
     $files = (new ModelGenerator)->generate($document);
 
     expect($files)->toHaveKey('EdgeNamesData');
@@ -49,7 +49,7 @@ it('generates a compilable Data class for long and non-identifier property names
 });
 
 it('generates byte-identical output for long and non-identifier names (deterministic)', function () {
-    $document = (new SpecParser)->parseFile(LONG_NAME_SPEC);
+    $document = (new SpecParser)->parseFileToDocument(LONG_NAME_SPEC);
 
     $first = (new ModelGenerator)->generate($document)['EdgeNamesData']->code;
     $second = (new ModelGenerator)->generate($document)['EdgeNamesData']->code;
@@ -58,7 +58,7 @@ it('generates byte-identical output for long and non-identifier names (determini
 });
 
 it('keeps long and non-identifier-name output Pint-idempotent', function () {
-    $document = (new SpecParser)->parseFile(LONG_NAME_SPEC);
+    $document = (new SpecParser)->parseFileToDocument(LONG_NAME_SPEC);
     $files = (new ModelGenerator)->generate($document);
 
     $dir = sys_get_temp_dir().'/openapi-laravel-longname-pint-'.bin2hex(random_bytes(6));
@@ -88,7 +88,7 @@ it('keeps long and non-identifier-name output Pint-idempotent', function () {
 it('keeps long and non-identifier-name output PHPStan-max-clean', function () {
     $repoRoot = dirname(__DIR__, 2);
 
-    $document = (new SpecParser)->parseFile(LONG_NAME_SPEC);
+    $document = (new SpecParser)->parseFileToDocument(LONG_NAME_SPEC);
     $files = (new ModelGenerator)->generate($document);
 
     $base = sys_get_temp_dir().'/openapi-laravel-longname-phpstan-'.bin2hex(random_bytes(6));

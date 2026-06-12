@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Emitter;
 
-use cebe\openapi\spec\OpenApi;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 
 /**
  * Path-prefix exclusion for subset generation (issue #96). Removes every path
@@ -20,8 +20,11 @@ use cebe\openapi\spec\OpenApi;
  * written in the spec ("/api/v1/swagger" drops "/api/v1/swagger/pets" and also
  * "/api/v1/swaggerui"). Prefixes are trimmed, empties dropped, and duplicates
  * collapsed, so an empty or repeated entry can never silently drop everything
- * twice. With no prefixes the document is untouched and the output stays
- * byte-identical to a run without the flag.
+ * twice. With no prefixes the document is returned untouched and the output
+ * stays byte-identical to a run without the flag.
+ *
+ * The document graph is read-only (issue #104), so filtering produces a NEW
+ * document sharing every untouched node rather than mutating paths in place.
  *
  * @internal
  */
@@ -34,38 +37,57 @@ final readonly class PathPrefixFilter
      * complete, so the caller surfaces it as a warning, not an error.
      *
      * @param  list<string>  $prefixes  literal path prefixes to exclude
-     * @return list<string> the cleaned prefixes that matched no path, in input order
+     * @return array{0: OpenApiDocument, 1: list<string>} the filtered document
+     *                                                    (the input document when nothing matched) and the cleaned
+     *                                                    prefixes that matched no path, in input order
      */
-    public function apply(OpenApi $document, array $prefixes): array
+    public function apply(OpenApiDocument $document, array $prefixes): array
     {
         $prefixes = $this->clean($prefixes);
         if ($prefixes === []) {
-            return [];
-        }
-
-        $paths = $document->paths;
-        if ($paths === null) {
-            return $prefixes;
+            return [$document, []];
         }
 
         $matched = [];
-        foreach (array_keys($paths->getPaths()) as $path) {
+        $kept = [];
+        foreach ($document->paths as $path => $pathItem) {
             $path = (string) $path;
+            $excluded = false;
             foreach ($prefixes as $prefix) {
                 if (str_starts_with($path, $prefix)) {
-                    $paths->removePath($path);
                     $matched[$prefix] = true;
+                    $excluded = true;
                     // The path is gone; checking it against further prefixes
                     // could only re-remove it, so move to the next path.
                     break;
                 }
             }
+            if (! $excluded) {
+                $kept[$path] = $pathItem;
+            }
         }
 
-        return array_values(array_filter(
+        $unmatched = array_values(array_filter(
             $prefixes,
             static fn (string $prefix): bool => ! isset($matched[$prefix]),
         ));
+
+        if ($matched === []) {
+            return [$document, $unmatched];
+        }
+
+        return [new OpenApiDocument(
+            openapi: $document->openapi,
+            info: $document->info,
+            paths: $kept,
+            components: $document->components,
+            webhooks: $document->webhooks,
+            security: $document->security,
+            tags: $document->tags,
+            servers: $document->servers,
+            warnings: $document->warnings,
+            extensions: $document->extensions,
+        ), $unmatched];
     }
 
     /**

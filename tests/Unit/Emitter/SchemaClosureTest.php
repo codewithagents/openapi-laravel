@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\ResolvedClosure;
 use CodeWithAgents\OpenApiLaravel\Emitter\SchemaClosure;
 use CodeWithAgents\OpenApiLaravel\Emitter\SubsetSelection;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 
 /**
  * Unit tests for the transitive dependency closure (issue #44): the focused
@@ -18,7 +18,7 @@ use CodeWithAgents\OpenApiLaravel\Emitter\SubsetSelection;
  * @param  array<string, mixed>  $schemas
  * @param  array<string, mixed>  $paths
  */
-function closureDocument(array $schemas, array $paths = []): OpenApi
+function closureDocument(array $schemas, array $paths = []): OpenApiDocument
 {
     $document = [
         'openapi' => '3.0.3',
@@ -27,8 +27,8 @@ function closureDocument(array $schemas, array $paths = []): OpenApi
         'components' => ['schemas' => $schemas],
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     return $spec;
 }
@@ -37,7 +37,7 @@ function closureDocument(array $schemas, array $paths = []): OpenApi
  * @param  list<string>  $schemas
  * @param  list<string>  $tags
  */
-function resolveClosure(OpenApi $document, array $schemas = [], array $tags = []): ResolvedClosure
+function resolveClosure(OpenApiDocument $document, array $schemas = [], array $tags = []): ResolvedClosure
 {
     return (new SchemaClosure)->resolve($document, SubsetSelection::of($tags, $schemas));
 }

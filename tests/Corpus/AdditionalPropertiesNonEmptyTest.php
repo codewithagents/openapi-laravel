@@ -35,7 +35,7 @@ function additionalPropertiesExpectations(): array
 }
 
 it('represents additionalProperties maps and drops the previously-empty map classes', function (string $spec, array $cases) {
-    $document = (new SpecParser)->parseFile(__DIR__.'/../Fixtures/specs/'.$spec);
+    $document = (new SpecParser)->parseFileToDocument(__DIR__.'/../Fixtures/specs/'.$spec);
     $files = (new ModelGenerator)->generate($document);
 
     foreach ($cases as $case) {

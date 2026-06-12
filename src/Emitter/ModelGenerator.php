@@ -4,13 +4,12 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Emitter;
 
-use cebe\openapi\exceptions\TypeErrorException;
-use cebe\openapi\spec\OpenApi;
-use cebe\openapi\spec\Parameter;
-use cebe\openapi\spec\Reference;
-use cebe\openapi\spec\Schema;
 use CodeWithAgents\OpenApiLaravel\Naming\PhpIdentifier;
 use CodeWithAgents\OpenApiLaravel\Naming\UniqueNames;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\ParameterNode;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\ReferenceNode;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\SchemaNode;
 
 /**
  * Turns the schemas of an OpenAPI document into spatie/laravel-data classes
@@ -82,7 +81,7 @@ final class ModelGenerator
     /**
      * Component schema name => [className, kind, schema].
      *
-     * @var array<string, array{class: string, kind: 'data'|'enum', schema: Schema}>
+     * @var array<string, array{class: string, kind: 'data'|'enum', schema: SchemaNode}>
      */
     private array $registry = [];
 
@@ -106,11 +105,11 @@ final class ModelGenerator
     private array $mapAliases = [];
 
     /**
-     * Component schema name => the original Schema, for pure-map components.
+     * Component schema name => the original SchemaNode, for pure-map components.
      * Kept separately from $registry (which holds emitted Data/enum classes)
      * so a $ref to a pure-map component can recover its value schema for rules.
      *
-     * @var array<string, Schema>
+     * @var array<string, SchemaNode>
      */
     private array $mapSchemas = [];
 
@@ -128,13 +127,13 @@ final class ModelGenerator
     private array $aliasTypes = [];
 
     /**
-     * Component schema name => the original Schema, for non-object alias
+     * Component schema name => the original SchemaNode, for non-object alias
      * components. Kept separately so a `$ref` to such an alias can recover the
      * underlying schema and reuse buildRules() at the use site (so a date-time
      * alias still contributes its date-time rule, a length-bounded string alias
      * its max:/min:, etc.). Mirrors $mapSchemas.
      *
-     * @var array<string, Schema>
+     * @var array<string, SchemaNode>
      */
     private array $aliasSchemas = [];
 
@@ -257,7 +256,7 @@ final class ModelGenerator
     /**
      * @return array<string, GeneratedFile> class name => file, ordered by class name
      */
-    public function generate(OpenApi $document): array
+    public function generate(OpenApiDocument $document): array
     {
         $this->names = new UniqueNames(self::RESERVED_CLASS_NAMES);
         $this->registry = [];
@@ -504,7 +503,7 @@ final class ModelGenerator
      *
      * @param  string  $baseName  StudlyCaps operation context (operationId or the method+path fallback), without suffix
      * @param  string  $operationLabel  "GET /pets", for warning messages
-     * @param  list<Parameter>  $parameters  the operation's `in: query` parameters, in spec order
+     * @param  list<ParameterNode>  $parameters  the operation's `in: query` parameters, in spec order
      * @param  ?string  $tag  the operation's first tag (or the 'Untagged' fallback), so the grouped layout (issue #93) can place the class in its operation's tag group; ignored in the flat layout
      * @return string|null the reserved query class name, or null when every parameter was skipped
      */
@@ -519,7 +518,7 @@ final class ModelGenerator
             $reason = $this->querySkipReason($parameter);
 
             if ($reason !== null) {
-                $name = is_string($parameter->name) ? $parameter->name : '(unnamed)';
+                $name = $parameter->name === '' ? '(unnamed)' : $parameter->name;
                 $this->warnings[sprintf(
                     'Operation %s: query parameter "%s" was skipped: %s.',
                     $operationLabel,
@@ -554,9 +553,9 @@ final class ModelGenerator
         $booleanNames = [];
 
         foreach ($supported as $parameter) {
-            $wireName = (string) $parameter->name;
+            $wireName = $parameter->name;
             $schema = $parameter->schema;
-            if (! $schema instanceof Schema && ! $schema instanceof Reference) {
+            if ($schema === null) {
                 // querySkipReason() guarantees a schema; defensive for PHPStan.
                 continue;
             }
@@ -682,7 +681,7 @@ final class ModelGenerator
      * @param  ?string  $tag  the operation's first tag (or the 'Untagged' fallback), so the grouped layout (issue #93) can place the class (and its nested classes) in its operation's tag group; ignored in the flat layout
      * @return string|null the reserved body class name, or null when the schema cannot type a body
      */
-    public function generateBodyData(string $baseName, string $operationLabel, Schema $schema, ?string $tag = null): ?string
+    public function generateBodyData(string $baseName, string $operationLabel, SchemaNode $schema, ?string $tag = null): ?string
     {
         // Degradation warnings inside the body pipeline name the operation,
         // not a schema: an inline body schema is operation-owned.
@@ -765,17 +764,17 @@ final class ModelGenerator
      * @param  ?string  $tag  the operation's first tag (or the 'Untagged' fallback), so the grouped layout (issue #93) can place the class (and its nested classes) in its operation's tag group; ignored in the flat layout
      * @return string|null the reserved body class name, or null when the schema cannot type a body
      */
-    public function generateMultipartBodyData(string $baseName, string $operationLabel, Schema|Reference $schema, ?string $tag = null): ?string
+    public function generateMultipartBodyData(string $baseName, string $operationLabel, SchemaNode|ReferenceNode $schema, ?string $tag = null): ?string
     {
         $this->warningContext = sprintf('Multipart request body of operation %s', $operationLabel);
 
-        if ($schema instanceof Reference) {
-            $name = $this->refName($schema->getReference());
+        if ($schema instanceof ReferenceNode) {
+            $name = $this->refName($schema->pointer());
             if ($name === null || ! isset($this->registry[$name]) || $this->registry[$name]['kind'] !== 'data') {
                 $this->warnings[sprintf(
                     'Operation %s: the multipart/form-data request body $ref "%s" does not resolve to an object component schema; the controller method falls back to Illuminate\Http\Request.',
                     $operationLabel,
-                    $schema->getReference(),
+                    $schema->pointer(),
                 )] = true;
 
                 return null;
@@ -833,7 +832,7 @@ final class ModelGenerator
      * change the wire format (the payload would have to nest under `value`),
      * false-rejecting every spec-valid request.
      */
-    private function bodySkipReason(Schema $schema): ?string
+    private function bodySkipReason(SchemaNode $schema): ?string
     {
         if ($this->isPureMap($schema)) {
             return 'it is an object map with only additionalProperties, which resolves to a typed array, not a Data class';
@@ -856,7 +855,7 @@ final class ModelGenerator
         // payload, so it keeps the Request fallback instead.
         $aliasRef = $this->bareAllOfRef($schema);
         if ($aliasRef !== null) {
-            $name = $this->refName($aliasRef->getReference());
+            $name = $this->refName($aliasRef->pointer());
             if ($name === null || ! isset($this->registry[$name]) || $this->registry[$name]['kind'] !== 'data') {
                 return 'it is an allOf alias of a non-object component, so no Data class can type it';
             }
@@ -889,9 +888,9 @@ final class ModelGenerator
      * is worse than the old no-validation fallback. A `$ref` to a Data class
      * or enum returns null and keeps its normal typing.
      *
-     * @return array{kind: 'file'|'files', schema: Schema, leaf: Schema}|null
+     * @return array{kind: 'file'|'files', schema: SchemaNode, leaf: SchemaNode}|null
      */
-    private function multipartFilePart(Schema|Reference $schema): ?array
+    private function multipartFilePart(SchemaNode|ReferenceNode $schema): ?array
     {
         $resolved = $this->multipartPartSchema($schema);
         if ($resolved === null) {
@@ -904,7 +903,7 @@ final class ModelGenerator
 
         if (($this->normalizeTypes($resolved)[0] ?? null) === 'array') {
             $items = $resolved->items;
-            if ($items instanceof Schema || $items instanceof Reference) {
+            if ($items instanceof SchemaNode || $items instanceof ReferenceNode) {
                 $leaf = $this->multipartPartSchema($items);
                 if ($leaf !== null && $this->isBinaryString($leaf)) {
                     return ['kind' => 'files', 'schema' => $resolved, 'leaf' => $leaf];
@@ -920,9 +919,9 @@ final class ModelGenerator
      * Schema as-is, a `$ref` (or chained allOf-of-$ref alias) to a non-object
      * alias component to its terminal schema. Null for anything else.
      */
-    private function multipartPartSchema(Schema|Reference $schema): ?Schema
+    private function multipartPartSchema(SchemaNode|ReferenceNode $schema): ?SchemaNode
     {
-        if ($schema instanceof Schema) {
+        if ($schema instanceof SchemaNode) {
             return $schema;
         }
 
@@ -931,7 +930,7 @@ final class ModelGenerator
         return $alias === null ? null : $this->terminalAliasSchema($alias);
     }
 
-    private function isBinaryString(Schema $schema): bool
+    private function isBinaryString(SchemaNode $schema): bool
     {
         return ($this->normalizeTypes($schema)[0] ?? null) === 'string' && $schema->format === 'binary';
     }
@@ -940,7 +939,7 @@ final class ModelGenerator
      * The resolved PHP type of a multipart file part: `UploadedFile` for a
      * single file, a typed `array<int, UploadedFile>` for an array of files.
      *
-     * @param  array{kind: 'file'|'files', schema: Schema, leaf: Schema}  $part
+     * @param  array{kind: 'file'|'files', schema: SchemaNode, leaf: SchemaNode}  $part
      */
     private function multipartFileType(array $part): ResolvedType
     {
@@ -959,7 +958,7 @@ final class ModelGenerator
      * single file, or `array` plus the spec's minItems/maxItems bounds with
      * the file rules on the `.*` wildcard for an array of files.
      *
-     * @param  array{kind: 'file'|'files', schema: Schema, leaf: Schema}  $part
+     * @param  array{kind: 'file'|'files', schema: SchemaNode, leaf: SchemaNode}  $part
      * @return array{0: list<string>, 1: array<string, list<string>>, 2: bool} property rules,
      *                                                                         wildcard item rules keyed by suffix, whether Rule:: is used
      */
@@ -989,7 +988,7 @@ final class ModelGenerator
      *
      * @return list<string>
      */
-    private function fileLeafRules(Schema $schema): array
+    private function fileLeafRules(SchemaNode $schema): array
     {
         $rules = ["'file'"];
 
@@ -1003,18 +1002,17 @@ final class ModelGenerator
 
     /**
      * The schema's `contentMediaType`, when it is a well-formed media type.
-     * cebe has no typed attribute for the keyword, so it is read from the
-     * serialized data. The spec is untrusted input and the value lands inside
-     * a single-quoted rule string, so anything not matching the strict
-     * type/subtype token shape (including the `image/*` wildcard form
-     * Laravel's mimetypes rule understands) is dropped rather than escaped.
+     * A first-class typed keyword on SchemaNode (issue #104). The spec is
+     * untrusted input and the value lands inside a single-quoted rule string,
+     * so anything not matching the strict type/subtype token shape (including
+     * the `image/*` wildcard form Laravel's mimetypes rule understands) is
+     * dropped rather than escaped.
      */
-    private function contentMediaTypeOf(Schema $schema): ?string
+    private function contentMediaTypeOf(SchemaNode $schema): ?string
     {
-        $serialized = (array) $schema->getSerializableData();
-        $value = $serialized['contentMediaType'] ?? null;
+        $value = $schema->contentMediaType;
 
-        if (! is_string($value)) {
+        if ($value === null) {
             return null;
         }
 
@@ -1031,9 +1029,9 @@ final class ModelGenerator
      * generating wrong rules (false-rejecting valid requests) would be worse
      * than generating none.
      */
-    private function querySkipReason(Parameter $parameter): ?string
+    private function querySkipReason(ParameterNode $parameter): ?string
     {
-        if (! is_string($parameter->name) || $parameter->name === '') {
+        if ($parameter->name === '') {
             return 'it has no usable name';
         }
 
@@ -1046,7 +1044,7 @@ final class ModelGenerator
         }
 
         $schema = $parameter->schema;
-        if (! $schema instanceof Schema && ! $schema instanceof Reference) {
+        if ($schema === null) {
             return 'it declares no schema (content-typed query parameters are not supported yet)';
         }
 
@@ -1065,10 +1063,10 @@ final class ModelGenerator
      * non-object alias component that resolves to an array). Used only for the
      * explode: false check above.
      */
-    private function isQueryArraySchema(Schema|Reference $schema): bool
+    private function isQueryArraySchema(SchemaNode|ReferenceNode $schema): bool
     {
-        if ($schema instanceof Reference) {
-            $name = $this->refName($schema->getReference());
+        if ($schema instanceof ReferenceNode) {
+            $name = $this->refName($schema->pointer());
 
             return $name !== null
                 && isset($this->aliasSchemas[$name])
@@ -1088,14 +1086,14 @@ final class ModelGenerator
      * since bracket query strings beyond a few levels are not a real wire
      * format).
      */
-    private function queryShapeSkipReason(Schema|Reference $schema, int $depth): ?string
+    private function queryShapeSkipReason(SchemaNode|ReferenceNode $schema, int $depth): ?string
     {
         if ($depth > self::QUERY_MAX_ARRAY_DEPTH) {
             return 'it nests arrays too deeply for query-string serialization';
         }
 
-        if ($schema instanceof Reference) {
-            $name = $this->refName($schema->getReference());
+        if ($schema instanceof ReferenceNode) {
+            $name = $this->refName($schema->pointer());
             if ($name === null) {
                 // External or non-schema pointer: degrades to mixed,
                 // presence-only, exactly like a body property would.
@@ -1137,7 +1135,7 @@ final class ModelGenerator
 
         if ($primary === 'array') {
             $items = $schema->items;
-            if ($items instanceof Schema || $items instanceof Reference) {
+            if ($items instanceof SchemaNode || $items instanceof ReferenceNode) {
                 return $this->queryShapeSkipReason($items, $depth + 1);
             }
         }
@@ -1149,9 +1147,9 @@ final class ModelGenerator
     }
 
     /**
-     * @return array<string, Schema>
+     * @return array<string, SchemaNode>
      */
-    private function componentSchemas(OpenApi $document): array
+    private function componentSchemas(OpenApiDocument $document): array
     {
         $components = $document->components;
 
@@ -1174,18 +1172,14 @@ final class ModelGenerator
             // Component entries that are bare $refs (aliases) are skipped in v1.
             // References to a skipped entry resolve to mixed, so the skip is
             // surfaced through the warnings channel instead of staying silent
-            // (issue #67).
-            if (! $schema instanceof Schema) {
-                $this->warnings[$schema instanceof Reference
-                    ? sprintf(
-                        'Component schema "%s" is a bare $ref ("%s") and is not generated; references to it degrade to mixed with presence-only validation.',
-                        (string) $name,
-                        $schema->getReference(),
-                    )
-                    : sprintf(
-                        'Component schema "%s" is not a schema object and is not generated; references to it degrade to mixed with presence-only validation.',
-                        (string) $name,
-                    )] = true;
+            // (issue #67). A mistyped (non-object) component entry never reaches
+            // this map: the reader drops it during hydration.
+            if ($schema instanceof ReferenceNode) {
+                $this->warnings[sprintf(
+                    'Component schema "%s" is a bare $ref ("%s") and is not generated; references to it degrade to mixed with presence-only validation.',
+                    (string) $name,
+                    $schema->pointer(),
+                )] = true;
 
                 continue;
             }
@@ -1201,7 +1195,7 @@ final class ModelGenerator
      *                                  body classes lead with their operation, issue #76); the
      *                                  default empty list keeps every existing class byte-identical
      */
-    private function emitData(string $className, Schema $schema, int $depth, string $variant = 'all', array $docIntro = []): void
+    private function emitData(string $className, SchemaNode $schema, int $depth, string $variant = 'all', array $docIntro = []): void
     {
         $this->pushRefScope($className);
 
@@ -1450,7 +1444,7 @@ final class ModelGenerator
 
         // A deprecated discriminated base carries a class-level `@deprecated`.
         $baseSchema = $this->registry[$baseName]['schema'] ?? null;
-        $deprecationTag = $baseSchema instanceof Schema ? $this->deprecationTag($baseSchema) : null;
+        $deprecationTag = $baseSchema instanceof SchemaNode ? $this->deprecationTag($baseSchema) : null;
 
         // A variant may live in another tag group (issue #93): the morph()
         // arms reference it by short name, so import it from its real group.
@@ -1502,7 +1496,7 @@ final class ModelGenerator
      * so the base owns the single declared discriminator property), and declares
      * its OWN remaining properties as promoted readonly params with their rules.
      */
-    private function emitVariant(string $variantName, string $className, Schema $schema): void
+    private function emitVariant(string $variantName, string $className, SchemaNode $schema): void
     {
         $this->pushRefScope($className);
 
@@ -1657,9 +1651,9 @@ final class ModelGenerator
      *
      * @return list<string>|null
      */
-    private function discriminatorConstRule(Schema|Reference $schema): ?array
+    private function discriminatorConstRule(SchemaNode|ReferenceNode $schema): ?array
     {
-        if (! $schema instanceof Schema) {
+        if (! $schema instanceof SchemaNode) {
             return null;
         }
 
@@ -1682,7 +1676,7 @@ final class ModelGenerator
      * (sorted) that declares it. All variants share the discriminator, so any
      * one is representative. Returns null when no variant types it.
      */
-    private function discriminatorPropertySchema(string $baseName, string $wireName): ?Schema
+    private function discriminatorPropertySchema(string $baseName, string $wireName): ?SchemaNode
     {
         foreach ($this->discriminators->variants($baseName) as $variantSchemaName) {
             $schema = $this->registry[$variantSchemaName]['schema'] ?? null;
@@ -1690,7 +1684,7 @@ final class ModelGenerator
                 continue;
             }
             $property = $this->objectProperties($schema)[$wireName] ?? null;
-            if ($property instanceof Schema) {
+            if ($property instanceof SchemaNode) {
                 return $property;
             }
         }
@@ -2078,24 +2072,23 @@ final class ModelGenerator
      * Only a scalar default (string/int/float/bool) on a scalar-typed property is
      * emitted: the constructor parameter must accept the literal, so a default on
      * an enum-typed, Data-class-typed, array-typed, or `mixed` property is skipped
-     * (it keeps the `= null` default and is still optional). The schema's own
-     * `getSerializableData()` is read so an explicit `default: null`/`false`/`0`
+     * (it keeps the `= null` default and is still optional). The node's
+     * `hasDefault` presence flag is read so an explicit `default: null`/`false`/`0`
      * is distinguished from "no default at all".
      *
      * @return array{0: string}|null
      */
-    private function defaultValue(Schema|Reference $schema, ResolvedType $type): ?array
+    private function defaultValue(SchemaNode|ReferenceNode $schema, ResolvedType $type): ?array
     {
-        if (! $schema instanceof Schema) {
+        if (! $schema instanceof SchemaNode) {
             return null;
         }
 
-        $serialized = (array) $schema->getSerializableData();
-        if (! array_key_exists('default', $serialized)) {
+        if (! $schema->hasDefault) {
             return null;
         }
 
-        $value = $serialized['default'];
+        $value = $schema->default;
 
         // The parameter type must be able to hold the literal: only emit a scalar
         // default on a scalar (or scalar-union) declaration. Enum/Data-class/array
@@ -2209,11 +2202,11 @@ final class ModelGenerator
      * @return array{0: list<string>, 1: array<string, list<string>>, 2: bool} property rules,
      *                                                                         wildcard item rules keyed by suffix, whether Rule:: is used
      */
-    private function buildRules(Schema|Reference $schema, bool $required, ResolvedType $type): array
+    private function buildRules(SchemaNode|ReferenceNode $schema, bool $required, ResolvedType $type): array
     {
         $rules = $this->presenceRules($required, $type->nullable);
 
-        if ($schema instanceof Reference) {
+        if ($schema instanceof ReferenceNode) {
             // A $ref to a pure-map component: the value is a typed array, so the
             // property rule is 'array' plus the map's own key-count bounds
             // (minProperties/maxProperties, issue #72) and a wildcard value rule
@@ -2388,12 +2381,12 @@ final class ModelGenerator
      *
      * @return array{0: array<string, list<string>>, 1: bool} wildcard rules by suffix, whether Rule:: is used
      */
-    private function arrayWildcardRules(Schema $schema, string $suffix): array
+    private function arrayWildcardRules(SchemaNode $schema, string $suffix): array
     {
         $items = $schema->items;
         $map = [];
 
-        if ($items instanceof Schema && ($this->normalizeTypes($items)[0] ?? null) === 'array') {
+        if ($items instanceof SchemaNode && ($this->normalizeTypes($items)[0] ?? null) === 'array') {
             // Each element at this level is itself an array: assert its shape and
             // count, then recurse to emit the inner level's rules ('.*.*', ...).
             $here = array_merge(["'array'"], $this->arrayCountRules($items));
@@ -2453,11 +2446,11 @@ final class ModelGenerator
      * implicit rule that has to run against the absent key).
      *
      * @param  list<string>  $required  spec-required wire names (allOf-merged)
-     * @param  array<string, Schema|Reference>  $properties  the full merged property map
+     * @param  array<string, SchemaNode|ReferenceNode>  $properties  the full merged property map
      * @param  array<string, bool>  $declaredNullable  wire name => nullable, for the properties THIS class declares
      * @param  array<string, list<string>>  $rules
      */
-    private function applyDependentRequired(string $base, Schema $schema, array $required, array $properties, array $declaredNullable, array &$rules): void
+    private function applyDependentRequired(string $base, SchemaNode $schema, array $required, array $properties, array $declaredNullable, array &$rules): void
     {
         $triggersByDependent = [];
         foreach ($this->mergedDependentRequired($schema) as $trigger => $dependents) {
@@ -2537,7 +2530,7 @@ final class ModelGenerator
      * @param  array<string, true>  $seen  component names already visited (keyed for O(1) cycle checks)
      * @return array<string, list<string>>
      */
-    private function mergedDependentRequired(Schema $schema, array $seen = []): array
+    private function mergedDependentRequired(SchemaNode $schema, array $seen = []): array
     {
         $map = $this->localDependentRequired($schema);
 
@@ -2562,36 +2555,30 @@ final class ModelGenerator
     }
 
     /**
-     * The schema's own `dependentRequired` map. cebe has no typed attribute for
-     * `dependentRequired` (a JSON Schema keyword OpenAPI 3.1 admits), so it is
-     * read from the serialized data, where cebe keeps unknown keys verbatim.
-     * The spec is untrusted input: only the well-formed shape (a non-empty
-     * trigger name mapping to an array of non-empty string names) is accepted,
-     * anything else is ignored.
+     * The schema's own `dependentRequired` map, read from the first-class typed
+     * keyword on SchemaNode (issue #104). The spec is untrusted input: only the
+     * well-formed shape (a non-empty trigger name mapping to non-empty string
+     * names) is accepted, anything else is ignored.
      *
      * @return array<string, list<string>>
      */
-    private function localDependentRequired(Schema $schema): array
+    private function localDependentRequired(SchemaNode $schema): array
     {
-        $serialized = (array) $schema->getSerializableData();
-        $raw = $serialized['dependentRequired'] ?? null;
-        if (is_object($raw)) {
-            $raw = (array) $raw;
-        }
-        if (! is_array($raw)) {
+        $raw = $schema->dependentRequired;
+        if ($raw === null) {
             return [];
         }
 
         $map = [];
         foreach ($raw as $trigger => $dependents) {
             $trigger = (string) $trigger;
-            if ($trigger === '' || ! is_array($dependents)) {
+            if ($trigger === '') {
                 continue;
             }
 
             $names = [];
             foreach ($dependents as $dependent) {
-                if (is_string($dependent) && $dependent !== '') {
+                if ($dependent !== '') {
                     $names[] = $dependent;
                 }
             }
@@ -2606,17 +2593,17 @@ final class ModelGenerator
     /**
      * @return array{0: ?list<string>, 1: bool}
      */
-    private function itemRules(Schema $schema): array
+    private function itemRules(SchemaNode $schema): array
     {
         $items = $schema->items;
 
-        if ($items instanceof Reference) {
+        if ($items instanceof ReferenceNode) {
             $enumClass = $this->referencedEnumClass($items);
 
             return $enumClass !== null ? [['Rule::enum('.$enumClass.'::class)'], true] : [null, false];
         }
 
-        if (! $items instanceof Schema) {
+        if (! $items instanceof SchemaNode) {
             return [null, false];
         }
 
@@ -2654,7 +2641,7 @@ final class ModelGenerator
      *
      * @return array{0: ?list<string>, 1: bool} value rules, whether Rule:: is used
      */
-    private function mapValueRules(Schema $schema): array
+    private function mapValueRules(SchemaNode $schema): array
     {
         $value = $this->additionalPropertiesSchema($schema);
 
@@ -2662,7 +2649,7 @@ final class ModelGenerator
             return [null, false];
         }
 
-        if ($value instanceof Reference) {
+        if ($value instanceof ReferenceNode) {
             $enumClass = $this->referencedEnumClass($value);
             if ($enumClass !== null) {
                 return [['Rule::enum('.$enumClass.'::class)'], true];
@@ -2685,7 +2672,7 @@ final class ModelGenerator
      *
      * @return array{0: ?list<string>, 1: bool} value rules, whether Rule:: is used
      */
-    private function inlineValueRules(Schema $value): array
+    private function inlineValueRules(SchemaNode $value): array
     {
         if ($this->notEmptyArray($value->enum)) {
             $values = $this->enumValues($value);
@@ -2712,49 +2699,20 @@ final class ModelGenerator
 
     /**
      * The tuple position schemas a 3.1 `prefixItems` declares, keyed by their
-     * zero-based position. cebe has no typed attribute for `prefixItems` (a
-     * JSON Schema keyword OpenAPI 3.1 admits), so it is read from the
-     * serialized data, where cebe keeps unknown keys verbatim, and each entry
-     * is instantiated into the cebe object model here. The spec is untrusted
-     * input: a malformed entry (a non-object, or data cebe rejects) maps to
-     * null so the later positions keep their correct index, and a `prefixItems`
-     * that is not a non-empty list at all yields []. A non-empty result, even
-     * one of all nulls, signals that the schema IS a tuple, which suppresses
-     * the post-prefix `items` wildcard rules (they would false-reject valid
-     * prefix positions).
+     * zero-based position. A first-class typed keyword on SchemaNode (issue
+     * #104): the reader already hydrated every position into the node graph,
+     * so no on-the-fly schema construction happens here anymore. The spec is
+     * untrusted input: the reader dropped malformed entries during hydration,
+     * and a `prefixItems` that is not a list at all never reached the typed
+     * property. A non-empty result signals that the schema IS a tuple, which
+     * suppresses the post-prefix `items` wildcard rules (they would
+     * false-reject valid prefix positions).
      *
-     * @return array<int, Schema|Reference|null>
+     * @return array<int, SchemaNode|ReferenceNode>
      */
-    private function prefixItemSchemas(Schema $schema): array
+    private function prefixItemSchemas(SchemaNode $schema): array
     {
-        $serialized = (array) $schema->getSerializableData();
-        $raw = $serialized['prefixItems'] ?? null;
-        if (! is_array($raw) || $raw === [] || ! array_is_list($raw)) {
-            return [];
-        }
-
-        $positions = [];
-        foreach ($raw as $index => $entry) {
-            if (! is_array($entry)) {
-                $positions[$index] = null;
-
-                continue;
-            }
-
-            if (isset($entry['$ref']) && is_string($entry['$ref'])) {
-                $positions[$index] = new Reference(['$ref' => $entry['$ref']], null);
-
-                continue;
-            }
-
-            try {
-                $positions[$index] = new Schema($entry);
-            } catch (TypeErrorException) {
-                $positions[$index] = null;
-            }
-        }
-
-        return $positions;
+        return $schema->prefixItems ?? [];
     }
 
     /**
@@ -2769,7 +2727,7 @@ final class ModelGenerator
      * Rule::enum, a scalar/array alias is followed to its terminal schema, and
      * an object component is asserted as an array shape.
      *
-     * @param  array<int, Schema|Reference|null>  $positions
+     * @param  array<int, SchemaNode|ReferenceNode>  $positions
      * @return array{0: array<string, list<string>>, 1: bool} rules keyed by index suffix, whether Rule:: is used
      */
     private function prefixItemRules(array $positions): array
@@ -2778,10 +2736,6 @@ final class ModelGenerator
         $uses = false;
 
         foreach ($positions as $index => $position) {
-            if ($position === null) {
-                continue;
-            }
-
             [$rules, $positionUses] = $this->prefixItemValueRules($position);
             if ($rules !== null && $rules !== []) {
                 $map['.'.$index] = $rules;
@@ -2795,9 +2749,9 @@ final class ModelGenerator
     /**
      * @return array{0: ?list<string>, 1: bool}
      */
-    private function prefixItemValueRules(Schema|Reference $position): array
+    private function prefixItemValueRules(SchemaNode|ReferenceNode $position): array
     {
-        if ($position instanceof Reference) {
+        if ($position instanceof ReferenceNode) {
             $enumClass = $this->referencedEnumClass($position);
             if ($enumClass !== null) {
                 return [['Rule::enum('.$enumClass.'::class)'], true];
@@ -2844,9 +2798,9 @@ final class ModelGenerator
      * schema so the caller can derive the map value rules. Returns null when the
      * reference is not a pure-map component.
      */
-    private function referencedMapSchema(Reference $reference): ?Schema
+    private function referencedMapSchema(ReferenceNode $reference): ?SchemaNode
     {
-        $name = $this->refName($reference->getReference());
+        $name = $this->refName($reference->pointer());
 
         return $name !== null ? ($this->mapSchemas[$name] ?? null) : null;
     }
@@ -2857,9 +2811,9 @@ final class ModelGenerator
      * (minProperties/maxProperties, issue #72) that must be enforced at the use
      * site. Returns null for enums and unregistered names.
      */
-    private function referencedObjectSchema(Reference $reference): ?Schema
+    private function referencedObjectSchema(ReferenceNode $reference): ?SchemaNode
     {
-        $name = $this->refName($reference->getReference());
+        $name = $this->refName($reference->pointer());
         if ($name === null) {
             return null;
         }
@@ -2874,9 +2828,9 @@ final class ModelGenerator
      * return that component's schema so the caller can derive its rules from the
      * underlying type. Returns null when the reference is not such an alias.
      */
-    private function referencedAliasSchema(Reference $reference): ?Schema
+    private function referencedAliasSchema(ReferenceNode $reference): ?SchemaNode
     {
-        $name = $this->refName($reference->getReference());
+        $name = $this->refName($reference->pointer());
 
         return $name !== null ? ($this->aliasSchemas[$name] ?? null) : null;
     }
@@ -2890,14 +2844,14 @@ final class ModelGenerator
      *
      * @param  array<string, true>  $seen  alias names already followed
      */
-    private function terminalAliasSchema(Schema $schema, array $seen = []): Schema
+    private function terminalAliasSchema(SchemaNode $schema, array $seen = []): SchemaNode
     {
         $ref = $this->bareAllOfRef($schema);
         if ($ref === null) {
             return $schema;
         }
 
-        $name = $this->refName($ref->getReference());
+        $name = $this->refName($ref->pointer());
         if ($name === null || isset($seen[$name])) {
             return $schema;
         }
@@ -2915,7 +2869,7 @@ final class ModelGenerator
     /**
      * @return list<string>
      */
-    private function stringRules(Schema $schema): array
+    private function stringRules(SchemaNode $schema): array
     {
         $rules = ["'string'"];
 
@@ -2956,19 +2910,18 @@ final class ModelGenerator
      * companion: `minimum: N` plus `exclusiveMinimum: true` means strictly
      * greater, so emit `gt:N` instead of `min:N`. OpenAPI 3.1 uses a numeric
      * keyword: `exclusiveMinimum: N` (a number) means strictly greater than N,
-     * so emit `gt:N` on its own. cebe defaults the boolean companion to `false`
-     * when `minimum` is present, so we read getSerializableData() to tell an
-     * explicit `exclusiveMinimum: false` (inclusive) apart from the default.
+     * so emit `gt:N` on its own. SchemaNode carries both forms verbatim in one
+     * `int|float|bool|null` property (issue #104), null when absent, so an
+     * explicit `exclusiveMinimum: false` (inclusive) never reads as a bound.
      *
      * @return list<string>
      */
-    private function numericRules(Schema $schema): array
+    private function numericRules(SchemaNode $schema): array
     {
         $rules = [];
 
-        $serialized = (array) $schema->getSerializableData();
-        $exclusiveMin = $serialized['exclusiveMinimum'] ?? null;
-        $exclusiveMax = $serialized['exclusiveMaximum'] ?? null;
+        $exclusiveMin = $schema->exclusiveMinimum;
+        $exclusiveMax = $schema->exclusiveMaximum;
 
         // 3.1 numeric exclusiveMinimum: a strict lower bound on its own.
         if (is_int($exclusiveMin) || is_float($exclusiveMin)) {
@@ -3004,7 +2957,7 @@ final class ModelGenerator
     /**
      * @return list<string>
      */
-    private function arrayCountRules(Schema $schema): array
+    private function arrayCountRules(SchemaNode $schema): array
     {
         $rules = [];
 
@@ -3036,7 +2989,7 @@ final class ModelGenerator
      *
      * @return list<string>
      */
-    private function objectCountRules(Schema $schema): array
+    private function objectCountRules(SchemaNode $schema): array
     {
         $rules = [];
 
@@ -3153,9 +3106,9 @@ final class ModelGenerator
         return $result;
     }
 
-    private function referencedEnumClass(Reference $reference): ?string
+    private function referencedEnumClass(ReferenceNode $reference): ?string
     {
-        $name = $this->refName($reference->getReference());
+        $name = $this->refName($reference->pointer());
 
         if ($name !== null && isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'enum') {
             // Every Rule::enum(X::class) expression flows through here, so
@@ -3474,13 +3427,13 @@ final class ModelGenerator
         return "\n\n    /**\n     * @return array<array-key, list<string|object>>\n     */\n    public static function rules(): array\n    {\n        return [\n".implode("\n", $lines)."\n        ];\n    }";
     }
 
-    private function resolveType(Schema|Reference $schema, string $nameHint, int $depth, string $variant = 'all'): ResolvedType
+    private function resolveType(SchemaNode|ReferenceNode $schema, string $nameHint, int $depth, string $variant = 'all'): ResolvedType
     {
         if ($depth > $this->options->maxDepth) {
             throw new GenerationException("Maximum schema depth ({$this->options->maxDepth}) exceeded at {$nameHint}.");
         }
 
-        if ($schema instanceof Reference) {
+        if ($schema instanceof ReferenceNode) {
             return $this->resolveReference($schema);
         }
 
@@ -3584,7 +3537,7 @@ final class ModelGenerator
      * fallback behavior and is expected for the genuinely ambiguous cases. The
      * fallback is deterministic: the same spec always lands on the same result.
      */
-    private function resolveUnion(Schema $schema, string $nameHint, int $depth, string $variant): ResolvedType
+    private function resolveUnion(SchemaNode $schema, string $nameHint, int $depth, string $variant): ResolvedType
     {
         $members = $this->unionMembers($schema);
 
@@ -3625,11 +3578,11 @@ final class ModelGenerator
                 // nullable union does not silently lose its null. The collapse
                 // is surfaced as a build warning naming the schema (and the
                 // pointer, when the messy member is a $ref), issue #67.
-                $this->warnings[$member instanceof Reference
+                $this->warnings[$member instanceof ReferenceNode
                     ? sprintf(
                         '%s: a oneOf/anyOf member $ref "%s" does not resolve to a plain scalar or a generated Data class; the union degrades to mixed with presence-only validation.',
                         $this->warningContext,
-                        $member->getReference(),
+                        $member->pointer(),
                     )
                     : sprintf(
                         '%s: a oneOf/anyOf member is not a plain scalar or a $ref to a generated Data class; the union degrades to mixed with presence-only validation.',
@@ -3759,9 +3712,9 @@ final class ModelGenerator
      * Both keywords are unioned: a schema rarely uses both, but if it does the
      * members compose into one type union (oneOf members first, then anyOf).
      *
-     * @return list<Schema|Reference>
+     * @return list<SchemaNode|ReferenceNode>
      */
-    private function unionMembers(Schema $schema): array
+    private function unionMembers(SchemaNode $schema): array
     {
         $members = [];
 
@@ -3770,7 +3723,7 @@ final class ModelGenerator
                 continue;
             }
             foreach ($set as $member) {
-                if ($member instanceof Schema || $member instanceof Reference) {
+                if ($member instanceof SchemaNode || $member instanceof ReferenceNode) {
                     $members[] = $member;
                 }
             }
@@ -3783,9 +3736,9 @@ final class ModelGenerator
      * Whether a union member is the bare `null` type (`{type: 'null'}` or a type
      * array of only null), which contributes nullability rather than a PHP type.
      */
-    private function isNullTypeMember(Schema|Reference $member): bool
+    private function isNullTypeMember(SchemaNode|ReferenceNode $member): bool
     {
-        if (! $member instanceof Schema) {
+        if (! $member instanceof SchemaNode) {
             return false;
         }
 
@@ -3806,10 +3759,10 @@ final class ModelGenerator
      * mixed. Keeping the accepted set small is deliberate: the union type hint is
      * only emitted when it is unambiguously correct.
      */
-    private function isCleanUnionMember(Schema|Reference $member): bool
+    private function isCleanUnionMember(SchemaNode|ReferenceNode $member): bool
     {
-        if ($member instanceof Reference) {
-            $name = $this->refName($member->getReference());
+        if ($member instanceof ReferenceNode) {
+            $name = $this->refName($member->pointer());
             if ($name === null) {
                 return false;
             }
@@ -3867,9 +3820,9 @@ final class ModelGenerator
      * operation) where it was encountered (issue #67) instead of hollowing the
      * output silently.
      */
-    private function resolveReference(Reference $reference): ResolvedType
+    private function resolveReference(ReferenceNode $reference): ResolvedType
     {
-        $pointer = $reference->getReference();
+        $pointer = $reference->pointer();
         $name = $this->refName($pointer);
 
         if ($name === null) {
@@ -3926,11 +3879,11 @@ final class ModelGenerator
         return new ResolvedType('mixed');
     }
 
-    private function resolveArray(Schema $schema, string $nameHint, int $depth, bool $nullable, string $variant = 'all'): ResolvedType
+    private function resolveArray(SchemaNode $schema, string $nameHint, int $depth, bool $nullable, string $variant = 'all'): ResolvedType
     {
         $items = $schema->items;
 
-        if (! $items instanceof Schema && ! $items instanceof Reference) {
+        if (! $items instanceof SchemaNode && ! $items instanceof ReferenceNode) {
             return new ResolvedType('array', $nullable, 'array<int, mixed>');
         }
 
@@ -3971,7 +3924,7 @@ final class ModelGenerator
         );
     }
 
-    private function resolveInlineObject(Schema $schema, string $nameHint, int $depth, bool $nullable, string $variant = 'all'): ResolvedType
+    private function resolveInlineObject(SchemaNode $schema, string $nameHint, int $depth, bool $nullable, string $variant = 'all'): ResolvedType
     {
         $className = $this->names->reserve($this->withSuffix($nameHint));
 
@@ -3986,7 +3939,7 @@ final class ModelGenerator
         return new ResolvedType($className, $nullable, classRefs: [$className]);
     }
 
-    private function emitEnum(string $className, Schema $schema): void
+    private function emitEnum(string $className, SchemaNode $schema): void
     {
         // emitEnum only runs for a backed-enum component (isEnum), whose values
         // are all int or string; filtering floats here also narrows the type for
@@ -4062,7 +4015,7 @@ final class ModelGenerator
      *
      * @return list<string|int|float|bool>
      */
-    private function enumValues(Schema $schema): array
+    private function enumValues(SchemaNode $schema): array
     {
         $result = [];
         foreach ($this->asArray($schema->enum) as $value) {
@@ -4083,7 +4036,7 @@ final class ModelGenerator
      * (see isScalarEnumComponent / emitData), which keeps the bool/float member in
      * the membership rule rather than dropping it.
      */
-    private function isEnum(Schema $schema): bool
+    private function isEnum(SchemaNode $schema): bool
     {
         if (! $this->notEmptyArray($schema->enum)) {
             return false;
@@ -4114,7 +4067,7 @@ final class ModelGenerator
      * component is wrapped in a single-`value` Data class so the `Rule::in`
      * constraint is still enforced rather than emitting an empty class.
      */
-    private function isScalarEnumComponent(Schema $schema): bool
+    private function isScalarEnumComponent(SchemaNode $schema): bool
     {
         if (! $this->notEmptyArray($schema->enum)) {
             return false;
@@ -4131,7 +4084,7 @@ final class ModelGenerator
         return $this->enumValues($schema) !== [];
     }
 
-    private function hasReadWriteFlags(Schema $schema): bool
+    private function hasReadWriteFlags(SchemaNode $schema): bool
     {
         foreach ($this->objectProperties($schema) as $property) {
             if ($this->isReadOnly($property) || $this->isWriteOnly($property)) {
@@ -4146,23 +4099,21 @@ final class ModelGenerator
      * Record a diagnostic when a property schema carries a non-standard
      * per-property `required` key (a boolean `required` set on the property
      * object itself). OpenAPI 3.x ignores this: a property is required only when
-     * the OWNING schema's `required: [...]` array lists it. cebe keeps the
-     * stray boolean in the property's serialized data (the schema-level array,
-     * by contrast, is always a list of strings), so we read it from there.
+     * the OWNING schema's `required: [...]` array lists it. SchemaNode types
+     * `required` as `list<string>|bool|null` exactly so this real-world misuse
+     * survives hydration (issue #104) and can be warned about here.
      *
      * The detection is intentionally narrow: only a boolean value triggers it,
      * so a legitimate schema-level `required` array nested inside a property
      * (itself an object schema) is never mistaken for the non-standard key.
      */
-    private function warnPerPropertyRequired(string $schemaName, string $propertyName, Schema|Reference $propertySchema): void
+    private function warnPerPropertyRequired(string $schemaName, string $propertyName, SchemaNode|ReferenceNode $propertySchema): void
     {
-        if (! $propertySchema instanceof Schema) {
+        if (! $propertySchema instanceof SchemaNode) {
             return;
         }
 
-        $serialized = (array) $propertySchema->getSerializableData();
-
-        if (! array_key_exists('required', $serialized) || ! is_bool($serialized['required'])) {
+        if (! is_bool($propertySchema->required)) {
             return;
         }
 
@@ -4174,24 +4125,24 @@ final class ModelGenerator
         )] = true;
     }
 
-    private function isReadOnly(Schema|Reference $schema): bool
+    private function isReadOnly(SchemaNode|ReferenceNode $schema): bool
     {
-        return $schema instanceof Schema && $schema->readOnly === true;
+        return $schema instanceof SchemaNode && $schema->readOnly === true;
     }
 
-    private function isWriteOnly(Schema|Reference $schema): bool
+    private function isWriteOnly(SchemaNode|ReferenceNode $schema): bool
     {
-        return $schema instanceof Schema && $schema->writeOnly === true;
+        return $schema instanceof SchemaNode && $schema->writeOnly === true;
     }
 
     /**
      * Whether a schema (a component or a single property) is marked
-     * `deprecated: true`. cebe types `deprecated` as a strict bool defaulting to
-     * false, so a missing flag never reads as deprecated.
+     * `deprecated: true`. SchemaNode types `deprecated` as a nullable strict
+     * bool, so a missing or mistyped flag never reads as deprecated.
      */
-    private function isDeprecated(Schema|Reference $schema): bool
+    private function isDeprecated(SchemaNode|ReferenceNode $schema): bool
     {
-        return $schema instanceof Schema && $schema->deprecated === true;
+        return $schema instanceof SchemaNode && $schema->deprecated === true;
     }
 
     /**
@@ -4202,7 +4153,7 @@ final class ModelGenerator
      * schema is not deprecated. The reason is spec-derived (untrusted), so it is
      * run through docblockSafe() before being embedded in the comment.
      */
-    private function deprecationTag(Schema|Reference $schema): ?string
+    private function deprecationTag(SchemaNode|ReferenceNode $schema): ?string
     {
         if (! $this->isDeprecated($schema)) {
             return null;
@@ -4220,17 +4171,14 @@ final class ModelGenerator
      * are accepted; the first non-empty one wins (sorted-key independent: the two
      * are checked in a fixed order for determinism).
      */
-    private function deprecationReason(Schema|Reference $schema): ?string
+    private function deprecationReason(SchemaNode|ReferenceNode $schema): ?string
     {
-        if (! $schema instanceof Schema) {
+        if (! $schema instanceof SchemaNode) {
             return null;
         }
 
-        $serialized = (array) $schema->getSerializableData();
-
-        foreach (['x-deprecated-reason', 'x-deprecation-reason'] as $key) {
-            $value = $serialized[$key] ?? null;
-            if (is_string($value)) {
+        foreach ([$schema->xDeprecatedReason, $schema->xDeprecationReason] as $value) {
+            if ($value !== null) {
                 $safe = $this->docblockSafe($value);
                 if ($safe !== '') {
                     return $safe;
@@ -4269,7 +4217,7 @@ final class ModelGenerator
     /**
      * @return list<string>
      */
-    private function normalizeTypes(Schema $schema): array
+    private function normalizeTypes(SchemaNode $schema): array
     {
         $raw = $schema->type;
         $types = [];
@@ -4290,7 +4238,7 @@ final class ModelGenerator
         return $filtered;
     }
 
-    private function isNullable(Schema $schema): bool
+    private function isNullable(SchemaNode $schema): bool
     {
         if ($schema->nullable === true) {
             return true;
@@ -4305,50 +4253,39 @@ final class ModelGenerator
      * The explicit `additionalProperties` value schema for a map, or null when
      * the schema is not an explicitly-declared map.
      *
-     * cebe defaults `additionalProperties` to boolean `true` on every object, so
-     * the in-memory value cannot tell an explicit `additionalProperties: true`
-     * apart from a plain object that never declared it. getSerializableData()
-     * keeps only attributes the spec actually set, so its key presence is the
-     * honest signal of intent. We treat the map as present only when the spec
+     * The node's `hasAdditionalProperties` presence flag (issue #104) tells an
+     * explicit `additionalProperties: true` apart from a plain object that
+     * never declared the key. We treat the map as present only when the spec
      * set the key to a value other than `false`.
      *
-     * Returns the value Schema/Reference for a typed map, or the schema itself
-     * (as a marker) for `additionalProperties: true`. Returns null otherwise.
+     * Returns the value node for a typed map, or boolean `true` (as a marker)
+     * for `additionalProperties: true`. Returns null otherwise.
      */
-    private function additionalPropertiesSchema(Schema $schema): Schema|Reference|true|null
+    private function additionalPropertiesSchema(SchemaNode $schema): SchemaNode|ReferenceNode|true|null
     {
-        $serialized = (array) $schema->getSerializableData();
-        if (! array_key_exists('additionalProperties', $serialized)) {
+        if (! $schema->hasAdditionalProperties) {
             return null;
         }
 
         $value = $schema->additionalProperties;
 
-        if ($value === false) {
-            return null;
-        }
-
-        if ($value instanceof Schema || $value instanceof Reference) {
+        if ($value instanceof SchemaNode || $value instanceof ReferenceNode) {
             return $value;
         }
 
-        // additionalProperties: true (untyped map).
-        return true;
+        // additionalProperties: true (untyped map); false is not a map.
+        return $value === true ? true : null;
     }
 
     /**
      * Whether the schema explicitly declares `additionalProperties: false`, the
-     * closed-object marker (issue #30). cebe defaults `additionalProperties` to
-     * boolean `true` on every object, so the in-memory value alone cannot tell an
-     * explicit `false` apart from an unset default; getSerializableData() keeps
-     * only keys the spec actually set, so its presence is the honest signal of
-     * intent. Returns true only when the spec set the key to literal `false`.
+     * closed-object marker (issue #30). The node's `hasAdditionalProperties`
+     * presence flag (issue #104) tells an explicit `false` apart from an absent
+     * key. Returns true only when the spec set the key to literal `false`.
      */
-    private function declaresClosedObject(Schema $schema): bool
+    private function declaresClosedObject(SchemaNode $schema): bool
     {
-        $serialized = (array) $schema->getSerializableData();
-
-        return array_key_exists('additionalProperties', $serialized)
+        return $schema->hasAdditionalProperties
             && $schema->additionalProperties === false;
     }
 
@@ -4369,7 +4306,7 @@ final class ModelGenerator
      *
      * @param  list<string>  $wireNames  the declared wire (input) names
      */
-    private function closedObjectRule(string $schemaName, array $wireNames, Schema $schema): ?string
+    private function closedObjectRule(string $schemaName, array $wireNames, SchemaNode $schema): ?string
     {
         $patterns = $this->patternPropertyPatterns($schema);
 
@@ -4426,27 +4363,17 @@ final class ModelGenerator
     }
 
     /**
-     * The `patternProperties` patterns a schema declares, in spec order. cebe
-     * has no typed attribute for `patternProperties` (a JSON Schema keyword
-     * OpenAPI 3.1 admits), so it is read from the serialized data, where cebe
-     * keeps unknown keys verbatim. The value schemas are intentionally ignored:
-     * only key admission is derived from them (see closedObjectRule()).
+     * The `patternProperties` patterns a schema declares, in spec order, read
+     * from the first-class typed keyword on SchemaNode (issue #104). The value
+     * schemas are intentionally ignored: only key admission is derived from
+     * them (see closedObjectRule()).
      *
      * @return list<string>
      */
-    private function patternPropertyPatterns(Schema $schema): array
+    private function patternPropertyPatterns(SchemaNode $schema): array
     {
-        $serialized = (array) $schema->getSerializableData();
-        $raw = $serialized['patternProperties'] ?? null;
-        if (is_object($raw)) {
-            $raw = (array) $raw;
-        }
-        if (! is_array($raw)) {
-            return [];
-        }
-
         $patterns = [];
-        foreach (array_keys($raw) as $pattern) {
+        foreach (array_keys($schema->patternProperties ?? []) as $pattern) {
             $patterns[] = (string) $pattern;
         }
 
@@ -4461,7 +4388,7 @@ final class ModelGenerator
      * additionalProperties) is NOT a pure map: its named properties are emitted
      * normally and the dynamic overflow is documented as not captured.
      */
-    private function isPureMap(Schema $schema): bool
+    private function isPureMap(SchemaNode $schema): bool
     {
         if ($this->additionalPropertiesSchema($schema) === null) {
             return false;
@@ -4502,7 +4429,7 @@ final class ModelGenerator
      * target is an object Data class is never promoted and stays a Data class.
      * Bounded by the registry size (each pass promotes at least one, or stops).
      *
-     * @param  array<string, Schema>  $schemas
+     * @param  array<string, SchemaNode>  $schemas
      */
     private function promoteChainedAliases(array $schemas): void
     {
@@ -4519,7 +4446,7 @@ final class ModelGenerator
                     continue;
                 }
 
-                $target = $this->refName($ref->getReference());
+                $target = $this->refName($ref->pointer());
                 if ($target === null || ! isset($this->aliasSchemas[$target])) {
                     continue;
                 }
@@ -4548,7 +4475,7 @@ final class ModelGenerator
      * enum components (native backed enums), and float-enum scalar components
      * (wrapped in a single-`value` Data class to keep the Rule::in constraint).
      */
-    private function isNonObjectAlias(Schema $schema): bool
+    private function isNonObjectAlias(SchemaNode $schema): bool
     {
         // A component with named properties is an object Data class, not an alias.
         if ($this->notEmptyArray($schema->properties)) {
@@ -4669,7 +4596,7 @@ final class ModelGenerator
      * their PHP type, a `$ref` value maps to the referenced Data class, and
      * `true`/untyped maps to `mixed`.
      */
-    private function mapType(Schema $schema, string $nameHint, int $depth, string $variant): ResolvedType
+    private function mapType(SchemaNode $schema, string $nameHint, int $depth, string $variant): ResolvedType
     {
         $value = $this->additionalPropertiesSchema($schema);
         $nullable = $this->isNullable($schema);
@@ -4702,9 +4629,9 @@ final class ModelGenerator
     /**
      * The property map for a schema, with any `allOf` members merged in.
      *
-     * @return array<string, Schema|Reference>
+     * @return array<string, SchemaNode|ReferenceNode>
      */
-    private function objectProperties(Schema $schema): array
+    private function objectProperties(SchemaNode $schema): array
     {
         return $this->mergeAllOf($schema)['properties'];
     }
@@ -4714,7 +4641,7 @@ final class ModelGenerator
      *
      * @return list<string>
      */
-    private function requiredNames(Schema $schema): array
+    private function requiredNames(SchemaNode $schema): array
     {
         return $this->mergeAllOf($schema)['required'];
     }
@@ -4738,9 +4665,9 @@ final class ModelGenerator
      * The first-seen position is kept even when a later source wins the value.
      *
      * @param  array<string, true>  $seen  component names already being merged (keyed for O(1) cycle checks)
-     * @return array{properties: array<string, Schema|Reference>, required: list<string>}
+     * @return array{properties: array<string, SchemaNode|ReferenceNode>, required: list<string>}
      */
-    private function mergeAllOf(Schema $schema, array $seen = []): array
+    private function mergeAllOf(SchemaNode $schema, array $seen = []): array
     {
         $ownProperties = $this->localProperties($schema);
         $ownRequired = $this->localRequired($schema);
@@ -4809,13 +4736,13 @@ final class ModelGenerator
      *
      * @param  array<string, true>  $seen  component names already being merged
      */
-    private function warnUnmergedAllOfMember(Schema|Reference $member, array $seen): void
+    private function warnUnmergedAllOfMember(SchemaNode|ReferenceNode $member, array $seen): void
     {
-        if (! $member instanceof Reference) {
+        if (! $member instanceof ReferenceNode) {
             return;
         }
 
-        $pointer = $member->getReference();
+        $pointer = $member->pointer();
         $name = $this->refName($pointer);
 
         if ($name === null) {
@@ -4846,7 +4773,7 @@ final class ModelGenerator
      *
      * @param  array<string, true>  $seen  component names already visited (keyed for O(1) cycle checks)
      */
-    private function mergedNullable(Schema $schema, array $seen = []): bool
+    private function mergedNullable(SchemaNode $schema, array $seen = []): bool
     {
         if ($this->isNullable($schema)) {
             return true;
@@ -4886,7 +4813,7 @@ final class ModelGenerator
      * still recognized. An unknown target resolves to `mixed` downstream via
      * resolveReference, the same degenerate result an empty merged class gave.
      */
-    private function bareAllOfRef(Schema $schema): ?Reference
+    private function bareAllOfRef(SchemaNode $schema): ?ReferenceNode
     {
         if ($this->notEmptyArray($schema->properties)) {
             return null;
@@ -4898,11 +4825,11 @@ final class ModelGenerator
         }
 
         $member = $members[0];
-        if (! $member instanceof Reference) {
+        if (! $member instanceof ReferenceNode) {
             return null;
         }
 
-        return $this->refName($member->getReference()) !== null ? $member : null;
+        return $this->refName($member->pointer()) !== null ? $member : null;
     }
 
     /**
@@ -4911,15 +4838,15 @@ final class ModelGenerator
      * guarded against cycles by tracking the component names already in flight.
      *
      * @param  array<string, true>  $seen
-     * @return array{0: Schema, 1: array<string, true>}|null resolved schema + updated cycle guard, or null if unresolvable
+     * @return array{0: SchemaNode, 1: array<string, true>}|null resolved schema + updated cycle guard, or null if unresolvable
      */
-    private function resolveMemberSchema(Schema|Reference $member, array $seen): ?array
+    private function resolveMemberSchema(SchemaNode|ReferenceNode $member, array $seen): ?array
     {
-        if ($member instanceof Schema) {
+        if ($member instanceof SchemaNode) {
             return [$member, $seen];
         }
 
-        $name = $this->refName($member->getReference());
+        $name = $this->refName($member->pointer());
 
         if ($name === null || isset($seen[$name]) || ! isset($this->registry[$name])) {
             return null;
@@ -4932,13 +4859,13 @@ final class ModelGenerator
     }
 
     /**
-     * @return array<string, Schema|Reference>
+     * @return array<string, SchemaNode|ReferenceNode>
      */
-    private function localProperties(Schema $schema): array
+    private function localProperties(SchemaNode $schema): array
     {
         $result = [];
         foreach ($this->asArray($schema->properties) as $name => $property) {
-            if ($property instanceof Schema || $property instanceof Reference) {
+            if ($property instanceof SchemaNode || $property instanceof ReferenceNode) {
                 $result[(string) $name] = $property;
             }
         }
@@ -4949,7 +4876,7 @@ final class ModelGenerator
     /**
      * @return list<string>
      */
-    private function localRequired(Schema $schema): array
+    private function localRequired(SchemaNode $schema): array
     {
         $result = [];
         foreach ($this->asArray($schema->required) as $name) {
@@ -4972,26 +4899,24 @@ final class ModelGenerator
 
     /**
      * The `const` keyword (JSON Schema / OpenAPI 3.1) constrains a value to a
-     * single literal. cebe does not model `const` as a typed attribute, so it
-     * lands in the serialized overflow. We read it from there and only accept
-     * scalar literals (string/int) we can both type and enforce with Rule::in;
-     * anything else (array/object/bool/float/null const) yields null and the
-     * schema is handled by the normal type path.
+     * single literal. A first-class typed keyword on SchemaNode with a presence
+     * flag (issue #104). Only scalar literals (string/int) we can both type and
+     * enforce with Rule::in are accepted; anything else (array/object/bool/
+     * float/null const) yields null and the schema is handled by the normal
+     * type path.
      *
      * Returns a single-element list so callers can distinguish "no const"
      * (null) from "const present" ([value]) even for falsy values.
      *
      * @return array{0: string|int}|null
      */
-    private function constValue(Schema $schema): ?array
+    private function constValue(SchemaNode $schema): ?array
     {
-        $serialized = (array) $schema->getSerializableData();
-
-        if (! array_key_exists('const', $serialized)) {
+        if (! $schema->hasConst) {
             return null;
         }
 
-        $value = $serialized['const'];
+        $value = $schema->const;
 
         if (is_string($value) || is_int($value)) {
             return [$value];

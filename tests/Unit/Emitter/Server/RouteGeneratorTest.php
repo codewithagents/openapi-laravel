@@ -8,25 +8,31 @@ use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\RouteGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
 function generateRoutes(?ServerOptions $options = null): string
 {
-    $doc = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/server/petstore.yaml');
+    $parser104 = new SpecParser;
+    $doc = $parser104->parseFileToDocument(__DIR__.'/../../../Fixtures/server/petstore.yaml');
+    $docCebe = $parser104->buildCebeModel($doc, __DIR__.'/../../../Fixtures/server/petstore.yaml');
     $generator = new ModelGenerator;
     $generator->generate($doc);
     $options ??= new ServerOptions;
-    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($doc);
+    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($docCebe);
 
     return (new RouteGenerator($options))->generate($descriptors)->code;
 }
 
 it('names the routes file api.generated', function () {
-    $doc = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/server/petstore.yaml');
+    $parser104 = new SpecParser;
+    $doc = $parser104->parseFileToDocument(__DIR__.'/../../../Fixtures/server/petstore.yaml');
+    $docCebe = $parser104->buildCebeModel($doc, __DIR__.'/../../../Fixtures/server/petstore.yaml');
     $generator = new ModelGenerator;
     $generator->generate($doc);
     $options = new ServerOptions;
-    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($doc);
+    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($docCebe);
 
     $file = (new RouteGenerator($options))->generate($descriptors);
 
@@ -151,13 +157,14 @@ it('suffixes route names to stay unique when method names collide across control
         ],
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $generator->generate($spec);
     $options = new ServerOptions;
-    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($spec);
+    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($specCebe);
     $code = (new RouteGenerator($options))->generate($descriptors)->code;
 
     // Both collection GETs get the conventional `index` in their own

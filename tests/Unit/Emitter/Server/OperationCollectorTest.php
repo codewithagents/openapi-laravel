@@ -9,6 +9,8 @@ use CodeWithAgents\OpenApiLaravel\Emitter\Server\ControllerGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationDescriptor;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
 /**
@@ -16,11 +18,13 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  */
 function collectPetstore(): array
 {
-    $doc = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/server/petstore.yaml');
+    $parser104 = new SpecParser;
+    $doc = $parser104->parseFileToDocument(__DIR__.'/../../../Fixtures/server/petstore.yaml');
+    $docCebe = $parser104->buildCebeModel($doc, __DIR__.'/../../../Fixtures/server/petstore.yaml');
     $generator = new ModelGenerator;
     $generator->generate($doc);
 
-    return (new OperationCollector(new ServerOptions, $generator->registry()))->collect($doc);
+    return (new OperationCollector(new ServerOptions, $generator->registry()))->collect($docCebe);
 }
 
 /**
@@ -28,11 +32,13 @@ function collectPetstore(): array
  */
 function collectPathParameters(): array
 {
-    $doc = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/server/path-parameters.yaml');
+    $parser104 = new SpecParser;
+    $doc = $parser104->parseFileToDocument(__DIR__.'/../../../Fixtures/server/path-parameters.yaml');
+    $docCebe = $parser104->buildCebeModel($doc, __DIR__.'/../../../Fixtures/server/path-parameters.yaml');
     $generator = new ModelGenerator;
     $generator->generate($doc);
 
-    return (new OperationCollector(new ServerOptions, $generator->registry()))->collect($doc);
+    return (new OperationCollector(new ServerOptions, $generator->registry()))->collect($docCebe);
 }
 
 /**
@@ -165,14 +171,16 @@ it('records the selected success status alongside the return type (issue #64)', 
 });
 
 it('marks the RespondsWithStatus support class for inlining when a non-200 status exists (issue #64)', function () {
-    $doc = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/server/petstore.yaml');
+    $parser104 = new SpecParser;
+    $doc = $parser104->parseFileToDocument(__DIR__.'/../../../Fixtures/server/petstore.yaml');
+    $docCebe = $parser104->buildCebeModel($doc, __DIR__.'/../../../Fixtures/server/petstore.yaml');
     $generator = new ModelGenerator;
     $generator->generate($doc);
 
     // Wired like the planner: the collector records the middleware class on
     // the model generator, so supportFiles() inlines it into the consumer's
     // own Support namespace next to the rule classes (issue #40 mechanism).
-    (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($doc);
+    (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($docCebe);
 
     $support = $generator->supportFiles();
     expect($support)->toHaveKey('RespondsWithStatus')
@@ -194,12 +202,13 @@ it('does not inline RespondsWithStatus when every success response is a 200 (iss
         ],
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $generator->generate($spec);
-    (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($spec);
+    (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($specCebe);
 
     expect($generator->supportFiles())->not->toHaveKey('RespondsWithStatus');
 });
@@ -231,7 +240,9 @@ it('produces a writable variant whose rules() still enforce required non-readOnl
     // rules() would validate a request: a missing required name fails, the
     // readOnly id is absent. Full HTTP coverage of the writable body is a
     // follow-up (B1); this asserts the generated validation surface directly.
-    $doc = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/server/petstore.yaml');
+    $parser104 = new SpecParser;
+    $doc = $parser104->parseFileToDocument(__DIR__.'/../../../Fixtures/server/petstore.yaml');
+    $docCebe = $parser104->buildCebeModel($doc, __DIR__.'/../../../Fixtures/server/petstore.yaml');
     $generator = new ModelGenerator;
     $files = $generator->generate($doc);
     $registry = $generator->registry();
@@ -255,13 +266,15 @@ it('produces a writable variant whose rules() still enforce required non-readOnl
  */
 function collectQueryParameters(): array
 {
-    $doc = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/server/query-parameters.yaml');
+    $parser104 = new SpecParser;
+    $doc = $parser104->parseFileToDocument(__DIR__.'/../../../Fixtures/server/query-parameters.yaml');
+    $docCebe = $parser104->buildCebeModel($doc, __DIR__.'/../../../Fixtures/server/query-parameters.yaml');
     $generator = new ModelGenerator;
     $generator->generate($doc);
 
     $collector = new OperationCollector(new ServerOptions, $generator->registry(), null, $generator);
 
-    return [$collector->collect($doc), $generator, $collector];
+    return [$collector->collect($docCebe), $generator, $collector];
 }
 
 it('describes a body-less operation with an injected query Data param (issue #63)', function () {
@@ -368,11 +381,13 @@ it('maps the boolean true/false literals in fromQuery only when the class has bo
 });
 
 it('suffixes duplicate synthesized method names and pairs each with its own query class', function () {
-    $doc = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/server/duplicate-method-names.yaml');
+    $parser104 = new SpecParser;
+    $doc = $parser104->parseFileToDocument(__DIR__.'/../../../Fixtures/server/duplicate-method-names.yaml');
+    $docCebe = $parser104->buildCebeModel($doc, __DIR__.'/../../../Fixtures/server/duplicate-method-names.yaml');
     $generator = new ModelGenerator;
     $generator->generate($doc);
     $options = new ServerOptions;
-    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($doc);
+    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($docCebe);
 
     // Two operations without operationId collide on the synthesized name: the
     // per-controller allocator suffixes the second method, and the query-class

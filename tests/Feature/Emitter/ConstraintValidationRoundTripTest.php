@@ -8,10 +8,10 @@ use App\ConstraintData\NestedData;
 use App\ConstraintData\NumberedData;
 use App\ConstraintData\PetHolderData;
 use App\ConstraintData\TimedData;
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -112,8 +112,8 @@ function bootConstraintClasses(): void
         'components' => ['schemas' => $schemas],
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator(new GeneratorOptions('App\\ConstraintData'));
     $files = $generator->generate($spec);

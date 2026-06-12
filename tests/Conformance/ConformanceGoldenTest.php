@@ -49,7 +49,7 @@ function conformance31(): array
 {
     static $files = null;
     if ($files === null) {
-        $document = (new SpecParser)->parseFile(CONFORMANCE_31);
+        $document = (new SpecParser)->parseFileToDocument(CONFORMANCE_31);
         $files = (new ModelGenerator)->generate($document);
     }
 
@@ -65,7 +65,7 @@ function conformance30(): array
 {
     static $files = null;
     if ($files === null) {
-        $document = (new SpecParser)->parseFile(CONFORMANCE_30);
+        $document = (new SpecParser)->parseFileToDocument(CONFORMANCE_30);
         $files = (new ModelGenerator)->generate($document);
     }
 
@@ -94,7 +94,7 @@ function conformanceSupport(): array
 {
     static $support = null;
     if ($support === null) {
-        $document = (new SpecParser)->parseFile(CONFORMANCE_31);
+        $document = (new SpecParser)->parseFileToDocument(CONFORMANCE_31);
         $generator = new ModelGenerator;
         $generator->generate($document);
         $support = $generator->supportFiles();
@@ -108,7 +108,7 @@ function conformanceSupport(): array
 // ===========================================================================
 
 it('compiles every generated file with php -l, both conformance documents', function (string $path) {
-    $document = (new SpecParser)->parseFile($path);
+    $document = (new SpecParser)->parseFileToDocument($path);
     $generator = new ModelGenerator;
     $files = $generator->generate($document);
     // The inlined runtime support classes (issue #40) are owned output too, so
@@ -205,7 +205,7 @@ it('inlines only the referenced support classes into the consumer Support namesp
 });
 
 it('inlines NoUnknownPropertiesRule by default and drops it under --no-enforce-closed-objects (#40, #30)', function () {
-    $document = (new SpecParser)->parseFile(CONFORMANCE_31);
+    $document = (new SpecParser)->parseFileToDocument(CONFORMANCE_31);
 
     // By default, closed-object enforcement is on (#30), so any spec that
     // declares a closed object pulls the rule into the inlined set. The
@@ -234,7 +234,7 @@ it('emits the NoUnknownPropertiesRule in a closed-object Data class by default, 
         ->and($code)->toContain('use App\Data\Support\NoUnknownPropertiesRule;');
 
     // Opt-out run: the same schema emits no closed-object rule and no import.
-    $document = (new SpecParser)->parseFile(CONFORMANCE_31);
+    $document = (new SpecParser)->parseFileToDocument(CONFORMANCE_31);
     $lenient = (new ModelGenerator(new GeneratorOptions(enforceClosedObjects: false)))->generate($document);
     expect($lenient)->toHaveKey('AdditionalPropsFalseData');
     expect($lenient['AdditionalPropsFalseData']->code)
@@ -697,10 +697,10 @@ it('keeps 3.0 nullable:true objects and enums valid (conformance-3.0-forms)', fu
 // ===========================================================================
 
 it('generates byte-identical output on a second run (determinism), both documents', function (string $path) {
-    $document1 = (new SpecParser)->parseFile($path);
+    $document1 = (new SpecParser)->parseFileToDocument($path);
     $first = array_map(fn (GeneratedFile $f) => $f->code, (new ModelGenerator)->generate($document1));
 
-    $document2 = (new SpecParser)->parseFile($path);
+    $document2 = (new SpecParser)->parseFileToDocument($path);
     $second = array_map(fn (GeneratedFile $f) => $f->code, (new ModelGenerator)->generate($document2));
 
     expect($first)->toBe($second);

@@ -14,7 +14,7 @@ use Illuminate\Validation\ValidationException;
  * output is not just syntactically valid but behaves as laravel-data classes.
  */
 beforeEach(function () {
-    $document = (new SpecParser)->parseFile(__DIR__.'/../../Fixtures/emitter/customer.json');
+    $document = (new SpecParser)->parseFileToDocument(__DIR__.'/../../Fixtures/emitter/customer.json');
     $files = (new ModelGenerator)->generate($document);
 
     $dir = sys_get_temp_dir().'/oal_roundtrip_'.getmypid();

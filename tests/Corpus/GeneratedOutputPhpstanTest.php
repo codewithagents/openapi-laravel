@@ -74,7 +74,9 @@ it('generates PHPStan-max-clean output (phpstan analyse reports no errors)', fun
     foreach ($specs as $name => $path) {
         expect(is_file($path))->toBeTrue("missing corpus spec for PHPStan gate: {$path}");
 
-        $document = (new SpecParser)->parseFile($path);
+        $parser104 = new SpecParser;
+        $document = $parser104->parseFileToDocument($path);
+        $documentCebe = $parser104->buildCebeModel($document, $path);
         $generator = new ModelGenerator;
         $files = $generator->generate($document);
         // The per-operation query (issue #63) and inline request-body (issue
@@ -82,7 +84,7 @@ it('generates PHPStan-max-clean output (phpstan analyse reports no errors)', fun
         // the generator wired in, exactly like the planner, so they are
         // analysed alongside the model classes. Stripe in particular emits
         // hundreds of them.
-        (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($document);
+        (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($documentCebe);
         $files = array_merge($files, $generator->queryFiles(), $generator->bodyFiles());
         // The inlined runtime support classes (issue #40) are owned output and
         // the Data classes import them, so analyse them too: both to prove the

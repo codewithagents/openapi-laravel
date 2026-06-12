@@ -9,6 +9,8 @@ use CodeWithAgents\OpenApiLaravel\Emitter\Server\ControllerGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationDescriptor;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 
 /**
  * Issue #75: a multipart/form-data object request body synthesizes a
@@ -32,13 +34,14 @@ function collectMultipartBody(array $paths, array $schemas = []): array
         $document['components'] = ['schemas' => $schemas];
     }
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $generator->generate($spec);
     $collector = new OperationCollector(new ServerOptions, $generator->registry(), null, $generator);
-    $descriptors = $collector->collect($spec);
+    $descriptors = $collector->collect($specCebe);
 
     return [$descriptors, $generator, $collector];
 }
@@ -313,13 +316,14 @@ it('does not type a multipart body when no model generator is wired in (legacy c
         ]),
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $generator->generate($spec);
     $collector = new OperationCollector(new ServerOptions, $generator->registry());
-    $descriptors = $collector->collect($spec);
+    $descriptors = $collector->collect($specCebe);
 
     expect($descriptors[0]->bodyParam)->toBeNull()
         ->and($descriptors[0]->bodyRequiresRequest)->toBeTrue()

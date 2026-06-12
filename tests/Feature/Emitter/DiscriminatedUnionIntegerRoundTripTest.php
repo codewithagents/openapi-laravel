@@ -5,10 +5,10 @@ declare(strict_types=1);
 use App\IntDiscriminatedData\CircleData;
 use App\IntDiscriminatedData\ShapeHolderData;
 use App\IntDiscriminatedData\SquareData;
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -73,8 +73,8 @@ function bootIntDiscriminatedClasses(): void
         'components' => ['schemas' => $schemas],
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $files = (new ModelGenerator(new GeneratorOptions('App\\IntDiscriminatedData')))->generate($spec);
 

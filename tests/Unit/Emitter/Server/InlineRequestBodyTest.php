@@ -9,6 +9,8 @@ use CodeWithAgents\OpenApiLaravel\Emitter\Server\ControllerGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationDescriptor;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 
 /**
  * Issue #76: an inline JSON object request-body schema synthesizes a
@@ -31,13 +33,14 @@ function collectInlineBody(array $paths, array $schemas = []): array
         $document['components'] = ['schemas' => $schemas];
     }
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $generator->generate($spec);
     $collector = new OperationCollector(new ServerOptions, $generator->registry(), null, $generator);
-    $descriptors = $collector->collect($spec);
+    $descriptors = $collector->collect($specCebe);
 
     return [$descriptors, $generator, $collector];
 }
@@ -266,12 +269,13 @@ it('does not type an inline body when no model generator is wired in (legacy cal
         'paths' => inlinePetPaths(['type' => 'object', 'properties' => ['name' => ['type' => 'string']]]),
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $generator->generate($spec);
-    $descriptors = (new OperationCollector(new ServerOptions, $generator->registry()))->collect($spec);
+    $descriptors = (new OperationCollector(new ServerOptions, $generator->registry()))->collect($specCebe);
 
     expect($descriptors[0]->bodyParam)->toBeNull()
         ->and($descriptors[0]->bodyRequiresRequest)->toBeTrue()
@@ -285,8 +289,9 @@ it('keeps the operationId-derived body class name under the conventional method 
         'paths' => inlinePetPaths(['type' => 'object', 'properties' => ['name' => ['type' => 'string']]]),
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $generator->generate($spec);
@@ -295,7 +300,7 @@ it('keeps the operationId-derived body class name under the conventional method 
         $generator->registry(),
         null,
         $generator,
-    ))->collect($spec);
+    ))->collect($specCebe);
 
     // The controller method takes the conventional name (POST on a collection
     // path is `store`), but the Data layer stays operationId-derived exactly

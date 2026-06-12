@@ -19,6 +19,10 @@ use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\ResolvedClosure;
 use CodeWithAgents\OpenApiLaravel\Naming\PhpIdentifier;
 use CodeWithAgents\OpenApiLaravel\Naming\UniqueNames;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\ParameterNode;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\ReferenceNode;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\SchemaNode;
 
 /**
  * Walks an OpenAPI document and resolves each operation into an
@@ -93,6 +97,13 @@ final class OperationCollector
      * @var array<string, true>
      */
     private array $warnings = [];
+
+    /**
+     * Lazily created by {@see reader()}: backs the Task 4 -> Task 5 bridge
+     * seams that convert cebe nodes into the typed spec graph at the model
+     * pipeline boundary (issue #104).
+     */
+    private ?OpenApiReader $reader = null;
 
     /**
      * @return list<string>
@@ -423,8 +434,10 @@ final class OperationCollector
 
         // The operation's first tag rides along so the grouped data layout
         // (issue #93) can place the query class in its operation's tag group;
-        // the flat layout ignores it.
-        $class = $this->models->generateQueryData($baseName, $label, $queryParameters, $this->firstTag($operation));
+        // the flat layout ignores it. The model pipeline speaks the typed spec
+        // graph since issue #104 Task 4, so the cebe parameters are converted
+        // at this boundary (Task 5 removes the conversion with the cebe walk).
+        $class = $this->models->generateQueryData($baseName, $label, $this->parameterNodes($queryParameters), $this->firstTag($operation));
         if ($class === null) {
             return null;
         }
@@ -764,7 +777,7 @@ final class OperationCollector
                     // data layout (issue #93) can place the multipart body
                     // class in its operation's tag group; the flat layout
                     // ignores it.
-                    $class = $this->models->generateMultipartBodyData($bodyBaseName, $label, $multipart, $this->firstTag($operation));
+                    $class = $this->models->generateMultipartBodyData($bodyBaseName, $label, $this->schemaNode($multipart), $this->firstTag($operation));
 
                     if ($class !== null) {
                         $imports[] = $this->dataFqcn($class);
@@ -835,7 +848,7 @@ final class OperationCollector
             // layout (issue #93) can place the body class (and its nested
             // classes) in its operation's tag group; the flat layout
             // ignores it.
-            $class = $this->models->generateBodyData($bodyBaseName, $label, $schema, $this->firstTag($operation));
+            $class = $this->models->generateBodyData($bodyBaseName, $label, $this->bodySchemaNode($schema), $this->firstTag($operation));
 
             if ($class !== null) {
                 $imports[] = $this->dataFqcn($class);
@@ -1290,5 +1303,76 @@ final class OperationCollector
     private function asArray(mixed $value): array
     {
         return is_array($value) ? $value : [];
+    }
+
+    /**
+     * Convert the operation's cebe query parameters into typed parameter
+     * nodes for the model pipeline (issue #104, Task 4 -> Task 5 bridge
+     * seam): the per-operation Data class generators speak the typed spec
+     * graph, but this collector still walks the cebe object model until
+     * Task 5 migrates it, so the conversion happens at this boundary. The
+     * cebe model was built from the byte-identity-proven serializer round
+     * trip, so re-hydrating its serialized data is lossless. Deleted with
+     * the cebe walk in Task 5.
+     *
+     * @param  list<Parameter>  $parameters
+     * @return list<ParameterNode>
+     */
+    private function parameterNodes(array $parameters): array
+    {
+        $nodes = [];
+        foreach ($parameters as $parameter) {
+            $nodes[] = $this->reader()->hydrateParameter($this->rawSpecData($parameter));
+        }
+
+        return $nodes;
+    }
+
+    /**
+     * Convert a cebe schema-or-reference into its typed node (issue #104,
+     * Task 4 -> Task 5 bridge seam, see {@see parameterNodes}). The empty
+     * fallback node is unreachable in practice (a cebe Schema or Reference
+     * always serializes to an array) and only satisfies the type.
+     */
+    private function schemaNode(Schema|Reference $schema): SchemaNode|ReferenceNode
+    {
+        return $this->reader()->hydrateSchema($this->rawSpecData($schema)) ?? new SchemaNode;
+    }
+
+    /**
+     * Convert an inline (non-$ref) cebe body schema into its typed node
+     * (issue #104, Task 4 -> Task 5 bridge seam, see {@see parameterNodes}).
+     * The caller has already branched on Reference, so the hydrated node is
+     * a SchemaNode; the empty fallback only satisfies the type.
+     */
+    private function bodySchemaNode(Schema $schema): SchemaNode
+    {
+        $node = $this->reader()->hydrateSchema($this->rawSpecData($schema));
+
+        return $node instanceof SchemaNode ? $node : new SchemaNode;
+    }
+
+    /**
+     * The serialized raw data of a cebe node, as the plain array shape the
+     * reader hydrates from. getSerializableData() returns nested stdClass
+     * objects for maps, so a JSON round trip flattens them; the data already
+     * passed the document-level decode, so the round trip cannot fail.
+     *
+     * @return array<array-key, mixed>
+     */
+    private function rawSpecData(Schema|Reference|Parameter $node): array
+    {
+        $decoded = json_decode((string) json_encode($node->getSerializableData()), true);
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * The reader instance backing the bridge seams above, created on first
+     * use (collect() is not always reached, and the seams are throwaway).
+     */
+    private function reader(): OpenApiReader
+    {
+        return $this->reader ??= new OpenApiReader;
     }
 }

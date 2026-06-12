@@ -11,7 +11,7 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  */
 function generateAccount(): array
 {
-    $doc = (new SpecParser)->parseFile(__DIR__.'/../../Fixtures/emitter/readwrite.json');
+    $doc = (new SpecParser)->parseFileToDocument(__DIR__.'/../../Fixtures/emitter/readwrite.json');
 
     return (new ModelGenerator)->generate($doc);
 }
@@ -39,7 +39,7 @@ it('drops readOnly fields from the write variant', function () {
 });
 
 it('keeps a single class when no read/write flags are present', function () {
-    $doc = (new SpecParser)->parseFile(__DIR__.'/../../Fixtures/emitter/customer.json');
+    $doc = (new SpecParser)->parseFileToDocument(__DIR__.'/../../Fixtures/emitter/customer.json');
     $classes = array_keys((new ModelGenerator)->generate($doc));
 
     expect($classes)->not->toContain('CustomerWritableData');

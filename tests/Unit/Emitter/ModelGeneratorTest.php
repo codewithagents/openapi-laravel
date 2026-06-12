@@ -11,7 +11,7 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  */
 function generateCustomer(): array
 {
-    $doc = (new SpecParser)->parseFile(__DIR__.'/../../Fixtures/emitter/customer.json');
+    $doc = (new SpecParser)->parseFileToDocument(__DIR__.'/../../Fixtures/emitter/customer.json');
 
     return (new ModelGenerator)->generate($doc);
 }

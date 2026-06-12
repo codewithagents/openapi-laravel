@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
 use CodeWithAgents\OpenApiLaravel\Parser\SchemaNormalizer;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 use CodeWithAgents\OpenApiLaravel\Tests\Conformance\ConstraintCatalog;
 use CodeWithAgents\OpenApiLaravel\Tests\TestCase;
 use Illuminate\Validation\ValidationException;
@@ -64,7 +64,7 @@ function differentialGenerate(string $namespace, array $schemas): void
     $decoded = json_decode((string) json_encode($document), true);
     $normalized = SchemaNormalizer::normalize($decoded);
 
-    $spec = Reader::readFromJson((string) json_encode($normalized), OpenApi::class);
+    $spec = (new OpenApiReader)->read($normalized);
     $generator = new ModelGenerator(new GeneratorOptions($namespace));
     $files = $generator->generate($spec);
     // The generated rules() reference rule/transformer classes from the consumer's
@@ -289,7 +289,7 @@ it('enforces additionalProperties:false by default and accepts unknown keys only
         'components' => ['schemas' => ['ClosedShape' => $schema]],
     ];
     $normalized = SchemaNormalizer::normalize((array) json_decode((string) json_encode($document), true));
-    $spec = Reader::readFromJson((string) json_encode($normalized), OpenApi::class);
+    $spec = (new OpenApiReader)->read($normalized);
 
     $known = ['known' => 'x'];
     $unknown = ['known' => 'x', 'extra' => 'y'];
@@ -315,7 +315,7 @@ it('enforces additionalProperties:false by default and accepts unknown keys only
  *
  * @return class-string
  */
-function differentialGenerateWithOptions(string $tag, OpenApi $spec, GeneratorOptions $options): string
+function differentialGenerateWithOptions(string $tag, OpenApiDocument $spec, GeneratorOptions $options): string
 {
     /** @var string|null $dir */
     static $dir = null;

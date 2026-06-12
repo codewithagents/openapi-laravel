@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 
 /**
  * Emitter mechanics for discriminator-aware oneOf/anyOf unions (issue #38),
@@ -26,8 +26,8 @@ function generateDiscriminatorSchemas(array $schemas): array
         'components' => ['schemas' => $schemas],
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     return (new ModelGenerator)->generate($spec);
 }
@@ -315,7 +315,7 @@ it('warns on a multi-base single-inheritance conflict', function () {
             'Fish' => ['type' => 'object', 'properties' => ['kind' => ['type' => 'string']]],
         ]],
     ];
-    $generator->generate(Reader::readFromJson((string) json_encode($document), OpenApi::class));
+    $generator->generate((new OpenApiReader)->read($document));
 
     $warnings = $generator->warnings();
     expect($warnings)->not->toBeEmpty();
@@ -337,7 +337,7 @@ it('warns when a discriminated union has a non-object member', function () {
             'Color' => ['type' => 'string', 'enum' => ['red', 'green']],
         ]],
     ];
-    $generator->generate(Reader::readFromJson((string) json_encode($document), OpenApi::class));
+    $generator->generate((new OpenApiReader)->read($document));
 
     $warnings = $generator->warnings();
     expect(implode("\n", $warnings))->toContain('has member "Color"')

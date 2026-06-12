@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 
 /**
  * `additionalProperties: false` enforcement (issue #30). The closed-object rule
@@ -26,8 +26,8 @@ function generateClosedSchemas(array $schemas, bool $enforce): array
         'components' => ['schemas' => $schemas],
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $options = new GeneratorOptions('App\\Data', 'Data', 64, $enforce);
 
@@ -72,7 +72,7 @@ it('keeps default-option output byte-identical to enforcement-on output', functi
         'paths' => new stdClass,
         'components' => ['schemas' => CLOSED_SCHEMA],
     ];
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
 
     $defaultCode = (new ModelGenerator)->generate($spec)['ClosedData']->code;
     $onCode = (new ModelGenerator(new GeneratorOptions('App\\Data', 'Data', 64, true)))->generate($spec)['ClosedData']->code;
@@ -131,7 +131,7 @@ it('allow-lists patternProperties patterns alongside the declared names (#65)', 
             ],
         ]],
     ];
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
     $generator = new ModelGenerator(new GeneratorOptions('App\\Data', 'Data', 64, true));
     $code = $generator->generate($spec)['TaggedData']->code;
 
@@ -157,7 +157,7 @@ it('falls back to the next PCRE delimiter when a pattern contains the first (#65
             ],
         ]],
     ];
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
     $code = (new ModelGenerator)->generate($spec)['HashedData']->code;
 
     // '#' appears in the pattern, so the delimiter falls through to '~',
@@ -182,7 +182,7 @@ it('skips closed-object enforcement when a patternProperties pattern is not vali
             ],
         ]],
     ];
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
     $generator = new ModelGenerator(new GeneratorOptions('App\\Data', 'Data', 64, true));
     $code = $generator->generate($spec)['BrokenData']->code;
 
