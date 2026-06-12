@@ -1,0 +1,140 @@
+openapi: 3.2.0
+info:
+  title: Build Log Streaming API
+  description: >
+    CI build log API exercising the OpenAPI 3.2 Media Type Object
+    `itemSchema` field for sequential media types: the live log endpoint
+    streams JSON Lines where every line validates against LogEvent
+    independently, and the SSE endpoint streams build status events.
+    Modeled on the Media Type Object streaming examples in the OpenAPI
+    3.2.0 specification text
+    (https://spec.openapis.org/oas/v3.2.0.html#media-type-object) for the
+    openapi-laravel 3.2 corpus (#104 T8).
+  version: 1.4.0
+servers:
+  - url: https://ci.example.com/api
+tags:
+  - name: builds
+    description: Build runs and their logs.
+paths:
+  /builds/{buildId}:
+    get:
+      tags:
+        - builds
+      summary: Get a build
+      operationId: getBuild
+      parameters:
+        - $ref: '#/components/parameters/BuildId'
+      responses:
+        '200':
+          description: The build.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Build'
+  /builds/{buildId}/logs:
+    get:
+      tags:
+        - builds
+      summary: Stream build logs as JSON Lines
+      operationId: streamBuildLogs
+      parameters:
+        - $ref: '#/components/parameters/BuildId'
+      responses:
+        '200':
+          description: >
+            An unbounded stream of log events; each line is one LogEvent.
+          content:
+            application/jsonl:
+              itemSchema:
+                $ref: '#/components/schemas/LogEvent'
+  /builds/{buildId}/events:
+    get:
+      tags:
+        - builds
+      summary: Subscribe to build status events
+      operationId: subscribeBuildEvents
+      parameters:
+        - $ref: '#/components/parameters/BuildId'
+      responses:
+        '200':
+          description: Server-sent build status events.
+          content:
+            text/event-stream:
+              itemSchema:
+                type: object
+                required:
+                  - event
+                  - data
+                properties:
+                  event:
+                    type: string
+                    enum:
+                      - queued
+                      - running
+                      - finished
+                  data:
+                    $ref: '#/components/schemas/BuildStatus'
+components:
+  parameters:
+    BuildId:
+      name: buildId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    Build:
+      type: object
+      required:
+        - buildId
+        - status
+        - startedAt
+      properties:
+        buildId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/BuildStatus'
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+    BuildStatus:
+      type: object
+      required:
+        - state
+      properties:
+        state:
+          type: string
+          enum:
+            - queued
+            - running
+            - succeeded
+            - failed
+        exitCode:
+          type: integer
+    LogEvent:
+      type: object
+      required:
+        - timestamp
+        - level
+        - message
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        level:
+          type: string
+          enum:
+            - debug
+            - info
+            - warn
+            - error
+        message:
+          type: string
+        step:
+          type: string

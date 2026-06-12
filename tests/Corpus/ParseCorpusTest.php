@@ -13,12 +13,16 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 it('parses every corpus spec', function (string $path) {
     $document = (new SpecParser)->parseFileToDocument($path);
 
+    // 3.0.x and 3.1.x are fully supported; the openapi-3.2-* fixtures (#104
+    // T8) are accepted best-effort with the loud #103 warning, asserted in
+    // detail by OpenApi32CorpusTest.
     expect($document)->toBeInstanceOf(OpenApiDocument::class)
-        ->and($document->openapi)->toMatch('/^3\.(0|1)/');
+        ->and($document->openapi)->toMatch('/^3\.(0|1|2)/');
 })->with('corpus_specs');
 
 it('covers the full corpus', function () {
     $files = glob(__DIR__.'/../Fixtures/specs/*.{json,yaml,yml}', GLOB_BRACE) ?: [];
 
-    expect(count($files))->toBe(130);
+    // 130 original specs plus the 5 OpenAPI 3.2 fixtures added in #104 T8.
+    expect(count($files))->toBe(135);
 });

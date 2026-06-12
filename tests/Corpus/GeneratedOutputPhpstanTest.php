@@ -57,6 +57,9 @@ it('generates PHPStan-max-clean output (phpstan analyse reports no errors)', fun
         'stripe' => __DIR__.'/../Fixtures/specs/stripe.json',
         'box' => __DIR__.'/../Fixtures/specs/box.json',
         'adyen-checkout' => __DIR__.'/../Fixtures/specs/adyen-checkout.yaml',
+        // #104 T8: the combined OpenAPI 3.2 fixture, so best-effort 3.2
+        // output is held to the same PHPStan-max bar as supported versions.
+        'openapi-3.2-museum' => __DIR__.'/../Fixtures/specs/openapi-3.2-museum.yaml',
     ];
 
     // Make the gate scope explicit in the test output, never a silent cap: the

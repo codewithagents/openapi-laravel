@@ -86,8 +86,9 @@ config output-path containment, and a hostile-input test suite.
 validation oracle (#23: spec-valid payloads must pass and spec-invalid must fail through the real
 Laravel Validator, with a known-gap ratchet), the import-resolution corpus gate, the `php -l`
 compile gate, the conformance golden test, composer-unused/require-checker, `composer audit`,
-Deptrac architecture enforcement, and a Qodana workflow. ~1230 tests green; all 130 corpus specs
-(incl. Stripe, GitHub, Box, Adyen, Asana, Sentry, Twilio as test inputs) generate valid PHP.
+Deptrac architecture enforcement, and a Qodana workflow. ~1250 tests green; all 135 corpus specs
+(incl. Stripe, GitHub, Box, Adyen, Asana, Sentry, Twilio as test inputs, plus 5 OpenAPI 3.2
+fixtures added in #104 T8) generate valid PHP.
 
 **Honest residuals (documented, not hidden):** an undiscriminated object union does not
 auto-hydrate (typed `mixed`, presence-only, #31). All three DISCRIMINATED forms (named-component,
@@ -116,7 +117,7 @@ src/Naming/    spec names -> PHP identifiers (StudlyCaps, collisions, reserved w
 src/Emitter/   Data classes, enums, rules(), controllers, routes emission
 src/Support/   canonical runtime support classes (rules, transformer); inlined into the consumer's own \Support namespace per spec (#40), not imported from the package at runtime
 src/Console/   artisan commands (generate, check) + standalone bin entry + config loading
-tests/Fixtures/specs/   130 real-world OpenAPI specs (shared corpus with openapi-zod-ts)
+tests/Fixtures/specs/   135 real-world OpenAPI specs (shared 130 with openapi-zod-ts, plus 5 OpenAPI 3.2 fixtures)
 ```
 
 ## Conventions
@@ -125,7 +126,7 @@ tests/Fixtures/specs/   130 real-world OpenAPI specs (shared corpus with openapi
 - Pest for tests (incl. native mutation), PHPStan at max level, Laravel Pint for style.
 - Conventional commits with scopes (mirrors openapi-zod-ts release flow).
 - Generated output must be deterministic: same spec in, byte-identical files out.
-- Quality gate: a change is done when all 130 corpus specs generate cleanly and the generated
+- Quality gate: a change is done when all 135 corpus specs generate cleanly and the generated
   output passes `php -l` + PHPStan max.
 - README style mirrors openapi-zod-ts: one-liner, philosophy, honest comparison table, pipeline
   diagram. Reference: ../openapi-zod-ts/packages/openapi-zod-ts/README.md

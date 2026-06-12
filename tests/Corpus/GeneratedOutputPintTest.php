@@ -82,4 +82,7 @@ it('generates Pint-idempotent output (pint --test reports no reformats)', functi
     'conformance-3.0-forms' => [__DIR__.'/../Fixtures/conformance/conformance-3.0-forms.yaml'],
     'corpus: petstore' => [__DIR__.'/../../examples/petstore/openapi.yaml'],
     'corpus: github' => [__DIR__.'/../Fixtures/specs/github.json'],
+    // #104 T8: the combined OpenAPI 3.2 fixture, so best-effort 3.2 output
+    // is held to the same born-Pint-clean bar as fully supported versions.
+    'corpus: openapi-3.2-museum' => [__DIR__.'/../Fixtures/specs/openapi-3.2-museum.yaml'],
 ])->group('slow');
