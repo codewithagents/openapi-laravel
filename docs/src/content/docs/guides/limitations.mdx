@@ -420,6 +420,29 @@ base and variants for you. Failing that, sniff a distinguishing field as above (
 only `CatData` defines), or register a custom cast on the property. Scalar unions (`string|int`) need
 none of this: they hydrate directly.
 
+## Server scaffold gaps
+
+Two scaffold-level gaps are known and tracked on the pre-1.0 milestone. Until the issues close,
+plan around them in your concrete controllers.
+
+### Query parameters are not typed or validated
+
+Operation `parameters` with `in: query` (and `in: header` / `in: cookie`) are currently **dropped**:
+they produce no typed controller arguments, no validation rules, and no warning. Only `in: path`
+parameters become typed method arguments. A required query parameter, an enum filter, or a
+pagination bound declared in the spec is not enforced by the generated scaffold; read and validate
+query input yourself in the concrete controller until this lands. Tracked in
+[issue #63](https://github.com/codewithagents/openapi-laravel/issues/63).
+
+### Response status codes are not honored
+
+The generated scaffold derives the **return type** from the smallest 2xx response, but it does not
+represent the **status code** itself: returning a Data object from a generated controller yields
+HTTP 200, even when the spec declares `201` or `204` for the operation. Until the scaffold honors
+the declared codes, set the status yourself (for example with a response wrapper or middleware) in
+the concrete controller. Tracked in
+[issue #64](https://github.com/codewithagents/openapi-laravel/issues/64).
+
 ## String formats: a few are no-ops
 
 A `format` on a string is mapped to the closest Laravel rule where one exists. `email`/`idn-email`

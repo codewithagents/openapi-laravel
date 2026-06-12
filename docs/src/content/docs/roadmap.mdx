@@ -5,7 +5,7 @@ description: What the generator emits today (models, validation rules, controlle
 
 import { Aside } from '@astrojs/starlight/components'
 
-**The current release is `0.8.0`** on Packagist. One command generates the full slice out of the box: models, spec-derived validation, enums, abstract controllers, and routes, with full composition support (`allOf`, `additionalProperties`, `oneOf` / `anyOf` including discriminated object unions), the drift gate (`openapi:check`), the differential validation oracle, and the security pass. The version deliberately stays in `0.x` while the generated output format is still evolving, and tags `1.0.0` (the output-stability promise, see the [versioning policy](/guides/versioning-policy)) only when the format settles. This page is the honest account of what shipped when, what is deliberately basic, and what is planned next.
+**The current release is `0.10.0`** on Packagist. One command generates the full slice out of the box: models, spec-derived validation, enums, abstract controllers, and routes, with full composition support (`allOf`, `additionalProperties`, `oneOf` / `anyOf` including discriminated object unions), the drift gate (`openapi:check`), the differential validation oracle, and the security pass. The version deliberately stays in `0.x` while the generated output format is still evolving, and tags `1.0.0` (the output-stability promise, see the [versioning policy](/guides/versioning-policy)) only when the format settles. This page is the honest account of what shipped when, what is deliberately basic, and what is planned next.
 
 ## Models and validation rules
 
@@ -74,10 +74,9 @@ at runtime due to operator precedence. Fixed in 0.6.0 (bug #24).
 
 - **Scalar `oneOf` / `anyOf`** emit native union type hints and variant docblocks with presence rules.
   The rules stay presence-only (no per-variant type rule).
-- **Discriminated object unions** (named component, all members object `$ref`s) are fully validated
-  and hydrated via an abstract morphable base plus variants
-  ([issue #38](https://github.com/codewithagents/openapi-laravel/issues/38)). The inline and
-  allOf-inheritance discriminator forms still degrade to presence-only with a build warning.
+- **Discriminated object unions** are fully validated and hydrated via an abstract morphable base
+  plus variants, in all three forms: named-component, inline-union, and allOf-inheritance
+  ([issue #38](https://github.com/codewithagents/openapi-laravel/issues/38)).
 - **Undiscriminated object unions** are typed `mixed` and validated for presence only, so every valid
   variant is accepted and no valid payload is false-rejected (issue #31). They keep the variant union
   in the `@var` docblock for IDE and PHPStan. The tradeoff: any object is accepted, the variant is
@@ -118,7 +117,7 @@ page](/guides/limitations) has examples, the fallback rules, and the object-unio
   variant is false-rejected (#31). Real-world robustness sweep: 9 large public specs used as test
   inputs (Stripe, GitHub, Box, Adyen, Asana, Sentry, Twilio) produced 13,378 files that all
   compile-clean; Sentry and Twilio v2010 were added to the permanent corpus.
-- **0.8.0 (current):** **full generation out of the box** (#45): `openapi:generate`,
+- **0.8.0:** **full generation out of the box** (#45): `openapi:generate`,
   `openapi:check`, and the standalone binary now emit and check models, controllers, and routes by
   default, with `--no-controllers` / `--no-routes` opt-outs, strict flags-over-config-over-defaults
   precedence, and an optional `openapi-laravel.json` config file for the standalone binary.
@@ -129,6 +128,17 @@ page](/guides/limitations) has examples, the fallback rules, and the object-unio
   containment for the discovered `openapi-laravel.json` (#54), and a batch of real-world fidelity
   reports verified fixed (#48 to #53: nullable rules, integer typing, `#[MapName]` coverage,
   `Route::patch()`, request/response type consistency).
+- **0.9.0:** **subset generation** (#44): `--only-tags` / `--only-schemas` restrict a run to a
+  slice of the spec, with the transitive dependency closure computed automatically. See the
+  [subset generation guide](/guides/subset-generation).
+- **0.10.0 (current):** **the remaining discriminator forms** (#38): the inline-union form
+  (variant classes synthesized from discriminator values) and the allOf-inheritance form (the base
+  becomes the abstract morphable parent) are validated and hydrated like the named-component form.
+  `additionalProperties: false` enforcement flipped to **on by default** (#30, opt out with
+  `--no-enforce-closed-objects`). Self-contained output (#40): the support classes are inlined
+  into the consumer's own `Support` namespace, so generated code has no runtime dependency on the
+  generator package. Plus Pint-idempotent output (#60) and PHPStan-max-clean generated array
+  generics (#62).
 
 ## Drift check: keeping generated code in sync
 
@@ -165,11 +175,22 @@ generated backend, all from one spec. See the [end-to-end demo page](/guides/end
 
 ## What is next
 
-- **Remaining discriminator forms** ([issue #38](https://github.com/codewithagents/openapi-laravel/issues/38)):
-  the inline discriminated union and the allOf-inheritance form, which currently degrade to
-  presence-only with a build warning.
-- **Subset generation** ([issue #44](https://github.com/codewithagents/openapi-laravel/issues/44)):
-  `--only-tags` / `--only-schemas` with dependency closure, for generating a slice of a very large spec.
+The pre-1.0 milestone, in priority order:
+
+- **Typed and validated query parameters** ([issue #63](https://github.com/codewithagents/openapi-laravel/issues/63)):
+  `in: query` parameters currently produce no typing, no rules, and no warning. See the
+  [limitations page](/guides/limitations#query-parameters-are-not-typed-or-validated).
+- **Spec response status codes in the scaffold** ([issue #64](https://github.com/codewithagents/openapi-laravel/issues/64)):
+  a `201`/`202` declared in the spec should come back from the generated scaffold without a
+  hand-written workaround. See the
+  [limitations page](/guides/limitations#response-status-codes-are-not-honored).
+- **Warnings for every silent degradation** ([issue #67](https://github.com/codewithagents/openapi-laravel/issues/67)):
+  every fallback to `mixed` or `Illuminate\Http\Request` hits the warnings channel.
+- **`@internal` PHP class API** ([issue #69](https://github.com/codewithagents/openapi-laravel/issues/69)):
+  the CLI is the public surface, the PHP classes are not.
+- **`minProperties` / `maxProperties` and dead normalization** ([issue #72](https://github.com/codewithagents/openapi-laravel/issues/72)).
+- **Visible empty Data classes** ([issue #95](https://github.com/codewithagents/openapi-laravel/issues/95)):
+  a TODO marker and a build warning instead of a silently empty class.
 
 **What `1.0.0` means:** the output-stability promise described in the
 [versioning policy](/guides/versioning-policy). Intentional output-shape and validation changes

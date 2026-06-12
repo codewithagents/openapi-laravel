@@ -13,7 +13,7 @@ Each row is a payload whose generated-validator outcome disagrees with the spec.
 
 ## Tracked known gaps
 
-These constructs are documented limitations with an open issue. The oracle tolerates them (they do not fail the suite) but fails if they are silently fixed without removing the entry, or if any new, unlisted construct drifts.
+These constructs are documented limitations, by design or tracked in an open issue. The oracle tolerates them (they do not fail the suite) but fails if they are silently fixed without removing the entry, or if any new, unlisted construct drifts.
 
-- **PetHolder** (#31): Undiscriminated object-union is presence-only pending discriminator support: any object is accepted, no variant is enforced (1.0.0 hydration work). The interim fix traded variant enforcement for not false-rejecting valid variants.
+- **PetHolder** (#31, closed as by-design): An undiscriminated object union is presence-only by design: any object is accepted, no variant is enforced. Enforcing a variant without a discriminator would false-reject valid payloads of the other variants, so variant enforcement is deliberately traded for never rejecting valid data. Discriminated unions are validated and hydrated in all three forms (#38); add a discriminator to the spec to get variant enforcement.
 

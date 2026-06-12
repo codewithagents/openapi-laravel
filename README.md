@@ -236,8 +236,8 @@ A few OpenAPI features degrade gracefully rather than crash. An **undiscriminate
 (`oneOf` of Data classes with no `discriminator`) is typed `mixed` and validated for presence only:
 every valid variant is accepted (no valid payload is false-rejected, issue #31), but the variant is
 neither enforced nor auto-hydrated. Add a `discriminator` to the spec and the generator emits the
-morphable base and variants, with full per-variant validation and hydration (issue #38; the inline
-and allOf-inheritance discriminator forms still degrade to presence-only with a build warning). A
+morphable base and variants, with full per-variant validation and hydration in all three
+discriminator forms: named-component, inline-union, and allOf-inheritance (issue #38). A
 `$ref`-valued `additionalProperties` map is typed in the docblock but not auto-hydrated into Data
 objects at runtime, a request body referencing a component `$ref` falls back to
 `Illuminate\Http\Request` instead of a typed Data param, and tuple `prefixItems`, int64 literal
@@ -539,19 +539,29 @@ These are the layers that catch problems before they reach you.
 
 ## Roadmap
 
-**Current release: `0.8.0`** on Packagist. The full feature set described above ships today:
-models, spec-derived validation, enums, controllers, and routes out of the box; the drift gate
-(`openapi:check`); the differential validation oracle; discriminated object-union validation and
-hydration; default `additionalProperties: false` enforcement (opt out with `--no-enforce-closed-objects`); self-contained output (the support
-classes inlined into the consumer's own namespace, so generated code has no runtime dependency on
-the generator package, issue #40); and the config surfaces (`config/openapi-laravel.php` and the
-standalone `openapi-laravel.json`).
+**Current release: `0.10.0`** on Packagist (`0.11.0` is queued in an open release-please PR). The
+full feature set described above ships today: models, spec-derived validation, enums, controllers,
+and routes out of the box; the drift gate (`openapi:check`); the differential validation oracle;
+discriminated object-union validation and hydration in all three forms (named-component,
+inline-union, allOf-inheritance, issue #38); default `additionalProperties: false` enforcement
+(opt out with `--no-enforce-closed-objects`); subset generation (`--only-tags` / `--only-schemas`
+with dependency closure, issue #44); self-contained output (the support classes inlined into the
+consumer's own namespace, so generated code has no runtime dependency on the generator package,
+issue #40); and the config surfaces (`config/openapi-laravel.php` and the standalone
+`openapi-laravel.json`).
 
-Next up:
+Next up (the pre-1.0 milestone):
 
-- **Remaining discriminator forms** (issue #38): the inline discriminated union and the
-  allOf-inheritance form still degrade to presence-only with a build warning.
-- **Subset generation** (issue #44): `--only-tags` / `--only-schemas` with dependency closure.
+- **Typed and validated query parameters** (issue #63): `in: query` parameters currently produce
+  no typing, no rules, and no warning.
+- **Spec response status codes in the scaffold** (issue #64): a `201`/`202` declared in the spec
+  should come back from the scaffold without a hand-written workaround.
+- **Warnings for every silent degradation** (issue #67): every fallback to `mixed` or
+  `Illuminate\Http\Request` hits the warnings channel.
+- **`@internal` PHP class API** (issue #69): the CLI is the public surface, the classes are not.
+- **`minProperties` / `maxProperties` and dead normalization** (issue #72).
+- **Visible empty Data classes** (issue #95): a TODO marker and a build warning instead of a
+  silently empty class.
 
 The version stays in `0.x` while the generated output format is still evolving, and tags `1.0.0`
 (the output-stability promise described in the
