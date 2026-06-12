@@ -4028,7 +4028,7 @@ final class ModelGenerator
     private function enumBacking(array $values): string
     {
         foreach ($values as $value) {
-            if (! is_int($value) && ! (is_string($value) && ctype_digit($value))) {
+            if (! is_int($value) && ! (is_string($value) && $value !== '' && strspn($value, '0123456789') === strlen($value))) {
                 return 'string';
             }
         }

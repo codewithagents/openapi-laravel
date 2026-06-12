@@ -1070,7 +1070,7 @@ final class OperationCollector
         $bestCode = null;
         foreach ($all as $status => $response) {
             $status = (string) $status;
-            if (ctype_digit($status)) {
+            if ($status !== '' && strspn($status, '0123456789') === strlen($status)) {
                 $code = (int) $status;
                 if ($code >= 200 && $code < 300 && ($bestCode === null || $code < $bestCode)) {
                     $bestCode = $code;
