@@ -1,0 +1,34 @@
+openapi: 3.0.3
+info:
+  title: Duplicate Method Names
+  version: 1.0.0
+paths:
+  # Neither operation declares an operationId, and both synthesize the SAME raw
+  # method name (getPets): the trailing-slash path contributes no extra
+  # segment. The per-controller allocator must suffix the second one, and each
+  # operation must keep its OWN query Data class.
+  /pets:
+    get:
+      tags:
+        - pet
+      parameters:
+        - name: status
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+  /pets/:
+    get:
+      tags:
+        - pet
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: ok

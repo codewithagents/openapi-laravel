@@ -5,6 +5,7 @@ declare(strict_types=1);
 use cebe\openapi\Reader;
 use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
+use CodeWithAgents\OpenApiLaravel\Emitter\Server\ControllerGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationDescriptor;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
@@ -359,6 +360,38 @@ it('maps the boolean true/false literals in fromQuery only when the class has bo
     $plain = $files['ListWidgetsQueryData']->code;
     expect($plain)->toContain('return self::validateAndCreate($request->query->all());')
         ->and($plain)->not->toContain('foreach');
+});
+
+it('suffixes duplicate synthesized method names and pairs each with its own query class', function () {
+    $doc = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/server/duplicate-method-names.yaml');
+    $generator = new ModelGenerator;
+    $generator->generate($doc);
+    $options = new ServerOptions;
+    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($doc);
+
+    // Two operations without operationId collide on the synthesized name: the
+    // per-controller allocator suffixes the second method, and the query-class
+    // allocator independently suffixes the second class. The pairing must hold:
+    // each descriptor references the class generated from ITS parameters.
+    $first = descriptorFor($descriptors, 'get', '/pets');
+    $second = descriptorFor($descriptors, 'get', '/pets/');
+
+    expect($first->methodName)->toBe('getPets')
+        ->and($second->methodName)->toBe('getPets_2')
+        ->and($first->queryParam)->toBe(['name' => 'query', 'type' => 'GetPetsQueryData', 'injected' => true])
+        ->and($second->queryParam)->toBe(['name' => 'query', 'type' => 'GetPetsQueryData_2', 'injected' => true]);
+
+    // The generated classes carry their own operation's parameter, not the sibling's.
+    $files = $generator->queryFiles();
+    expect($files['GetPetsQueryData']->code)->toContain("'status' => ['required', 'string']")
+        ->and($files['GetPetsQueryData']->code)->not->toContain("'limit'")
+        ->and($files['GetPetsQueryData_2']->code)->toContain("'limit' => ['sometimes', 'integer']")
+        ->and($files['GetPetsQueryData_2']->code)->not->toContain("'status'");
+
+    // And the emitted controller signatures reference exactly those classes.
+    $controller = (new ControllerGenerator($options))->generate($descriptors)['AbstractPetController']->code;
+    expect($controller)->toContain('abstract public function getPets(GetPetsQueryData $query): JsonResponse;')
+        ->and($controller)->toContain('abstract public function getPets_2(GetPetsQueryData_2 $query): JsonResponse;');
 });
 
 it('emits byte-identical query classes across runs (determinism)', function () {

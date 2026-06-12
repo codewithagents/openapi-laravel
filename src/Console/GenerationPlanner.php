@@ -165,14 +165,20 @@ final readonly class GenerationPlanner
      * classes used; the planner collects those files via queryFiles() after
      * this returns.
      *
+     * The collector runs even when controllers AND routes are both disabled:
+     * the query Data classes are data-layer output (CATEGORY_DATA, same
+     * namespace and directory as the model classes), so a model-only run must
+     * still produce them, and the check path must still see them. Only the
+     * controller/route FILE planning is gated on the scaffold flags. In that
+     * scaffold-disabled case the collector's own warnings (header/cookie
+     * parameters the scaffold would not type) are dropped, because they
+     * describe scaffold output that was not requested; the query-skip
+     * warnings reach the channel through the model generator regardless.
+     *
      * @return array{0: list<PlannedFile>, 1: list<string>} planned files, collector warnings
      */
     private function planServer(GenerationRequest $request, OpenApi $document, ModelGenerator $generator, ?ResolvedClosure $closure): array
     {
-        if (! $request->controllers && ! $request->routes) {
-            return [[], []];
-        }
-
         if ($request->controllers && ($request->controllerPath === null || $request->controllerPath === '')) {
             throw new PlanException('No controllers path configured. Set openapi-laravel.controllers.path.');
         }
@@ -192,6 +198,10 @@ final readonly class GenerationPlanner
         // controller method names and route targets can never drift apart.
         $collector = new OperationCollector($serverOptions, $generator->registry(), $closure, $generator);
         $descriptors = $collector->collect($document);
+
+        if (! $request->controllers && ! $request->routes) {
+            return [[], []];
+        }
 
         $files = [];
 

@@ -56,6 +56,9 @@ final class ModelGenerator
         'Rule',
     ];
 
+    // Deepest array nesting a query parameter may have: bracket query strings beyond a few levels are not a real wire format.
+    private const QUERY_MAX_ARRAY_DEPTH = 4;
+
     private UniqueNames $names;
 
     /**
@@ -586,7 +589,7 @@ final class ModelGenerator
      */
     private function queryShapeSkipReason(Schema|Reference $schema, int $depth): ?string
     {
-        if ($depth > 4) {
+        if ($depth > self::QUERY_MAX_ARRAY_DEPTH) {
             return 'it nests arrays too deeply for query-string serialization';
         }
 

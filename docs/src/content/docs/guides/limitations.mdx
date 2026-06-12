@@ -452,17 +452,10 @@ none of this: they hydrate directly.
 
 ## Server scaffold gaps
 
-Two scaffold-level gaps are known and tracked on the pre-1.0 milestone. Until the issues close,
-plan around them in your concrete controllers.
-
-### Query parameters are not typed or validated
-
-Operation `parameters` with `in: query` (and `in: header` / `in: cookie`) are currently **dropped**:
-they produce no typed controller arguments, no validation rules, and no warning. Only `in: path`
-parameters become typed method arguments. A required query parameter, an enum filter, or a
-pagination bound declared in the spec is not enforced by the generated scaffold; read and validate
-query input yourself in the concrete controller until this lands. Tracked in
-[issue #63](https://github.com/codewithagents/openapi-laravel/issues/63).
+One scaffold-level gap is known and tracked on the pre-1.0 milestone. Until the issue closes,
+plan around it in your concrete controllers. (Query parameters used to be listed here; since
+issue #63 they generate typed, validated per-operation query Data classes, with the residuals
+described under [Query parameters](#query-parameters) below.)
 
 ### Response status codes are not honored
 
@@ -584,7 +577,10 @@ Top-level scalar properties are unaffected: they hydrate to the declared `int`/`
 **Boolean literals are normalized in `fromQuery()` only.** The form-style literals `?flag=true` /
 `?flag=false` are mapped to `1`/`0` by the generated `fromQuery()` factory before validation. Calling
 `rules()` through a different path (e.g. a hand-rolled validator over `$request->all()`) skips that
-mapping and Laravel's `boolean` rule will reject the literals.
+mapping and Laravel's `boolean` rule will reject the literals. The mapping covers exactly the
+lowercase `true` / `false` that OpenAPI form serialization produces; `?flag=1` / `?flag=0` pass
+Laravel's `boolean` rule natively without mapping, and uppercase variants (`True`, `TRUE`, `FALSE`,
+...) are not mapped and are rejected.
 
 ## Response status codes: only the selected success response
 

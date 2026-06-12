@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use CodeWithAgents\OpenApiLaravel\Console\DriftChecker;
+use CodeWithAgents\OpenApiLaravel\Console\DriftStatus;
 use CodeWithAgents\OpenApiLaravel\Console\GenerationPlanner;
 use CodeWithAgents\OpenApiLaravel\Console\GenerationRequest;
 use CodeWithAgents\OpenApiLaravel\Console\PlanException;
@@ -10,6 +12,7 @@ use CodeWithAgents\OpenApiLaravel\Console\PlanWriter;
 
 $customerSpec = fn (): string => __DIR__.'/../../Fixtures/emitter/customer.json';
 $serverSpec = fn (): string => __DIR__.'/../../Fixtures/server/petstore.yaml';
+$querySpec = fn (): string => __DIR__.'/../../Fixtures/server/query-parameters.yaml';
 $tempOut = fn (): string => sys_get_temp_dir().'/oal_planner_'.uniqid();
 
 $request = fn (string $spec, string $output, bool $server = false, ?string $controllerPath = null, ?string $routesPath = null): GenerationRequest => new GenerationRequest(
@@ -62,6 +65,79 @@ it('includes controllers and the routes file when server targets are requested',
 
     expect($controllerPaths)->toContain($controllerPath.'/AbstractPetController.php')
         ->and($routePaths)->toBe([$routesPath]);
+});
+
+it('plans query Data classes even when controllers and routes are both disabled (model-only run)', function () use ($querySpec, $tempOut, $request) {
+    $out = $tempOut();
+    $plan = (new GenerationPlanner)->plan($request($querySpec(), $out));
+
+    // Query classes are data-layer output: a model-only run must still emit
+    // them, in the CATEGORY_DATA bucket, while planning no scaffold files.
+    $dataPaths = array_map(static fn (PlannedFile $f): string => $f->path, $plan->filesByCategory(PlannedFile::CATEGORY_DATA));
+
+    expect($dataPaths)->toContain($out.'/ListWidgetsQueryData.php')
+        ->and($dataPaths)->toContain($out.'/CreateWidgetQueryData.php')
+        ->and($dataPaths)->toContain($out.'/UploadBlobQueryData.php')
+        ->and($plan->filesByCategory(PlannedFile::CATEGORY_CONTROLLER))->toBe([])
+        ->and($plan->filesByCategory(PlannedFile::CATEGORY_ROUTES))->toBe([]);
+});
+
+it('plans byte-identical Data files with and without the server scaffold (lockstep)', function () use ($querySpec, $tempOut, $request) {
+    $out = $tempOut();
+    $planner = new GenerationPlanner;
+
+    $contentByPath = static function (array $files): array {
+        $map = [];
+        foreach ($files as $file) {
+            $map[$file->path] = $file->content;
+        }
+        ksort($map);
+
+        return $map;
+    };
+
+    $modelOnly = $planner->plan($request($querySpec(), $out));
+    $full = $planner->plan($request($querySpec(), $out, true, $out.'/Http', $out.'/routes/api.generated.php'));
+
+    expect($contentByPath($modelOnly->filesByCategory(PlannedFile::CATEGORY_DATA)))
+        ->toBe($contentByPath($full->filesByCategory(PlannedFile::CATEGORY_DATA)));
+});
+
+it('keeps a written model-only plan in sync with the drift check, query classes included', function () use ($querySpec, $tempOut, $request) {
+    $out = $tempOut();
+    $planner = new GenerationPlanner;
+
+    $plan = $planner->plan($request($querySpec(), $out));
+    $writer = new PlanWriter;
+    $writer->write($plan, PlannedFile::CATEGORY_DATA);
+    $writer->write($plan, PlannedFile::CATEGORY_SUPPORT);
+
+    // The check path shares the planner, so it must see the query classes the
+    // model-only generate just wrote, and nothing as missing or changed.
+    $entries = (new DriftChecker)->check($planner->plan($request($querySpec(), $out)));
+
+    expect($entries)->not->toBe([]);
+    foreach ($entries as $entry) {
+        expect($entry->status)->toBe(DriftStatus::InSync);
+    }
+});
+
+it('emits query-skip warnings in a model-only run but keeps the scaffold header/cookie warnings out', function () use ($querySpec, $tempOut, $request) {
+    $out = $tempOut();
+    $planner = new GenerationPlanner;
+
+    // Model-only: the data-layer diagnostics (skipped query parameters) are
+    // kept, the scaffold-only diagnostics (header/cookie parameters the
+    // controllers would not type) stay out, unchanged from before.
+    $modelOnly = implode("\n", $planner->plan($request($querySpec(), $out))->warnings);
+    expect($modelOnly)->toContain('query parameter "filter" was skipped')
+        ->and($modelOnly)->not->toContain('header parameter(s)')
+        ->and($modelOnly)->not->toContain('cookie parameter(s)');
+
+    // With the scaffold enabled the collector warnings are merged in as before.
+    $full = implode("\n", $planner->plan($request($querySpec(), $out, true, $out.'/Http', $out.'/routes/api.generated.php'))->warnings);
+    expect($full)->toContain('header parameter(s) "X-Trace-Id" are not generated')
+        ->and($full)->toContain('cookie parameter(s) "session" are not generated');
 });
 
 it('throws a PlanException when the spec is missing', function () use ($tempOut, $request) {

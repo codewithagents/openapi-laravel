@@ -84,7 +84,7 @@
     },
     "config": {
         "sort-packages": true,
-        "process-timeout": 0,
+        "process-timeout": 600,
         "allow-plugins": {
             "pestphp/pest-plugin": true
         }
