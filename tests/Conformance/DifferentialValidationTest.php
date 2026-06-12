@@ -119,19 +119,20 @@ function differentialOutcome(string $class, array $payload): string
 }
 
 /**
- * Documented limitations the oracle is expected to surface, each tracked by a
- * GitHub issue. A mismatch matching one of these (same construct and direction)
- * is reported but does NOT fail the suite. A known gap that no longer reproduces
- * fails the suite so its entry is removed once the limitation is fixed. Any
- * mismatch not listed here is new drift and always fails. This is the ratchet
- * that keeps the oracle green while staying honest about what is unenforced.
+ * Documented limitations the oracle is expected to surface, each by-design or
+ * tracked by a GitHub issue. A mismatch matching one of these (same construct
+ * and direction) is reported but does NOT fail the suite. A known gap that no
+ * longer reproduces fails the suite so its entry is removed once the limitation
+ * is fixed. Any mismatch not listed here is new drift and always fails. This is
+ * the ratchet that keeps the oracle green while staying honest about what is
+ * unenforced.
  *
  * @return list<array{construct: string, expected: string, actual: string, issue: string, reason: string}>
  */
 function differentialKnownGaps(): array
 {
     return [
-        ['construct' => 'PetHolder', 'expected' => 'reject', 'actual' => 'accept', 'issue' => '#31', 'reason' => 'Undiscriminated object-union is presence-only pending discriminator support: any object is accepted, no variant is enforced (1.0.0 hydration work). The interim fix traded variant enforcement for not false-rejecting valid variants.'],
+        ['construct' => 'PetHolder', 'expected' => 'reject', 'actual' => 'accept', 'issue' => '#31, closed as by-design', 'reason' => 'An undiscriminated object union is presence-only by design: any object is accepted, no variant is enforced. Enforcing a variant without a discriminator would false-reject valid payloads of the other variants, so variant enforcement is deliberately traded for never rejecting valid data. Discriminated unions are validated and hydrated in all three forms (#38); add a discriminator to the spec to get variant enforcement.'],
     ];
 }
 
@@ -390,7 +391,7 @@ function renderDifferentialReport(array $mismatches): string
     if ($gaps !== []) {
         $lines[] = '## Tracked known gaps';
         $lines[] = '';
-        $lines[] = 'These constructs are documented limitations with an open issue. The oracle tolerates them (they do not fail the suite) but fails if they are silently fixed without removing the entry, or if any new, unlisted construct drifts.';
+        $lines[] = 'These constructs are documented limitations, by design or tracked in an open issue. The oracle tolerates them (they do not fail the suite) but fails if they are silently fixed without removing the entry, or if any new, unlisted construct drifts.';
         $lines[] = '';
         foreach ($gaps as $gap) {
             $lines[] = sprintf('- **%s** (%s): %s', $gap['construct'], $gap['issue'], $gap['reason']);
