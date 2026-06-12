@@ -1,0 +1,26 @@
+# The external file main.yaml points into. The generator does NOT resolve
+# external $refs (it generates from one document); this file exists so the
+# fixture is a realistic multi-file spec, not a typo.
+openapi: 3.0.3
+info:
+  title: Shared components
+  version: 1.0.0
+paths: {}
+components:
+  schemas:
+    Thing:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+    ThingInput:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string

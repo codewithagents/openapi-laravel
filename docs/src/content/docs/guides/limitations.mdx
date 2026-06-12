@@ -11,6 +11,13 @@ specs. A few OpenAPI features are not yet fully represented. Even degraded const
 that parses and compiles, these are completeness gaps, not crashes, but for a schema that relies on
 them the generated class can be incomplete. This page is honest about where that happens so you can plan around it.
 
+None of it is silent: every degradation to `mixed` or to a raw `Illuminate\Http\Request` /
+`JsonResponse` fallback emits a build warning to stderr at generation time, naming the schema or
+operation and (for `$ref` causes) the offending pointer, one warning per distinct cause and
+location. The only mixed-typed cases that do **not** warn are the deliberate, visible ones called
+out below (the undiscriminated object union, whose variants stay in the docblock, and genuinely
+untyped schemas, where `mixed` is the faithful type).
+
 <Aside type="note" title="oneOf / anyOf typing and object unions">
   Scalar `oneOf`/`anyOf` emit native PHP union type hints (and a variant docblock).
   A **discriminated object union** (a `oneOf`/`anyOf` of object `$ref`s with a
@@ -22,6 +29,21 @@ them the generated class can be incomplete. This page is honest about where that
   payload is false-rejected (issue #31). See
   [oneOf and anyOf](#oneof-and-anyof-emit-union-types) below.
 </Aside>
+
+## Multi-file specs and unresolvable $refs
+
+The generator reads **one** document. An external `$ref`
+(`./common.yaml#/components/schemas/Thing`) or a pointer outside `#/components/schemas` is not
+resolved: the referencing value degrades to `mixed` with presence-only validation, an `allOf`
+member pointing outside the document is not merged into the composed class, and on the server
+scaffold the affected operation falls back to `Request`/`JsonResponse`. The same degradation
+applies to a `$ref` naming a component that does not exist, and to a component entry that is
+itself a bare `$ref` (`schemas.X: { $ref: ... }`), which is skipped.
+
+Each of these emits a build warning naming the offending pointer and the schema or operation where
+it was encountered, so a multi-file spec can no longer produce hollow output invisibly. If your
+spec is split across files, bundle it into a single document first (for example with
+`redocly bundle` or `swagger-cli bundle`) and generate from the bundled output.
 
 ## allOf is merged
 
@@ -136,7 +158,9 @@ type its items imply, and a union alias becomes the native PHP union (or `mixed`
 per the usual `oneOf`/`anyOf` rules). Chained aliases (`A: { allOf: [{ $ref: B }] }` where `B` is itself
 an alias) resolve transitively, with a cycle guard. The same resolution applies on the server scaffold:
 a request/response `$ref` to such a component types against the underlying value rather than a missing
-class, falling back to `Request`/`JsonResponse` when the underlying type is not a Data class.
+class, falling back to `Request`/`JsonResponse` when the underlying type is not a Data class (the
+request-body fallback warns; the response-side fallback is by design, see
+[Server scaffold gaps](#server-scaffold-gaps)).
 
 A `type: object` component with no properties (or `properties: {}`) is a genuinely **empty object**, not
 an alias, and **still** emits an (empty) Data class. The distinction is deliberate: only non-object
@@ -247,6 +271,8 @@ When a member does **not** resolve to a clean type, the whole property falls bac
 behavior: `public readonly mixed $payload` with presence-only rules. This is deliberate and
 deterministic. It happens when a member is itself a `oneOf`/`anyOf`, an array, a map, an inline
 object, an untyped or empty schema, an enum, or a `$ref` to something that is not a Data class.
+Each collapse emits a build warning naming the schema (and the pointer, when the messy member is a
+`$ref`), so the degradation is visible at generation time instead of only in the generated type.
 
 ### Rules stay presence-only
 
@@ -452,19 +478,35 @@ none of this: they hydrate directly.
 
 ## Server scaffold gaps
 
-One scaffold-level gap is known and tracked on the pre-1.0 milestone. Until the issue closes,
-plan around it in your concrete controllers. (Query parameters used to be listed here; since
-issue #63 they generate typed, validated per-operation query Data classes, with the residuals
-described under [Query parameters](#query-parameters) below.)
+Where the scaffold cannot derive a typed Data class it falls back to injecting
+`Illuminate\Http\Request` (request side) or returning `JsonResponse` (response side). The fallback
+compiles and runs, but the spec-declared body validation or return typing is absent there, so every
+fallback emits a build warning naming the operation. (Query parameters used to be listed here;
+since issue #63 they generate typed, validated per-operation query Data classes, with the residuals
+described under [Query parameters](#query-parameters) below. Spec-declared response status codes
+used to be listed here too; since issue #64 they are honored, with the residuals described under
+[Response status codes](#response-status-codes-only-the-selected-success-response) below.)
 
-### Response status codes are not honored
+### Request bodies that fall back to Request, with a warning
 
-The generated scaffold derives the **return type** from the smallest 2xx response, but it does not
-represent the **status code** itself: returning a Data object from a generated controller yields
-HTTP 200, even when the spec declares `201` or `204` for the operation. Until the scaffold honors
-the declared codes, set the status yourself (for example with a response wrapper or middleware) in
-the concrete controller. Tracked in
-[issue #64](https://github.com/codewithagents/openapi-laravel/issues/64).
+- A body that is a `$ref` into `components.requestBodies` (not resolved yet).
+- An inline (non-`$ref`) JSON body schema (not generated yet).
+- A body with no `application/json` content (multipart, form-urlencoded, octet-stream, ...): there
+  is no JSON schema to type, so read and validate it from the `Request` yourself.
+- A body schema `$ref` that is external or does not resolve to a generated Data class.
+
+### Responses that fall back to JsonResponse
+
+- A response that is a `$ref` into `components.responses` (not resolved yet) warns, except when it
+  is selected for a 204: the method is `void` either way, so nothing degrades.
+- An external response schema `$ref` warns.
+- A **local** response schema `$ref` to a non-Data component (a scalar or array alias, an enum, a
+  map), or an inline response schema that is not an array-of-`$ref` or a clean Data-class union,
+  falls back **without** a warning: only an object shape can type the return, and `JsonResponse` is
+  the honest general-purpose return type for everything else.
+
+An unresolvable parameter `$ref` (external or dangling) is dropped from its operation, also with a
+warning naming the pointer.
 
 ## String formats: a few are no-ops
 

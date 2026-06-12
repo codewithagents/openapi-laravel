@@ -1,0 +1,43 @@
+openapi: 3.0.3
+info:
+  title: Multi-file spec (external $refs are not resolved)
+  version: 1.0.0
+paths:
+  /things:
+    get:
+      tags:
+        - thing
+      operationId: listThings
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Thing'
+    post:
+      tags:
+        - thing
+      operationId: createThing
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: './common.yaml#/components/schemas/ThingInput'
+      responses:
+        '201':
+          description: ok
+components:
+  schemas:
+    Holder:
+      type: object
+      properties:
+        thing:
+          $ref: './common.yaml#/components/schemas/Thing'
+    Composed:
+      allOf:
+        - $ref: './common.yaml#/components/schemas/Thing'
+        - type: object
+          properties:
+            local:
+              type: string

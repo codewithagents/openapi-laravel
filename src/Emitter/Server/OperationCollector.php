@@ -27,7 +27,9 @@ use CodeWithAgents\OpenApiLaravel\Naming\UniqueNames;
  * Robustness is a hard requirement: a missing operationId, absent tags, no
  * responses, inline/non-JSON bodies, weird path tokens, and unresolved $refs
  * must never fatal. When a type cannot be derived the collector falls back to
- * injecting Request / returning JsonResponse.
+ * injecting Request / returning JsonResponse, and every such fallback is
+ * surfaced through the warnings channel (issue #67) so the degradation is
+ * visible at generation time.
  *
  * Output is deterministic: descriptors are sorted by path, then by a fixed
  * HTTP-method order, and method names are made unique per controller.
@@ -75,9 +77,13 @@ final class OperationCollector
     /**
      * Non-fatal diagnostics from the last collect() run, sorted for
      * determinism: header/cookie parameters the scaffold does not generate
-     * yet. Keyed by message so a path-level parameter shared across the
-     * operations of one path is reported once per operation, never duplicated
-     * across re-collections. Mirrors ModelGenerator::warnings().
+     * yet, plus every silent degradation the collection had to take (issue
+     * #67): a body or response that fell back to Request/JsonResponse over an
+     * unresolved or unsupported $ref, an inline or non-JSON body, and a
+     * dropped parameter $ref. Keyed by message so a path-level parameter
+     * shared across the operations of one path is reported once per
+     * operation, never duplicated across re-collections. Mirrors
+     * ModelGenerator::warnings().
      *
      * @var array<string, true>
      */
@@ -122,7 +128,7 @@ final class OperationCollector
                     'path' => $path,
                     'method' => $method,
                     'operation' => $operation,
-                    'parameters' => $this->mergedParameters($pathItem, $operation, $componentParameters),
+                    'parameters' => $this->mergedParameters($pathItem, $operation, $componentParameters, strtoupper($method).' '.$path),
                 ];
             }
         }
@@ -179,8 +185,11 @@ final class OperationCollector
         $pathParams = $this->pathParams($path, $parameters);
         $imports = [];
 
-        [$bodyParam, $bodyRequiresRequest] = $this->requestBody($operation, $imports);
-        [$returnType, $returnDoc, $successStatus] = $this->responseType($operation, $imports);
+        // "GET /pets", the operation label every degradation warning leads with.
+        $label = strtoupper($method).' '.$path;
+
+        [$bodyParam, $bodyRequiresRequest] = $this->requestBody($operation, $imports, $label);
+        [$returnType, $returnDoc, $successStatus] = $this->responseType($operation, $imports, $label);
 
         $this->warnUnsupportedParameterLocations($method, $path, $parameters);
         $queryParam = $this->queryParam($method, $path, $operation, $parameters, $bodyParam, $bodyRequiresRequest, $pathParams, $imports);
@@ -424,17 +433,18 @@ final class OperationCollector
      * level parameters apply to every operation under the path, and an
      * operation-level parameter overrides a path-level one with the same
      * (name, in) pair. `$ref`s into `components.parameters` are resolved
-     * before the merge. An unresolvable, external, or malformed entry is
-     * skipped silently, the established degrade-never-fatal behavior
-     * (surfacing these as warnings is issue #67).
+     * before the merge. An unresolvable or external `$ref` entry is skipped
+     * with a warning naming the pointer (issue #67); a malformed (non-object)
+     * entry is still skipped silently, there is nothing to name.
      *
      * This is the single collection point for parameters of every `in` kind,
      * so the upcoming query-parameter support (#63) can reuse it as-is.
      *
      * @param  array<string, Parameter>  $componentParameters
+     * @param  string  $label  "GET /pets", for warning messages
      * @return list<Parameter>
      */
-    private function mergedParameters(PathItem $pathItem, Operation $operation, array $componentParameters): array
+    private function mergedParameters(PathItem $pathItem, Operation $operation, array $componentParameters, string $label): array
     {
         $byKey = [];
 
@@ -443,7 +453,7 @@ final class OperationCollector
         // override the OpenAPI spec mandates.
         foreach ([$this->asArray($pathItem->parameters), $this->asArray($operation->parameters)] as $level) {
             foreach ($level as $candidate) {
-                $parameter = $this->resolveParameter($candidate, $componentParameters);
+                $parameter = $this->resolveParameter($candidate, $componentParameters, $label);
 
                 if ($parameter === null) {
                     continue;
@@ -463,18 +473,45 @@ final class OperationCollector
     }
 
     /**
+     * Resolve one parameter entry, warning when a `$ref` degrades (issue #67):
+     * an external or non-parameters pointer, or a pointer to a component that
+     * does not exist (or is itself an unresolved ref-to-ref chain), drops the
+     * parameter from the operation, which would otherwise be silent.
+     *
      * @param  array<string, Parameter>  $componentParameters
+     * @param  string  $label  "GET /pets", for warning messages
      */
-    private function resolveParameter(mixed $candidate, array $componentParameters): ?Parameter
+    private function resolveParameter(mixed $candidate, array $componentParameters, string $label): ?Parameter
     {
         if ($candidate instanceof Parameter) {
             return $candidate;
         }
 
         if ($candidate instanceof Reference) {
-            $name = $this->componentName($candidate->getReference(), 'parameters');
+            $pointer = $candidate->getReference();
+            $name = $this->componentName($pointer, 'parameters');
 
-            return $name !== null ? ($componentParameters[$name] ?? null) : null;
+            if ($name === null) {
+                $this->warnings[sprintf(
+                    'Operation %s: parameter $ref "%s" is external or not a #/components/parameters pointer; the parameter is ignored.',
+                    $label,
+                    $pointer,
+                )] = true;
+
+                return null;
+            }
+
+            $parameter = $componentParameters[$name] ?? null;
+
+            if ($parameter === null) {
+                $this->warnings[sprintf(
+                    'Operation %s: parameter $ref "%s" does not resolve to a component parameter; the parameter is ignored.',
+                    $label,
+                    $pointer,
+                )] = true;
+            }
+
+            return $parameter;
         }
 
         return null;
@@ -507,10 +544,17 @@ final class OperationCollector
     }
 
     /**
+     * Resolve the request body into a typed Data param, or fall back to
+     * injecting `Illuminate\Http\Request`. Every fallback emits a warning
+     * naming the operation and the cause (issue #67): the fallback compiles
+     * and runs, but it silently drops the spec-declared body validation,
+     * which a user should learn at generation time.
+     *
      * @param  list<string>  $imports
+     * @param  string  $label  "GET /pets", for warning messages
      * @return array{0: array{name: string, type: string}|null, 1: bool}
      */
-    private function requestBody(Operation $operation, array &$imports): array
+    private function requestBody(Operation $operation, array &$imports, string $label): array
     {
         $body = $operation->requestBody;
 
@@ -521,6 +565,11 @@ final class OperationCollector
             // like the other requiresRequest paths below, or the generated
             // controller references Request without a matching use statement.
             if ($body instanceof Reference) {
+                $this->warnings[sprintf(
+                    'Operation %s: the request body is a $ref ("%s") and component request bodies are not resolved yet; the controller method falls back to Illuminate\Http\Request.',
+                    $label,
+                    $body->getReference(),
+                )] = true;
                 $imports[] = self::REQUEST_FQCN;
 
                 return [null, true];
@@ -535,6 +584,10 @@ final class OperationCollector
             // Body exists but no application/json schema (inline, octet-stream,
             // form-urlencoded, etc.): fall back to injecting Request.
             if ($this->bodyContentPresent($body)) {
+                $this->warnings[sprintf(
+                    'Operation %s: the request body declares no application/json schema; no body validation is generated and the controller method falls back to Illuminate\Http\Request.',
+                    $label,
+                )] = true;
                 $imports[] = self::REQUEST_FQCN;
 
                 return [null, true];
@@ -544,7 +597,8 @@ final class OperationCollector
         }
 
         if ($schema instanceof Reference) {
-            $name = $this->refName($schema->getReference());
+            $pointer = $schema->getReference();
+            $name = $this->refName($pointer);
             if ($name !== null && isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'data') {
                 $entry = $this->registry[$name];
                 $type = $entry['writeClass'] ?? $entry['dataClass'];
@@ -552,6 +606,23 @@ final class OperationCollector
 
                 return [['name' => PhpIdentifier::toPropertyName($name), 'type' => $type], false];
             }
+
+            $this->warnings[$name === null
+                ? sprintf(
+                    'Operation %s: the request body $ref "%s" is external or not a #/components/schemas pointer; the controller method falls back to Illuminate\Http\Request.',
+                    $label,
+                    $pointer,
+                )
+                : sprintf(
+                    'Operation %s: the request body $ref "%s" does not resolve to a generated Data class; the controller method falls back to Illuminate\Http\Request.',
+                    $label,
+                    $pointer,
+                )] = true;
+        } else {
+            $this->warnings[sprintf(
+                'Operation %s: the request body schema is inline (not a $ref to a component schema) and inline bodies are not generated yet; the controller method falls back to Illuminate\Http\Request.',
+                $label,
+            )] = true;
         }
 
         // Inline or unresolvable body schema: inject Request.
@@ -573,11 +644,12 @@ final class OperationCollector
      * middleware sets the status and guarantees the empty body.
      *
      * @param  list<string>  $imports
+     * @param  string  $label  "GET /pets", for warning messages
      * @return array{0: string, 1: ?string, 2: ?int} returnType, returnDoc, successStatus
      */
-    private function responseType(Operation $operation, array &$imports): array
+    private function responseType(Operation $operation, array &$imports, string $label): array
     {
-        [$response, $status] = $this->successResponse($operation->responses);
+        [$response, $status] = $this->successResponse($operation->responses, $label);
 
         if ($status === 204) {
             return ['void', null, 204];
@@ -592,12 +664,25 @@ final class OperationCollector
         $schema = $this->jsonSchema($this->asArray($response->content));
 
         if ($schema instanceof Reference) {
-            $name = $this->refName($schema->getReference());
+            $pointer = $schema->getReference();
+            $name = $this->refName($pointer);
             if ($name !== null && isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'data') {
                 $type = $this->registry[$name]['dataClass'];
                 $imports[] = $this->dataFqcn($type);
 
                 return [$type, null, $status];
+            }
+
+            // A local $ref to a non-Data component (an enum, alias, or map) is
+            // the documented graceful JsonResponse fallback: only an object
+            // shape can type the return. An external or non-schema pointer is
+            // information loss, so it warns with the pointer (issue #67).
+            if ($name === null) {
+                $this->warnings[sprintf(
+                    'Operation %s: the response schema $ref "%s" is external or not a #/components/schemas pointer; the return type falls back to JsonResponse.',
+                    $label,
+                    $pointer,
+                )] = true;
             }
         }
 
@@ -711,9 +796,17 @@ final class OperationCollector
      * #64). The `default`/first-response fallbacks carry no declared success
      * status, so they report null.
      *
+     * A selected response that is an unresolved `$ref` (a pointer into
+     * `components.responses`, which this generator does not resolve) is
+     * demoted to null exactly as before, but the demotion now warns with the
+     * pointer (issue #67) instead of silently typing JsonResponse. A `$ref`
+     * selected for a 204 stays silent: the method is `void` either way, so
+     * nothing degrades.
+     *
+     * @param  string  $label  "GET /pets", for warning messages
      * @return array{0: ?Response, 1: ?int}
      */
-    private function successResponse(mixed $responses): array
+    private function successResponse(mixed $responses, string $label): array
     {
         if (! $responses instanceof Responses) {
             return [null, null];
@@ -743,6 +836,10 @@ final class OperationCollector
         }
 
         if ($bestCode !== null) {
+            if ($best instanceof Reference && $bestCode !== 204) {
+                $this->warnRefResponse($label, (string) $bestCode, $best);
+            }
+
             return [$best instanceof Response ? $best : null, $bestCode];
         }
 
@@ -750,10 +847,31 @@ final class OperationCollector
         if ($default instanceof Response) {
             return [$default, null];
         }
+        if ($default instanceof Reference) {
+            $this->warnRefResponse($label, 'default', $default);
+        }
 
         $first = reset($all);
+        if ($first instanceof Reference && $first !== $default) {
+            $this->warnRefResponse($label, (string) array_key_first($all), $first);
+        }
 
         return [$first instanceof Response ? $first : null, null];
+    }
+
+    /**
+     * One warning per unresolved `$ref` response the selection had to bypass
+     * (issue #67): component responses are not resolved, so the operation
+     * cannot derive a typed return from them and falls back to JsonResponse.
+     */
+    private function warnRefResponse(string $label, string $status, Reference $response): void
+    {
+        $this->warnings[sprintf(
+            'Operation %s: the "%s" response is a $ref ("%s") and component responses are not resolved yet; the return type falls back to JsonResponse.',
+            $label,
+            $status,
+            $response->getReference(),
+        )] = true;
     }
 
     /**

@@ -156,6 +156,17 @@ final class ModelGenerator
     private array $warnings = [];
 
     /**
+     * Where the resolver currently is, leading every degradation warning
+     * (issue #67): 'Schema "Holder"' while a component (or its read/write
+     * variants and inline nested classes) is emitted, 'Query parameters of
+     * operation GET /pets' during query-class generation. Deliberately
+     * schema-grained, not property-grained: combined with the text-keyed
+     * dedupe above, the read and write variants of one schema report a shared
+     * degradation once instead of spamming the channel per generated class.
+     */
+    private string $warningContext = 'Document';
+
+    /**
      * Runtime support classes the current generate() run actually referenced
      * (issue #40), keyed by short name so each is recorded once. Drives the
      * inlined Support file set: only the support classes a spec uses are emitted
@@ -187,6 +198,7 @@ final class ModelGenerator
         $this->files = [];
         $this->queryFiles = [];
         $this->warnings = [];
+        $this->warningContext = 'Document';
         $this->usedSupportClasses = [];
 
         $schemas = $this->componentSchemas($document);
@@ -257,6 +269,7 @@ final class ModelGenerator
         // `$ref` resolves the referenced class. Sorted for determinism.
         foreach ($schemas as $name => $schema) {
             if ($this->isPureMap($schema)) {
+                $this->warningContext = sprintf('Schema "%s"', $name);
                 $this->mapSchemas[$name] = $schema;
                 $this->mapAliases[$name] = $this->mapType($schema, PhpIdentifier::toClassName($name), 0, 'all');
             }
@@ -293,6 +306,11 @@ final class ModelGenerator
         }
 
         foreach ($this->registry as $name => $entry) {
+            // One warning context per component: the read/write variants and
+            // every inline nested class of this schema report a shared
+            // degradation once (issue #67).
+            $this->warningContext = sprintf('Schema "%s"', $name);
+
             if ($entry['kind'] === 'enum') {
                 $this->emitEnum($entry['class'], $entry['schema']);
             } elseif ($this->discriminators->isBase($name)) {
@@ -398,6 +416,10 @@ final class ModelGenerator
      */
     public function generateQueryData(string $baseName, string $operationLabel, array $parameters): ?string
     {
+        // Degradation warnings inside the query pipeline name the operation,
+        // not a schema: the parameters being resolved are operation-owned.
+        $this->warningContext = sprintf('Query parameters of operation %s', $operationLabel);
+
         $supported = [];
         foreach ($parameters as $parameter) {
             $reason = $this->querySkipReason($parameter);
@@ -662,16 +684,30 @@ final class ModelGenerator
 
         $result = [];
         foreach ($components->schemas as $name => $schema) {
-            // Component entries that are bare $refs (aliases) are skipped in v1.
-            if (! $schema instanceof Schema) {
-                continue;
-            }
-
             // Subset generation (issue #44): when a keep-set is configured, emit
             // only its members. The caller closed the set over its transitive
             // dependencies, so every surviving $ref still resolves. A null
             // keep-set (the default) keeps every schema, byte-identical to before.
             if ($keep !== null && ! isset($keep[(string) $name])) {
+                continue;
+            }
+
+            // Component entries that are bare $refs (aliases) are skipped in v1.
+            // References to a skipped entry resolve to mixed, so the skip is
+            // surfaced through the warnings channel instead of staying silent
+            // (issue #67).
+            if (! $schema instanceof Schema) {
+                $this->warnings[$schema instanceof Reference
+                    ? sprintf(
+                        'Component schema "%s" is a bare $ref ("%s") and is not generated; references to it degrade to mixed with presence-only validation.',
+                        (string) $name,
+                        $schema->getReference(),
+                    )
+                    : sprintf(
+                        'Component schema "%s" is not a schema object and is not generated; references to it degrade to mixed with presence-only validation.',
+                        (string) $name,
+                    )] = true;
+
                 continue;
             }
 
@@ -2468,7 +2504,20 @@ final class ModelGenerator
             if (! $this->isCleanUnionMember($member)) {
                 // Any messy member collapses the whole union to mixed. The
                 // nullability pre-scanned above still informs the fallback so a
-                // nullable union does not silently lose its null.
+                // nullable union does not silently lose its null. The collapse
+                // is surfaced as a build warning naming the schema (and the
+                // pointer, when the messy member is a $ref), issue #67.
+                $this->warnings[$member instanceof Reference
+                    ? sprintf(
+                        '%s: a oneOf/anyOf member $ref "%s" does not resolve to a plain scalar or a generated Data class; the union degrades to mixed with presence-only validation.',
+                        $this->warningContext,
+                        $member->getReference(),
+                    )
+                    : sprintf(
+                        '%s: a oneOf/anyOf member is not a plain scalar or a $ref to a generated Data class; the union degrades to mixed with presence-only validation.',
+                        $this->warningContext,
+                    )] = true;
+
                 return new ResolvedType('mixed', $nullable);
             }
 
@@ -2685,12 +2734,26 @@ final class ModelGenerator
         return isset(self::SCALARS[$types[0]]);
     }
 
+    /**
+     * Resolve a `$ref` to the type it generates. The two degradation paths (an
+     * external or non-schema pointer, and a pointer to a component that did not
+     * become a generated type) both produce `mixed` with presence-only rules,
+     * so each emits a build warning naming the pointer and the schema (or
+     * operation) where it was encountered (issue #67) instead of hollowing the
+     * output silently.
+     */
     private function resolveReference(Reference $reference): ResolvedType
     {
         $pointer = $reference->getReference();
         $name = $this->refName($pointer);
 
         if ($name === null) {
+            $this->warnings[sprintf(
+                '%s: $ref "%s" is external or not a #/components/schemas pointer and degrades to mixed with presence-only validation. Bundle external references into one document before generating.',
+                $this->warningContext,
+                $pointer,
+            )] = true;
+
             return new ResolvedType('mixed');
         }
 
@@ -2718,6 +2781,12 @@ final class ModelGenerator
 
             return new ResolvedType($this->registry[$name]['class'], isEnum: $isEnum);
         }
+
+        $this->warnings[sprintf(
+            '%s: $ref "%s" does not resolve to a generated type and degrades to mixed with presence-only validation.',
+            $this->warningContext,
+            $pointer,
+        )] = true;
 
         return new ResolvedType('mixed');
     }
@@ -3406,6 +3475,11 @@ final class ModelGenerator
         }
 
         if (isset($seen[$name])) {
+            $this->warnings[sprintf(
+                'Component schema "%s" is part of a cyclic alias chain and degrades to mixed with presence-only validation.',
+                $name,
+            )] = true;
+
             return new ResolvedType('mixed');
         }
 
@@ -3416,8 +3490,20 @@ final class ModelGenerator
 
         $seen[$name] = true;
         $this->aliasSeen = $seen;
-        $resolved = $this->resolveType($schema, PhpIdentifier::toClassName($name), 0);
-        $this->aliasSeen = [];
+
+        // Aliases resolve lazily, possibly mid-emission of another schema, so
+        // the warning context is restored afterwards: a degradation inside the
+        // alias is attributed to the alias component, not to whichever use
+        // site happened to trigger the resolution first.
+        $previousContext = $this->warningContext;
+        $this->warningContext = sprintf('Schema "%s"', $name);
+
+        try {
+            $resolved = $this->resolveType($schema, PhpIdentifier::toClassName($name), 0);
+        } finally {
+            $this->warningContext = $previousContext;
+            $this->aliasSeen = [];
+        }
 
         return $this->aliasTypes[$name] = $resolved;
     }
@@ -3527,6 +3613,8 @@ final class ModelGenerator
         foreach ($members as $member) {
             $resolved = $this->resolveMemberSchema($member, $seen);
             if ($resolved === null) {
+                $this->warnUnmergedAllOfMember($member, $seen);
+
                 continue;
             }
 
@@ -3560,6 +3648,47 @@ final class ModelGenerator
         }
 
         return ['properties' => $properties, 'required' => $this->dedupe($required)];
+    }
+
+    /**
+     * Surface an `allOf` member that resolveMemberSchema() could not resolve
+     * (issue #67): its properties are silently absent from the composed class,
+     * which is exactly the hollow-output failure mode the warnings channel
+     * exists for. Two skips stay silent by design: a cycle-guard hit (merging
+     * a recursive chain once is the sane semantics, not information loss) and
+     * a member that is a non-object alias or pure-map component (a scalar,
+     * array, or map carries no properties to merge).
+     *
+     * @param  array<string, true>  $seen  component names already being merged
+     */
+    private function warnUnmergedAllOfMember(Schema|Reference $member, array $seen): void
+    {
+        if (! $member instanceof Reference) {
+            return;
+        }
+
+        $pointer = $member->getReference();
+        $name = $this->refName($pointer);
+
+        if ($name === null) {
+            $this->warnings[sprintf(
+                '%s: allOf member $ref "%s" is external or not a #/components/schemas pointer; its properties are not merged into the composed class. Bundle external references into one document before generating.',
+                $this->warningContext,
+                $pointer,
+            )] = true;
+
+            return;
+        }
+
+        if (isset($seen[$name]) || isset($this->aliasSchemas[$name]) || isset($this->mapSchemas[$name])) {
+            return;
+        }
+
+        $this->warnings[sprintf(
+            '%s: allOf member $ref "%s" does not resolve to a component schema; its properties are not merged into the composed class.',
+            $this->warningContext,
+            $pointer,
+        )] = true;
     }
 
     /**
