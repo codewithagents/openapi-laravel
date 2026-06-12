@@ -1136,6 +1136,19 @@ final class ModelGenerator
     }
 
     /**
+     * Record a runtime support class as used by the server scaffold, so it is
+     * inlined into the consumer's Support namespace by supportFiles(). The
+     * model pipeline records its own uses internally (supportImport()); this
+     * is the entry point for the operation collector, whose routes-file
+     * middleware (issue #64) references `<DataNamespace>\Support` classes the
+     * model generator never sees.
+     */
+    public function markSupportClassUsed(string $shortName): void
+    {
+        $this->usedSupportClasses[$shortName] = true;
+    }
+
+    /**
      * The inlined runtime support classes for the last generate() run (issue
      * #40), keyed and ordered by class name. Only the classes the run actually
      * referenced are present, each rendered into the consumer's Support namespace

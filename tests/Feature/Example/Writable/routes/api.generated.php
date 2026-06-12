@@ -7,8 +7,9 @@ declare(strict_types=1);
  * Re-run the generator to refresh routes from the spec.
  */
 
+use CodeWithAgents\OpenApiLaravel\Tests\Feature\Example\Writable\Data\Support\RespondsWithStatus;
 use CodeWithAgents\OpenApiLaravel\Tests\Feature\Example\Writable\Http\WidgetsController;
 use Illuminate\Support\Facades\Route;
 
-Route::post('/widgets', [WidgetsController::class, 'createWidget'])->name('createWidget');
+Route::post('/widgets', [WidgetsController::class, 'createWidget'])->name('createWidget')->middleware(RespondsWithStatus::class.':201');
 Route::get('/widgets/{widgetId}', [WidgetsController::class, 'getWidgetById'])->name('getWidgetById');

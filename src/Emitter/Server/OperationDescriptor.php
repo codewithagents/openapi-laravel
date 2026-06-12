@@ -11,8 +11,9 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter\Server;
  * params, the request body param (or a Request fallback), the return type, and
  * the imports the controller file must `use`.
  *
- * A plain immutable value object: no behaviour, just resolved data, so both
- * downstream generators stay trivial and deterministic.
+ * A plain immutable value object: just resolved data plus one derived
+ * predicate (needsStatusMiddleware), so both downstream generators stay
+ * trivial and deterministic.
  *
  * @internal
  */
@@ -54,5 +55,23 @@ final readonly class OperationDescriptor
         public ?string $summary,
         public array $imports,
         public ?array $queryParam = null,
+        /*
+         * The numeric status code of the SELECTED success response (issue
+         * #64): the same smallest-2xx pick that drives the return type. Null
+         * when the selection fell through to `default` or to a non-2xx first
+         * response, where no success status is actually declared.
+         */
+        public ?int $successStatus = null,
     ) {}
+
+    /**
+     * Whether the generated route must enforce the spec-declared success
+     * status via the RespondsWithStatus middleware (issue #64): a known
+     * non-200 success status. Laravel's default is already 200, and a null
+     * status means the spec declared none, so neither needs enforcement.
+     */
+    public function needsStatusMiddleware(): bool
+    {
+        return $this->successStatus !== null && $this->successStatus !== 200;
+    }
 }

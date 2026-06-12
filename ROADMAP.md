@@ -80,7 +80,12 @@ injection: body-less operations get the class type-hinted into the signature (la
 container injection through `fromQuery`); operations with a request body get a docblock pointer to
 `::fromQuery($request)` instead, so body and query inputs never bleed into each other. Boolean
 parameters accept the form-style `true`/`false` literals (mapped to 1/0 before validation, so
-hydration is correct too).
+hydration is correct too). The spec-declared success status is honored (#64): the selected success
+response (smallest 2xx, the same pick that drives the return type) is enforced by the inlined
+`RespondsWithStatus` route middleware when it is not 200, so a 201 create operation answers 201 out
+of the box, and a selected 204 types the abstract method `void` with the middleware setting the
+status and guaranteeing the empty body. The middleware only rewrites an exactly-200 response, so
+error responses and explicitly set statuses pass through untouched.
 
 ### Honest residuals (documented, not hidden)
 - Undiscriminated object unions (no `discriminator`) stay `mixed`, presence-only by design (#31).
@@ -95,6 +100,9 @@ hydration is correct too).
   object-shaped and content-typed parameters.
 - Array query parameters validate their elements against the spec type but hydrate them as the raw
   query strings (PHP query parsing produces strings; top-level scalars hydrate typed).
+- Only the SELECTED success response (smallest 2xx) is typed and status-enforced (#64); alternative
+  declared 2xx statuses on the same operation stay the implementer's responsibility (the middleware
+  never overrides an explicitly set non-200 status).
 
 ### Client generation [maybe, decide later]
 Generate a typed PHP client for *consuming* a third-party or internal API from its spec, built on the

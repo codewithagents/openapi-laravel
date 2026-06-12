@@ -43,7 +43,16 @@ it('emits abstract methods with typed body, path params, and return types', func
     expect($code)->toContain('abstract public function createPet(PetWritableData $pet): PetData;')
         ->and($code)->toContain('abstract public function getPetById(int $petId): PetData;')
         ->and($code)->toContain('abstract public function listPets(): DataCollection;')
-        ->and($code)->toContain('abstract public function deletePet(int $petId): JsonResponse;');
+        // The selected success response is a 204 (issue #64): the method is
+        // void, the generated route middleware sets the status.
+        ->and($code)->toContain('abstract public function deletePet(int $petId): void;');
+});
+
+it('documents a non-200 success status on the method (issue #64)', function () {
+    $code = generateControllers()['AbstractPetController']->code;
+
+    expect($code)->toContain('* Responds with HTTP 201 (set by the generated route).')
+        ->and($code)->toContain('* Responds with HTTP 204: return nothing, the generated route sets the status.');
 });
 
 it('puts the body param before path params in the signature', function () {

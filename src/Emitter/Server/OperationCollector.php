@@ -180,13 +180,22 @@ final class OperationCollector
         $imports = [];
 
         [$bodyParam, $bodyRequiresRequest] = $this->requestBody($operation, $imports);
-        [$returnType, $returnDoc] = $this->responseType($operation, $imports);
+        [$returnType, $returnDoc, $successStatus] = $this->responseType($operation, $imports);
 
         $this->warnUnsupportedParameterLocations($method, $path, $parameters);
         $queryParam = $this->queryParam($method, $path, $operation, $parameters, $bodyParam, $bodyRequiresRequest, $pathParams, $imports);
 
         sort($imports);
         $imports = array_values(array_unique($imports));
+
+        // A known non-200 success status is enforced by the generated route
+        // middleware (issue #64), so the RespondsWithStatus support class must
+        // be inlined into the consumer's Support namespace alongside the rule
+        // classes. Recording it here (the single collection point) keeps
+        // generate and check in lockstep through the shared planner.
+        if ($successStatus !== null && $successStatus !== 200) {
+            $this->models?->markSupportClassUsed('RespondsWithStatus');
+        }
 
         return new OperationDescriptor(
             httpMethod: $method,
@@ -203,6 +212,7 @@ final class OperationCollector
             summary: $this->summary($operation),
             imports: $imports,
             queryParam: $queryParam,
+            successStatus: $successStatus,
         );
     }
 
@@ -556,17 +566,27 @@ final class OperationCollector
     }
 
     /**
+     * The selected success response, resolved into the abstract method's
+     * return type plus the spec-declared status code (issue #64). A selected
+     * 204 returns `void`: RFC 9110 forbids content on a 204, so there is
+     * nothing for the implementation to return, and the generated route
+     * middleware sets the status and guarantees the empty body.
+     *
      * @param  list<string>  $imports
-     * @return array{0: string, 1: ?string} returnType, returnDoc
+     * @return array{0: string, 1: ?string, 2: ?int} returnType, returnDoc, successStatus
      */
     private function responseType(Operation $operation, array &$imports): array
     {
-        $response = $this->successResponse($operation->responses);
+        [$response, $status] = $this->successResponse($operation->responses);
+
+        if ($status === 204) {
+            return ['void', null, 204];
+        }
 
         if (! $response instanceof Response) {
             $imports[] = self::JSON_RESPONSE_FQCN;
 
-            return [self::JSON_RESPONSE_SHORT, null];
+            return [self::JSON_RESPONSE_SHORT, null, $status];
         }
 
         $schema = $this->jsonSchema($this->asArray($response->content));
@@ -577,7 +597,7 @@ final class OperationCollector
                 $type = $this->registry[$name]['dataClass'];
                 $imports[] = $this->dataFqcn($type);
 
-                return [$type, null];
+                return [$type, null, $status];
             }
         }
 
@@ -587,7 +607,7 @@ final class OperationCollector
                 $imports[] = self::DATA_COLLECTION_FQCN;
                 $imports[] = $this->dataFqcn($collectionOf);
 
-                return [self::DATA_COLLECTION_SHORT, 'DataCollection<int, '.$collectionOf.'>'];
+                return [self::DATA_COLLECTION_SHORT, 'DataCollection<int, '.$collectionOf.'>', $status];
             }
 
             // A oneOf/anyOf response whose members are all generated Data classes
@@ -601,13 +621,13 @@ final class OperationCollector
                     $imports[] = $this->dataFqcn($dataClass);
                 }
 
-                return [implode('|', $union), null];
+                return [implode('|', $union), null, $status];
             }
         }
 
         $imports[] = self::JSON_RESPONSE_FQCN;
 
-        return [self::JSON_RESPONSE_SHORT, null];
+        return [self::JSON_RESPONSE_SHORT, null, $status];
     }
 
     /**
@@ -683,10 +703,20 @@ final class OperationCollector
         return null;
     }
 
-    private function successResponse(mixed $responses): ?Response
+    /**
+     * The selected success response plus its declared status code. The
+     * smallest 2xx status numerically wins; its code is reported even when
+     * the response object itself is unusable (an unresolved $ref), because
+     * the status is declared either way and the route must honor it (issue
+     * #64). The `default`/first-response fallbacks carry no declared success
+     * status, so they report null.
+     *
+     * @return array{0: ?Response, 1: ?int}
+     */
+    private function successResponse(mixed $responses): array
     {
         if (! $responses instanceof Responses) {
-            return null;
+            return [null, null];
         }
 
         $all = [];
@@ -695,7 +725,7 @@ final class OperationCollector
         }
 
         if ($all === []) {
-            return null;
+            return [null, null];
         }
 
         // Smallest 2xx status numerically wins.
@@ -712,18 +742,18 @@ final class OperationCollector
             }
         }
 
-        if ($best !== null) {
-            return $best instanceof Response ? $best : null;
+        if ($bestCode !== null) {
+            return [$best instanceof Response ? $best : null, $bestCode];
         }
 
         $default = $all['default'] ?? null;
         if ($default instanceof Response) {
-            return $default;
+            return [$default, null];
         }
 
         $first = reset($all);
 
-        return $first instanceof Response ? $first : null;
+        return [$first instanceof Response ? $first : null, null];
     }
 
     /**

@@ -556,6 +556,28 @@ Top-level scalar properties are unaffected: they hydrate to the declared `int`/`
 `rules()` through a different path (e.g. a hand-rolled validator over `$request->all()`) skips that
 mapping and Laravel's `boolean` rule will reject the literals.
 
+## Response status codes: only the selected success response
+
+The scaffold types and status-enforces each operation against **one** success response: the
+numerically smallest 2xx, the same selection that drives the abstract method's return type. When
+that status is not 200 the generated route attaches the inlined `RespondsWithStatus` middleware,
+so a 201 create operation answers 201 and a 204 operation (typed `void`) answers 204 with an empty
+body, out of the box (see
+[server scaffold](/guides/server-scaffold#response-status-codes)). The residuals:
+
+**Other declared 2xx responses are not modeled.** An operation declaring both a 200 and a 202 is
+typed and enforced against the 200. Producing the 202 (or any other alternative status) is your
+code's responsibility: return a response object with the status set explicitly. The middleware
+only rewrites an exactly-200 response, so it never overrides a status you set yourself.
+
+**A spec-violating 204 body is dropped.** RFC 9110 forbids content on a 204, so a 204 operation's
+abstract method returns `void` even if the spec (incorrectly) declares a response schema on it,
+and the middleware clears any body on the way out.
+
+**Status enforcement lives in the generated routes file.** If you generate with `--no-routes` and
+hand-write your own routes, attach the inlined middleware yourself
+(`RespondsWithStatus::class.':201'`) or set the status in your controllers.
+
 ## this is the one renamed property
 
 PHP allows every reserved word (`for`, `class`, `list`, `match`, ...) as a parameter variable name,

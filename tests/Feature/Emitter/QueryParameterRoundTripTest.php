@@ -46,7 +46,12 @@ beforeEach(function () {
         foreach ($all as $file) {
             $path = $dir.'/'.$file->filename();
             file_put_contents($path, $file->code);
-            require_once $path;
+            // Skip classes another suite already loaded (the status-code
+            // round-trip loads the same petstore Data set; the generator is
+            // deterministic, so the definitions are byte-identical).
+            if (! class_exists('App\\Data\\'.$file->className, false)) {
+                require_once $path;
+            }
         }
     }
 });

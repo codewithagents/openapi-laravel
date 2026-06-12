@@ -315,6 +315,46 @@ exactly as before. These two keys are config-only: there are no CLI flags for th
 artisan command and the standalone binary (via `routes.middleware` / `routes.prefix` in
 [`openapi-laravel.json`](/guides/configuration#standalone-binary-openapi-laraveljson)).
 
+### Response status codes
+
+The success status your spec declares is the status the scaffold produces. For each operation the
+generator selects the success response that also drives the return type (the numerically smallest
+2xx status); when that status is not 200, the generated route attaches the `RespondsWithStatus`
+middleware with the declared code as its parameter:
+
+```php
+use App\Data\Support\RespondsWithStatus;
+
+Route::post('/pets', [PetController::class, 'createPet'])->name('createPet')->middleware(RespondsWithStatus::class.':201');
+```
+
+Your concrete controller keeps returning the plain Data object; no `response()` helpers, no status
+constants. `RespondsWithStatus` is inlined into your own `<output>/Support/` directory alongside
+the rule classes, so the generated output stays self-contained with no runtime dependency on the
+generator. The middleware only rewrites an exactly-200 response, which is Laravel's default for a
+returned Data object: an error response (404, 422, 500, ...) passes through untouched, and a
+handler that explicitly set its own non-200 status keeps it.
+
+**204 No Content** gets dedicated treatment. A 204 must not carry a body (RFC 9110), so the
+abstract method for an operation whose selected success response is a 204 is typed `void`: the
+implementation returns nothing, and the route middleware sets the 204 and guarantees the empty
+body.
+
+```php
+/**
+ * DELETE /pets/{petId}
+ *
+ * Responds with HTTP 204: return nothing, the generated route sets the status.
+ */
+abstract public function deletePet(int $petId): void;
+```
+
+Only the **selected** success response drives this. An operation that declares several 2xx
+responses (say a 201 and a 202) is typed and status-enforced against the smallest one; producing
+one of the other declared statuses remains your code's responsibility (return a response object
+with the status set explicitly, the middleware never overrides a non-200). See
+[limitations](/guides/limitations#response-status-codes-only-the-selected-success-response).
+
 ### Registering the routes in Laravel
 
 Include the generated file from your application's route service provider or from `routes/api.php`:
@@ -353,7 +393,8 @@ The generator resolves the type of each parameter and return value from the spec
 | `in: query` parameters on an operation with a request body            | No extra param; the docblock points at `<Operation>QueryData::fromQuery($request)` |
 | Response that is a single object `$ref`                               | Data class, e.g. `PetData`                              |
 | Response that is an array of objects                                  | `Spatie\LaravelData\DataCollection` with `@return DataCollection<int, PetData>` docblock |
-| Response with no structured body (204, 4xx, 5xx, etc.)               | `Illuminate\Http\JsonResponse`                          |
+| Selected success response is a 204                                    | `void`; the generated route sets the 204 and guarantees the empty body |
+| Success response with no JSON schema (binary, plain text, none)       | `Illuminate\Http\JsonResponse`                          |
 
 <Aside type="note" title="Request body typing and the write variant">
   When a request body references a schema that splits fields with `readOnly` and `writeOnly`, the

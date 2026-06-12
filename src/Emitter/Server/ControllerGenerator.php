@@ -92,6 +92,17 @@ final readonly class ControllerGenerator
             $doc[] = '     * Query parameters: validate and hydrate them with';
             $doc[] = '     * \\'.$this->options->dataNamespace.'\\'.$operation->queryParam['type'].'::fromQuery($request).';
         }
+        if ($operation->needsStatusMiddleware()) {
+            // The spec declares a non-200 success status; the generated route
+            // enforces it via the RespondsWithStatus middleware (issue #64),
+            // so the implementer keeps returning the plain value. For a 204
+            // the method returns void: a 204 carries no body, and the
+            // middleware guarantees the empty response.
+            $doc[] = '     *';
+            $doc[] = $operation->successStatus === 204
+                ? '     * Responds with HTTP 204: return nothing, the generated route sets the status.'
+                : '     * Responds with HTTP '.$operation->successStatus.' (set by the generated route).';
+        }
         if ($operation->returnDoc !== null) {
             $doc[] = '     *';
             $doc[] = '     * @return '.$operation->returnDoc;

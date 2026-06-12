@@ -19,6 +19,12 @@ use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
  * Route::middleware(...)->prefix(...)->group(...) block; with neither set the
  * output stays the flat list it always was.
  *
+ * An operation whose selected success response declares a non-200 status
+ * (201, 202, 204, ...) additionally gets the inlined RespondsWithStatus
+ * middleware with that code as its parameter (issue #64), so the scaffold
+ * produces the spec-declared status while the controller keeps returning the
+ * plain Data object (or nothing, for 204).
+ *
  * Output is deterministic: imports sorted and unique, route lines in the
  * descriptor order (already path then HTTP method).
  *
@@ -46,14 +52,29 @@ final readonly class RouteGenerator
         foreach ($controllerImports as $fqcn) {
             $uses[] = 'use '.$fqcn.';';
         }
-        sort($uses);
+
+        // The status-enforcing middleware (issue #64) is imported only when at
+        // least one route actually attaches it, so no `use` goes unused.
+        $needsStatusMiddleware = false;
 
         $lines = [];
         foreach ($descriptors as $descriptor) {
-            $lines[] = 'Route::'.$descriptor->httpMethod."('".$this->escape($descriptor->path)."', ["
+            $line = 'Route::'.$descriptor->httpMethod."('".$this->escape($descriptor->path)."', ["
                 .$descriptor->controllerClass."::class, '".$this->escape($descriptor->methodName)."'])"
-                ."->name('".$this->escape($descriptor->routeName)."');";
+                ."->name('".$this->escape($descriptor->routeName)."')";
+
+            if ($descriptor->needsStatusMiddleware()) {
+                $needsStatusMiddleware = true;
+                $line .= '->middleware(RespondsWithStatus::class.\':'.$descriptor->successStatus.'\')';
+            }
+
+            $lines[] = $line.';';
         }
+
+        if ($needsStatusMiddleware) {
+            $uses[] = 'use '.$this->options->dataNamespace.'\\Support\\RespondsWithStatus;';
+        }
+        sort($uses);
 
         $header = "<?php\n\ndeclare(strict_types=1);\n\n"
             ."/*\n"

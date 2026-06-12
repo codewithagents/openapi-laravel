@@ -210,6 +210,10 @@ What the generator handles today:
   injection); operations with a request body call `<Operation>QueryData::fromQuery($request)`, which
   validates and hydrates from the query string only. Header/cookie and deepObject-style parameters
   are skipped with a generator warning, not silently dropped
+- **Spec response status codes** → an operation whose success response declares a non-200 status
+  (201, 202, 204, ...) produces that status out of the box: the generated route attaches an inlined
+  `RespondsWithStatus` middleware, your controller keeps returning the plain Data object, and a 204
+  operation is typed `void` and answers with an empty body
 - **Determinism** → same spec in, byte-identical files out
 
 The same spec also produces a typed abstract controller per tag and a routes file. An operation you
@@ -224,13 +228,15 @@ abstract class AbstractPetController
 {
     abstract public function addPet(PetWritableData $pet): PetData;
     abstract public function getPetById(int $petId): PetData;
-    abstract public function deletePet(int $petId): JsonResponse;
+    abstract public function deletePet(int $petId): void;   // the spec declares 204: nothing to return
 }
 
 // generated: routes/api.generated.php
-Route::post('/pet', [PetController::class, 'addPet'])->name('addPet');
+// (the spec declares 201 for addPet and 204 for deletePet, so those routes
+//  carry the inlined status middleware; plain 200 operations stay untouched)
+Route::post('/pet', [PetController::class, 'addPet'])->name('addPet')->middleware(RespondsWithStatus::class.':201');
 Route::get('/pet/{petId}', [PetController::class, 'getPetById'])->name('getPetById');
-Route::delete('/pet/{petId}', [PetController::class, 'deletePet'])->name('deletePet');
+Route::delete('/pet/{petId}', [PetController::class, 'deletePet'])->name('deletePet')->middleware(RespondsWithStatus::class.':204');
 ```
 
 You write only the concrete `PetController extends AbstractPetController`. See the

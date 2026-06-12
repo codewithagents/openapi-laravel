@@ -34,8 +34,10 @@ function regenerateWritable(): array
     $registry = $modelGenerator->registry();
 
     $serverOptions = new ServerOptions(WRITABLE_CONTROLLER_NAMESPACE, WRITABLE_DATA_NAMESPACE);
-    // Collect once, share with both generators (mirrors the command/standalone wiring).
-    $descriptors = (new OperationCollector($serverOptions, $registry))->collect($document);
+    // Collect once, share with both generators, with the model generator wired
+    // in (mirrors the command/standalone wiring), so the collector can record
+    // the support classes the scaffold references (issue #64).
+    $descriptors = (new OperationCollector($serverOptions, $registry, null, $modelGenerator))->collect($document);
     $controllerFiles = (new ControllerGenerator($serverOptions))->generate($descriptors);
     $routeFile = (new RouteGenerator($serverOptions))->generate($descriptors);
 
@@ -47,12 +49,21 @@ function regenerateWritable(): array
     ];
 }
 
-it('inlines no support classes for a spec that references none (#40)', function () {
-    // The writable example uses no rule/transformer support class, so the inlined
-    // support set is empty: only the classes a spec references are emitted, and
-    // no `Support/` directory is committed.
-    expect(regenerateWritable()['support'])->toBe([])
-        ->and(is_dir(WRITABLE_DIR.'/Data/Support'))->toBeFalse();
+it('inlines exactly the support classes the scaffold references (#40, #64)', function () {
+    // The writable example uses no rule/transformer support class, but its
+    // createWidget operation declares a 201, so the status-enforcing route
+    // middleware is the one inlined class: only what a spec references is
+    // emitted, byte-identical to the committed copy.
+    $support = regenerateWritable()['support'];
+
+    expect(array_keys($support))->toBe(['RespondsWithStatus']);
+
+    foreach ($support as $file) {
+        $committed = WRITABLE_DIR.'/Data/Support/'.$file->filename();
+
+        expect(is_file($committed))->toBeTrue("Missing committed file: {$file->filename()}")
+            ->and(file_get_contents($committed))->toBe($file->code);
+    }
 });
 
 it('regenerates writable Data classes byte-identical to the committed example', function () {

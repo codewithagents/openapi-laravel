@@ -45,10 +45,21 @@ it('emits one named Route line per operation pointing at the concrete controller
     $code = generateRoutes();
 
     expect($code)->toContain("Route::get('/pets', [PetController::class, 'listPets'])->name('listPets');")
-        ->and($code)->toContain("Route::post('/pets', [PetController::class, 'createPet'])->name('createPet');")
+        ->and($code)->toContain("Route::post('/pets', [PetController::class, 'createPet'])->name('createPet')->middleware(RespondsWithStatus::class.':201');")
         ->and($code)->toContain("Route::get('/pets/{petId}', [PetController::class, 'getPetById'])->name('getPetById');")
-        ->and($code)->toContain("Route::delete('/pets/{petId}', [PetController::class, 'deletePet'])->name('deletePet');")
+        ->and($code)->toContain("Route::delete('/pets/{petId}', [PetController::class, 'deletePet'])->name('deletePet')->middleware(RespondsWithStatus::class.':204');")
         ->and($code)->toContain("Route::get('/health', [UntaggedController::class, 'getHealth'])->name('getHealth');");
+});
+
+it('enforces a non-200 success status with the RespondsWithStatus middleware and imports it once (issue #64)', function () {
+    $code = generateRoutes();
+
+    expect($code)->toContain('use App\Data\Support\RespondsWithStatus;')
+        ->and(substr_count($code, 'use App\Data\Support\RespondsWithStatus;'))->toBe(1)
+        // 200 routes stay untouched: no middleware on the plain reads.
+        ->and($code)->not->toContain("'listPets')->middleware")
+        ->and($code)->not->toContain("'getPetById')->middleware")
+        ->and($code)->not->toContain("'getHealth')->middleware");
 });
 
 it('imports the concrete controllers (not the abstracts), sorted and unique', function () {
@@ -146,6 +157,8 @@ it('suffixes route names to stay unique when method names collide across control
     $descriptors = (new OperationCollector($options, $generator->registry()))->collect($spec);
     $code = (new RouteGenerator($options))->generate($descriptors)->code;
 
-    expect($code)->toContain("Route::get('/a', [AlphaController::class, 'listThings'])->name('listThings');")
-        ->and($code)->toContain("Route::get('/b', [BetaController::class, 'listThings'])->name('listThings_2');");
+    // Both operations declare only a 204, so each line also carries the
+    // status-enforcing middleware (issue #64).
+    expect($code)->toContain("Route::get('/a', [AlphaController::class, 'listThings'])->name('listThings')->middleware(RespondsWithStatus::class.':204');")
+        ->and($code)->toContain("Route::get('/b', [BetaController::class, 'listThings'])->name('listThings_2')->middleware(RespondsWithStatus::class.':204');");
 });

@@ -13,6 +13,8 @@ abstract class AbstractWidgetsController
      * POST /widgets
      *
      * Create a widget.
+     *
+     * Responds with HTTP 201 (set by the generated route).
      */
     abstract public function createWidget(WidgetWritableData $widget): WidgetData;
 

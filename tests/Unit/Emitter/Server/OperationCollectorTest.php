@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use cebe\openapi\Reader;
+use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationDescriptor;
@@ -136,12 +138,67 @@ it('returns a DataCollection for an array-of-ref response', function () {
         ->and($list->imports)->toContain('App\\Data\\PetData');
 });
 
-it('falls back to JsonResponse when the success response has no typed body', function () {
+it('returns void for a selected 204 response (issue #64)', function () {
     $delete = descriptorFor(collectPetstore(), 'delete', '/pets/{petId}');
 
-    // Short return type matches the use import so the import is never unused.
-    expect($delete->returnType)->toBe('JsonResponse')
-        ->and($delete->imports)->toContain('Illuminate\\Http\\JsonResponse');
+    // A 204 carries no body (RFC 9110), so there is nothing to return: the
+    // abstract method is void and the generated route middleware sets the
+    // status and guarantees the empty response.
+    expect($delete->returnType)->toBe('void')
+        ->and($delete->successStatus)->toBe(204)
+        ->and($delete->needsStatusMiddleware())->toBeTrue()
+        ->and($delete->imports)->not->toContain('Illuminate\\Http\\JsonResponse');
+});
+
+it('records the selected success status alongside the return type (issue #64)', function () {
+    $create = descriptorFor(collectPetstore(), 'post', '/pets');
+    $get = descriptorFor(collectPetstore(), 'get', '/pets/{petId}');
+
+    expect($create->successStatus)->toBe(201)
+        ->and($create->needsStatusMiddleware())->toBeTrue()
+        ->and($create->returnType)->toBe('PetData')
+        ->and($get->successStatus)->toBe(200)
+        ->and($get->needsStatusMiddleware())->toBeFalse();
+});
+
+it('marks the RespondsWithStatus support class for inlining when a non-200 status exists (issue #64)', function () {
+    $doc = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/server/petstore.yaml');
+    $generator = new ModelGenerator;
+    $generator->generate($doc);
+
+    // Wired like the planner: the collector records the middleware class on
+    // the model generator, so supportFiles() inlines it into the consumer's
+    // own Support namespace next to the rule classes (issue #40 mechanism).
+    (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($doc);
+
+    $support = $generator->supportFiles();
+    expect($support)->toHaveKey('RespondsWithStatus')
+        ->and($support['RespondsWithStatus']->code)->toContain('namespace App\Data\Support;')
+        ->and($support['RespondsWithStatus']->code)->toContain('final class RespondsWithStatus');
+});
+
+it('does not inline RespondsWithStatus when every success response is a 200 (issue #64)', function () {
+    $document = [
+        'openapi' => '3.0.3',
+        'info' => ['title' => 'Test', 'version' => '1.0.0'],
+        'paths' => [
+            '/things' => [
+                'get' => [
+                    'operationId' => 'listThings',
+                    'responses' => ['200' => ['description' => 'ok']],
+                ],
+            ],
+        ],
+    ];
+
+    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    expect($spec)->toBeInstanceOf(OpenApi::class);
+
+    $generator = new ModelGenerator;
+    $generator->generate($spec);
+    (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($spec);
+
+    expect($generator->supportFiles())->not->toHaveKey('RespondsWithStatus');
 });
 
 it('orders descriptors by path then by a fixed HTTP-method order', function () {

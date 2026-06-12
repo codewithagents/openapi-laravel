@@ -35,7 +35,9 @@ beforeEach(function () {
 it('creates a widget from a valid write body and returns the read variant', function () {
     $response = $this->postJson('/widgets', ['name' => 'ok', 'secret' => 's']);
 
-    $response->assertSuccessful()
+    // The spec declares 201 for createWidget; the generated route enforces it
+    // via the inlined RespondsWithStatus middleware (issue #64).
+    $response->assertCreated()
         ->assertJsonPath('name', 'ok');
 
     // Read variant: the store-assigned readOnly id is present...

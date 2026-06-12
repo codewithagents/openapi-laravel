@@ -6,6 +6,8 @@
         "Illuminate\\Support\\ServiceProvider",
         "Illuminate\\Contracts\\Validation\\ValidationRule",
         "Illuminate\\Contracts\\Validation\\DataAwareRule",
+        "Illuminate\\Http\\Request",
+        "Symfony\\Component\\HttpFoundation\\Response",
         "Symfony\\Component\\Yaml\\Yaml"
     ]
 }
