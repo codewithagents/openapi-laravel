@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.11.0](https://github.com/codewithagents/openapi-laravel/compare/v0.10.0...v0.11.0) (2026-06-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* **emitter:** generated controller method names and route names change for every clean RESTful operation (e.g. getPetById becomes show, the route name follows). Regenerate your output; the drift gate (openapi:check) shows the full change. Users who ran openapi:scaffold must rename the overridden methods in their concrete controllers to match the new abstract signatures (PHP fatals at class load otherwise), and route('...') call sites must follow the new route names. The --laravel-conventions and --no-laravel-conventions flags are removed (artisan rejects them, the standalone binary ignores unknown flags), and a controllers.laravel_conventions key in openapi-laravel.json is now rejected as unknown.
+* **emitter:** generated Data classes and enums solely owned by one tag group now land in per-tag subdirectories with namespaces following the directories (data/Pet/PetData.php under App\Data\Pet). Regenerate your output and update imports in hand-written code; the drift gate (openapi:check) shows the full change. The --group-by-tag and --no-group-by-tag flags are removed (artisan rejects them, the standalone binary ignores unknown flags), and an output.group_by_tag key in openapi-laravel.json is now rejected as unknown.
+
+### Features
+
+* **console:** add openapi:scaffold for one-time concrete controller stubs ([#78](https://github.com/codewithagents/openapi-laravel/issues/78)) ([fcc4541](https://github.com/codewithagents/openapi-laravel/commit/fcc454142c2fa053b20dca8c8c73ec2f0193efaf))
+* **console:** add repeatable --exclude-path-prefix subset filter ([#96](https://github.com/codewithagents/openapi-laravel/issues/96)) ([1b31da3](https://github.com/codewithagents/openapi-laravel/commit/1b31da3be4af384ad2a34f197019bf035141448a))
+* **console:** warn on every silent degradation to mixed or Request ([#67](https://github.com/codewithagents/openapi-laravel/issues/67)) ([bbea22f](https://github.com/codewithagents/openapi-laravel/commit/bbea22f6ad05efa46e92afb63e17b00a5def73dc))
+* **emitter:** configurable controller base class plus validation extension pattern ([#83](https://github.com/codewithagents/openapi-laravel/issues/83)) ([68a92a5](https://github.com/codewithagents/openapi-laravel/commit/68a92a52418b31f64edb369058bdb48a78f58508))
+* **emitter:** emit array-count rules from minProperties/maxProperties ([#72](https://github.com/codewithagents/openapi-laravel/issues/72)) ([b5f7b01](https://github.com/codewithagents/openapi-laravel/commit/b5f7b01b31171b0cb7255a85ccfb84d526693e5e))
+* **emitter:** emit per-index rules for tuple prefixItems ([#82](https://github.com/codewithagents/openapi-laravel/issues/82)) ([381f47b](https://github.com/codewithagents/openapi-laravel/commit/381f47b043093199ede3ba567fd74d840abd3d00))
+* **emitter:** emit required_with rules from dependentRequired ([#81](https://github.com/codewithagents/openapi-laravel/issues/81)) ([ee3eb4f](https://github.com/codewithagents/openapi-laravel/commit/ee3eb4fe02ef6d86db58f6e2b30ce7a62aa48b27))
+* **emitter:** honor spec response status codes in the generated scaffold ([#64](https://github.com/codewithagents/openapi-laravel/issues/64)) ([78375db](https://github.com/codewithagents/openapi-laravel/commit/78375db3223cd3f0ae3f96d6b147f8520738e402))
+* **emitter:** Laravel-convention controller method names become the only naming ([8594410](https://github.com/codewithagents/openapi-laravel/commit/8594410b9769ec8305c1eb7397a01ecb7d4f9c7b))
+* **emitter:** make empty generated Data classes visible with a marker and warning ([#95](https://github.com/codewithagents/openapi-laravel/issues/95)) ([6c08721](https://github.com/codewithagents/openapi-laravel/commit/6c0872179dcb1c4c3786649e5235648f94a163b3))
+* **emitter:** map security schemes to route middleware ([#77](https://github.com/codewithagents/openapi-laravel/issues/77)) ([d371ef5](https://github.com/codewithagents/openapi-laravel/commit/d371ef50740982b8fc5ef9f5196a51b09239b101))
+* **emitter:** opt-in Laravel-convention controller method names ([#94](https://github.com/codewithagents/openapi-laravel/issues/94)) ([81ef4e4](https://github.com/codewithagents/openapi-laravel/commit/81ef4e483a45d01d2e7415f1db1c13ff30d3e390))
+* **emitter:** opt-in tag-grouped data directory layout ([#93](https://github.com/codewithagents/openapi-laravel/issues/93)) ([dade3a0](https://github.com/codewithagents/openapi-laravel/commit/dade3a07c309e229f7148c7619f8b0342d710512))
+* **emitter:** route names from operationId and route group config ([#71](https://github.com/codewithagents/openapi-laravel/issues/71)) ([b4003b5](https://github.com/codewithagents/openapi-laravel/commit/b4003b5ce24797bc14b392e98c801a4ae8ae57b3))
+* **emitter:** synthesize typed Data classes for inline JSON request bodies ([#76](https://github.com/codewithagents/openapi-laravel/issues/76)) ([4de4524](https://github.com/codewithagents/openapi-laravel/commit/4de45242ca59324dc3f429f9e4b17774ae79f65e))
+* **emitter:** tag-grouped data layout becomes the only layout ([1197f6d](https://github.com/codewithagents/openapi-laravel/commit/1197f6ddf6e51f7bb6bb1c19c839aa91bbb8ce82))
+* **emitter:** typed and validated query parameters via per-operation QueryData classes ([#63](https://github.com/codewithagents/openapi-laravel/issues/63)) ([#99](https://github.com/codewithagents/openapi-laravel/issues/99)) ([6754bd7](https://github.com/codewithagents/openapi-laravel/commit/6754bd7a5f52cc057ef03ec2e4351ef3e1d663b4))
+* **emitter:** typed multipart bodies with UploadedFile rules ([#75](https://github.com/codewithagents/openapi-laravel/issues/75)) ([a93b149](https://github.com/codewithagents/openapi-laravel/commit/a93b14914257fdf8ad46098563a6a10e52ff57e3))
+* **parser:** exact OpenAPI version gating with loud 3.2 best-effort warnings ([#103](https://github.com/codewithagents/openapi-laravel/issues/103)) ([6f255ef](https://github.com/codewithagents/openapi-laravel/commit/6f255efcd0cd468d93d2a09eeef87dac85630dd2))
+* support Laravel 13 ([#68](https://github.com/codewithagents/openapi-laravel/issues/68)) ([644bd00](https://github.com/codewithagents/openapi-laravel/commit/644bd008f0868ac9d24ccc306f31bf972deab92e))
+
+
+### Bug Fixes
+
+* **ci:** raise the laravel/pint floor to ^1.16.1 so prefer-lowest passes the generated-output gates ([#91](https://github.com/codewithagents/openapi-laravel/issues/91)) ([a778796](https://github.com/codewithagents/openapi-laravel/commit/a77879611a562e86fa02fd5e98bf81ab477794da))
+* **deps:** raise minimum spatie/laravel-data to ^4.23 for dependentRequired rules on lowest deps ([f7c36be](https://github.com/codewithagents/openapi-laravel/commit/f7c36be2a8691d7d366e97579cf1cef2d66d07dd))
+* **emitter:** allow patternProperties keys under closed-object enforcement ([#65](https://github.com/codewithagents/openapi-laravel/issues/65)) ([c0f3651](https://github.com/codewithagents/openapi-laravel/commit/c0f365161d41b9001d3ecbc8b8e5354b2cea3c9c))
+* **emitter:** generate query classes independent of scaffold flags plus review follow-ups ([#63](https://github.com/codewithagents/openapi-laravel/issues/63)) ([458ad74](https://github.com/codewithagents/openapi-laravel/commit/458ad7441233d6d5fc7c2be90d812fa8e7b5bace))
+* **emitter:** merge PathItem-level parameters and resolve parameter refs ([#66](https://github.com/codewithagents/openapi-laravel/issues/66)) ([#85](https://github.com/codewithagents/openapi-laravel/issues/85)) ([0363d6d](https://github.com/codewithagents/openapi-laravel/commit/0363d6da2d5db9f5750add77cb09bc700fd9c1f1))
+* **tests:** create parent dirs for grouped output in corpus gates ([bdb4c22](https://github.com/codewithagents/openapi-laravel/commit/bdb4c22e9ac77a84c2a54d524ee553a72d3e5fdf))
+
+
+### Miscellaneous Chores
+
+* declare the PHP class API internal ([#69](https://github.com/codewithagents/openapi-laravel/issues/69)) ([76da32e](https://github.com/codewithagents/openapi-laravel/commit/76da32e2b181c997199eebedebb94c27ecc21f18))
+* **deps:** explicit symfony/yaml require, drop ext-ctype ([ae6b1c0](https://github.com/codewithagents/openapi-laravel/commit/ae6b1c0093c94172600b166b3758360c980c5920))
+* **e2e:** regenerate backend for grouped layout and convention naming ([e7e45d0](https://github.com/codewithagents/openapi-laravel/commit/e7e45d02bc60574fabfabebd34cee6cb5f9f818b))
+* packaging and platform hygiene for 1.0 ([#74](https://github.com/codewithagents/openapi-laravel/issues/74)) ([ed8da68](https://github.com/codewithagents/openapi-laravel/commit/ed8da68275db651ef32dad4f932293d24047fc0a))
+
 ## [0.10.0](https://github.com/codewithagents/openapi-laravel/compare/v0.9.0...v0.10.0) (2026-06-11)
 
 
