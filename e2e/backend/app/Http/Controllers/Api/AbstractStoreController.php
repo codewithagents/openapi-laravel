@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
-use App\Data\OrderData;
+use App\Data\Store\OrderData;
 use Illuminate\Http\JsonResponse;
 
 abstract class AbstractStoreController
@@ -14,26 +14,26 @@ abstract class AbstractStoreController
      *
      * Returns pet inventories by status.
      */
-    abstract public function getInventory(): JsonResponse;
+    abstract public function index(): JsonResponse;
 
     /**
      * POST /store/order
      *
      * Place an order for a pet.
      */
-    abstract public function placeOrder(OrderData $order): OrderData;
+    abstract public function store(OrderData $order): OrderData;
 
     /**
      * GET /store/order/{orderId}
      *
      * Find purchase order by ID.
      */
-    abstract public function getOrderById(int $orderId): OrderData;
+    abstract public function show(int $orderId): OrderData;
 
     /**
      * DELETE /store/order/{orderId}
      *
      * Delete purchase order by identifier.
      */
-    abstract public function deleteOrder(int $orderId): JsonResponse;
+    abstract public function destroy(int $orderId): JsonResponse;
 }

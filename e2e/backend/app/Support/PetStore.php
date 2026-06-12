@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Support;
 
-use App\Data\OrderData;
-use App\Data\PetData;
-use App\Data\TagData;
-use App\Data\UserData;
+use App\Data\Pet\PetData;
+use App\Data\Pet\TagData;
+use App\Data\Store\OrderData;
+use App\Data\User\UserData;
 
 /**
  * A file-backed JSON store for the demo controllers. This is NOT generated and

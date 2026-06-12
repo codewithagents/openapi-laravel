@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace App\Data;
+namespace App\Data\Pet;
 
 use Spatie\LaravelData\Data;
 
-final class TagData extends Data
+final class CategoryData extends Data
 {
     public function __construct(
         public readonly ?int $id = null,
@@ -14,7 +14,7 @@ final class TagData extends Data
     ) {}
 
     /**
-     * @return array<string, list<string|object>>
+     * @return array<array-key, list<string|object>>
      */
     public static function rules(): array
     {

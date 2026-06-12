@@ -26,7 +26,7 @@ final class CreatedResponse
      *
      * @var list<string>
      */
-    private const CREATE_ACTIONS = ['addPet', 'placeOrder', 'createUser'];
+    private const CREATE_ACTIONS = ['addPet', 'store', 'createUser'];
 
     public function handle(Request $request, Closure $next): Response
     {

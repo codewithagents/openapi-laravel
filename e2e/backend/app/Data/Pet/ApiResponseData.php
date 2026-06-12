@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Data;
+namespace App\Data\Pet;
 
 use Spatie\LaravelData\Data;
 
@@ -15,7 +15,7 @@ final class ApiResponseData extends Data
     ) {}
 
     /**
-     * @return array<string, list<string|object>>
+     * @return array<array-key, list<string|object>>
      */
     public static function rules(): array
     {

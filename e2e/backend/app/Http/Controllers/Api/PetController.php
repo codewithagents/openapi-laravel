@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
-use App\Data\ApiResponseData;
-use App\Data\PetData;
-use App\Data\PetWritableData;
+use App\Data\Pet\ApiResponseData;
+use App\Data\Pet\FindPetsByStatusQueryData;
+use App\Data\Pet\FindPetsByTagsQueryData;
+use App\Data\Pet\PetData;
+use App\Data\Pet\PetWritableData;
+use App\Data\Pet\UpdatePetWithFormQueryData;
 use App\Support\PetStore;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -60,22 +63,20 @@ final class PetController extends AbstractPetController
         return $this->store->putPet($updated);
     }
 
-    public function findPetsByStatus(): DataCollection
+    public function findPetsByStatus(FindPetsByStatusQueryData $query): DataCollection
     {
-        $status = (string) request()->query('status', 'available');
-
-        return PetData::collect($this->store->petsByStatus($status), DataCollection::class);
+        // $query arrived typed, validated against the spec rules(), and
+        // hydrated from the query string only: the spec default ('available')
+        // filled in when the parameter was omitted.
+        return PetData::collect($this->store->petsByStatus($query->status), DataCollection::class);
     }
 
-    public function findPetsByTags(): DataCollection
+    public function findPetsByTags(FindPetsByTagsQueryData $query): DataCollection
     {
-        $tags = request()->query('tags', []);
-        $tags = is_array($tags) ? array_values(array_filter($tags, 'is_string')) : [(string) $tags];
-
-        return PetData::collect($this->store->petsByTags($tags), DataCollection::class);
+        return PetData::collect($this->store->petsByTags($query->tags), DataCollection::class);
     }
 
-    public function getPetById(int $petId): PetData
+    public function show(int $petId): PetData
     {
         $pet = $this->store->findPet($petId);
 
@@ -86,7 +87,7 @@ final class PetController extends AbstractPetController
         return $pet;
     }
 
-    public function updatePetWithForm(int $petId): PetData
+    public function updatePetWithForm(UpdatePetWithFormQueryData $query, int $petId): PetData
     {
         $pet = $this->store->findPet($petId);
 
@@ -94,19 +95,16 @@ final class PetController extends AbstractPetController
             throw new NotFoundHttpException("Pet {$petId} not found.");
         }
 
-        // Form fields arrive as query/body params (the spec models them inline),
-        // so we patch the existing pet rather than rehydrate a whole PetData.
+        // The spec models name/status as query parameters; $query carries them
+        // typed and validated, so we patch the existing pet from it.
         // created_at and the enriched fields are carried over untouched.
-        $name = request()->input('name');
-        $status = request()->input('status');
-
         $updated = new PetData(
-            name: is_string($name) ? $name : $pet->name,
+            name: $query->name ?? $pet->name,
             photoUrls: $pet->photoUrls,
             id: $pet->id,
             category: $pet->category,
             tags: $pet->tags,
-            status: is_string($status) ? $status : $pet->status,
+            status: $query->status ?? $pet->status,
             microchipId: $pet->microchipId,
             createdAt: $pet->createdAt,
             weightKg: $pet->weightKg,
@@ -117,7 +115,7 @@ final class PetController extends AbstractPetController
         return $this->store->putPet($updated);
     }
 
-    public function deletePet(int $petId): JsonResponse
+    public function destroy(int $petId): JsonResponse
     {
         $deleted = $this->store->deletePet($petId);
 

@@ -2,8 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Data;
+namespace App\Data\Store;
 
+use App\Data\Support\Rfc3339DateTimeRule;
 use Illuminate\Validation\Rule;
 use Spatie\LaravelData\Data;
 
@@ -19,7 +20,7 @@ final class OrderData extends Data
     ) {}
 
     /**
-     * @return array<string, list<string|object>>
+     * @return array<array-key, list<string|object>>
      */
     public static function rules(): array
     {
@@ -27,7 +28,7 @@ final class OrderData extends Data
             'id' => ['sometimes', 'integer'],
             'petId' => ['sometimes', 'integer'],
             'quantity' => ['sometimes', 'integer'],
-            'shipDate' => ['sometimes', 'string', 'date'],
+            'shipDate' => ['sometimes', 'string', new Rfc3339DateTimeRule],
             'status' => ['sometimes', Rule::in(['placed', 'approved', 'delivered'])],
             'complete' => ['sometimes', 'boolean'],
         ];

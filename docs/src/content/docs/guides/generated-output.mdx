@@ -256,7 +256,7 @@ Pet:
   <TabItem label="Read variant (trimmed)">
 
 ```php
-// e2e/backend/app/Data/PetData.php
+// e2e/backend/app/Data/Pet/PetData.php
 final class PetData extends Data
 {
     public function __construct(
@@ -301,7 +301,7 @@ final class PetData extends Data
   <TabItem label="Write variant (excerpt)">
 
 ```php
-// e2e/backend/app/Data/PetWritableData.php
+// e2e/backend/app/Data/Pet/PetWritableData.php
 // the mirror image of PetData: carries secret_note, drops created_at
 final class PetWritableData extends Data
 {

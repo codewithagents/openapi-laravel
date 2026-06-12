@@ -2,14 +2,16 @@
 
 declare(strict_types=1);
 
-namespace App\Data;
+namespace App\Data\Pet;
 
+use App\Data\Support\MapObjectTransformer;
 use Illuminate\Validation\Rule;
 use Spatie\LaravelData\Attributes\DataCollectionOf;
 use Spatie\LaravelData\Attributes\MapName;
+use Spatie\LaravelData\Attributes\WithTransformer;
 use Spatie\LaravelData\Data;
 
-final class PetData extends Data
+final class PetWritableData extends Data
 {
     public function __construct(
         public readonly string $name,
@@ -23,11 +25,12 @@ final class PetData extends Data
         public readonly ?string $status = null,
         #[MapName('microchip_id')]
         public readonly ?string $microchipId = null,
-        #[MapName('created_at')]
-        public readonly ?string $createdAt = null,
+        #[MapName('secret_note')]
+        public readonly ?string $secretNote = null,
         #[MapName('weight_kg')]
         public readonly ?float $weightKg = null,
         /** @var array<string, string> */
+        #[WithTransformer(MapObjectTransformer::class)]
         public readonly ?array $attributes = null,
         /** @var string|int */
         #[MapName('external_id')]
@@ -35,7 +38,7 @@ final class PetData extends Data
     ) {}
 
     /**
-     * @return array<string, list<string|object>>
+     * @return array<array-key, list<string|object>>
      */
     public static function rules(): array
     {
@@ -48,7 +51,7 @@ final class PetData extends Data
             'tags' => ['sometimes', 'array'],
             'status' => ['sometimes', Rule::in(['available', 'pending', 'sold'])],
             'microchip_id' => ['sometimes', 'string'],
-            'created_at' => ['sometimes', 'string', 'date'],
+            'secret_note' => ['sometimes', 'string'],
             'weight_kg' => ['sometimes', 'nullable', 'numeric'],
             'attributes' => ['sometimes', 'array'],
             'attributes.*' => ['string'],
