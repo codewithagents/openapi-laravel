@@ -16,11 +16,11 @@ use CodeWithAgents\OpenApiLaravel\Parser\Spec\SchemaNode;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\SecurityRequirementNode;
 
 /**
- * #104 T2: OpenApiReader hydrates the decoded raw spec array into the typed
- * value-object graph from T1, folding SchemaNormalizer's rewrites and
- * reproducing SpecParser's structural rejection and exact version gating
- * (#103). These tests pin the hydration shapes, the presence semantics, the
- * normalization parity, and the rejection messages.
+ * #104: OpenApiReader hydrates the decoded raw spec array into the typed
+ * value-object graph, owning the schema normalization rewrites (#20, #32,
+ * #33, #82), the structural rejection, and the exact version gating (#103).
+ * These tests pin the hydration shapes, the presence semantics, the
+ * normalization behavior, and the rejection messages.
  */
 function readSpec(array $overrides = []): OpenApiDocument
 {
@@ -443,7 +443,7 @@ it('hydrates boolean subschemas to their JSON-Schema equivalents', function () {
         ->and($nothing->not)->toBeInstanceOf(SchemaNode::class);
 });
 
-// --- SchemaNormalizer parity (#20, #32, #33, #82) ----------------------------
+// --- Schema normalization rewrites (#20, #32, #33, #82) ----------------------
 
 it('rewrites items: true to an empty schema node', function () {
     $node = readSchema(['type' => 'array', 'items' => true]);
@@ -473,6 +473,30 @@ it('drops items: false without prefixItems and synthesizes nothing', function ()
     assert($node instanceof SchemaNode);
     expect($node->items)->toBeNull()
         ->and($node->maxItems)->toBeNull();
+});
+
+it('does not synthesize maxItems for an open tuple (no items: false)', function () {
+    $node = readSchema([
+        'type' => 'array',
+        'prefixItems' => [['type' => 'string']],
+    ]);
+
+    assert($node instanceof SchemaNode);
+    expect($node->maxItems)->toBeNull()
+        ->and($node->prefixItems)->toHaveCount(1);
+});
+
+it('does not synthesize maxItems when prefixItems is not a list', function () {
+    $node = readSchema([
+        'type' => 'array',
+        'prefixItems' => ['first' => ['type' => 'string']],
+        'items' => false,
+    ]);
+
+    assert($node instanceof SchemaNode);
+    expect($node->maxItems)->toBeNull()
+        ->and($node->prefixItems)->toBeNull()
+        ->and($node->extra)->toBe(['prefixItems' => ['first' => ['type' => 'string']]]);
 });
 
 it('tightens a larger explicit maxItems to the closed tuple size', function () {
@@ -552,6 +576,20 @@ it('coerces nullable strings case-insensitively and keeps booleans', function ()
         ->and($boolean->nullable)->toBeTrue()
         ->and($junk->nullable)->toBeNull()
         ->and($junk->extra)->toBe(['nullable' => 'maybe']);
+});
+
+it('keeps user data inside default blobs verbatim, coercing only at keyword positions', function () {
+    // `default: {nullable: "true"}` is user DATA, not a schema keyword: the
+    // string must survive uncoerced. The old pre-parse normalizer walked every
+    // array and rewrote the `nullable` key even inside data blobs; the reader
+    // coerces only at actual schema keyword positions.
+    $node = readSchema([
+        'type' => 'object',
+        'default' => ['nullable' => 'true'],
+    ]);
+
+    assert($node instanceof SchemaNode);
+    expect($node->default)->toBe(['nullable' => 'true']);
 });
 
 it('normalizes boolean items at any nesting depth', function () {

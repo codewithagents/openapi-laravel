@@ -7,7 +7,6 @@ use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
 use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
-use CodeWithAgents\OpenApiLaravel\Parser\SchemaNormalizer;
 use CodeWithAgents\OpenApiLaravel\Tests\TestCase;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -74,8 +73,7 @@ function queryOracleClass(): string
     ];
 
     $decoded = json_decode((string) json_encode($document), true);
-    $normalized = SchemaNormalizer::normalize($decoded);
-    $spec = (new OpenApiReader)->read($normalized);
+    $spec = (new OpenApiReader)->read($decoded);
 
     $namespace = 'QueryOracle\\Models';
     $generator = new ModelGenerator(new GeneratorOptions($namespace));

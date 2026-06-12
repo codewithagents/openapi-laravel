@@ -21,24 +21,22 @@ use CodeWithAgents\OpenApiLaravel\Parser\Spec\SecurityRequirementNode;
 
 /**
  * Hydrates the already-decoded raw spec array into the internal read-only
- * value-object graph under {@see Spec} (issue #104, Task 2). This is the
- * replacement for cebe's object model: same input point as today's
- * `SchemaNormalizer::normalize()` call, typed output instead of cebe's
- * loosely-typed graph.
+ * value-object graph under {@see Spec} (issue #104). This replaced cebe's
+ * object model: typed output instead of a loosely-typed graph, with every
+ * keyword the emitter consumes a first-class typed property.
  *
- * What it folds in:
- *   - SchemaNormalizer's whole behavior (issues #20, #32, #33, #82):
+ * What it owns:
+ *   - The schema normalization rewrites (issues #20, #32, #33, #82):
  *     `items: true` becomes an empty SchemaNode, `items: false` is dropped
  *     after synthesizing the closed-tuple `maxItems`, strictly-numeric strings
  *     on numeric keywords are coerced to int/float, and a `nullable` of
  *     "true"/"false" (case-insensitive) is coerced to the matching boolean.
- *     SchemaNormalizer itself stays in place for the cebe path until Task 7.
  *   - The structural rejection and the exact version gate (issue #103):
  *     missing `openapi`, unsupported versions, and a missing `info` object are
- *     rejected with the same messages SpecParser emits today; a 3.2 document
- *     is accepted best-effort with the same loud warning plus one warning per
- *     dropped 3.2-only construct. Warnings travel ON the document
- *     (`OpenApiDocument::$warnings`) instead of a side channel.
+ *     rejected with clear messages; a 3.2 document is accepted best-effort
+ *     with a loud warning plus one warning per dropped 3.2-only construct.
+ *     Warnings travel ON the document (`OpenApiDocument::$warnings`), and
+ *     SpecParser mirrors them into its `warnings()` surface.
  *
  * What it deliberately does NOT do:
  *   - No file IO. The size guard, MemoryGuard arm/disarm, and format sniffing
@@ -72,8 +70,7 @@ final class OpenApiReader
     /**
      * The canonical statement of the supported version matrix (issue #103).
      * Both the rejection error and the 3.2 best-effort warning point here so
-     * the docs page stays the single source of truth. SpecParser references
-     * these constants for its cebe path until that path is deleted (Task 7).
+     * the docs page stays the single source of truth.
      */
     public const VERSION_MATRIX_URL = 'https://openapi-laravel.codewithagents.de/guides/openapi-versions/';
 
@@ -83,7 +80,7 @@ final class OpenApiReader
 
     /**
      * Numeric schema keywords whose strictly-numeric string values are coerced
-     * to int/float, mirroring SchemaNormalizer (issue #32). Kept here as the
+     * to int/float (issue #32). Kept here as the
      * authoritative list for the integer-valued keywords; the int|float ones
      * (minimum, maximum, multipleOf, the exclusive bounds) coerce through
      * their own typed cases.
@@ -571,7 +568,7 @@ final class OpenApiReader
     }
 
     /**
-     * The big one: hydrate a Schema Object, folding every SchemaNormalizer
+     * The big one: hydrate a Schema Object, applying every normalization
      * rewrite and giving each keyword the emitter consumes a typed home.
      * Mistyped values land in `extra` verbatim, so no spec information is
      * destroyed and the emitter's "ignore what fails the type check" behavior
@@ -588,9 +585,8 @@ final class OpenApiReader
         // Closed tuple (issue #82): `items: false` next to a non-empty
         // `prefixItems` list pins the maximum length at the tuple size, so a
         // `maxItems` of that size is synthesized (or a looser/malformed bound
-        // tightened) BEFORE the boolean `items` is dropped below. Mirrors
-        // SchemaNormalizer, including the numeric-string read of an existing
-        // bound (issue #32).
+        // tightened) BEFORE the boolean `items` is dropped below, including
+        // the numeric-string read of an existing bound (issue #32).
         if (($raw['items'] ?? null) === false) {
             $prefixItems = $raw['prefixItems'] ?? null;
             if (is_array($prefixItems) && $prefixItems !== [] && array_is_list($prefixItems)) {
@@ -678,9 +674,9 @@ final class OpenApiReader
                     }
                     break;
                 case 'nullable':
-                    // SchemaNormalizer parity (issue #33): the strings
-                    // "true"/"false" (case-insensitive) coerce to booleans;
-                    // any other non-boolean stays raw (not-nullable).
+                    // Normalization (issue #33): the strings "true"/"false"
+                    // (case-insensitive) coerce to booleans; any other
+                    // non-boolean stays raw (not-nullable).
                     $coerced = is_string($value) ? ['true' => true, 'false' => false][strtolower($value)] ?? null : null;
                     if (is_bool($value)) {
                         $bools['nullable'] = $value;
@@ -789,8 +785,8 @@ final class OpenApiReader
                     }
                     break;
                 case 'items':
-                    // SchemaNormalizer parity (issue #20): `items: true` is
-                    // the empty schema ("any"); `items: false` is dropped, its
+                    // Normalization (issue #20): `items: true` is the empty
+                    // schema ("any"); `items: false` is dropped, its
                     // closed-tuple bound already synthesized above.
                     if ($value === true) {
                         $items = new SchemaNode;
@@ -1016,10 +1012,9 @@ final class OpenApiReader
 
     /**
      * One warning per 3.2-only construct occurrence the generator silently
-     * drops (issue #103). Identical to SpecParser's scan (which is deleted
-     * with the cebe path in Task 7); the reader additionally hydrates these
-     * constructs into their typed stub properties, but the generated output
-     * still drops them, so the warnings stay accurate.
+     * drops (issue #103). The reader hydrates these constructs into their
+     * typed stub properties, but the generated output still drops them, so
+     * the warnings stay accurate.
      *
      * @param  array<array-key, mixed>  $raw
      * @return list<string>
@@ -1173,8 +1168,8 @@ final class OpenApiReader
 
     /**
      * A number-valued keyword: int and float pass through, a strictly-numeric
-     * string is coerced (SchemaNormalizer parity, issue #32), anything else
-     * is null (routed to `extra` by the caller).
+     * string is coerced (issue #32), anything else is null (routed to `extra`
+     * by the caller).
      */
     private function numberValue(mixed $value): int|float|null
     {
@@ -1205,9 +1200,7 @@ final class OpenApiReader
     /**
      * Cast a strictly-numeric string to int when it has no fractional part and
      * fits an int, else to float. Mirrors how a JSON number would have
-     * decoded: `"8"` to int 8, `"0.5"` to float 0.5. Identical to
-     * SchemaNormalizer::numericFromString, which is deleted with the cebe
-     * path in Task 7.
+     * decoded: `"8"` to int 8, `"0.5"` to float 0.5.
      */
     private function numericFromString(string $value): int|float
     {

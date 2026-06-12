@@ -19,79 +19,63 @@ const MINIMAL_JSON = '{"openapi":"3.0.3","info":{"title":"T","version":"1.0.0"},
 
 const MINIMAL_YAML = "openapi: 3.0.3\ninfo:\n  title: T\n  version: 1.0.0\npaths: {}\n";
 
-it('parses a JSON document', function () {
+it('parses a JSON document into the typed graph', function () {
     $path = writeTempSpec('spec.json', MINIMAL_JSON);
 
-    $doc = (new SpecParser)->parseFile($path);
+    $document = (new SpecParser)->parseFileToDocument($path);
 
-    expect($doc->info->title)->toBe('T');
+    expect($document)->toBeInstanceOf(OpenApiDocument::class)
+        ->and($document->info->title)->toBe('T');
 });
 
-it('parses a YAML document', function () {
+it('parses a YAML document into the typed graph', function () {
     $path = writeTempSpec('spec.yaml', MINIMAL_YAML);
 
-    $doc = (new SpecParser)->parseFile($path);
-
-    expect($doc->info->version)->toBe('1.0.0');
+    expect((new SpecParser)->parseFileToDocument($path)->info->version)->toBe('1.0.0');
 });
 
-it('detects JSON content for an unknown extension', function () {
+it('sniffs JSON content for an unknown extension', function () {
     $path = writeTempSpec('spec.txt', MINIMAL_JSON);
 
-    $doc = (new SpecParser)->parseFile($path);
-
-    expect($doc->info->title)->toBe('T');
+    expect((new SpecParser)->parseFileToDocument($path)->info->title)->toBe('T');
 });
 
 it('throws for a missing file', function () {
-    (new SpecParser)->parseFile('/no/such/spec.json');
+    (new SpecParser)->parseFileToDocument('/no/such/spec.json');
 })->throws(ParseException::class, 'not found');
 
-it('throws for malformed content', function () {
+it('wraps malformed content in a ParseException', function () {
     $path = writeTempSpec('broken.json', '{not valid json');
 
-    (new SpecParser)->parseFile($path);
-})->throws(ParseException::class);
-
-it('rejects an invalid document when validation is requested', function () {
-    // Missing required "info" and "paths".
-    $path = writeTempSpec('invalid.json', '{"openapi":"3.0.3"}');
-
-    (new SpecParser)->parseFile($path, validate: true);
-})->throws(ParseException::class);
+    (new SpecParser)->parseFileToDocument($path);
+})->throws(ParseException::class, 'Failed to parse OpenAPI spec');
 
 // A-1: a non-OpenAPI-3.x document must fail loudly, not parse into a
-// null-filled object that silently produces nothing.
+// null-filled graph that silently produces nothing.
 
 it('rejects a Swagger 2.0 document by version', function () {
     $path = writeTempSpec('swagger.json', '{"swagger":"2.0","info":{"title":"T","version":"1.0.0"},"paths":{}}');
 
-    (new SpecParser)->parseFile($path);
+    (new SpecParser)->parseFileToDocument($path);
 })->throws(ParseException::class, 'Not an OpenAPI 3.x document');
 
 it('rejects an OpenAPI 2.x version string', function () {
     $path = writeTempSpec('v2.json', '{"openapi":"2.0","info":{"title":"T","version":"1.0.0"},"paths":{}}');
 
-    (new SpecParser)->parseFile($path);
+    (new SpecParser)->parseFileToDocument($path);
 })->throws(ParseException::class, 'Unsupported OpenAPI version');
 
 it('rejects a document missing the info object', function () {
     $path = writeTempSpec('noinfo.json', '{"openapi":"3.0.3","paths":{}}');
 
-    (new SpecParser)->parseFile($path);
+    (new SpecParser)->parseFileToDocument($path);
 })->throws(ParseException::class, "missing required 'info'");
 
-it('rejects an empty file with a clear error, not a silent success', function () {
+it('rejects an empty file with the structural error, not a silent success', function () {
     $path = writeTempSpec('empty.yaml', '');
 
-    (new SpecParser)->parseFile($path);
-})->throws(ParseException::class);
-
-it('accepts an OpenAPI 3.1 document', function () {
-    $path = writeTempSpec('v31.json', '{"openapi":"3.1.0","info":{"title":"T","version":"1.0.0"},"paths":{}}');
-
-    expect((new SpecParser)->parseFile($path)->openapi)->toBe('3.1.0');
-});
+    (new SpecParser)->parseFileToDocument($path);
+})->throws(ParseException::class, "missing 'openapi' version string");
 
 // #103: exact version gating instead of the old `3.` prefix check. 3.0.x and
 // 3.1.x are fully supported (no warnings); 3.2.x is accepted best-effort with
@@ -103,7 +87,7 @@ it('accepts every supported version band without warnings', function (string $ve
 
     $parser = new SpecParser;
 
-    expect($parser->parseFile($path)->openapi)->toBe($version)
+    expect($parser->parseFileToDocument($path)->openapi)->toBe($version)
         ->and($parser->warnings())->toBe([]);
 })->with(['3.0.0', '3.0.4', '3.1.0', '3.1.1']);
 
@@ -111,7 +95,7 @@ it('accepts a 3.2 document best-effort with a loud warning naming #102 and the v
     $path = writeTempSpec('v32.json', '{"openapi":"3.2.0","info":{"title":"T","version":"1.0.0"},"paths":{}}');
 
     $parser = new SpecParser;
-    $document = $parser->parseFile($path);
+    $document = $parser->parseFileToDocument($path);
 
     expect($document->openapi)->toBe('3.2.0')
         ->and($parser->warnings())->toHaveCount(1)
@@ -122,37 +106,29 @@ it('accepts a 3.2 document best-effort with a loud warning naming #102 and the v
         ->and($parser->warnings()[0])->toContain('https://openapi-laravel.codewithagents.de/guides/openapi-versions/');
 });
 
-it('emits one warning per dropped 3.2 construct: query, additionalOperations, itemSchema', function () {
+it('mirrors the document warnings into warnings() and resets them between parses', function () {
     $parser = new SpecParser;
-    $parser->parseFile(__DIR__.'/../../Fixtures/edge/openapi-3.2-constructs.yaml');
 
-    $warnings = $parser->warnings();
+    $document = $parser->parseFileToDocument(__DIR__.'/../../Fixtures/edge/openapi-3.2-constructs.yaml');
 
     // The headline best-effort warning plus exactly one per construct.
-    expect($warnings)->toHaveCount(4)
-        ->and(implode("\n", $warnings))
+    expect($document->warnings)->toHaveCount(4)
+        ->and($parser->warnings())->toBe($document->warnings)
+        ->and(implode("\n", $document->warnings))
         ->toContain('OpenAPI 3.2 `query` operation at paths./things was dropped: QUERY routes are not generated yet.')
         ->toContain('OpenAPI 3.2 `additionalOperations` at paths./things were dropped: custom-method routes are not generated yet.')
         ->toContain('OpenAPI 3.2 `itemSchema` at paths./things/stream.get.responses.200.content.application/jsonl was dropped: sequential media types are not read yet.');
-});
 
-it('resets the warnings between parses', function () {
-    $v32 = writeTempSpec('v32.json', '{"openapi":"3.2.0","info":{"title":"T","version":"1.0.0"},"paths":{}}');
-    $v30 = writeTempSpec('v30.json', MINIMAL_JSON);
+    $clean = writeTempSpec('clean.json', MINIMAL_JSON);
+    $parser->parseFileToDocument($clean);
 
-    $parser = new SpecParser;
-
-    $parser->parseFile($v32);
-    expect($parser->warnings())->not->toBe([]);
-
-    $parser->parseFile($v30);
     expect($parser->warnings())->toBe([]);
 });
 
 it('rejects an unsupported version naming the supported matrix', function (string $version) {
     $path = writeTempSpec('unsupported.json', '{"openapi":"'.$version.'","info":{"title":"T","version":"1.0.0"},"paths":{}}');
 
-    expect(fn () => (new SpecParser)->parseFile($path))
+    expect(fn () => (new SpecParser)->parseFileToDocument($path))
         ->toThrow(ParseException::class, "Unsupported OpenAPI version '{$version}'")
         ->toThrow(ParseException::class, 'Supported versions: OpenAPI 3.0.x and 3.1.x (fully), 3.2.x (accepted best-effort with warnings)')
         ->toThrow(ParseException::class, 'https://openapi-laravel.codewithagents.de/guides/openapi-versions/');
@@ -163,20 +139,20 @@ it('rejects an unsupported version naming the supported matrix', function (strin
 it('rejects a spec larger than the configured size limit', function () {
     $path = writeTempSpec('big.json', str_repeat(' ', 2048).MINIMAL_JSON);
 
-    (new SpecParser(maxBytes: 1024))->parseFile($path);
+    (new SpecParser(maxBytes: 1024))->parseFileToDocument($path);
 })->throws(ParseException::class, 'too large');
 
 it('accepts a spec within the size limit', function () {
     $path = writeTempSpec('small.json', MINIMAL_JSON);
 
-    expect((new SpecParser(maxBytes: 1_048_576))->parseFile($path)->openapi)->toBe('3.0.3');
+    expect((new SpecParser(maxBytes: 1_048_576))->parseFileToDocument($path)->openapi)->toBe('3.0.3');
 });
 
-// #20: cebe cannot instantiate a Schema from a boolean, so valid OpenAPI 3.1
-// boolean `items` (`items: true`, and the closed-tuple `prefixItems` + `items:
-// false`) previously threw "Unable to instantiate Schema Object with data ''".
-// This is the exact construct the conformance fixture had to drop. The Parser
-// now normalises boolean `items` before cebe sees it, so the document parses.
+// #20: boolean `items` is valid OpenAPI 3.1 (`items: true`, and the
+// closed-tuple `prefixItems` + `items: false`). The reader folds the
+// normalization: `items: true` becomes an empty schema, `items: false` is
+// dropped with the closed-tuple length surviving as a synthesized maxItems
+// (#82). This pins the fold end-to-end through the file path.
 
 const BOOLEAN_ITEMS_YAML = <<<'YAML'
 openapi: 3.1.0
@@ -197,96 +173,12 @@ components:
       items: false
 YAML;
 
-it('parses a 3.1 spec with boolean items: true and a closed tuple (items: false)', function () {
+it('folds the boolean items normalization into the parsed document (#20, #82)', function () {
     $path = writeTempSpec('boolean-items.yaml', BOOLEAN_ITEMS_YAML);
 
-    // Previously this threw a ParseException ("Unable to instantiate Schema
-    // Object with data ''"). It must now parse cleanly.
-    $document = (new SpecParser)->parseFile($path);
+    $document = (new SpecParser)->parseFileToDocument($path);
 
     expect($document->openapi)->toBe('3.1.0');
-
-    $schemas = $document->components->schemas;
-
-    // `items: true` normalised to an empty schema (any).
-    expect($schemas['AnyItems']->items)->not->toBeNull();
-
-    // `items: false` dropped; the tuple is still described by prefixItems, and
-    // the closed-tuple length survives as a synthesized maxItems (#82).
-    expect($schemas['ClosedTuple']->prefixItems)->toHaveCount(2)
-        ->and($schemas['ClosedTuple']->maxItems)->toBe(2);
-});
-
-// #104 T2: the new-reader path. Same file handling (existence, size guard,
-// MemoryGuard, format sniffing), but the decoded data hydrates into the typed
-// OpenApiDocument graph via OpenApiReader, with warnings traveling on the
-// document AND mirrored into warnings() so both paths report identically.
-
-it('parses a JSON document into the typed graph', function () {
-    $path = writeTempSpec('spec.json', MINIMAL_JSON);
-
-    $document = (new SpecParser)->parseFileToDocument($path);
-
-    expect($document)->toBeInstanceOf(OpenApiDocument::class)
-        ->and($document->info->title)->toBe('T');
-});
-
-it('parses a YAML document into the typed graph', function () {
-    $path = writeTempSpec('spec.yaml', MINIMAL_YAML);
-
-    expect((new SpecParser)->parseFileToDocument($path)->info->version)->toBe('1.0.0');
-});
-
-it('sniffs JSON content for an unknown extension on the document path', function () {
-    $path = writeTempSpec('spec.txt', MINIMAL_JSON);
-
-    expect((new SpecParser)->parseFileToDocument($path)->info->title)->toBe('T');
-});
-
-it('throws for a missing file on the document path', function () {
-    (new SpecParser)->parseFileToDocument('/no/such/spec.json');
-})->throws(ParseException::class, 'not found');
-
-it('wraps malformed content in a ParseException on the document path', function () {
-    $path = writeTempSpec('broken.json', '{not valid json');
-
-    (new SpecParser)->parseFileToDocument($path);
-})->throws(ParseException::class, 'Failed to parse OpenAPI spec');
-
-it('rejects an empty file on the document path with the structural error', function () {
-    $path = writeTempSpec('empty.yaml', '');
-
-    (new SpecParser)->parseFileToDocument($path);
-})->throws(ParseException::class, "missing 'openapi' version string");
-
-it('enforces the size guard on the document path', function () {
-    $path = writeTempSpec('big.json', str_repeat(' ', 2048).MINIMAL_JSON);
-
-    (new SpecParser(maxBytes: 1024))->parseFileToDocument($path);
-})->throws(ParseException::class, 'too large');
-
-it('mirrors the document warnings into warnings() and resets them between parses', function () {
-    $parser = new SpecParser;
-
-    $document = $parser->parseFileToDocument(__DIR__.'/../../Fixtures/edge/openapi-3.2-constructs.yaml');
-
-    expect($document->warnings)->toHaveCount(4)
-        ->and($parser->warnings())->toBe($document->warnings)
-        ->and(implode("\n", $document->warnings))
-        ->toContain('OpenAPI 3.2 `query` operation at paths./things was dropped: QUERY routes are not generated yet.')
-        ->toContain('OpenAPI 3.2 `additionalOperations` at paths./things were dropped: custom-method routes are not generated yet.')
-        ->toContain('OpenAPI 3.2 `itemSchema` at paths./things/stream.get.responses.200.content.application/jsonl was dropped: sequential media types are not read yet.');
-
-    $clean = writeTempSpec('clean.json', MINIMAL_JSON);
-    $parser->parseFileToDocument($clean);
-
-    expect($parser->warnings())->toBe([]);
-});
-
-it('folds the boolean items normalization into the document path (#20, #82)', function () {
-    $path = writeTempSpec('boolean-items.yaml', BOOLEAN_ITEMS_YAML);
-
-    $document = (new SpecParser)->parseFileToDocument($path);
 
     $schemas = $document->components?->schemas ?? [];
     $anyItems = $schemas['AnyItems'] ?? null;
@@ -298,36 +190,4 @@ it('folds the boolean items normalization into the document path (#20, #82)', fu
         ->and($closedTuple->items)->toBeNull()
         ->and($closedTuple->prefixItems)->toHaveCount(2)
         ->and($closedTuple->maxItems)->toBe(2);
-});
-
-// #104 T3: the comparison toggle must be demonstrably live. The one place the
-// two paths legitimately differ is SchemaNormalizer's blunt key-based rewrite
-// INSIDE data blobs: `default: {nullable: "true"}` is user data, but the
-// normalizer walks every array and coerces the `nullable` key anyway. The
-// reader keeps default values verbatim (it coerces only at schema keyword
-// positions). No corpus spec triggers this (the byte-identical gate is green);
-// this test pins both behaviors so the toggle can never silently route both
-// modes through the same code path.
-
-it('routes through the new reader when the comparison toggle is set (#104 T3)', function () {
-    $path = writeTempSpec('quirk.json', json_encode([
-        'openapi' => '3.1.0',
-        'info' => ['title' => 'T', 'version' => '1.0.0'],
-        'paths' => [],
-        'components' => ['schemas' => ['X' => [
-            'type' => 'object',
-            'default' => ['nullable' => 'true'],
-        ]]],
-    ], JSON_THROW_ON_ERROR));
-
-    $viaCebe = (new SpecParser)->parseFile($path);
-    $viaReader = (new SpecParser(useNewReader: true))->parseFile($path);
-
-    $cebeDefault = (array) ((array) $viaCebe->components->schemas['X']->getSerializableData())['default'];
-    $readerDefault = (array) ((array) $viaReader->components->schemas['X']->getSerializableData())['default'];
-
-    // cebe path: the normalizer mutated the user data inside the blob.
-    expect($cebeDefault)->toBe(['nullable' => true])
-        // reader path: the blob survives verbatim, proving the toggle is live.
-        ->and($readerDefault)->toBe(['nullable' => 'true']);
 });

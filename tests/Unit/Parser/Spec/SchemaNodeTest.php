@@ -7,9 +7,9 @@ use CodeWithAgents\OpenApiLaravel\Parser\Spec\ReferenceNode;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\SchemaNode;
 
 /**
- * #104 T1: the SchemaNode value object must make absent-vs-explicit
- * representable for the keywords the emitter reads through cebe's
- * getSerializableData() escape hatch today. These tests pin the presence
+ * #104: the SchemaNode value object must make absent-vs-explicit
+ * representable for the keywords the emitter previously read through cebe's
+ * getSerializableData() escape hatch. These tests pin the presence
  * semantics (hasDefault, hasConst, hasAdditionalProperties), the dual-form
  * exclusive bounds, the boolean `required` misuse passthrough, and the
  * read-only nature of the graph.

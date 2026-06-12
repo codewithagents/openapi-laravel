@@ -222,7 +222,7 @@ final class ConstraintCatalog
                 ],
             ),
             // #32: a length constraint serialised as a JSON string ("3") must
-            // behave exactly like the numeric form. Before the SchemaNormalizer
+            // behave exactly like the numeric form. Before the numeric-string
             // coercion the rule was silently dropped and every value (even a too
             // short one) was accepted.
             new ConstraintCase(

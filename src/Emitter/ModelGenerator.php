@@ -2325,7 +2325,7 @@ final class ModelGenerator
             // and false-reject valid tuples); `uniqueItems` still applies to
             // every element, so its `distinct` wildcard is kept. The closed
             // form (`items: false`) arrives here as a synthesized `maxItems`
-            // (see SchemaNormalizer) and lands in the count rules.
+            // (see OpenApiReader) and lands in the count rules.
             $prefixes = $this->prefixItemSchemas($schema);
             if ($prefixes !== []) {
                 [$indexed, $indexUses] = $this->prefixItemRules($prefixes);

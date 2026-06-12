@@ -38,9 +38,15 @@ passing the import-resolution and `php -l` gates, before anything ships.
 ## Decisions made (do not re-litigate without reason)
 
 1. **True PHP package**, not an emitter inside the openapi-zod-ts monorepo.
-2. **Parser: do not write one.** Wrap `devizzent/cebe-php-openapi` behind our own `Parser`
-   namespace. Parse with `validate: false`, lazy `$ref` resolution, depth bound, plus our own
-   lightweight structural check.
+2. **Parser: our own minimal reader (#104, shipped).** Originally `devizzent/cebe-php-openapi`
+   wrapped behind the `Parser` namespace; replaced by the internal `OpenApiReader` hydrating the
+   read-only typed `Parser\Spec` value-object graph. The schema normalization rewrites are folded
+   into the reader, 3.1 keywords are first-class typed properties (no `getSerializableData()`
+   escapes), 3.2 fixed fields are stubbed (feeding #102), and lazy `$ref` resolution, the depth
+   bound, the size guard, and the structural check are preserved. The swap was proven byte-identical
+   for all 130 corpus specs against the frozen v0.11.0 baseline (`ReaderCorpusBaselineTest`, kept as
+   a permanent gate); the cebe dependency is removed from composer.json. Not breaking for users: the
+   PHP class API is `@internal` (#69).
 3. **Output style: spatie/laravel-data classes** with explicit, spec-derived `rules()` methods.
    Native backed enums for spec enums.
 4. **Spec fixtures duplicated** from openapi-zod-ts (public artifacts).

@@ -5,7 +5,6 @@ declare(strict_types=1);
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
-use CodeWithAgents\OpenApiLaravel\Parser\SchemaNormalizer;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 use CodeWithAgents\OpenApiLaravel\Tests\Conformance\ConstraintCatalog;
 use CodeWithAgents\OpenApiLaravel\Tests\TestCase;
@@ -57,14 +56,13 @@ function differentialGenerate(string $namespace, array $schemas): void
         'components' => ['schemas' => $schemas],
     ];
 
-    // Run the spec through the same pre-parse normalisation the real pipeline
-    // applies (SpecParser does this before cebe). This is what coerces the
-    // string-typed constraints (#32) and string `nullable` (#33) so the oracle
-    // proves the coerced runtime behaviour, not the raw-string behaviour.
+    // The reader applies the same normalisation as the real pipeline. This is
+    // what coerces the string-typed constraints (#32) and string `nullable`
+    // (#33) so the oracle proves the coerced runtime behaviour, not the
+    // raw-string behaviour.
     $decoded = json_decode((string) json_encode($document), true);
-    $normalized = SchemaNormalizer::normalize($decoded);
 
-    $spec = (new OpenApiReader)->read($normalized);
+    $spec = (new OpenApiReader)->read($decoded);
     $generator = new ModelGenerator(new GeneratorOptions($namespace));
     $files = $generator->generate($spec);
     // The generated rules() reference rule/transformer classes from the consumer's
@@ -288,8 +286,7 @@ it('enforces additionalProperties:false by default and accepts unknown keys only
         'paths' => new stdClass,
         'components' => ['schemas' => ['ClosedShape' => $schema]],
     ];
-    $normalized = SchemaNormalizer::normalize((array) json_decode((string) json_encode($document), true));
-    $spec = (new OpenApiReader)->read($normalized);
+    $spec = (new OpenApiReader)->read((array) json_decode((string) json_encode($document), true));
 
     $known = ['known' => 'x'];
     $unknown = ['known' => 'x', 'extra' => 'y'];

@@ -5,7 +5,6 @@ declare(strict_types=1);
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
-use CodeWithAgents\OpenApiLaravel\Parser\SchemaNormalizer;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 
 /**
@@ -31,11 +30,9 @@ function generateCountSchemas(array $schemas): array
         'components' => ['schemas' => $schemas],
     ];
 
-    // Run through the same pre-parse normalization as the real pipeline so the
+    // The reader applies the same normalization as the real pipeline, so the
     // string-coercion test below proves end-to-end behaviour.
-    $normalized = SchemaNormalizer::normalize(json_decode((string) json_encode($document), true));
-
-    $spec = (new OpenApiReader)->read($normalized);
+    $spec = (new OpenApiReader)->read(json_decode((string) json_encode($document), true));
     expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     return (new ModelGenerator)->generate($spec);
@@ -200,7 +197,7 @@ it('skips key-count rules on an untyped schema (could false-reject a non-object 
         ->not->toContain("'min:5'");
 });
 
-it('coerces string-typed minProperties/maxProperties through SchemaNormalizer (#32) and emits the rules', function () {
+it('coerces string-typed minProperties/maxProperties through the reader (#32) and emits the rules', function () {
     $files = generateCountSchemas([
         'Holder' => [
             'type' => 'object',
