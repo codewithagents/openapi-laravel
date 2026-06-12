@@ -36,6 +36,14 @@ final class TypeResolver
      * Cycle guard for the alias being resolved, so a chained alias $ref reached
      * through resolveReference does not recurse forever on a cyclic chain.
      *
+     * An instance field rather than a parameter on purpose: it is a side
+     * channel WITHIN one resolveAlias() call tree, not cross-call state. It
+     * lets isCleanUnionMember() (reached deep inside resolveType()) see the
+     * in-flight alias guard without threading a $seen parameter through every
+     * resolution signature. resolveAlias() sets it before recursing and clears
+     * it in its finally block, so it never persists across resolveType() calls
+     * and is always empty between top-level resolutions.
+     *
      * @var array<string, true>
      */
     private array $aliasSeen = [];
