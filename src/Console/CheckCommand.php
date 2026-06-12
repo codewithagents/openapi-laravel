@@ -40,6 +40,7 @@ final class CheckCommand extends Command
         {--no-enforce-closed-objects : Accept unknown keys even for additionalProperties: false schemas}
         {--only-tags= : Check only operations carrying these comma-separated tags, plus their schema closure}
         {--only-schemas= : Check only these comma-separated component schemas, plus their dependency closure}
+        {--exclude-path-prefix=* : Drop every operation whose path starts with this prefix (repeatable, never comma-split)}
         {--diff : Print a unified diff for each changed file}';
 
     /**

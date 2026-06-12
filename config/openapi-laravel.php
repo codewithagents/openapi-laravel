@@ -113,4 +113,20 @@ return [
     'only_tags' => env('OPENAPI_LARAVEL_ONLY_TAGS', ''),
     'only_schemas' => env('OPENAPI_LARAVEL_ONLY_SCHEMAS', ''),
 
+    /*
+     * Path-prefix exclusion (issue #96). Every operation whose path starts
+     * with one of these literal prefixes is dropped before controllers,
+     * routes, and the subset closure are computed, so it produces no
+     * controller method and no route. Useful for spec artifacts such as a
+     * duplicated swagger-mirror route group ('/api/v1/swagger/...').
+     *
+     * A list of strings, each entry its own prefix (never comma-split, a
+     * literal URL path may contain a comma). Matching is a plain
+     * case-sensitive prefix test on the path as written in the spec. The
+     * repeatable --exclude-path-prefix flag overrides this key. Empty (the
+     * default) excludes nothing. A prefix that matches no path is a warning,
+     * not an error.
+     */
+    'exclude_path_prefixes' => [],
+
 ];

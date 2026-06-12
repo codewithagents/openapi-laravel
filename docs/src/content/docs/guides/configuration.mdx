@@ -193,6 +193,33 @@ the `openapi-laravel.json` file accepts the `enforce_closed_objects` key with th
 [the limitations guide](/guides/limitations#additionalproperties-false-enforced-by-default)
 for the tradeoff in full.
 
+### `only_tags` / `only_schemas`
+
+Subset generation: restrict a run to a slice of the spec (a set of tags, a set of component
+schemas, or both), automatically closed over its transitive `$ref` dependencies. Each key accepts a
+comma-separated string or an array of names, defaults to empty ("generate the full spec"), and is
+overridden by the `--only-tags` / `--only-schemas` flags. See the
+[subset generation guide](/guides/subset-generation) for the full semantics.
+
+### `exclude_path_prefixes`
+
+Path-prefix exclusion: every operation whose path starts with one of these literal prefixes is
+dropped before controllers, routes, and the subset closure are computed, so it produces no
+controller method and no route. Useful for spec artifacts such as a duplicated swagger-mirror route
+group (`/api/v1/swagger/...`).
+
+```php
+'exclude_path_prefixes' => ['/api/v1/swagger', '/internal'],
+```
+
+A **list of strings**, each entry its own prefix. Entries are never comma-split (a literal URL path
+may contain a comma). Matching is a plain case-sensitive prefix test on the path as written in the
+spec. The repeatable `--exclude-path-prefix` flag overrides this key per run. Defaults to `[]`
+(nothing excluded). A prefix that matches no path is a warning, not an error. The
+`openapi-laravel.json` file accepts the same key as a JSON list of strings. See the
+[subset generation guide](/guides/subset-generation#path-prefix-exclusion---exclude-path-prefix)
+for the full semantics.
+
 ## Precedence: flags beat config, config beats defaults
 
 Every setting resolves through the same three layers, for `openapi:generate`, `openapi:check`, and
@@ -223,7 +250,7 @@ oversight ([issue #73](https://github.com/codewithagents/openapi-laravel/issues/
 **Shared by both surfaces** (the artisan commands and the standalone binary): `--spec`,
 `--output`, `--namespace`, `--controllers` / `--no-controllers`, `--routes` / `--no-routes`,
 `--enforce-closed-objects` / `--no-enforce-closed-objects`, `--only-tags`, `--only-schemas`,
-plus `--prune` (generate only) and `--diff` (check only).
+`--exclude-path-prefix` (repeatable), plus `--prune` (generate only) and `--diff` (check only).
 
 **Standalone binary only:** `--config`, `--suffix`, `--max-depth`, `--max-bytes`,
 `--controller-output`, `--controller-namespace`, `--routes-output`.

@@ -51,6 +51,7 @@ final readonly class StandaloneConfigLoader
         'max_bytes' => null,
         'only_tags' => null,
         'only_schemas' => null,
+        'exclude_path_prefixes' => null,
     ];
 
     /**
@@ -114,6 +115,7 @@ final readonly class StandaloneConfigLoader
             maxBytes: $this->int($decoded, 'max_bytes', $path),
             onlyTags: $this->stringList($decoded, 'only_tags', $path),
             onlySchemas: $this->stringList($decoded, 'only_schemas', $path),
+            excludePathPrefixes: $this->pathPrefixList($decoded, $path),
         );
     }
 
@@ -164,6 +166,43 @@ final readonly class StandaloneConfigLoader
         }
 
         throw new OptionException("Invalid '{$key}' in config file {$path}: expected a comma-separated string or a list of strings.");
+    }
+
+    /**
+     * Read exclude_path_prefixes (issue #96) as a JSON list of literal path
+     * prefixes, trimmed and non-empty. Deliberately NOT comma-split (unlike
+     * only_tags / only_schemas): a literal URL path may legitimately contain a
+     * comma, so a comma-separated string form would corrupt it. Returns null
+     * when the key is absent (nothing is excluded).
+     *
+     * @param  array<array-key, mixed>  $decoded
+     * @return list<string>|null
+     *
+     * @throws OptionException when the key is present but not a list of strings
+     */
+    private function pathPrefixList(array $decoded, string $path): ?array
+    {
+        $value = $decoded['exclude_path_prefixes'] ?? null;
+        if ($value === null) {
+            return null;
+        }
+
+        if (! is_array($value) || ! array_is_list($value)) {
+            throw new OptionException("Invalid 'exclude_path_prefixes' in config file {$path}: expected a list of strings (prefixes are never comma-split, pass each as its own entry).");
+        }
+
+        $prefixes = [];
+        foreach ($value as $element) {
+            if (! is_string($element)) {
+                throw new OptionException("Invalid 'exclude_path_prefixes' in config file {$path}: every entry must be a string.");
+            }
+            $element = trim($element);
+            if ($element !== '') {
+                $prefixes[] = $element;
+            }
+        }
+
+        return $prefixes;
     }
 
     /**

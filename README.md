@@ -557,7 +557,8 @@ and routes out of the box; the drift gate (`openapi:check`); the differential va
 discriminated object-union validation and hydration in all three forms (named-component,
 inline-union, allOf-inheritance, issue #38); default `additionalProperties: false` enforcement
 (opt out with `--no-enforce-closed-objects`); subset generation (`--only-tags` / `--only-schemas`
-with dependency closure, issue #44); self-contained output (the support classes inlined into the
+with dependency closure, issue #44, plus the repeatable `--exclude-path-prefix` exclusion filter,
+issue #96); self-contained output (the support classes inlined into the
 consumer's own namespace, so generated code has no runtime dependency on the generator package,
 issue #40); and the config surfaces (`config/openapi-laravel.php` and the standalone
 `openapi-laravel.json`).

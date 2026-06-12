@@ -25,6 +25,7 @@ final readonly class GenerationRequest
      * @param  list<string>  $onlyTags  subset tag selection (issue #44); empty means the full spec
      * @param  list<string>  $onlySchemas  subset schema selection (issue #44); empty means the full spec
      * @param  list<string>  $routesMiddleware  middleware names the generated routes are grouped under (issue #71); empty means no group
+     * @param  list<string>  $excludePathPrefixes  path-prefix exclusion (issue #96); empty means no path is excluded
      */
     public function __construct(
         public ?string $spec,
@@ -70,5 +71,17 @@ final readonly class GenerationRequest
          */
         public array $routesMiddleware = [],
         public ?string $routesPrefix = null,
+        /*
+         * Path-prefix exclusion (issue #96). Every operation whose literal spec
+         * path starts with one of these prefixes is dropped BEFORE the subset
+         * closure and the operation collector run, so it produces no controller
+         * method, no route, and no query class. Entries are never comma-split
+         * (a literal URL path may contain a comma); the flag is repeatable
+         * instead. Empty (the default) excludes nothing, byte-identical to a
+         * run without the flag.
+         *
+         * @var list<string>
+         */
+        public array $excludePathPrefixes = [],
     ) {}
 }

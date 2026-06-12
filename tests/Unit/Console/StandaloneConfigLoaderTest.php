@@ -151,6 +151,57 @@ it('rejects an object value for only_tags', function () use ($writeFile) {
         ->toThrow(OptionException::class, 'comma-separated string or a list of strings');
 });
 
+it('reads exclude_path_prefixes as a JSON list (#96)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode([
+        'exclude_path_prefixes' => ['/api/v1/swagger', '/internal'],
+    ]));
+
+    $config = (new StandaloneConfigLoader)->load($path, '/tmp');
+
+    expect($config->excludePathPrefixes)->toBe(['/api/v1/swagger', '/internal']);
+});
+
+it('defaults exclude_path_prefixes to null when absent (#96)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['spec' => 'openapi.yaml']));
+
+    $config = (new StandaloneConfigLoader)->load($path, '/tmp');
+
+    expect($config->excludePathPrefixes)->toBeNull();
+});
+
+it('trims exclude_path_prefixes entries and drops empty ones (#96)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode([
+        'exclude_path_prefixes' => ['  /internal  ', '', '   '],
+    ]));
+
+    $config = (new StandaloneConfigLoader)->load($path, '/tmp');
+
+    expect($config->excludePathPrefixes)->toBe(['/internal']);
+});
+
+it('rejects a comma-separated string for exclude_path_prefixes (#96)', function () use ($writeFile) {
+    // Never comma-split: a literal URL path may contain a comma, so only the
+    // explicit list form is accepted.
+    $path = $writeFile((string) json_encode(['exclude_path_prefixes' => '/api/v1/swagger,/internal']));
+
+    expect(fn () => (new StandaloneConfigLoader)->load($path, '/tmp'))
+        ->toThrow(OptionException::class, "Invalid 'exclude_path_prefixes'");
+});
+
+it('rejects a non-string entry inside exclude_path_prefixes (#96)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['exclude_path_prefixes' => ['/internal', 42]]));
+
+    expect(fn () => (new StandaloneConfigLoader)->load($path, '/tmp'))
+        ->toThrow(OptionException::class, 'every entry must be a string');
+});
+
+it('rejects an object value for exclude_path_prefixes (#96)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['exclude_path_prefixes' => ['a' => '/internal']]));
+
+    expect(fn () => (new StandaloneConfigLoader)->load($path, '/tmp'))
+        ->toThrow(OptionException::class, "Invalid 'exclude_path_prefixes'");
+});
+
 it('discovers the default file name in the given directory', function () use ($writeFile) {
     $path = $writeFile((string) json_encode(['spec' => 'discovered.yaml']));
 

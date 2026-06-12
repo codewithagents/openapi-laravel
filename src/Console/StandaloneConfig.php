@@ -9,8 +9,9 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  * config file. The keys mirror config/openapi-laravel.php one to one (spec,
  * output.path/namespace/suffix/prune, controllers.enabled/path/namespace,
  * routes.enabled/path/middleware/prefix, enforce_closed_objects, max_depth,
- * max_bytes), so a team can keep one mental model across the artisan command
- * and the framework-free binary.
+ * max_bytes, only_tags, only_schemas, exclude_path_prefixes), so a team can
+ * keep one mental model across the artisan command and the framework-free
+ * binary.
  *
  * Every property is nullable: null means "not set in the file", letting the
  * binary apply its flag-over-config-over-default precedence per value.
@@ -23,6 +24,7 @@ final readonly class StandaloneConfig
      * @param  list<string>|null  $routesMiddleware  middleware names for the route group (issue #71), or null when unset
      * @param  list<string>|null  $onlyTags  subset tag selection (issue #44), or null when unset
      * @param  list<string>|null  $onlySchemas  subset schema selection (issue #44), or null when unset
+     * @param  list<string>|null  $excludePathPrefixes  path-prefix exclusion (issue #96), or null when unset
      */
     public function __construct(
         public ?string $spec = null,
@@ -59,5 +61,15 @@ final readonly class StandaloneConfig
          * @var list<string>|null
          */
         public ?array $onlySchemas = null,
+        /*
+         * Path-prefix exclusion (issue #96). A JSON list of literal path
+         * prefixes; every operation whose path starts with one of them is
+         * dropped before tag/controller/route collection. Never comma-split
+         * (a literal URL path may contain a comma). Null means the key was
+         * not set, in which case nothing is excluded.
+         *
+         * @var list<string>|null
+         */
+        public ?array $excludePathPrefixes = null,
     ) {}
 }

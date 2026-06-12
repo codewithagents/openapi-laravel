@@ -20,6 +20,8 @@ There are two independent selectors. You can use either, or both together.
 
 Both accept a comma-separated list. When both are given, the result is the **union** of the two selections (plus the closure of each, see below).
 
+There is also one **exclusion** filter, `--exclude-path-prefix`, which drops operations by their URL path instead of selecting by tag or schema. It composes with both selectors and is described in [its own section below](#path-prefix-exclusion---exclude-path-prefix).
+
 ## The dependency-closure guarantee
 
 The selection you write is only a seed. Before anything is emitted, the generator computes the **transitive dependency closure** of that seed: selecting a schema (directly, or indirectly through an `--only-tags` operation that references it) automatically pulls in every schema reachable from it.
@@ -129,8 +131,53 @@ For the standalone binary, the same keys live in `openapi-laravel.json`, each a 
 | --- | --- | --- | --- |
 | Tags | `--only-tags=<list>` | `only_tags` | `only_tags` |
 | Schemas | `--only-schemas=<list>` | `only_schemas` | `only_schemas` |
+| Path exclusion | `--exclude-path-prefix=<prefix>` (repeatable) | `exclude_path_prefixes` | `exclude_path_prefixes` |
 
 A flag overrides its config key for that run. Names are trimmed and duplicates collapse, so `--only-tags=pets, store ,pets` resolves to `pets,store`.
+
+## Path-prefix exclusion (`--exclude-path-prefix`)
+
+The selectors above pick what to **keep**. Path-prefix exclusion does the inverse: it **drops every operation whose path starts with a given prefix**, before controllers, routes, and the subset closure are computed. The motivating case is a spec artifact like a duplicated swagger-mirror route group, where every endpoint also exists under `/api/v1/swagger/...` and you do not want that mirror generated.
+
+The flag is **repeatable**, one prefix per occurrence, and is deliberately **never comma-split** (a literal URL path may contain a comma):
+
+```bash
+php artisan openapi:generate \
+  --exclude-path-prefix=/api/v1/swagger \
+  --exclude-path-prefix=/internal
+```
+
+The same flag works on `openapi:check` and on both standalone subcommands:
+
+```bash
+vendor/bin/openapi-laravel check --spec=openapi.yaml --output=src/Data \
+  --exclude-path-prefix=/api/v1/swagger
+```
+
+As a committed default, set the mirrored config key. In the Laravel config it is a list of strings (each entry its own prefix):
+
+```php
+// config/openapi-laravel.php
+
+'exclude_path_prefixes' => ['/api/v1/swagger', '/internal'],
+```
+
+In `openapi-laravel.json` it is a JSON list of strings (a comma-separated string is rejected):
+
+```json
+{
+  "exclude_path_prefixes": ["/api/v1/swagger", "/internal"]
+}
+```
+
+The flag overrides the config key for that run, following the usual [precedence](/guides/configuration#precedence-flags-beat-config-config-beats-defaults).
+
+The semantics, precisely:
+
+- **Matching is a literal, case-sensitive string-prefix test** on the path as written in the spec. `/api/v1/swagger` drops `/api/v1/swagger/pets`, and also `/api/v1/swaggerui`; include a trailing slash if you need to keep sibling paths that merely share the characters.
+- **The filter runs before everything else.** An excluded operation produces no controller method, no route, and no per-operation query class, and it never seeds an `--only-tags` closure. A schema referenced **only** by excluded operations therefore behaves exactly as if those operations were not in the spec: it still generates on a full run (every component schema is emitted by default), and it drops out of an `--only-tags` slice.
+- **`generate` and `check` agree.** Both plan from the same filtered document, so a slice generated with the flag stays in sync under `openapi:check` with the same flag.
+- **A prefix that matches no path is a warning, not an error.** Excluding nothing leaves the output complete, unlike a selection that matches nothing (see below), so a stale prefix never fails the run; it is reported on stderr so you notice the likely typo.
 
 ## Interaction with the server scaffold
 
@@ -162,6 +209,8 @@ Names are **case-sensitive** and must match the spec exactly. When a selection m
 <Aside type="caution">
 If you select multiple names and only one is unknown, the whole run still fails. Fix the bad name (or remove it) so the selection resolves cleanly.
 </Aside>
+
+This hard-error rule applies to the **selectors** only. An `--exclude-path-prefix` that matches no path is a [warning instead](#path-prefix-exclusion---exclude-path-prefix), because excluding nothing still leaves the output complete.
 
 ## Determinism
 

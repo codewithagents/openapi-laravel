@@ -73,6 +73,13 @@ final readonly class CommandRequestFactory
         $onlyTags = $this->resolveList($command, 'only-tags', 'openapi-laravel.only_tags');
         $onlySchemas = $this->resolveList($command, 'only-schemas', 'openapi-laravel.only_schemas');
 
+        // Path-prefix exclusion (issue #96): the repeatable flag (when any
+        // occurrence is given) wins over the config key, a list of strings.
+        // Entries are NEVER comma-split, because a literal URL path may
+        // contain a comma; pass the flag once per prefix instead. Empty means
+        // "exclude nothing".
+        $excludePathPrefixes = $this->resolveRepeatable($command, 'exclude-path-prefix', 'openapi-laravel.exclude_path_prefixes');
+
         return new GenerationRequest(
             $spec,
             $output,
@@ -90,13 +97,42 @@ final readonly class CommandRequestFactory
             $onlySchemas,
             $routesMiddleware,
             $routesPrefix,
+            $excludePathPrefixes,
         );
     }
 
     /**
-     * Read a config key as a list of middleware names: trimmed, non-empty
-     * strings, in order. Anything that is not an array (or an empty one)
-     * resolves to [] which means "no group". Entries are not comma-split.
+     * Resolve a repeatable array flag against its config key: when the flag was
+     * passed at least once with a non-empty value, the flag occurrences win;
+     * otherwise the config key (a list of strings) is read. Entries are trimmed
+     * and never comma-split. Returns [] when neither is set.
+     *
+     * @return list<string>
+     */
+    private function resolveRepeatable(Command $command, string $flag, string $configKey): array
+    {
+        $flagValue = $command->option($flag);
+        if (is_array($flagValue)) {
+            $values = [];
+            foreach ($flagValue as $value) {
+                if (is_string($value) && trim($value) !== '') {
+                    $values[] = trim($value);
+                }
+            }
+
+            if ($values !== []) {
+                return $values;
+            }
+        }
+
+        return $this->configStringList($configKey);
+    }
+
+    /**
+     * Read a config key as a list of strings (middleware names, path
+     * prefixes): trimmed, non-empty, in order. Anything that is not an array
+     * (or an empty one) resolves to [], the "not set" value. Entries are not
+     * comma-split.
      *
      * @return list<string>
      */

@@ -8,6 +8,7 @@ use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GenerationException;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
+use CodeWithAgents\OpenApiLaravel\Emitter\PathPrefixFilter;
 use CodeWithAgents\OpenApiLaravel\Emitter\ResolvedClosure;
 use CodeWithAgents\OpenApiLaravel\Emitter\SchemaClosure;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ControllerGenerator;
@@ -61,6 +62,21 @@ final readonly class GenerationPlanner
         }
 
         $document = (new SpecParser($request->maxBytes))->parseFile($request->spec);
+
+        // Path-prefix exclusion (issue #96): drop every operation whose spec
+        // path starts with one of the configured prefixes BEFORE the subset
+        // closure is resolved and the operations are collected, so an excluded
+        // operation produces no controller method, no route, no query class,
+        // and never pulls a schema into an --only-tags closure. Unlike a
+        // subset selection that matches nothing, a prefix that matches nothing
+        // leaves the output complete, so it is a warning, not an error.
+        $filterWarnings = [];
+        foreach ((new PathPrefixFilter)->apply($document, $request->excludePathPrefixes) as $prefix) {
+            $filterWarnings[] = sprintf(
+                'exclude-path-prefix "%s" matched no path in the spec; nothing was excluded for it. Check the prefix against the spec (matching is literal and case-sensitive).',
+                $prefix,
+            );
+        }
 
         // Subset generation (issue #44): when --only-tags / --only-schemas are
         // set, resolve the selection to its transitive dependency closure once,
@@ -131,8 +147,9 @@ final readonly class GenerationPlanner
 
         // One merged, sorted diagnostics channel: the model generator's
         // warnings (including skipped query parameters) plus the operation
-        // collector's (header/cookie parameters).
-        $warnings = array_values(array_unique([...$generator->warnings(), ...$serverWarnings]));
+        // collector's (header/cookie parameters) plus the path-prefix filter's
+        // (a prefix that matched nothing, issue #96).
+        $warnings = array_values(array_unique([...$generator->warnings(), ...$serverWarnings, ...$filterWarnings]));
         sort($warnings);
 
         return new GenerationPlan($files, $modelFiles === [], $warnings);

@@ -517,3 +517,85 @@ it('exits non-zero on an unknown --only-schemas name', function () use ($tempOut
     expect($exit)->toBe(1)
         ->and(is_dir($out))->toBeFalse();
 });
+
+it('collects every occurrence of the repeatable --exclude-path-prefix flag (#96)', function () use ($tempOut) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+
+    $exit = (new StandaloneApplication)->run([
+        'bin', '--spec='.$serverSpec, '--output='.$out,
+        '--exclude-path-prefix=/health', '--exclude-path-prefix=/pets/{petId}',
+    ]);
+
+    $routes = (string) file_get_contents($out.'/routes.php');
+
+    // Both prefixes apply (the general option parser is last-wins, so this
+    // proves the repeatable flag keeps every occurrence).
+    expect($exit)->toBe(0)
+        ->and($routes)->toContain("'/pets'")
+        ->and($routes)->not->toContain('/health')
+        ->and($routes)->not->toContain('{petId}');
+});
+
+it('reads exclude_path_prefixes from the config file when no flag is passed (#96)', function () use ($tempOut) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+    $configDir = sys_get_temp_dir().'/oal_standalone_cfg_'.uniqid();
+    mkdir($configDir, 0755, true);
+    $configPath = $configDir.'/openapi-laravel.json';
+    file_put_contents($configPath, (string) json_encode(['exclude_path_prefixes' => ['/health']]));
+
+    $exit = (new StandaloneApplication)->run([
+        'bin', '--config='.$configPath, '--spec='.$serverSpec, '--output='.$out,
+    ]);
+
+    $routes = (string) file_get_contents($out.'/routes.php');
+
+    expect($exit)->toBe(0)
+        ->and($routes)->toContain("'/pets'")
+        ->and($routes)->not->toContain('/health');
+});
+
+it('lets the --exclude-path-prefix flag override the config key (#96)', function () use ($tempOut) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+    $configDir = sys_get_temp_dir().'/oal_standalone_cfg_'.uniqid();
+    mkdir($configDir, 0755, true);
+    $configPath = $configDir.'/openapi-laravel.json';
+    file_put_contents($configPath, (string) json_encode(['exclude_path_prefixes' => ['/pets']]));
+
+    $exit = (new StandaloneApplication)->run([
+        'bin', '--config='.$configPath, '--spec='.$serverSpec, '--output='.$out,
+        '--exclude-path-prefix=/health',
+    ]);
+
+    $routes = (string) file_get_contents($out.'/routes.php');
+
+    // The flag replaced the config value: /pets survives, /health is gone.
+    expect($exit)->toBe(0)
+        ->and($routes)->toContain("'/pets'")
+        ->and($routes)->not->toContain('/health');
+});
+
+it('keeps standalone generate and check in lockstep under --exclude-path-prefix (#96)', function () use ($tempOut) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+
+    $generate = (new StandaloneApplication)->run([
+        'bin', '--spec='.$serverSpec, '--output='.$out, '--exclude-path-prefix=/health',
+    ]);
+    expect($generate)->toBe(0);
+
+    // Check with the same filter plans the same filtered file set: in sync.
+    $inSync = (new StandaloneApplication)->run([
+        'bin', 'check', '--spec='.$serverSpec, '--output='.$out, '--exclude-path-prefix=/health',
+    ]);
+    expect($inSync)->toBe(0);
+
+    // Check without the filter plans the unfiltered document, so the written
+    // slice registers as drift: the filter shapes both subcommands identically.
+    $drift = (new StandaloneApplication)->run([
+        'bin', 'check', '--spec='.$serverSpec, '--output='.$out,
+    ]);
+    expect($drift)->toBe(1);
+});

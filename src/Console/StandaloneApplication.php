@@ -56,7 +56,7 @@ final class StandaloneApplication
 
         try {
             $config = $this->loadConfig($options);
-            $request = $this->buildRequest($options, $config);
+            $request = $this->buildRequest($options, $config, $this->repeatedOption($argv, 'exclude-path-prefix'));
             $plan = (new GenerationPlanner)->plan($request);
         } catch (OptionException $e) {
             // Invalid options or config file: a configuration error exits 2
@@ -126,7 +126,7 @@ final class StandaloneApplication
         $options = $this->parse($argv);
 
         try {
-            $request = $this->buildRequest($options, $this->loadConfig($options));
+            $request = $this->buildRequest($options, $this->loadConfig($options), $this->repeatedOption($argv, 'exclude-path-prefix'));
             $plan = (new GenerationPlanner)->plan($request);
         } catch (PlanException|OptionException|ParseException|GenerationException $e) {
             // Every failure surface of check (config error, spec parse error,
@@ -186,8 +186,9 @@ final class StandaloneApplication
      * default needs no extra flags.
      *
      * @param  array<string, string>  $options
+     * @param  list<string>  $excludePathPrefixFlags  every --exclude-path-prefix occurrence, in order
      */
-    private function buildRequest(array $options, StandaloneConfig $config): GenerationRequest
+    private function buildRequest(array $options, StandaloneConfig $config, array $excludePathPrefixFlags = []): GenerationRequest
     {
         $spec = $options['spec'] ?? $config->spec;
         $output = $options['output'] ?? $config->outputPath;
@@ -222,6 +223,12 @@ final class StandaloneApplication
         $onlyTags = $this->resolveList($options, 'only-tags', $config->onlyTags);
         $onlySchemas = $this->resolveList($options, 'only-schemas', $config->onlySchemas);
 
+        // Path-prefix exclusion (issue #96): the repeatable flag (when given
+        // at least once) wins over the config key, a JSON list of prefixes.
+        // Entries are never comma-split, because a literal URL path may
+        // contain a comma; pass the flag once per prefix instead.
+        $excludePathPrefixes = $excludePathPrefixFlags !== [] ? $excludePathPrefixFlags : ($config->excludePathPrefixes ?? []);
+
         // Route group settings (issue #71). Config-only by design, no CLI
         // flags: routes.middleware and routes.prefix wrap the generated routes
         // in one Route::group block. A whitespace-only prefix means "no
@@ -248,7 +255,34 @@ final class StandaloneApplication
             $onlySchemas,
             $routesMiddleware,
             $routesPrefix,
+            $excludePathPrefixes,
         );
+    }
+
+    /**
+     * Collect every occurrence of a repeatable --<flag>=<value> option from
+     * argv, trimmed, empties dropped, in order. parse() is last-wins by
+     * design, which would silently drop all but the final occurrence of a
+     * repeatable flag, so the repeatable flag reads argv directly.
+     *
+     * @param  list<string>  $argv
+     * @return list<string>
+     */
+    private function repeatedOption(array $argv, string $flag): array
+    {
+        $values = [];
+        $marker = '--'.$flag.'=';
+        foreach (array_slice($argv, 1) as $argument) {
+            if (! str_starts_with($argument, $marker)) {
+                continue;
+            }
+            $value = trim(substr($argument, strlen($marker)));
+            if ($value !== '') {
+                $values[] = $value;
+            }
+        }
+
+        return $values;
     }
 
     /**
@@ -376,8 +410,9 @@ final class StandaloneApplication
         spec, output.{path,namespace,suffix,prune}, controllers.{enabled,path,
         namespace}, routes.{enabled,path,middleware,prefix}, enforce_closed_objects,
         max_depth, max_bytes, only_tags, only_schemas (the only_* keys each a
-        comma-separated string or a JSON list of names). routes.middleware (a JSON
-        list of names, never comma-split) and routes.prefix wrap the generated
+        comma-separated string or a JSON list of names), exclude_path_prefixes
+        (a JSON list of literal path prefixes, never comma-split). routes.middleware
+        (a JSON list of names, never comma-split) and routes.prefix wrap the generated
         routes in one Route::group block; they are config-only, with no CLI flags.
 
         Options:
@@ -392,6 +427,7 @@ final class StandaloneApplication
           --no-enforce-closed-objects  Accept unknown keys even for additionalProperties: false schemas
           --only-tags=<list>   Generate only operations carrying these comma-separated tags, plus their schema closure
           --only-schemas=<list> Generate only these comma-separated component schemas, plus their dependency closure
+          --exclude-path-prefix=<prefix>  Drop every operation whose path starts with this prefix (repeatable, never comma-split)
           --diff               Print a unified diff for each changed file (check only)
 
         Server scaffold (generated by default):
