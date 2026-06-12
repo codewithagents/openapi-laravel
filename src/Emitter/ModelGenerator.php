@@ -82,12 +82,19 @@ final class ModelGenerator
      */
     private TypeResolver $types;
 
+    /**
+     * Emits backed enums for the current run; recreated together with the
+     * state so the rendered files land in the live run's bucket.
+     */
+    private EnumEmitter $enums;
+
     public function __construct(
         private readonly GeneratorOptions $options = new GeneratorOptions,
     ) {
         $this->state = new GenerationState($this->options, new UniqueNames(self::RESERVED_CLASS_NAMES, caseInsensitive: true));
         $this->rules = new RulesBuilder($this->state);
         $this->types = new TypeResolver($this->state, $this->emitData(...));
+        $this->enums = new EnumEmitter($this->state);
     }
 
     /**
@@ -98,6 +105,7 @@ final class ModelGenerator
         $this->state = new GenerationState($this->options, new UniqueNames(self::RESERVED_CLASS_NAMES, caseInsensitive: true));
         $this->rules = new RulesBuilder($this->state);
         $this->types = new TypeResolver($this->state, $this->emitData(...));
+        $this->enums = new EnumEmitter($this->state);
 
         // Tag-grouped data layout (issue #93, the only layout): attribute each
         // component schema to the tag group that solely owns it, via the same
@@ -225,7 +233,7 @@ final class ModelGenerator
             $this->state->warningContext = sprintf('Schema "%s"', $name);
 
             if ($entry['kind'] === 'enum') {
-                $this->emitEnum($entry['class'], $entry['schema']);
+                $this->enums->emitEnum($entry['class'], $entry['schema']);
             } elseif ($this->state->discriminators->isBase($name)) {
                 // The abstract base of a discriminated union: only the
                 // discriminator property, marked for morph, plus a match() that
@@ -2134,69 +2142,6 @@ final class ModelGenerator
         // and a `string`-keyed return type would not match it. `array-key` covers
         // both without widening the value type.
         return "\n\n    /**\n     * @return array<array-key, list<string|object>>\n     */\n    public static function rules(): array\n    {\n        return [\n".implode("\n", $lines)."\n        ];\n    }";
-    }
-
-    private function emitEnum(string $className, SchemaNode $schema): void
-    {
-        // emitEnum only runs for a backed-enum component (isEnum), whose values
-        // are all int or string; filtering floats here also narrows the type for
-        // the backing/case helpers, which a native PHP enum cannot back on a float.
-        $values = [];
-        foreach (SchemaFacts::enumValues($schema) as $value) {
-            if (is_int($value) || is_string($value)) {
-                $values[] = $value;
-            }
-        }
-
-        $backing = $this->enumBacking($values);
-        $cases = new UniqueNames;
-        $lines = [];
-
-        foreach ($values as $value) {
-            $caseName = $this->enumCaseName($value, $backing);
-            $caseName = $cases->reserve($caseName);
-            $literal = $backing === 'int' ? (string) (int) $value : "'".PhpLiteral::escapeSingleQuoted((string) $value)."'";
-            $lines[] = '    case '.$caseName.' = '.$literal.';';
-        }
-
-        $body = implode("\n", $lines);
-
-        // A deprecated enum component carries a class-level `@deprecated` so the
-        // generated enum gets the same IDE/PHPStan deprecation signal as a Data
-        // class.
-        $deprecationTag = SchemaFacts::deprecationTag($schema);
-        $docBlock = $deprecationTag !== null ? '/**'."\n".' * '.$deprecationTag."\n".' */'."\n" : '';
-
-        $code = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->state->namespaceFor($className).";\n\n".$docBlock.'enum '.$className.': '.$backing."\n{\n".$body."\n}\n";
-
-        $this->state->files[$className] = new GeneratedFile($className, $code, $this->state->fileGroups[$className] ?? null);
-    }
-
-    /**
-     * @param  list<string|int>  $values
-     */
-    private function enumBacking(array $values): string
-    {
-        foreach ($values as $value) {
-            if (! is_int($value) && ! (is_string($value) && $value !== '' && strspn($value, '0123456789') === strlen($value))) {
-                return 'string';
-            }
-        }
-
-        return 'int';
-    }
-
-    private function enumCaseName(string|int $value, string $backing): string
-    {
-        if ($backing === 'int') {
-            $int = (int) $value;
-
-            return $int < 0 ? 'ValueMinus'.abs($int) : 'Value'.$int;
-        }
-
-        $name = PhpIdentifier::toClassName((string) $value);
-
-        return $name === '_' ? 'Value' : $name;
     }
 
     private function hasReadWriteFlags(SchemaNode $schema): bool
