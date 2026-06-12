@@ -254,3 +254,10 @@ it('throws a PlanException when stubs are requested with controllers disabled (i
         stubs: true,
     ));
 })->throws(PlanException::class, 'Controller stubs extend the generated abstract controllers');
+
+it('rejects two tags that differ only by case to avoid a filesystem write collision (#108)', function () use ($tempOut, $request) {
+    $spec = __DIR__.'/../../Fixtures/server/case-clash-tags.yaml';
+    $out = $tempOut();
+
+    (new GenerationPlanner)->plan($request($spec, $out, true, $out.'/Http', $out.'/routes/api.generated.php'));
+})->throws(PlanException::class, 'same path on a case-insensitive filesystem');

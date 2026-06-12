@@ -1,0 +1,23 @@
+openapi: 3.0.3
+info:
+  title: Case-Clash Tags
+  version: "1.0.0"
+# Two tags that differ only by letter case. They derive controller class names
+# (AbstractReportController / AbstractREPORTController) whose filenames collide
+# on a case-insensitive filesystem. The planner's case-folded path guard (#108)
+# must reject this before any file is written.
+paths:
+  /reports:
+    get:
+      tags: [Report]
+      operationId: listReports
+      responses:
+        "200":
+          description: ok
+  /audit-reports:
+    get:
+      tags: [REPORT]
+      operationId: listAuditReports
+      responses:
+        "200":
+          description: ok

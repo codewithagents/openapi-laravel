@@ -190,7 +190,50 @@ final readonly class GenerationPlanner
             }
         }
 
+        $this->assertNoCaseFoldedPathCollision($files);
+
         return new GenerationPlan($files, ! $hasDataFiles, $warnings);
+    }
+
+    /**
+     * Defense in depth against a filesystem-level write collision (issue #108).
+     * UniqueNames already dedupes class basenames case-insensitively, so two
+     * Data/enum classes can never target the same case-folded filename. But the
+     * DIRECTORY prefix is not part of that dedup: two tags differing only by
+     * case would yield colliding tag subdirectories (`Billing/` vs `billing/`)
+     * or controller filenames (`AbstractFooController.php` vs
+     * `AbstractFOOController.php`) that map to one path on a case-insensitive
+     * filesystem (macOS APFS default, Windows NTFS), where the second write
+     * silently clobbers the first. This catches any such collision the layout
+     * could still produce and fails loudly before a single file is written,
+     * rather than emitting silently-broken output. The check is purely lexical
+     * and host-filesystem-independent, so it is deterministic on every platform.
+     *
+     * @param  list<PlannedFile>  $files
+     *
+     * @throws PlanException when two planned files share a case-folded path
+     */
+    private function assertNoCaseFoldedPathCollision(array $files): void
+    {
+        $seen = [];
+        foreach ($files as $file) {
+            $folded = strtolower($file->path);
+            // Only a case-ONLY difference is flagged: this guard targets the
+            // #108 collision vector specifically. An exact-duplicate path is
+            // intentionally tolerated here (it is a different concern, not one
+            // a case-insensitive filesystem introduces), so the comparison is
+            // against the stored path, not just the folded key.
+            if (isset($seen[$folded]) && $seen[$folded] !== $file->path) {
+                throw new PlanException(sprintf(
+                    'Two generated files resolve to the same path on a case-insensitive filesystem: "%s" and "%s". '
+                    .'This is usually caused by spec names (tags or schemas) that differ only in letter case. '
+                    .'Rename one so the generated names differ by more than case; nothing was written.',
+                    $seen[$folded],
+                    $file->path,
+                ));
+            }
+            $seen[$folded] = $file->path;
+        }
     }
 
     /**
