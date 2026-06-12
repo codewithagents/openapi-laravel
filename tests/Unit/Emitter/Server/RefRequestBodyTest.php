@@ -9,6 +9,8 @@ use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ControllerGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 
 /**
  * Regression for the unimported-`Request` bug: an operation whose requestBody is
@@ -42,14 +44,15 @@ function generateRefBodyController(): string
         ],
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $generator->generate($spec);
     $options = new ServerOptions;
 
-    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($spec);
+    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($specCebe);
     $controllers = (new ControllerGenerator($options))->generate($descriptors);
 
     return $controllers['AbstractWidgetController']->code;
@@ -115,8 +118,9 @@ function generateAliasRefController(): string
         ],
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $files = $generator->generate($spec);
@@ -126,7 +130,7 @@ function generateAliasRefController(): string
         ->and(array_keys($files))->not->toContain('OneOfAliasData');
 
     $options = new ServerOptions;
-    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($spec);
+    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($specCebe);
     $controllers = (new ControllerGenerator($options))->generate($descriptors);
 
     return $controllers['AbstractThingController']->code;

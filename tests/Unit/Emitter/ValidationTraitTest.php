@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
 use CodeWithAgents\OpenApiLaravel\Emitter\GenerationException;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
 /**
@@ -34,8 +34,8 @@ function generateWithTrait(array $schemas, ?string $trait): array
         'components' => ['schemas' => $schemas],
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     return (new ModelGenerator(new GeneratorOptions(validationTrait: $trait)))->generate($spec);
 }
@@ -118,10 +118,12 @@ it('adds the trait to a discriminated union base and its variants', function () 
 });
 
 it('adds the trait to per-operation query Data classes (#63)', function () {
-    $doc = (new SpecParser)->parseFile(__DIR__.'/../../Fixtures/server/query-parameters.yaml');
+    $parser104 = new SpecParser;
+    $doc = $parser104->parseFileToDocument(__DIR__.'/../../Fixtures/server/query-parameters.yaml');
+    $docCebe = $parser104->buildCebeModel($doc, __DIR__.'/../../Fixtures/server/query-parameters.yaml');
     $generator = new ModelGenerator(new GeneratorOptions(validationTrait: 'App\\Support\\ApiMessages'));
     $generator->generate($doc);
-    (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($doc);
+    (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($docCebe);
 
     $queryFiles = $generator->queryFiles();
 

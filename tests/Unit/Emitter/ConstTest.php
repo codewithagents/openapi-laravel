@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 
 /**
  * `const` (JSON Schema / OpenAPI 3.1) pins a value to a single literal. The
@@ -27,8 +27,8 @@ function generateConstHolder(array $properties): GeneratedFile
         ],
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     return (new ModelGenerator)->generate($spec)['HolderData'];
 }

@@ -69,7 +69,7 @@ final readonly class GenerationPlanner
         }
 
         $parser = new SpecParser($request->maxBytes);
-        $document = $parser->parseFile($request->spec);
+        $document = $parser->parseFileToDocument($request->spec);
 
         // Path-prefix exclusion (issue #96): drop every operation whose spec
         // path starts with one of the configured prefixes BEFORE the subset
@@ -78,8 +78,11 @@ final readonly class GenerationPlanner
         // and never pulls a schema into an --only-tags closure. Unlike a
         // subset selection that matches nothing, a prefix that matches nothing
         // leaves the output complete, so it is a warning, not an error.
+        // The typed graph is read-only, so the filter returns the (possibly
+        // new) document instead of mutating in place.
         $filterWarnings = [];
-        foreach ((new PathPrefixFilter)->apply($document, $request->excludePathPrefixes) as $prefix) {
+        [$document, $unmatchedPrefixes] = (new PathPrefixFilter)->apply($document, $request->excludePathPrefixes);
+        foreach ($unmatchedPrefixes as $prefix) {
             $filterWarnings[] = sprintf(
                 'exclude-path-prefix "%s" matched no path in the spec; nothing was excluded for it. Check the prefix against the spec (matching is literal and case-sensitive).',
                 $prefix,
@@ -133,7 +136,13 @@ final readonly class GenerationPlanner
         // Data classes (issue #76) are emitted while the operations are
         // collected, and their rules may reference support classes that must
         // land in the inlined set below.
-        [$serverFiles, $serverWarnings] = $this->planServer($request, $document, $generator, $closure);
+        //
+        // The operation collector still walks the cebe object model until
+        // Task 5 of issue #104 migrates it, so the FILTERED typed document is
+        // round-tripped into a cebe model here: both views are derived from
+        // the same graph and can never disagree about which operations exist.
+        $cebeDocument = $parser->buildCebeModel($document, $request->spec);
+        [$serverFiles, $serverWarnings] = $this->planServer($request, $cebeDocument, $generator, $closure);
 
         // The per-operation query Data classes (issue #63) and inline
         // request-body Data classes (issue #76) live next to the model Data

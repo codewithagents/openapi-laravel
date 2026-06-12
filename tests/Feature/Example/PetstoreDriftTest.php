@@ -25,7 +25,9 @@ const CONTROLLER_NAMESPACE = 'CodeWithAgents\\OpenApiLaravel\\Examples\\Petstore
 
 function regenerateDemo(): array
 {
-    $document = (new SpecParser)->parseFile(DEMO_DIR.'/openapi.yaml');
+    $parser104 = new SpecParser;
+    $document = $parser104->parseFileToDocument(DEMO_DIR.'/openapi.yaml');
+    $documentCebe = $parser104->buildCebeModel($document, DEMO_DIR.'/openapi.yaml');
 
     $modelGenerator = new ModelGenerator(new GeneratorOptions(DATA_NAMESPACE));
     $dataFiles = $modelGenerator->generate($document);
@@ -35,7 +37,7 @@ function regenerateDemo(): array
     // Collect once, share with both generators, with the model generator wired
     // in so the per-operation query Data classes (issue #63) are emitted
     // exactly like the planner does (mirrors the command/standalone wiring).
-    $descriptors = (new OperationCollector($serverOptions, $registry, null, $modelGenerator))->collect($document);
+    $descriptors = (new OperationCollector($serverOptions, $registry, null, $modelGenerator))->collect($documentCebe);
     $controllerFiles = (new ControllerGenerator($serverOptions))->generate($descriptors);
     $routeFile = (new RouteGenerator($serverOptions))->generate($descriptors);
 

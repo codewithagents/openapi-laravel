@@ -38,7 +38,7 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 const PHP_LINT_CORPUS_PER_SPEC_CAP = 20;
 
 it('compiles (php -l) the full conformance fixture output', function (string $path) {
-    $document = (new SpecParser)->parseFile($path);
+    $document = (new SpecParser)->parseFileToDocument($path);
     $files = (new ModelGenerator)->generate($document);
 
     // Conformance fixtures are the comprehensive surface: lint every file, no cap.
@@ -58,7 +58,7 @@ it('compiles (php -l) a representative slice of every corpus spec', function (st
         );
     }
 
-    $document = (new SpecParser)->parseFile($path);
+    $document = (new SpecParser)->parseFileToDocument($path);
     $files = (new ModelGenerator)->generate($document);
 
     $failures = phpLintFailures($files, basename($path), PHP_LINT_CORPUS_PER_SPEC_CAP);

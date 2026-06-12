@@ -18,13 +18,15 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  * part of the snapshot.
  */
 it('matches the committed server-scaffold snapshot for petstore-3.0', function () {
-    $doc = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/specs/petstore-3.0.yaml');
+    $parser104 = new SpecParser;
+    $doc = $parser104->parseFileToDocument(__DIR__.'/../../../Fixtures/specs/petstore-3.0.yaml');
+    $docCebe = $parser104->buildCebeModel($doc, __DIR__.'/../../../Fixtures/specs/petstore-3.0.yaml');
 
     $generator = new ModelGenerator;
     $generator->generate($doc);
     $options = new ServerOptions;
 
-    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($doc);
+    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($docCebe);
     $controllers = (new ControllerGenerator($options))->generate($descriptors);
     $routes = (new RouteGenerator($options))->generate($descriptors);
 

@@ -30,7 +30,7 @@ function allOfNonEmptyExpectations(): array
 }
 
 it('keeps allOf-composed corpus classes non-empty', function (string $spec, array $cases) {
-    $document = (new SpecParser)->parseFile(__DIR__.'/../Fixtures/specs/'.$spec);
+    $document = (new SpecParser)->parseFileToDocument(__DIR__.'/../Fixtures/specs/'.$spec);
     $files = (new ModelGenerator)->generate($document);
 
     foreach ($cases as [$class, $properties]) {

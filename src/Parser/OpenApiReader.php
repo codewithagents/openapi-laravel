@@ -187,6 +187,31 @@ final class OpenApiReader
     }
 
     /**
+     * Hydrate one value in schema position into the typed graph (issue #104,
+     * Task 4 -> Task 5 bridge seam). The operation collector still walks the
+     * cebe object model until Task 5 migrates it, but the model generator's
+     * per-operation entry points already speak SchemaNode, so the collector
+     * converts at the boundary through this seam. Deleted with the cebe path
+     * in Task 5/7.
+     */
+    public function hydrateSchema(mixed $value): SchemaNode|ReferenceNode|null
+    {
+        return $this->subschema($value, 0);
+    }
+
+    /**
+     * Hydrate one Parameter Object into the typed graph (issue #104, Task 4 ->
+     * Task 5 bridge seam, see {@see hydrateSchema}). Deleted with the cebe
+     * path in Task 5/7.
+     *
+     * @param  array<array-key, mixed>  $raw
+     */
+    public function hydrateParameter(array $raw): ParameterNode
+    {
+        return $this->parameter($raw);
+    }
+
+    /**
      * @param  array<array-key, mixed>  $raw
      */
     private function info(array $raw): InfoNode
@@ -761,12 +786,25 @@ final class OpenApiReader
                 case 'allOf':
                 case 'oneOf':
                 case 'anyOf':
-                case 'prefixItems':
                     $list = $this->schemaList($value, $depth);
                     if ($list === null) {
                         $extra[(string) $key] = $value;
                     } else {
                         $lists[$key] = $list;
+                    }
+                    break;
+                case 'prefixItems':
+                    // Unlike the composition lists, prefixItems is POSITIONAL:
+                    // rules attach to tuple indexes, so a malformed entry must
+                    // not shift the later positions down. It hydrates to an
+                    // empty placeholder node (which emits no rules, exactly
+                    // like the skipped null position on the old cebe path)
+                    // instead of being dropped.
+                    $list = $this->prefixItemList($value, $depth);
+                    if ($list === null) {
+                        $extra['prefixItems'] = $value;
+                    } else {
+                        $lists['prefixItems'] = $list;
                     }
                     break;
                 case 'not':
@@ -919,6 +957,31 @@ final class OpenApiReader
             if ($node !== null) {
                 $list[] = $node;
             }
+        }
+
+        return $list;
+    }
+
+    /**
+     * The `prefixItems` tuple list. Returns null for a non-list value (routed
+     * to `extra` by the caller). A mistyped entry inside a valid list becomes
+     * an empty placeholder SchemaNode rather than being skipped: positions
+     * are load-bearing (rules attach to tuple indexes), so the later entries
+     * must keep their index, and a non-empty list, even of placeholders,
+     * still marks the schema as a tuple (suppressing the post-prefix `items`
+     * wildcard rules). Mirrors the skipped-null behavior of the old cebe path.
+     *
+     * @return list<SchemaNode|ReferenceNode>|null
+     */
+    private function prefixItemList(mixed $value, int $depth): ?array
+    {
+        if (! is_array($value) || ! array_is_list($value)) {
+            return null;
+        }
+
+        $list = [];
+        foreach ($value as $entry) {
+            $list[] = $this->subschema($entry, $depth + 1) ?? new SchemaNode;
         }
 
         return $list;

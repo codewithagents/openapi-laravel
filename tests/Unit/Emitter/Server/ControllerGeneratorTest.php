@@ -14,12 +14,14 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  */
 function generateControllers(): array
 {
-    $doc = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/server/petstore.yaml');
+    $parser104 = new SpecParser;
+    $doc = $parser104->parseFileToDocument(__DIR__.'/../../../Fixtures/server/petstore.yaml');
+    $docCebe = $parser104->buildCebeModel($doc, __DIR__.'/../../../Fixtures/server/petstore.yaml');
     $generator = new ModelGenerator;
     $generator->generate($doc);
     $options = new ServerOptions;
 
-    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($doc);
+    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($docCebe);
 
     return (new ControllerGenerator($options))->generate($descriptors);
 }
@@ -129,12 +131,14 @@ it('references every use import by short name (no unused imports)', function () 
  */
 function generateQueryControllers(): array
 {
-    $doc = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/server/query-parameters.yaml');
+    $parser104 = new SpecParser;
+    $doc = $parser104->parseFileToDocument(__DIR__.'/../../../Fixtures/server/query-parameters.yaml');
+    $docCebe = $parser104->buildCebeModel($doc, __DIR__.'/../../../Fixtures/server/query-parameters.yaml');
     $generator = new ModelGenerator;
     $generator->generate($doc);
     $options = new ServerOptions;
 
-    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($doc);
+    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($docCebe);
 
     return (new ControllerGenerator($options))->generate($descriptors);
 }
@@ -168,11 +172,13 @@ it('orders an injected query param after the body slot and before path params', 
     // The fixture has no body+query+path combination in one signature, so this
     // asserts on the petstore fixture instead, where listPets is body-less with
     // a query class while getPetById keeps its path param untouched.
-    $doc = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/server/petstore.yaml');
+    $parser104 = new SpecParser;
+    $doc = $parser104->parseFileToDocument(__DIR__.'/../../../Fixtures/server/petstore.yaml');
+    $docCebe = $parser104->buildCebeModel($doc, __DIR__.'/../../../Fixtures/server/petstore.yaml');
     $generator = new ModelGenerator;
     $generator->generate($doc);
     $options = new ServerOptions;
-    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($doc);
+    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($docCebe);
     $code = (new ControllerGenerator($options))->generate($descriptors)['AbstractPetController']->code;
 
     expect($code)->toContain('abstract public function index(ListPetsQueryData $query): DataCollection;')

@@ -65,14 +65,19 @@ deptrac:
     Parser: ~
     Naming: ~
 
-    # Models emitter may use Naming.
+    # Models emitter may use Naming, and consumes the Parser's typed spec
+    # graph (src/Parser/Spec, issue #104). Before #104 the same coupling
+    # existed invisibly through the external cebe classes.
     Emitter:
       - Naming
+      - Parser
 
-    # Server controllers/routes build on the Emitter primitives and Naming.
+    # Server controllers/routes build on the Emitter primitives, Naming, and
+    # the Parser's typed spec graph (issue #104).
     Server:
       - Emitter
       - Naming
+      - Parser
 
     # Console orchestrates parsing plus model and server emission.
     Console:

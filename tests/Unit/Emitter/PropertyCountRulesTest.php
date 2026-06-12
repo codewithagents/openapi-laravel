@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
 use CodeWithAgents\OpenApiLaravel\Parser\SchemaNormalizer;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 
 /**
  * minProperties/maxProperties emission (issue #72). A JSON object arrives as a
@@ -35,8 +35,8 @@ function generateCountSchemas(array $schemas): array
     // string-coercion test below proves end-to-end behaviour.
     $normalized = SchemaNormalizer::normalize(json_decode((string) json_encode($document), true));
 
-    $spec = Reader::readFromJson((string) json_encode($normalized), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($normalized);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     return (new ModelGenerator)->generate($spec);
 }

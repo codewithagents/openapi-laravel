@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
 /**
@@ -28,8 +28,8 @@ function generateAliasSchemas(array $schemas, string $version = '3.0.3'): array
         'components' => ['schemas' => $schemas],
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     return (new ModelGenerator)->generate($spec);
 }
@@ -248,7 +248,7 @@ it('produces no empty classes for the issue #9 conformance aliases', function ()
     // the fixture's closed tuple uses a boolean `items: false` that cebe cannot
     // instantiate raw, which the normalizer rewrites before cebe sees it.
     $path = dirname(__DIR__, 2).'/Fixtures/conformance/conformance-3.1.yaml';
-    $spec = (new SpecParser)->parseFile($path);
+    $spec = (new SpecParser)->parseFileToDocument($path);
     $files = (new ModelGenerator)->generate($spec);
 
     expect(array_keys($files))->not->toContain('ScalarAliasData')

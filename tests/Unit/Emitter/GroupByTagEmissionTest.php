@@ -2,12 +2,10 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
-use cebe\openapi\spec\Parameter;
-use cebe\openapi\spec\Schema;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 
 /**
  * Unit tests for the EMISSION side of the tag-grouped data layout (issue #93,
@@ -20,7 +18,7 @@ use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
  *
  * @param  array<string, mixed>  $schemas
  */
-function groupedDocument(array $schemas): OpenApi
+function groupedDocument(array $schemas): OpenApiDocument
 {
     $document = [
         'openapi' => '3.0.3',
@@ -29,8 +27,8 @@ function groupedDocument(array $schemas): OpenApi
         'components' => ['schemas' => $schemas],
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     return $spec;
 }
@@ -187,13 +185,13 @@ it('places per-operation query and body classes in their operation tag group', f
     $generator = new ModelGenerator(new GeneratorOptions(schemaGroups: []));
     $generator->generate(groupedDocument([]));
 
-    $parameter = new Parameter([
+    $parameter = (new OpenApiReader)->hydrateParameter([
         'name' => 'limit',
         'in' => 'query',
         'schema' => ['type' => 'integer'],
     ]);
     $queryClass = $generator->generateQueryData('ListPets', 'GET /pets', [$parameter], 'pet');
-    $bodyClass = $generator->generateBodyData('CreatePet', 'POST /pets', new Schema([
+    $bodyClass = $generator->generateBodyData('CreatePet', 'POST /pets', (new OpenApiReader)->hydrateSchema([
         'type' => 'object',
         'properties' => ['name' => ['type' => 'string']],
     ]), 'pet');
@@ -211,7 +209,7 @@ it('places a multipart body class (issue #75) in its operation tag group too', f
     $generator = new ModelGenerator(new GeneratorOptions(schemaGroups: []));
     $generator->generate(groupedDocument([]));
 
-    $class = $generator->generateMultipartBodyData('UploadAvatar', 'POST /avatars', new Schema([
+    $class = $generator->generateMultipartBodyData('UploadAvatar', 'POST /avatars', (new OpenApiReader)->hydrateSchema([
         'type' => 'object',
         'properties' => ['avatar' => ['type' => 'string', 'format' => 'binary']],
     ]), 'profile');
@@ -224,14 +222,14 @@ it('places a multipart body class (issue #75) in its operation tag group too', f
 it('keeps query and body classes flat for the reserved Support tag and a tagless caller', function () {
     $generator = new ModelGenerator;
     $generator->generate(groupedDocument([]));
-    $taglessBody = $generator->generateBodyData('CreatePet', 'POST /pets', new Schema([
+    $taglessBody = $generator->generateBodyData('CreatePet', 'POST /pets', (new OpenApiReader)->hydrateSchema([
         'type' => 'object',
         'properties' => ['name' => ['type' => 'string']],
     ]));
 
     $grouped = new ModelGenerator(new GeneratorOptions(schemaGroups: []));
     $grouped->generate(groupedDocument([]));
-    $supportBody = $grouped->generateBodyData('OpenTicket', 'POST /tickets', new Schema([
+    $supportBody = $grouped->generateBodyData('OpenTicket', 'POST /tickets', (new OpenApiReader)->hydrateSchema([
         'type' => 'object',
         'properties' => ['subject' => ['type' => 'string']],
     ]), 'support');

@@ -84,12 +84,14 @@ function generateHostileFiles(): array
     $path = sys_get_temp_dir().'/openapi-laravel-hostile-'.uniqid().'.json';
     file_put_contents($path, $spec);
 
-    $document = (new SpecParser)->parseFile($path);
+    $parser104 = new SpecParser;
+    $document = $parser104->parseFileToDocument($path);
+    $documentCebe = $parser104->buildCebeModel($document, $path);
     $generator = new ModelGenerator;
     $modelFiles = $generator->generate($document);
 
     $options = new ServerOptions;
-    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($document);
+    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($documentCebe);
     $controllerFiles = (new ControllerGenerator($options))->generate($descriptors);
     $routeFile = (new RouteGenerator($options))->generate($descriptors);
 

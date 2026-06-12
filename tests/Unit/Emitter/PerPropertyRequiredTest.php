@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 
 /**
  * A non-standard per-property `required: true` key (issue #34) is ignored by
@@ -26,8 +26,8 @@ function generateWithGenerator(array $schemas): ModelGenerator
         'components' => ['schemas' => $schemas],
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $generator->generate($spec);
@@ -54,7 +54,7 @@ it('warns on a non-standard per-property required key but keeps the field option
     // Behavior is unchanged: the field is still optional in both the constructor
     // and the rules() output (no schema-level required array lists it).
     $code = $generator->generate(
-        Reader::readFromJson((string) json_encode([
+        (new OpenApiReader)->read([
             'openapi' => '3.0.3',
             'info' => ['title' => 'Test', 'version' => '1.0.0'],
             'paths' => new stdClass,
@@ -64,7 +64,7 @@ it('warns on a non-standard per-property required key but keeps the field option
                     'properties' => ['email' => ['type' => 'string', 'required' => true]],
                 ],
             ]],
-        ]), OpenApi::class)
+        ])
     )['UserData']->code;
 
     expect($code)->toContain('public readonly ?string $email = null')
@@ -86,7 +86,7 @@ it('does not warn for a normal schema-level required array and keeps the field r
     expect($generator->warnings())->toBe([]);
 
     $code = $generator->generate(
-        Reader::readFromJson((string) json_encode([
+        (new OpenApiReader)->read([
             'openapi' => '3.0.3',
             'info' => ['title' => 'Test', 'version' => '1.0.0'],
             'paths' => new stdClass,
@@ -97,7 +97,7 @@ it('does not warn for a normal schema-level required array and keeps the field r
                     'properties' => ['email' => ['type' => 'string']],
                 ],
             ]],
-        ]), OpenApi::class)
+        ])
     )['UserData']->code;
 
     // The schema-level required array still drives a required, non-null field.

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Emitter;
 
-use cebe\openapi\spec\Reference;
-use cebe\openapi\spec\Schema;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\ReferenceNode;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\SchemaNode;
 
 /**
  * Pre-pass over the component schemas that finds discriminated object unions and
@@ -88,7 +88,7 @@ final class DiscriminatorRegistry
      * synthesized variant name. These names are NOT real component schemas, so the
      * generator pulls the schema from here when registering and emitting them.
      *
-     * @var array<string, Schema>
+     * @var array<string, SchemaNode>
      */
     private array $syntheticVariants = [];
 
@@ -114,7 +114,7 @@ final class DiscriminatorRegistry
     private array $warnings = [];
 
     /**
-     * @param  array<string, Schema>  $schemas  component schemas, name => schema
+     * @param  array<string, SchemaNode>  $schemas  component schemas, name => schema
      */
     public function __construct(array $schemas)
     {
@@ -243,11 +243,11 @@ final class DiscriminatorRegistry
     }
 
     /**
-     * The synthesized variant schemas (inline-union form), name => Schema, sorted
+     * The synthesized variant schemas (inline-union form), name => SchemaNode, sorted
      * for determinism. These names are not real components; the generator registers
      * and emits them as variant Data classes. Empty when no inline union exists.
      *
-     * @return array<string, Schema>
+     * @return array<string, SchemaNode>
      */
     public function syntheticVariants(): array
     {
@@ -305,21 +305,18 @@ final class DiscriminatorRegistry
      * result maps base name => list of variant names that inherit from it. A base
      * with no such variant is not in the map. Deterministic (sorted).
      *
-     * @param  array<string, Schema>  $schemas
+     * @param  array<string, SchemaNode>  $schemas
      * @return array<string, list<string>>
      */
     private function collectAllOfVariants(array $schemas): array
     {
         $result = [];
         foreach ($schemas as $name => $schema) {
-            if (! $this->notEmptyArray($schema->allOf)) {
-                continue;
-            }
-            foreach ($schema->allOf as $member) {
-                if (! $member instanceof Reference) {
+            foreach ($schema->allOf ?? [] as $member) {
+                if (! $member instanceof ReferenceNode) {
                     continue;
                 }
-                $baseName = $this->refName($member->getReference());
+                $baseName = $this->refName($member->pointer());
                 if ($baseName === null) {
                     continue;
                 }
@@ -345,7 +342,7 @@ final class DiscriminatorRegistry
      * declares a discriminator directly and is NOT itself a oneOf/anyOf union (a
      * union with a discriminator is the named/inline form, classified elsewhere).
      */
-    private function isAllOfInheritanceBase(Schema $schema): bool
+    private function isAllOfInheritanceBase(SchemaNode $schema): bool
     {
         if ($schema->discriminator === null) {
             return false;
@@ -363,11 +360,11 @@ final class DiscriminatorRegistry
      * rule (that runs over all candidates afterwards), so the returned `variants`
      * list is the full member set.
      *
-     * @param  array<string, Schema>  $schemas
+     * @param  array<string, SchemaNode>  $schemas
      * @param  array<string, list<string>>  $allOfVariants  base name => allOf-inheritance variant names
-     * @return array{propertyName: string, valueToVariant: array<string, string>, variants: list<string>, kind: 'named'|'inline'|'allof', syntheticVariants: array<string, Schema>, variantInheritsFrom: array<string, string>}|null
+     * @return array{propertyName: string, valueToVariant: array<string, string>, variants: list<string>, kind: 'named'|'inline'|'allof', syntheticVariants: array<string, SchemaNode>, variantInheritsFrom: array<string, string>}|null
      */
-    private function analyze(string $name, Schema $schema, array $schemas, array $allOfVariants): ?array
+    private function analyze(string $name, SchemaNode $schema, array $schemas, array $allOfVariants): ?array
     {
         $discriminator = $schema->discriminator;
         if ($discriminator === null) {
@@ -375,11 +372,11 @@ final class DiscriminatorRegistry
         }
 
         $propertyName = $discriminator->propertyName;
-        if (! is_string($propertyName) || $propertyName === '') {
+        if ($propertyName === '') {
             return null;
         }
 
-        $mapping = is_array($discriminator->mapping) ? $discriminator->mapping : [];
+        $mapping = $discriminator->mapping ?? [];
 
         // A oneOf/anyOf union with a discriminator is either the named-component
         // form (all members $ref) or the inline-union form (some members inline).
@@ -402,11 +399,11 @@ final class DiscriminatorRegistry
      * is an inline object schema it is the inline-union form and the inline members
      * get synthesized variant names + schemas.
      *
-     * @param  array<string, Schema>  $schemas
-     * @param  array<array-key, mixed>  $mapping  raw discriminator mapping
-     * @return array{propertyName: string, valueToVariant: array<string, string>, variants: list<string>, kind: 'named'|'inline'|'allof', syntheticVariants: array<string, Schema>, variantInheritsFrom: array<string, string>}|null
+     * @param  array<string, SchemaNode>  $schemas
+     * @param  array<array-key, string>  $mapping  discriminator mapping, value => target
+     * @return array{propertyName: string, valueToVariant: array<string, string>, variants: list<string>, kind: 'named'|'inline'|'allof', syntheticVariants: array<string, SchemaNode>, variantInheritsFrom: array<string, string>}|null
      */
-    private function analyzeUnion(string $name, Schema $schema, array $schemas, array $mapping, string $propertyName): ?array
+    private function analyzeUnion(string $name, SchemaNode $schema, array $schemas, array $mapping, string $propertyName): ?array
     {
         $members = $this->unionMembers($schema);
         if ($members === []) {
@@ -419,7 +416,7 @@ final class DiscriminatorRegistry
         // non-object inline member, degrades the whole union to presence-only.
         $allRefs = true;
         foreach ($members as $member) {
-            if (! $member instanceof Reference) {
+            if (! $member instanceof ReferenceNode) {
                 $allRefs = false;
 
                 break;
@@ -437,19 +434,19 @@ final class DiscriminatorRegistry
      * The named-component form: a `oneOf`/`anyOf` whose members are all `$ref`s to
      * object components. Unchanged behavior from the original registry.
      *
-     * @param  list<Schema|Reference>  $members
-     * @param  array<string, Schema>  $schemas
-     * @param  array<array-key, mixed>  $mapping
-     * @return array{propertyName: string, valueToVariant: array<string, string>, variants: list<string>, kind: 'named'|'inline'|'allof', syntheticVariants: array<string, Schema>, variantInheritsFrom: array<string, string>}|null
+     * @param  list<SchemaNode|ReferenceNode>  $members
+     * @param  array<string, SchemaNode>  $schemas
+     * @param  array<array-key, string>  $mapping
+     * @return array{propertyName: string, valueToVariant: array<string, string>, variants: list<string>, kind: 'named'|'inline'|'allof', syntheticVariants: array<string, SchemaNode>, variantInheritsFrom: array<string, string>}|null
      */
     private function analyzeNamedUnion(string $name, array $members, array $schemas, array $mapping, string $propertyName): ?array
     {
         $memberNames = [];
         foreach ($members as $member) {
-            if (! $member instanceof Reference) {
+            if (! $member instanceof ReferenceNode) {
                 return null;
             }
-            $refName = $this->refName($member->getReference());
+            $refName = $this->refName($member->pointer());
             if ($refName === null) {
                 return null;
             }
@@ -498,10 +495,10 @@ final class DiscriminatorRegistry
      * A non-object member, or a member with no derivable discriminator value,
      * degrades the whole union to presence-only with a warning.
      *
-     * @param  list<Schema|Reference>  $members
-     * @param  array<string, Schema>  $schemas
-     * @param  array<array-key, mixed>  $mapping
-     * @return array{propertyName: string, valueToVariant: array<string, string>, variants: list<string>, kind: 'named'|'inline'|'allof', syntheticVariants: array<string, Schema>, variantInheritsFrom: array<string, string>}|null
+     * @param  list<SchemaNode|ReferenceNode>  $members
+     * @param  array<string, SchemaNode>  $schemas
+     * @param  array<array-key, string>  $mapping
+     * @return array{propertyName: string, valueToVariant: array<string, string>, variants: list<string>, kind: 'named'|'inline'|'allof', syntheticVariants: array<string, SchemaNode>, variantInheritsFrom: array<string, string>}|null
      */
     private function analyzeInlineUnion(string $name, array $members, array $schemas, array $mapping, string $propertyName): ?array
     {
@@ -510,7 +507,7 @@ final class DiscriminatorRegistry
         // the whole union non-clean and degrades to presence-only).
         $inlineMembers = [];
         foreach ($members as $member) {
-            if (! $member instanceof Schema) {
+            if (! $member instanceof SchemaNode) {
                 $this->warnInlineDegrade($name, 'a member is a $ref mixed into an inline union');
 
                 return null;
@@ -536,9 +533,6 @@ final class DiscriminatorRegistry
         }
 
         foreach ($mapping as $value => $target) {
-            if (! is_string($target)) {
-                continue;
-            }
             $value = (string) $value;
             if ($value === '') {
                 continue;
@@ -592,10 +586,10 @@ final class DiscriminatorRegistry
      * synthesis, only the value map and an inheritance link so each variant does
      * not redeclare the base's properties.
      *
-     * @param  array<string, Schema>  $schemas
-     * @param  array<array-key, mixed>  $mapping
+     * @param  array<string, SchemaNode>  $schemas
+     * @param  array<array-key, string>  $mapping
      * @param  list<string>  $variantNames  components whose allOf refs this base
-     * @return array{propertyName: string, valueToVariant: array<string, string>, variants: list<string>, kind: 'named'|'inline'|'allof', syntheticVariants: array<string, Schema>, variantInheritsFrom: array<string, string>}|null
+     * @return array{propertyName: string, valueToVariant: array<string, string>, variants: list<string>, kind: 'named'|'inline'|'allof', syntheticVariants: array<string, SchemaNode>, variantInheritsFrom: array<string, string>}|null
      */
     private function analyzeAllOfInheritance(string $name, array $schemas, array $mapping, string $propertyName, array $variantNames): ?array
     {
@@ -640,8 +634,8 @@ final class DiscriminatorRegistry
      * uses its own schema name as the implicit value (per the OpenAPI spec).
      *
      * @param  list<string>  $memberNames
-     * @param  array<array-key, mixed>  $mapping
-     * @param  array<string, Schema>  $schemas
+     * @param  array<array-key, string>  $mapping
+     * @param  array<string, SchemaNode>  $schemas
      * @return array{map: array<string, string>, variants: list<string>}
      */
     private function buildValueMap(array $memberNames, array $mapping, array $schemas): array
@@ -650,9 +644,6 @@ final class DiscriminatorRegistry
         $variants = $memberNames;
 
         foreach ($mapping as $value => $target) {
-            if (! is_string($target)) {
-                continue;
-            }
             $value = (string) $value;
             if ($value === '') {
                 continue;
@@ -683,27 +674,26 @@ final class DiscriminatorRegistry
      * single-value `enum` on its discriminator property, or null when it pins none.
      * This lets an inline union be discriminated even without a `mapping` block.
      */
-    private function memberDiscriminatorValue(Schema $member, string $propertyName): ?string
+    private function memberDiscriminatorValue(SchemaNode $member, string $propertyName): ?string
     {
         $properties = $this->localProperties($member);
         $property = $properties[$propertyName] ?? null;
-        if (! $property instanceof Schema) {
+        if (! $property instanceof SchemaNode) {
             return null;
         }
 
-        // `const` is a JSON Schema keyword cebe does not expose as a typed property
-        // (it surfaces via getSerializableData), so read it from the serialized
-        // form, mirroring how ModelGenerator::constValue() reads it.
-        $serialized = (array) $property->getSerializableData();
-        if (array_key_exists('const', $serialized)) {
-            $const = $serialized['const'];
+        // `const` is a first-class typed keyword on SchemaNode (issue #104);
+        // the presence flag distinguishes an explicit `const: null` from no
+        // const at all, mirroring how ModelGenerator::constValue() reads it.
+        if ($property->hasConst) {
+            $const = $property->const;
             if (is_string($const) || is_int($const)) {
                 return (string) $const;
             }
         }
 
         $enum = $property->enum;
-        if (is_array($enum) && count($enum) === 1) {
+        if ($enum !== null && count($enum) === 1) {
             $value = $enum[0];
             if (is_string($value) || is_int($value)) {
                 return (string) $value;
@@ -777,9 +767,9 @@ final class DiscriminatorRegistry
      * The `oneOf`/`anyOf` members of a schema in source order, deduplicated for
      * the all-ref case by reference but kept positional for the inline case.
      *
-     * @return list<Schema|Reference>
+     * @return list<SchemaNode|ReferenceNode>
      */
-    private function unionMembers(Schema $schema): array
+    private function unionMembers(SchemaNode $schema): array
     {
         $members = [];
         if (is_array($schema->oneOf)) {
@@ -800,9 +790,9 @@ final class DiscriminatorRegistry
      * The locally declared properties of a schema (own `properties`, no allOf
      * merge), name => schema, used to read a member's discriminator const/enum.
      *
-     * @return array<string, Schema|Reference>
+     * @return array<string, SchemaNode|ReferenceNode>
      */
-    private function localProperties(Schema $schema): array
+    private function localProperties(SchemaNode $schema): array
     {
         $properties = $schema->properties;
         if (! is_array($properties)) {
@@ -811,9 +801,7 @@ final class DiscriminatorRegistry
 
         $result = [];
         foreach ($properties as $name => $property) {
-            if ($property instanceof Schema || $property instanceof Reference) {
-                $result[(string) $name] = $property;
-            }
+            $result[(string) $name] = $property;
         }
 
         return $result;
@@ -839,7 +827,7 @@ final class DiscriminatorRegistry
      * An object has `type: object`, or named `properties`, or merges via `allOf`.
      * A scalar/array/oneOf/anyOf member is not an object variant.
      */
-    private function isObjectSchema(?Schema $schema): bool
+    private function isObjectSchema(?SchemaNode $schema): bool
     {
         if ($schema === null) {
             return false;

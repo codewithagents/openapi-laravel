@@ -8,6 +8,8 @@ use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
 /**
@@ -20,14 +22,19 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  */
 
 /**
+ * Both views of one spec array during the #104 migration: the typed document
+ * for the model pipeline, the cebe model for the operation collector (which
+ * stays on cebe until Task 5).
+ *
  * @param  array<string, mixed>  $document
+ * @return array{0: OpenApiDocument, 1: OpenApi}
  */
-function degradationSpec(array $document): OpenApi
+function degradationSpec(array $document): array
 {
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
-
-    return $spec;
+    return [
+        (new OpenApiReader)->read($document),
+        Reader::readFromJson((string) json_encode($document), OpenApi::class),
+    ];
 }
 
 /**
@@ -36,13 +43,14 @@ function degradationSpec(array $document): OpenApi
  */
 function degradationModelRun(array $schemas): array
 {
-    $generator = new ModelGenerator;
-    $files = $generator->generate(degradationSpec([
+    [$spec] = degradationSpec([
         'openapi' => '3.0.3',
         'info' => ['title' => 'Test', 'version' => '1.0.0'],
         'paths' => new stdClass,
         'components' => ['schemas' => $schemas],
-    ]));
+    ]);
+    $generator = new ModelGenerator;
+    $files = $generator->generate($spec);
 
     return [$files, $generator->warnings()];
 }
@@ -54,7 +62,7 @@ function degradationModelRun(array $schemas): array
  */
 function degradationCollectorRun(array $paths, array $components = []): array
 {
-    $spec = degradationSpec([
+    [$spec, $specCebe] = degradationSpec([
         'openapi' => '3.0.3',
         'info' => ['title' => 'Test', 'version' => '1.0.0'],
         'paths' => $paths,
@@ -64,7 +72,7 @@ function degradationCollectorRun(array $paths, array $components = []): array
     $generator = new ModelGenerator;
     $generator->generate($spec);
     $collector = new OperationCollector(new ServerOptions, $generator->registry(), null, $generator);
-    $collector->collect($spec);
+    $collector->collect($specCebe);
 
     return [$collector->warnings(), $generator->warnings()];
 }
@@ -398,7 +406,7 @@ it('warns when an inline request body is a free-form object map', function () {
 });
 
 it('warns when the request body schema is inline and no model generator is wired in (legacy call sites)', function () {
-    $spec = degradationSpec([
+    [$spec, $specCebe] = degradationSpec([
         'openapi' => '3.0.3',
         'info' => ['title' => 'Test', 'version' => '1.0.0'],
         'paths' => [
@@ -423,7 +431,7 @@ it('warns when the request body schema is inline and no model generator is wired
     // No model generator wired in (the legacy, pre-#63 wiring): the collector
     // cannot synthesize the body class, so the degradation is its own to report.
     $collector = new OperationCollector(new ServerOptions, $generator->registry());
-    $collector->collect($spec);
+    $collector->collect($specCebe);
 
     expect($collector->warnings())->toContain(
         'Operation POST /pets: the request body schema is inline (not a $ref to a component schema) and no model generator is wired in to synthesize a Data class; the controller method falls back to Illuminate\Http\Request.',
@@ -585,12 +593,14 @@ it('attributes a degraded query-parameter $ref to the operation, not a schema', 
 // ---------------------------------------------------------------------------
 
 it('surfaces every external-$ref degradation of a multi-file spec instead of hollowing output silently', function () {
-    $spec = (new SpecParser)->parseFile(__DIR__.'/../../Fixtures/multifile/main.yaml');
+    $parser104 = new SpecParser;
+    $spec = $parser104->parseFileToDocument(__DIR__.'/../../Fixtures/multifile/main.yaml');
+    $specCebe = $parser104->buildCebeModel($spec, __DIR__.'/../../Fixtures/multifile/main.yaml');
 
     $generator = new ModelGenerator;
     $files = $generator->generate($spec);
     $collector = new OperationCollector(new ServerOptions, $generator->registry(), null, $generator);
-    $collector->collect($spec);
+    $collector->collect($specCebe);
 
     $modelWarnings = implode("\n", $generator->warnings());
     $collectorWarnings = implode("\n", $collector->warnings());

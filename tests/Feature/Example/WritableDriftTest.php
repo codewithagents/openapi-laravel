@@ -27,7 +27,9 @@ const WRITABLE_CONTROLLER_NAMESPACE = 'CodeWithAgents\\OpenApiLaravel\\Tests\\Fe
 
 function regenerateWritable(): array
 {
-    $document = (new SpecParser)->parseFile(WRITABLE_SPEC);
+    $parser104 = new SpecParser;
+    $document = $parser104->parseFileToDocument(WRITABLE_SPEC);
+    $documentCebe = $parser104->buildCebeModel($document, WRITABLE_SPEC);
 
     $modelGenerator = new ModelGenerator(new GeneratorOptions(WRITABLE_DATA_NAMESPACE));
     $dataFiles = $modelGenerator->generate($document);
@@ -37,7 +39,7 @@ function regenerateWritable(): array
     // Collect once, share with both generators, with the model generator wired
     // in (mirrors the command/standalone wiring), so the collector can record
     // the support classes the scaffold references (issue #64).
-    $descriptors = (new OperationCollector($serverOptions, $registry, null, $modelGenerator))->collect($document);
+    $descriptors = (new OperationCollector($serverOptions, $registry, null, $modelGenerator))->collect($documentCebe);
     $controllerFiles = (new ControllerGenerator($serverOptions))->generate($descriptors);
     $routeFile = (new RouteGenerator($serverOptions))->generate($descriptors);
 

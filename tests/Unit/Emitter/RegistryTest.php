@@ -10,7 +10,7 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  */
 function customerRegistry(): array
 {
-    $doc = (new SpecParser)->parseFile(__DIR__.'/../../Fixtures/emitter/customer.json');
+    $doc = (new SpecParser)->parseFileToDocument(__DIR__.'/../../Fixtures/emitter/customer.json');
     $generator = new ModelGenerator;
     $generator->generate($doc);
 
@@ -31,7 +31,7 @@ it('reports null writeClass for schemas without read/write flags', function () {
 });
 
 it('reports the writable variant class for schemas that split read/write', function () {
-    $doc = (new SpecParser)->parseFile(__DIR__.'/../../Fixtures/server/petstore.yaml');
+    $doc = (new SpecParser)->parseFileToDocument(__DIR__.'/../../Fixtures/server/petstore.yaml');
     $generator = new ModelGenerator;
     $generator->generate($doc);
 

@@ -2,21 +2,23 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\PathPrefixFilter;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 
 /**
- * Unit tests for the path-prefix exclusion filter (issue #96): the focused
- * document mutation that drops every path starting with a configured prefix
- * before the closure and the operation collector run. Feature tests prove the
- * planner wires it through to controllers, routes, and the drift gate.
+ * Unit tests for the path-prefix exclusion filter (issue #96): drops every
+ * path starting with a configured prefix before the closure and the operation
+ * collector run. The typed document graph is read-only (issue #104), so the
+ * filter returns a new document plus the unmatched prefixes. Feature tests
+ * prove the planner wires it through to controllers, routes, and the drift
+ * gate.
  */
 
 /**
  * @param  list<string>  $paths
  */
-function filterDocument(array $paths): OpenApi
+function filterDocument(array $paths): OpenApiDocument
 {
     $pathItems = [];
     foreach ($paths as $index => $path) {
@@ -34,8 +36,8 @@ function filterDocument(array $paths): OpenApi
         'paths' => $pathItems === [] ? new stdClass : $pathItems,
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     return $spec;
 }
@@ -43,17 +45,15 @@ function filterDocument(array $paths): OpenApi
 /**
  * @return list<string>
  */
-function remainingPaths(OpenApi $document): array
+function remainingPaths(OpenApiDocument $document): array
 {
-    $paths = $document->paths;
-
-    return $paths === null ? [] : array_map(strval(...), array_keys($paths->getPaths()));
+    return array_map(strval(...), array_keys($document->paths));
 }
 
 it('removes every path starting with the prefix', function () {
     $document = filterDocument(['/pets', '/api/v1/swagger/pets', '/api/v1/swagger/orders']);
 
-    $unmatched = (new PathPrefixFilter)->apply($document, ['/api/v1/swagger']);
+    [$document, $unmatched] = (new PathPrefixFilter)->apply($document, ['/api/v1/swagger']);
 
     expect($unmatched)->toBe([])
         ->and(remainingPaths($document))->toBe(['/pets']);
@@ -62,7 +62,7 @@ it('removes every path starting with the prefix', function () {
 it('applies multiple prefixes in one pass', function () {
     $document = filterDocument(['/pets', '/internal/metrics', '/api/v1/swagger/pets']);
 
-    $unmatched = (new PathPrefixFilter)->apply($document, ['/api/v1/swagger', '/internal']);
+    [$document, $unmatched] = (new PathPrefixFilter)->apply($document, ['/api/v1/swagger', '/internal']);
 
     expect($unmatched)->toBe([])
         ->and(remainingPaths($document))->toBe(['/pets']);
@@ -73,7 +73,7 @@ it('matches as a literal string prefix, not per path segment', function () {
     // a plain str_starts_with, so both fall.
     $document = filterDocument(['/pets', '/pet/{id}', '/orders']);
 
-    (new PathPrefixFilter)->apply($document, ['/pet']);
+    [$document] = (new PathPrefixFilter)->apply($document, ['/pet']);
 
     expect(remainingPaths($document))->toBe(['/orders']);
 });
@@ -81,7 +81,7 @@ it('matches as a literal string prefix, not per path segment', function () {
 it('matches case-sensitively', function () {
     $document = filterDocument(['/Internal/metrics']);
 
-    $unmatched = (new PathPrefixFilter)->apply($document, ['/internal']);
+    [$document, $unmatched] = (new PathPrefixFilter)->apply($document, ['/internal']);
 
     expect($unmatched)->toBe(['/internal'])
         ->and(remainingPaths($document))->toBe(['/Internal/metrics']);
@@ -90,7 +90,7 @@ it('matches case-sensitively', function () {
 it('reports the prefixes that matched nothing, in input order', function () {
     $document = filterDocument(['/pets']);
 
-    $unmatched = (new PathPrefixFilter)->apply($document, ['/ghost', '/pets', '/missing']);
+    [$document, $unmatched] = (new PathPrefixFilter)->apply($document, ['/ghost', '/pets', '/missing']);
 
     expect($unmatched)->toBe(['/ghost', '/missing'])
         ->and(remainingPaths($document))->toBe([]);
@@ -99,7 +99,7 @@ it('reports the prefixes that matched nothing, in input order', function () {
 it('leaves the document untouched with no prefixes', function () {
     $document = filterDocument(['/pets', '/orders']);
 
-    $unmatched = (new PathPrefixFilter)->apply($document, []);
+    [$document, $unmatched] = (new PathPrefixFilter)->apply($document, []);
 
     expect($unmatched)->toBe([])
         ->and(remainingPaths($document))->toBe(['/pets', '/orders']);
@@ -108,7 +108,7 @@ it('leaves the document untouched with no prefixes', function () {
 it('trims entries and drops empty and duplicate prefixes', function () {
     $document = filterDocument(['/pets', '/orders']);
 
-    $unmatched = (new PathPrefixFilter)->apply($document, ['  /pets  ', '', '   ', '/pets']);
+    [$document, $unmatched] = (new PathPrefixFilter)->apply($document, ['  /pets  ', '', '   ', '/pets']);
 
     expect($unmatched)->toBe([])
         ->and(remainingPaths($document))->toBe(['/orders']);
@@ -117,7 +117,7 @@ it('trims entries and drops empty and duplicate prefixes', function () {
 it('can exclude every path, leaving an empty path set', function () {
     $document = filterDocument(['/pets', '/pets/{id}']);
 
-    $unmatched = (new PathPrefixFilter)->apply($document, ['/']);
+    [$document, $unmatched] = (new PathPrefixFilter)->apply($document, ['/']);
 
     expect($unmatched)->toBe([])
         ->and(remainingPaths($document))->toBe([]);

@@ -8,6 +8,8 @@ use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationDescriptor;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
 /**
@@ -33,14 +35,14 @@ function collectWithConventions(array $paths): array
         ],
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
-    assert($spec instanceof OpenApi);
+    $spec = (new OpenApiReader)->read($document);
+    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $generator->generate($spec);
 
-    return (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($spec);
+    return (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($specCebe);
 }
 
 /**
@@ -103,12 +105,14 @@ it('maps a clean CRUD slice to the conventional method names, with route names f
 });
 
 it('collects deterministically: two runs over one spec yield equal descriptors', function () {
-    $document = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/server/petstore.yaml');
+    $parser104 = new SpecParser;
+    $document = $parser104->parseFileToDocument(__DIR__.'/../../../Fixtures/server/petstore.yaml');
+    $documentCebe = $parser104->buildCebeModel($document, __DIR__.'/../../../Fixtures/server/petstore.yaml');
     $generator = new ModelGenerator;
     $generator->generate($document);
 
-    $first = (new OperationCollector(new ServerOptions, $generator->registry()))->collect($document);
-    $second = (new OperationCollector(new ServerOptions, $generator->registry()))->collect($document);
+    $first = (new OperationCollector(new ServerOptions, $generator->registry()))->collect($documentCebe);
+    $second = (new OperationCollector(new ServerOptions, $generator->registry()))->collect($documentCebe);
 
     expect($second)->toEqual($first);
 });

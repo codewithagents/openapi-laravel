@@ -4,16 +4,15 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Emitter;
 
-use cebe\openapi\spec\MediaType;
-use cebe\openapi\spec\OpenApi;
-use cebe\openapi\spec\Operation;
-use cebe\openapi\spec\Parameter;
-use cebe\openapi\spec\PathItem;
-use cebe\openapi\spec\Reference;
-use cebe\openapi\spec\RequestBody;
-use cebe\openapi\spec\Response;
-use cebe\openapi\spec\Responses;
-use cebe\openapi\spec\Schema;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\MediaTypeNode;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OperationNode;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\ParameterNode;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\ReferenceNode;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\RequestBodyNode;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\ResponseNode;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\ResponsesNode;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\SchemaNode;
 
 /**
  * Resolves a {@see SubsetSelection} into the concrete set of component schemas
@@ -50,13 +49,19 @@ use cebe\openapi\spec\Schema;
  */
 final readonly class SchemaClosure
 {
+    /**
+     * The fixed HTTP methods the generator emits routes for. The OpenAPI 3.2
+     * `query` method and `additionalOperations` are deliberately absent: those
+     * constructs are dropped from the output (issue #102), so they never seed
+     * a closure or claim a schema either.
+     */
     private const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'trace'];
 
     /**
      * Resolve a selection against a parsed document. Returns the closed schema
      * set, the kept operation keys, and the unmatched (unknown) tags/schemas.
      */
-    public function resolve(OpenApi $document, SubsetSelection $selection): ResolvedClosure
+    public function resolve(OpenApiDocument $document, SubsetSelection $selection): ResolvedClosure
     {
         $schemas = $this->componentSchemas($document);
         $discriminators = new DiscriminatorRegistry($schemas);
@@ -83,10 +88,10 @@ final readonly class SchemaClosure
         if ($selection->tags !== []) {
             $wanted = array_fill_keys($selection->tags, false);
 
-            foreach ($this->pathItems($document) as $path => $pathItem) {
+            foreach ($document->paths as $path => $pathItem) {
                 foreach (self::HTTP_METHODS as $method) {
                     $operation = $pathItem->{$method} ?? null;
-                    if (! $operation instanceof Operation) {
+                    if (! $operation instanceof OperationNode) {
                         continue;
                     }
 
@@ -174,7 +179,7 @@ final readonly class SchemaClosure
      *
      * @return array<string, string> schema name => owning group
      */
-    public function attributeByTag(OpenApi $document): array
+    public function attributeByTag(OpenApiDocument $document): array
     {
         $schemas = $this->componentSchemas($document);
         $discriminators = new DiscriminatorRegistry($schemas);
@@ -183,10 +188,10 @@ final readonly class SchemaClosure
         // pseudo-owner: it participates in multi-group detection but never owns.
         /** @var array<string, array<string, true>> $seedsByGroup */
         $seedsByGroup = [];
-        foreach ($this->pathItems($document) as $pathItem) {
+        foreach ($document->paths as $pathItem) {
             foreach (self::HTTP_METHODS as $method) {
                 $operation = $pathItem->{$method} ?? null;
-                if (! $operation instanceof Operation) {
+                if (! $operation instanceof OperationNode) {
                     continue;
                 }
 
@@ -252,7 +257,7 @@ final readonly class SchemaClosure
      *
      * @return list<string>
      */
-    private function dependenciesOf(string $name, Schema $schema, DiscriminatorRegistry $discriminators): array
+    private function dependenciesOf(string $name, SchemaNode $schema, DiscriminatorRegistry $discriminators): array
     {
         $found = [];
         $this->collectRefs($schema, $found);
@@ -288,10 +293,10 @@ final readonly class SchemaClosure
      *
      * @param  array<string, true>  $found  accumulator, name => true
      */
-    private function collectRefs(Schema|Reference|null $node, array &$found): void
+    private function collectRefs(SchemaNode|ReferenceNode|null $node, array &$found): void
     {
-        if ($node instanceof Reference) {
-            $name = $this->refName($node->getReference());
+        if ($node instanceof ReferenceNode) {
+            $name = $this->refName($node->pointer());
             if ($name !== null) {
                 $found[$name] = true;
             }
@@ -299,38 +304,29 @@ final readonly class SchemaClosure
             return;
         }
 
-        if (! $node instanceof Schema) {
+        if (! $node instanceof SchemaNode) {
             return;
         }
 
         // Object properties.
-        $properties = $node->properties;
-        if (is_array($properties)) {
-            foreach ($properties as $property) {
-                $this->collectRefs($property instanceof Schema || $property instanceof Reference ? $property : null, $found);
-            }
+        foreach ($node->properties ?? [] as $property) {
+            $this->collectRefs($property, $found);
         }
 
         // Array items (the recursion handles arrays of arrays).
-        $items = $node->items;
-        if ($items instanceof Schema || $items instanceof Reference) {
-            $this->collectRefs($items, $found);
-        }
+        $this->collectRefs($node->items, $found);
 
         // additionalProperties value schema (typed map). A boolean value carries
         // no ref.
         $additional = $node->additionalProperties;
-        if ($additional instanceof Schema || $additional instanceof Reference) {
+        if ($additional instanceof SchemaNode || $additional instanceof ReferenceNode) {
             $this->collectRefs($additional, $found);
         }
 
         // Composition members.
-        foreach (['allOf', 'oneOf', 'anyOf'] as $keyword) {
-            $members = $node->{$keyword};
-            if (is_array($members)) {
-                foreach ($members as $member) {
-                    $this->collectRefs($member instanceof Schema || $member instanceof Reference ? $member : null, $found);
-                }
+        foreach ([$node->allOf, $node->oneOf, $node->anyOf] as $members) {
+            foreach ($members ?? [] as $member) {
+                $this->collectRefs($member, $found);
             }
         }
 
@@ -338,11 +334,8 @@ final readonly class SchemaClosure
         // members (a mapping can name a schema that is not listed), so they are
         // collected explicitly to keep the union resolvable.
         $discriminator = $node->discriminator;
-        if ($discriminator !== null && is_array($discriminator->mapping)) {
-            foreach ($discriminator->mapping as $target) {
-                if (! is_string($target)) {
-                    continue;
-                }
+        if ($discriminator !== null) {
+            foreach ($discriminator->mapping ?? [] as $target) {
                 $resolved = str_starts_with($target, '#/') ? $this->refName($target) : ($target === '' ? null : $target);
                 if ($resolved !== null) {
                     $found[$resolved] = true;
@@ -358,21 +351,21 @@ final readonly class SchemaClosure
      *
      * @return list<string>
      */
-    private function operationSchemaSeeds(Operation $operation): array
+    private function operationSchemaSeeds(OperationNode $operation): array
     {
         $found = [];
 
         $body = $operation->requestBody;
-        if ($body instanceof RequestBody) {
+        if ($body instanceof RequestBodyNode) {
             foreach ($this->contentSchemas($body->content) as $schema) {
                 $this->collectRefs($schema, $found);
             }
         }
 
         $responses = $operation->responses;
-        if ($responses instanceof Responses) {
-            foreach ($responses->getResponses() as $response) {
-                if ($response instanceof Response) {
+        if ($responses instanceof ResponsesNode) {
+            foreach ($responses->responses as $response) {
+                if ($response instanceof ResponseNode) {
                     foreach ($this->contentSchemas($response->content) as $schema) {
                         $this->collectRefs($schema, $found);
                     }
@@ -380,12 +373,9 @@ final readonly class SchemaClosure
             }
         }
 
-        $parameters = $operation->parameters;
-        if (is_array($parameters)) {
-            foreach ($parameters as $parameter) {
-                if ($parameter instanceof Parameter && ($parameter->schema instanceof Schema || $parameter->schema instanceof Reference)) {
-                    $this->collectRefs($parameter->schema, $found);
-                }
+        foreach ($operation->parameters as $parameter) {
+            if ($parameter instanceof ParameterNode && $parameter->schema !== null) {
+                $this->collectRefs($parameter->schema, $found);
             }
         }
 
@@ -395,17 +385,14 @@ final readonly class SchemaClosure
     /**
      * The schema of each media type in a content map (request body / response).
      *
-     * @return list<Schema|Reference>
+     * @param  array<string, MediaTypeNode>  $content
+     * @return list<SchemaNode|ReferenceNode>
      */
-    private function contentSchemas(mixed $content): array
+    private function contentSchemas(array $content): array
     {
-        if (! is_array($content)) {
-            return [];
-        }
-
         $result = [];
         foreach ($content as $media) {
-            if ($media instanceof MediaType && ($media->schema instanceof Schema || $media->schema instanceof Reference)) {
+            if ($media->schema !== null) {
                 $result[] = $media->schema;
             }
         }
@@ -416,16 +403,11 @@ final readonly class SchemaClosure
     /**
      * @return list<string>
      */
-    private function operationTags(Operation $operation): array
+    private function operationTags(OperationNode $operation): array
     {
-        $tags = $operation->tags;
-        if (! is_array($tags)) {
-            return [];
-        }
-
         $result = [];
-        foreach ($tags as $tag) {
-            if (is_string($tag) && trim($tag) !== '') {
+        foreach ($operation->tags as $tag) {
+            if (trim($tag) !== '') {
                 // Trim the spec's tag before matching: the selection names are
                 // already trimmed (SubsetSelection), so a whitespace-padded tag
                 // in the document still matches a clean --only-tags value.
@@ -437,9 +419,9 @@ final readonly class SchemaClosure
     }
 
     /**
-     * @return array<string, Schema>
+     * @return array<string, SchemaNode>
      */
-    private function componentSchemas(OpenApi $document): array
+    private function componentSchemas(OpenApiDocument $document): array
     {
         $components = $document->components;
         if ($components === null) {
@@ -448,28 +430,8 @@ final readonly class SchemaClosure
 
         $result = [];
         foreach ($components->schemas as $name => $schema) {
-            if ($schema instanceof Schema) {
+            if ($schema instanceof SchemaNode) {
                 $result[(string) $name] = $schema;
-            }
-        }
-
-        return $result;
-    }
-
-    /**
-     * @return array<string, PathItem>
-     */
-    private function pathItems(OpenApi $document): array
-    {
-        $paths = $document->paths;
-        if ($paths === null) {
-            return [];
-        }
-
-        $result = [];
-        foreach ($paths->getPaths() as $path => $pathItem) {
-            if ($pathItem instanceof PathItem) {
-                $result[(string) $path] = $pathItem;
             }
         }
 

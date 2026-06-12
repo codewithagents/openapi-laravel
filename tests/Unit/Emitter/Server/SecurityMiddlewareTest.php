@@ -8,6 +8,8 @@ use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\RouteGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 
 /**
  * Issue #77, end to end through the collector and the route generator: the
@@ -24,14 +26,15 @@ use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
  */
 function securedRoutesRun(array $document, array $middlewareMap = []): array
 {
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $generator->generate($spec);
     $options = new ServerOptions(securityMiddlewareMap: $middlewareMap);
     $collector = new OperationCollector($options, $generator->registry(), null, $generator);
-    $descriptors = $collector->collect($spec);
+    $descriptors = $collector->collect($specCebe);
     $code = (new RouteGenerator($options))->generate($descriptors)->code;
 
     return [$code, $collector->warnings()];
@@ -169,8 +172,9 @@ it('escapes quotes and backslashes in mapped middleware names', function () {
 });
 
 it('combines security middleware on the routes with a configured route group (#71)', function () {
-    $spec = Reader::readFromJson((string) json_encode(securedPetstore()), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read(securedPetstore());
+    $specCebe = Reader::readFromJson((string) json_encode(securedPetstore()), OpenApi::class);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $generator->generate($spec);
@@ -179,7 +183,7 @@ it('combines security middleware on the routes with a configured route group (#7
         routePrefix: 'v1',
         securityMiddlewareMap: ['bearerAuth' => ['auth:sanctum'], 'apiKey' => ['auth.apikey']],
     );
-    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($spec);
+    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($specCebe);
     $code = (new RouteGenerator($options))->generate($descriptors)->code;
 
     expect($code)->toContain("Route::middleware(['api'])->prefix('v1')->group(function (): void {")

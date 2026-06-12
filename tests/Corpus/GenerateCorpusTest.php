@@ -12,7 +12,7 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  * equivalent of running `php -l` on each generated file.
  */
 it('generates syntactically valid PHP for every corpus spec', function (string $path) {
-    $document = (new SpecParser)->parseFile($path);
+    $document = (new SpecParser)->parseFileToDocument($path);
     $files = (new ModelGenerator)->generate($document);
 
     foreach ($files as $file) {
@@ -57,7 +57,7 @@ it('generates syntactically valid PHP for every corpus spec', function (string $
  */
 it('types a curated corpus object-union oneOf as mixed with a variant docblock (issue #31, ably_control)', function () {
     $path = __DIR__.'/../Fixtures/specs/ably_control.json';
-    $document = (new SpecParser)->parseFile($path);
+    $document = (new SpecParser)->parseFileToDocument($path);
     $files = (new ModelGenerator)->generate($document);
 
     expect($files)->toHaveKey('AwsLambdaRulePostTargetData');

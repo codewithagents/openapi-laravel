@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Emitter;
 
-use cebe\openapi\spec\Operation;
 use CodeWithAgents\OpenApiLaravel\Naming\PhpIdentifier;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OperationNode;
 
 /**
  * The single naming point for the opt-in tag-grouped data layout (issue #93):
@@ -58,7 +58,7 @@ final class TagGroups
      * 'Untagged' pseudo-group. The first-tag rule is the controller-naming
      * rule, so the data layout always mirrors the controller layout.
      */
-    public static function forOperation(Operation $operation): ?string
+    public static function forOperation(OperationNode $operation): ?string
     {
         return self::forTag(self::firstTag($operation));
     }
@@ -67,15 +67,11 @@ final class TagGroups
      * The first non-blank tag of an operation, or 'Untagged'. Mirrors the
      * operation collector's controller naming exactly.
      */
-    public static function firstTag(Operation $operation): string
+    public static function firstTag(OperationNode $operation): string
     {
-        $tags = $operation->tags;
-
-        if (is_array($tags)) {
-            foreach ($tags as $tag) {
-                if (is_string($tag) && trim($tag) !== '') {
-                    return $tag;
-                }
+        foreach ($operation->tags as $tag) {
+            if (trim($tag) !== '') {
+                return $tag;
             }
         }
 

@@ -8,6 +8,7 @@ use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
 use CodeWithAgents\OpenApiLaravel\Parser\SchemaNormalizer;
 use CodeWithAgents\OpenApiLaravel\Tests\TestCase;
 use Illuminate\Validation\ValidationException;
@@ -85,12 +86,13 @@ function inlineBodyOracleClass(): string
 
     $decoded = json_decode((string) json_encode($document), true);
     $normalized = SchemaNormalizer::normalize($decoded);
-    $spec = Reader::readFromJson((string) json_encode($normalized), OpenApi::class);
+    $spec = (new OpenApiReader)->read($normalized);
+    $specCebe = Reader::readFromJson((string) json_encode($normalized), OpenApi::class);
 
     $namespace = 'InlineBodyOracle\\Models';
     $generator = new ModelGenerator(new GeneratorOptions($namespace));
     $files = $generator->generate($spec);
-    (new OperationCollector(new ServerOptions(dataNamespace: $namespace), $generator->registry(), null, $generator))->collect($spec);
+    (new OperationCollector(new ServerOptions(dataNamespace: $namespace), $generator->registry(), null, $generator))->collect($specCebe);
 
     $dir = sys_get_temp_dir().'/oal_inline_body_oracle_'.getmypid();
     if (! is_dir($dir)) {

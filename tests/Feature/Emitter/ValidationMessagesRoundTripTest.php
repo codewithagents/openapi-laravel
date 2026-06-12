@@ -3,11 +3,11 @@
 declare(strict_types=1);
 
 use App\MsgData\CustomerData;
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -21,7 +21,7 @@ use Illuminate\Validation\ValidationException;
  * of the generated file set, a regenerate is byte-identical, and the custom
  * message still surfaces after the generated files are rewritten on disk.
  */
-function msgRoundTripSpec(): OpenApi
+function msgRoundTripSpec(): OpenApiDocument
 {
     $document = [
         'openapi' => '3.0.3',
@@ -39,8 +39,8 @@ function msgRoundTripSpec(): OpenApi
         ]],
     ];
 
-    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
-    expect($spec)->toBeInstanceOf(OpenApi::class);
+    $spec = (new OpenApiReader)->read($document);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     return $spec;
 }
