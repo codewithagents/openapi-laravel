@@ -660,7 +660,7 @@ final class OpenApiReader
                     if (is_string($value)) {
                         $type = $value;
                     } elseif (is_array($value)) {
-                        $type = array_values(array_filter($value, is_string(...)));
+                        $type = array_values(array_filter($value, static fn (mixed $entry): bool => is_string($entry)));
                     } else {
                         $extra['type'] = $value;
                     }
@@ -706,7 +706,7 @@ final class OpenApiReader
                     if (is_bool($value)) {
                         $required = $value;
                     } elseif (is_array($value)) {
-                        $required = array_values(array_filter($value, is_string(...)));
+                        $required = array_values(array_filter($value, static fn (mixed $entry): bool => is_string($entry)));
                     } else {
                         $extra['required'] = $value;
                     }
@@ -796,9 +796,7 @@ final class OpenApiReader
                     // closed-tuple bound already synthesized above.
                     if ($value === true) {
                         $items = new SchemaNode;
-                    } elseif ($value === false) {
-                        // Dropped.
-                    } else {
+                    } elseif ($value !== false) {
                         $items = $this->subschema($value, $depth + 1);
                         if ($items === null) {
                             $extra['items'] = $value;
@@ -810,7 +808,7 @@ final class OpenApiReader
                         $dependentRequired = [];
                         foreach ($value as $property => $dependents) {
                             if (is_array($dependents)) {
-                                $dependentRequired[(string) $property] = array_values(array_filter($dependents, is_string(...)));
+                                $dependentRequired[(string) $property] = array_values(array_filter($dependents, static fn (mixed $entry): bool => is_string($entry)));
                             }
                         }
                     } else {
@@ -1044,7 +1042,7 @@ final class OpenApiReader
                     $warnings[] = sprintf(
                         'OpenAPI 3.2 `query` operation at %s.%s was dropped: QUERY routes are not generated yet. Tracked in issue #102 (%s).',
                         $section,
-                        (string) $route,
+                        $route,
                         self::ISSUE_102_URL,
                     );
                 }
@@ -1053,7 +1051,7 @@ final class OpenApiReader
                     $warnings[] = sprintf(
                         'OpenAPI 3.2 `additionalOperations` at %s.%s were dropped: custom-method routes are not generated yet. Tracked in issue #102 (%s).',
                         $section,
-                        (string) $route,
+                        $route,
                         self::ISSUE_102_URL,
                     );
                 }
@@ -1094,7 +1092,7 @@ final class OpenApiReader
                         $warnings[] = sprintf(
                             'OpenAPI 3.2 `itemSchema` at %s.%s was dropped: sequential media types are not read yet. Tracked in issue #102 (%s).',
                             $here,
-                            (string) $mediaType,
+                            $mediaType,
                             self::ISSUE_102_URL,
                         );
                     }
@@ -1113,14 +1111,11 @@ final class OpenApiReader
      */
     private function extensions(array $raw): array
     {
-        $extensions = [];
-        foreach ($raw as $key => $value) {
-            if (is_string($key) && str_starts_with($key, 'x-')) {
-                $extensions[$key] = $value;
-            }
-        }
-
-        return $extensions;
+        return array_filter(
+            $raw,
+            static fn (int|string $key): bool => is_string($key) && str_starts_with($key, 'x-'),
+            ARRAY_FILTER_USE_KEY,
+        );
     }
 
     /**

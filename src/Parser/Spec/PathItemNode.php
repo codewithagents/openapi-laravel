@@ -63,12 +63,10 @@ final readonly class PathItemNode
             'query' => $this->query,
         ];
 
-        $operations = [];
-        foreach ($fixed as $method => $operation) {
-            if ($operation instanceof OperationNode) {
-                $operations[$method] = $operation;
-            }
-        }
+        $operations = array_filter(
+            $fixed,
+            static fn (?OperationNode $operation): bool => $operation instanceof OperationNode,
+        );
 
         foreach ($this->additionalOperations ?? [] as $method => $operation) {
             $operations[strtolower($method)] = $operation;
