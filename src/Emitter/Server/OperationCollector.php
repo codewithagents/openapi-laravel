@@ -32,9 +32,10 @@ use CodeWithAgents\OpenApiLaravel\Parser\Spec\SchemaNode;
  * class through the model generator (issue #76), and a multipart/form-data
  * object body does the same with UploadedFile typing for its binary parts
  * (issue #75); when a type cannot be derived the collector falls back to
- * injecting Request / returning JsonResponse, and every such fallback is
- * surfaced through the warnings channel (issue #67) so the degradation is
- * visible at generation time.
+ * injecting Request / returning JsonResponse (or the base Symfony Response
+ * for a response that declares only non-JSON content, issues #117/#118), and
+ * every such fallback is surfaced through the warnings channel (issue #67)
+ * so the degradation is visible at generation time.
  *
  * Output is deterministic: descriptors are sorted by path, then by a fixed
  * HTTP-method order, and method names are made unique per controller.
@@ -60,6 +61,19 @@ final class OperationCollector
     private const JSON_RESPONSE_FQCN = 'Illuminate\\Http\\JsonResponse';
 
     private const JSON_RESPONSE_SHORT = 'JsonResponse';
+
+    /**
+     * The return type of a success response whose declared content is
+     * non-JSON only (issues #117/#118): the common ancestor of every HTTP
+     * response Laravel can send (HTML, plain text, binary downloads,
+     * streams), so the implementer can return a BinaryFileResponse, a
+     * StreamedResponse, or any other subclass. Deliberately NOT a union of
+     * those subclasses: Response is their parent, the union would be
+     * redundant and PHPStan-hostile.
+     */
+    private const RESPONSE_FQCN = 'Symfony\\Component\\HttpFoundation\\Response';
+
+    private const RESPONSE_SHORT = 'Response';
 
     private const DATA_COLLECTION_FQCN = 'Spatie\\LaravelData\\DataCollection';
 
@@ -1124,6 +1138,15 @@ final class OperationCollector
      * ONE shared `<Component>ResponseData` class for every referencing
      * operation through the model generator's emission pipeline.
      *
+     * A response whose declared content is non-JSON ONLY (text/html, binary
+     * downloads, anything without an `application/json` or `+json` entry) is
+     * typed as the base Symfony Response with a warning (issues #117/#118):
+     * JsonResponse would be actively wrong typing there. JSON wins whenever
+     * it is declared alongside anything else, exactly as before, and a
+     * response with NO declared content at all keeps the JsonResponse
+     * fallback: the spec says nothing about the body, so the established
+     * default stands rather than widening every schema-less response.
+     *
      * @param  list<string>  $imports
      * @param  string  $label  "GET /pets", for warning messages
      * @return array{0: string, 1: ?string, 2: ?int} returnType, returnDoc, successStatus
@@ -1208,9 +1231,58 @@ final class OperationCollector
             }
         }
 
+        // A response that declares content but NO JSON media type (issues
+        // #117/#118): JsonResponse would assert a JSON body the spec never
+        // promised, so the method is typed as the base Symfony Response (the
+        // parent of BinaryFileResponse, StreamedResponse, and every HTML or
+        // plain-text response an implementation may return) with a warning.
+        // Reached for inline and resolved component responses alike. JSON
+        // declared alongside anything else never lands here (JSON wins), and
+        // a JSON entry that merely lacks a schema keeps the JsonResponse
+        // fallback below: the spec still promises JSON.
+        $nonJson = $this->nonJsonMediaTypes($response->content);
+        if ($nonJson !== []) {
+            $this->warnings[sprintf(
+                'Operation %s: the response declares no JSON media type (%s); the method returns the base Response type and no typed Data return is generated.',
+                $label,
+                implode(', ', $nonJson),
+            )] = true;
+            $imports[] = self::RESPONSE_FQCN;
+
+            return [self::RESPONSE_SHORT, null, $status];
+        }
+
         $imports[] = self::JSON_RESPONSE_FQCN;
 
         return [self::JSON_RESPONSE_SHORT, null, $status];
+    }
+
+    /**
+     * The declared media types of a content map that carries NO JSON entry
+     * (issues #117/#118), in spec order for the warning text. Empty when the
+     * map is empty (no declared content: the spec says nothing, the caller
+     * keeps the JsonResponse default) or when ANY entry is JSON (JSON wins,
+     * whether or not it carries a schema).
+     *
+     * @param  array<array-key, MediaTypeNode>  $content
+     * @return list<string>
+     */
+    private function nonJsonMediaTypes(array $content): array
+    {
+        $types = [];
+        foreach (array_keys($content) as $mediaType) {
+            if (! is_string($mediaType)) {
+                continue;
+            }
+
+            if ($this->isJsonMediaType($mediaType)) {
+                return [];
+            }
+
+            $types[] = $mediaType;
+        }
+
+        return $types;
     }
 
     /**

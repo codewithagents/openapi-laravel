@@ -119,7 +119,7 @@ it('enforces a declared 201 even when its body is untyped (issue #64)', function
         ->and($descriptor->needsStatusMiddleware())->toBeTrue();
 });
 
-it('falls back to JsonResponse for a non-JSON binary success response', function () {
+it('types a non-JSON binary success response as the base Response (#118)', function () {
     $descriptor = collectSingleOperation([
         '200' => [
             'description' => 'binary',
@@ -127,8 +127,10 @@ it('falls back to JsonResponse for a non-JSON binary success response', function
         ],
     ]);
 
-    // A binary body has no application/json schema: degrade to JsonResponse
-    // (safe, lossy), never void or mixed.
-    expect($descriptor->returnType)->toBe('JsonResponse')
-        ->and($descriptor->imports)->toContain('Illuminate\\Http\\JsonResponse');
+    // A binary body has no application/json schema: the method is typed as
+    // the base Symfony Response (issues #117/#118), never JsonResponse
+    // (which would assert a JSON body the spec never promised), void, or
+    // mixed. The selection policy itself is unchanged.
+    expect($descriptor->returnType)->toBe('Response')
+        ->and($descriptor->imports)->toContain('Symfony\\Component\\HttpFoundation\\Response');
 });

@@ -736,6 +736,26 @@ it('synthesizes the shared component-response class through the full rules pipel
         ->and($code)->toContain("'newestName' => ['sometimes', 'string'],");
 });
 
+// --- Non-JSON responses typed as the base Response (#117/#118) --------------
+
+it('types non-JSON-only responses as the base Symfony Response in the abstract controllers (#117/#118)', function () {
+    [$controllers] = conformance31Server();
+
+    // The text/html-only report (#117) and the octet-stream binary blob
+    // (#118) both return the base Response: the parent of BinaryFileResponse
+    // and StreamedResponse, so any concrete response subclass satisfies the
+    // signature, and JsonResponse no longer asserts a JSON body the spec
+    // never promised.
+    expect($controllers)->toHaveKey('AbstractReportsController');
+    expect($controllers['AbstractReportsController']->code)
+        ->toContain('use Symfony\Component\HttpFoundation\Response;')
+        ->toContain('abstract public function index(): Response;');
+
+    expect($controllers['AbstractWidgetsController']->code)
+        ->toContain('use Symfony\Component\HttpFoundation\Response;')
+        ->toContain('abstract public function index(int $widgetId): Response;');
+});
+
 // --- 3.0 nullable spellings ------------------------------------------------
 
 it('keeps 3.0 nullable:true objects and enums valid (conformance-3.0-forms)', function () {

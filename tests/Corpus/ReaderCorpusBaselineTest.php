@@ -165,6 +165,75 @@ const READER_BASELINE_REBASELINED_116 = [
     'xero.json' => 'schema-$ref component responses typed against existing Data classes (hash also carries #110)',
 ];
 
+/*
+ * INTENTIONAL post-freeze rebaseline (#120, issues #117/#118): the
+ * thirty-six specs in READER_BASELINE_REBASELINED_120 carry a post-#120
+ * hash, because they declare at least one selected success response whose
+ * content has NO JSON media type (text/html, text/plain, XML, or binary
+ * downloads such as octet-stream, pdf, image/*, audio, csv). v0.11.0 typed
+ * those methods JsonResponse silently, which asserts a JSON body the spec
+ * never promised; #120 types them as the base Symfony Response (the parent
+ * of BinaryFileResponse and StreamedResponse, so any concrete response
+ * subclass satisfies the signature) and warns per operation naming the
+ * declared media types. Every divergence is the same single mechanical
+ * change: JsonResponse becomes Response in the affected signatures plus one
+ * warning line per affected operation. The aws_* SOAP-style specs and
+ * docusign dominate the counts because they declare text/xml-only responses
+ * on essentially every operation. A spec also present in an earlier
+ * rebaseline list accumulates the changes; every spec outside the rebaseline
+ * lists stays the frozen v0.11.0 freeze, byte for byte.
+ */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-#120 output
+ * (non-JSON-only success responses typed as the base Symfony Response with a
+ * per-operation warning, issues #117/#118), keyed by spec basename, with the
+ * number of affected operations for auditability. The per-spec test below
+ * still compares against the JSON baseline, which now holds these specs'
+ * post-#120 hashes; the coverage test pins that every listed name exists on
+ * disk and in the baseline, so the list cannot rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_120 = [
+    '1password-connect.yaml' => '3 non-JSON-only responses typed as base Response',
+    'apple_appstore.json' => '2 non-JSON-only responses typed as base Response',
+    'aws_cloudformation.json' => '124 non-JSON-only (text/xml) responses typed as base Response',
+    'aws_iam.json' => '170 non-JSON-only (text/xml) responses typed as base Response',
+    'aws_rds.json' => '260 non-JSON-only (text/xml) responses typed as base Response',
+    'aws_s3.json' => '57 non-JSON-only (text/xml) responses typed as base Response',
+    'aws_sns.json' => '62 non-JSON-only (text/xml) responses typed as base Response',
+    'aws_sqs.json' => '22 non-JSON-only (text/xml) responses typed as base Response',
+    'box.json' => '4 non-JSON-only (binary download) responses typed as base Response',
+    'bungie.json' => '134 non-JSON-only responses typed as base Response',
+    'clevercloud.json' => '30 non-JSON-only responses typed as base Response',
+    'clicksend.json' => '1 non-JSON-only response typed as base Response',
+    'codat_accounting.json' => '7 non-JSON-only responses typed as base Response',
+    'digitalocean.json' => '3 non-JSON-only responses typed as base Response',
+    'docker.json' => '3 non-JSON-only responses typed as base Response',
+    'docusign.json' => '345 non-JSON-only responses typed as base Response',
+    'dracoon.json' => '3 non-JSON-only responses typed as base Response',
+    'ebay_fulfillment.json' => '1 non-JSON-only response typed as base Response',
+    'ebay_marketing.json' => '1 non-JSON-only response typed as base Response',
+    'elevenlabs.json' => '3 non-JSON-only (audio) responses typed as base Response',
+    'github.json' => '4 non-JSON-only responses typed as base Response',
+    'here_tracking.json' => '1 non-JSON-only response typed as base Response',
+    'linode.json' => '1 non-JSON-only response typed as base Response',
+    'openai.yaml' => '2 non-JSON-only responses typed as base Response',
+    'pinecone.json' => '5 non-JSON-only responses typed as base Response',
+    'plaid.json' => '3 non-JSON-only responses typed as base Response',
+    'redocly-museum.yaml' => '1 non-JSON-only (pdf ticket) response typed as base Response',
+    'shutterstock.json' => '1 non-JSON-only response typed as base Response',
+    'snyk.json' => '7 non-JSON-only responses typed as base Response',
+    'stackexchange.json' => '123 non-JSON-only responses typed as base Response',
+    'stripe.json' => '1 non-JSON-only response typed as base Response',
+    'wolfram.json' => '2 non-JSON-only responses typed as base Response',
+    'wordnik.json' => '16 non-JSON-only responses typed as base Response',
+    'worldtime.json' => '6 non-JSON-only responses typed as base Response',
+    'xero.json' => '26 non-JSON-only responses typed as base Response',
+    'zuora.json' => '1 non-JSON-only response typed as base Response',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -233,11 +302,11 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
             ->and(READER_BASELINE_POST_FREEZE_SPECS)->not->toHaveKey($rebaselined);
     }
 
-    // Every spec rebaselined for #110 or #116 must still exist on disk and
-    // carry a hash in the baseline (it is an update, not an exemption): a
-    // renamed or deleted spec would make the documented rebaseline lists rot
-    // silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116)] as $spec) {
+    // Every spec rebaselined for #110, #116, or #120 must still exist on
+    // disk and carry a hash in the baseline (it is an update, not an
+    // exemption): a renamed or deleted spec would make the documented
+    // rebaseline lists rot silently.
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }

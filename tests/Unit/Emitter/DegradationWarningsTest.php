@@ -510,10 +510,32 @@ it('stays silent for a resolved component response without JSON content (issue #
         ],
     ]);
 
-    // The $ref resolves (issue #116); a resolved response with no JSON
-    // content keeps the same silent JsonResponse fallback an inline non-JSON
-    // response takes.
+    // The $ref resolves (issue #116); a resolved response with NO declared
+    // content at all keeps the silent JsonResponse default (deliberate,
+    // issues #117/#118: the spec says nothing about the body, unlike a
+    // response that declares non-JSON content, which warns and types the
+    // base Response).
     expect($warnings)->toBe([]);
+});
+
+it('warns and types the base Response for a response declaring only non-JSON content (issues #117/#118)', function () {
+    [$warnings] = degradationCollectorRun([
+        '/report' => [
+            'get' => [
+                'operationId' => 'getReport',
+                'responses' => [
+                    '200' => [
+                        'description' => 'an HTML page',
+                        'content' => ['text/html' => ['schema' => ['type' => 'string']]],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    expect($warnings)->toContain(
+        'Operation GET /report: the response declares no JSON media type (text/html); the method returns the base Response type and no typed Data return is generated.',
+    );
 });
 
 it('warns when a component response resolves to an inline non-object schema (issue #116)', function () {
