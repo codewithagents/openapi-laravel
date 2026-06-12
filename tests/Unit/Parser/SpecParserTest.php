@@ -91,6 +91,71 @@ it('accepts an OpenAPI 3.1 document', function () {
     expect((new SpecParser)->parseFile($path)->openapi)->toBe('3.1.0');
 });
 
+// #103: exact version gating instead of the old `3.` prefix check. 3.0.x and
+// 3.1.x are fully supported (no warnings); 3.2.x is accepted best-effort with
+// a loud warning plus one warning per dropped 3.2-only construct; anything
+// else is rejected with an error naming the supported matrix.
+
+it('accepts every supported version band without warnings', function (string $version) {
+    $path = writeTempSpec('band.json', '{"openapi":"'.$version.'","info":{"title":"T","version":"1.0.0"},"paths":{}}');
+
+    $parser = new SpecParser;
+
+    expect($parser->parseFile($path)->openapi)->toBe($version)
+        ->and($parser->warnings())->toBe([]);
+})->with(['3.0.0', '3.0.4', '3.1.0', '3.1.1']);
+
+it('accepts a 3.2 document best-effort with a loud warning naming #102 and the version matrix', function () {
+    $path = writeTempSpec('v32.json', '{"openapi":"3.2.0","info":{"title":"T","version":"1.0.0"},"paths":{}}');
+
+    $parser = new SpecParser;
+    $document = $parser->parseFile($path);
+
+    expect($document->openapi)->toBe('3.2.0')
+        ->and($parser->warnings())->toHaveCount(1)
+        ->and($parser->warnings()[0])->toContain('OpenAPI 3.2 is not fully supported yet')
+        ->and($parser->warnings()[0])->toContain('accepted best-effort')
+        ->and($parser->warnings()[0])->toContain('https://github.com/codewithagents/openapi-laravel/issues/102')
+        ->and($parser->warnings()[0])->toContain('Supported versions: OpenAPI 3.0.x and 3.1.x')
+        ->and($parser->warnings()[0])->toContain('https://openapi-laravel.codewithagents.de/guides/openapi-versions/');
+});
+
+it('emits one warning per dropped 3.2 construct: query, additionalOperations, itemSchema', function () {
+    $parser = new SpecParser;
+    $parser->parseFile(__DIR__.'/../../Fixtures/edge/openapi-3.2-constructs.yaml');
+
+    $warnings = $parser->warnings();
+
+    // The headline best-effort warning plus exactly one per construct.
+    expect($warnings)->toHaveCount(4)
+        ->and(implode("\n", $warnings))
+        ->toContain('OpenAPI 3.2 `query` operation at paths./things was dropped: QUERY routes are not generated yet.')
+        ->toContain('OpenAPI 3.2 `additionalOperations` at paths./things were dropped: custom-method routes are not generated yet.')
+        ->toContain('OpenAPI 3.2 `itemSchema` at paths./things/stream.get.responses.200.content.application/jsonl was dropped: sequential media types are not read yet.');
+});
+
+it('resets the warnings between parses', function () {
+    $v32 = writeTempSpec('v32.json', '{"openapi":"3.2.0","info":{"title":"T","version":"1.0.0"},"paths":{}}');
+    $v30 = writeTempSpec('v30.json', MINIMAL_JSON);
+
+    $parser = new SpecParser;
+
+    $parser->parseFile($v32);
+    expect($parser->warnings())->not->toBe([]);
+
+    $parser->parseFile($v30);
+    expect($parser->warnings())->toBe([]);
+});
+
+it('rejects an unsupported version naming the supported matrix', function (string $version) {
+    $path = writeTempSpec('unsupported.json', '{"openapi":"'.$version.'","info":{"title":"T","version":"1.0.0"},"paths":{}}');
+
+    expect(fn () => (new SpecParser)->parseFile($path))
+        ->toThrow(ParseException::class, "Unsupported OpenAPI version '{$version}'")
+        ->toThrow(ParseException::class, 'Supported versions: OpenAPI 3.0.x and 3.1.x (fully), 3.2.x (accepted best-effort with warnings)')
+        ->toThrow(ParseException::class, 'https://openapi-laravel.codewithagents.de/guides/openapi-versions/');
+})->with(['2.0', '3.3.0', '4.0.0', '4.1.0', '30.0.0', 'garbage']);
+
 // B-1: a pre-parse size guard bounds the cost of YAML alias/anchor expansion.
 
 it('rejects a spec larger than the configured size limit', function () {

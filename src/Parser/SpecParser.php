@@ -14,7 +14,8 @@ use Throwable;
 
 /**
  * Reads an OpenAPI 3.0/3.1 document from disk and returns the cebe object
- * model. Format is detected from the file extension, falling back to sniffing
+ * model (3.2 is accepted best-effort with warnings, anything else is rejected,
+ * issue #103). Format is detected from the file extension, falling back to sniffing
  * the first meaningful byte. All underlying parser failures are normalised to
  * {@see ParseException}.
  *
@@ -38,15 +39,44 @@ final class SpecParser
      */
     public const DEFAULT_MAX_BYTES = 25_165_824; // 24 MiB
 
+    /**
+     * The canonical statement of the supported version matrix (issue #103).
+     * Both the rejection error and the 3.2 best-effort warning point here so
+     * the docs page stays the single source of truth.
+     */
+    private const VERSION_MATRIX_URL = 'https://openapi-laravel.codewithagents.de/guides/openapi-versions/';
+
+    private const ISSUE_102_URL = 'https://github.com/codewithagents/openapi-laravel/issues/102';
+
+    private const SUPPORTED_MATRIX = 'Supported versions: OpenAPI 3.0.x and 3.1.x (fully), 3.2.x (accepted best-effort with warnings). See '.self::VERSION_MATRIX_URL;
+
     private readonly int $maxBytes;
+
+    /** @var list<string> */
+    private array $warnings = [];
 
     public function __construct(?int $maxBytes = null)
     {
         $this->maxBytes = $maxBytes ?? self::DEFAULT_MAX_BYTES;
     }
 
+    /**
+     * Non-fatal diagnostics from the most recent parseFile() call (issue #103):
+     * a 3.2 document is accepted best-effort, and every 3.2-only construct the
+     * generator would silently drop is reported here, one warning per
+     * occurrence. Empty for a fully supported 3.0.x/3.1.x document.
+     *
+     * @return list<string>
+     */
+    public function warnings(): array
+    {
+        return $this->warnings;
+    }
+
     public function parseFile(string $path, bool $validate = false): OpenApi
     {
+        $this->warnings = [];
+
         if (! is_file($path) || ! is_readable($path)) {
             throw new ParseException("OpenAPI spec not found or not readable: {$path}");
         }
@@ -68,14 +98,14 @@ final class SpecParser
         MemoryGuard::arm($absolute, $this->maxBytes);
 
         try {
-            $document = $this->readDocument($absolute);
+            [$document, $raw] = $this->readDocument($absolute);
         } catch (Throwable $e) {
             throw new ParseException("Failed to parse OpenAPI spec ({$path}): {$e->getMessage()}", 0, $e);
         } finally {
             MemoryGuard::disarm();
         }
 
-        $this->assertOpenApiDocument($document, $path);
+        $this->assertOpenApiDocument($document, $path, $raw);
 
         if ($validate && ! $document->validate()) {
             $errors = implode('; ', $document->getErrors());
@@ -102,12 +132,18 @@ final class SpecParser
      * non-absolute base URI as ParseException, all keeping the original as the
      * chained previous exception.
      *
+     * Returns the cebe object model TOGETHER with the normalised raw array, so
+     * the version gate (#103) can scan for raw keys the object model does not
+     * carry (the 3.2-only constructs cebe silently ignores).
+     *
+     * @return array{0: OpenApi, 1: array<array-key, mixed>}
+     *
      * @throws \Symfony\Component\Yaml\Exception\ParseException when the YAML is malformed
      * @throws \JsonException when the JSON is malformed
      * @throws TypeErrorException when the document data is ill-typed
      * @throws UnresolvableReferenceException when the base URI is not absolute
      */
-    private function readDocument(string $absolute): OpenApi
+    private function readDocument(string $absolute): array
     {
         $contents = (string) file_get_contents($absolute);
 
@@ -116,8 +152,9 @@ final class SpecParser
             : json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
 
         $data = SchemaNormalizer::normalize($data);
+        $raw = is_array($data) ? $data : [];
 
-        $document = new OpenApi(is_array($data) ? $data : []);
+        $document = new OpenApi($raw);
 
         // Establish the same base-URI reference context cebe's file readers set,
         // so any later $ref handling keeps the document's path. We do NOT resolve
@@ -127,7 +164,7 @@ final class SpecParser
         $document->setReferenceContext($context);
         $document->setDocumentContext($document, new JsonPointer(''));
 
-        return $document;
+        return [$document, $raw];
     }
 
     /**
@@ -150,27 +187,135 @@ final class SpecParser
     }
 
     /**
-     * Lightweight structural check (A-1). cebe is invoked with validate:false so
-     * a Swagger 2.0, non-OpenAPI, or empty document otherwise parses into an
-     * OpenApi object full of nulls and the generator silently produces nothing.
-     * We require an OpenAPI 3.x version string and an info object, naming what we
-     * actually found, rather than switching to full cebe validation (which would
-     * risk rejecting currently-working corpus specs).
+     * Lightweight structural check (A-1) plus the exact version gate (#103).
+     * cebe is invoked with validate:false so a Swagger 2.0, non-OpenAPI, or
+     * empty document otherwise parses into an OpenApi object full of nulls and
+     * the generator silently produces nothing. We require an `openapi` version
+     * string and an info object, naming what we actually found, rather than
+     * switching to full cebe validation (which would risk rejecting
+     * currently-working corpus specs).
+     *
+     * The version is gated on the exact minor, not a `3.` prefix: 3.0.x and
+     * 3.1.x are fully supported; 3.2.x is accepted best-effort with a loud
+     * warning plus one warning per 3.2-only construct the generator drops
+     * (`query` operations, `additionalOperations`, `itemSchema` media types,
+     * scanned in the raw array because cebe silently ignores them); anything
+     * else is rejected with an error naming the supported matrix.
+     *
+     * @param  array<array-key, mixed>  $raw  the normalised raw document data
      */
-    private function assertOpenApiDocument(OpenApi $document, string $path): void
+    private function assertOpenApiDocument(OpenApi $document, string $path, array $raw): void
     {
         $version = $document->openapi;
 
         if (! is_string($version) || $version === '') {
-            throw new ParseException("Not an OpenAPI 3.x document ({$path}): missing 'openapi' version string. Swagger 2.0 and other formats are not supported.");
+            throw new ParseException("Not an OpenAPI 3.x document ({$path}): missing 'openapi' version string. Swagger 2.0 and other formats are not supported. ".self::SUPPORTED_MATRIX);
         }
 
-        if (! str_starts_with($version, '3.')) {
-            throw new ParseException("Unsupported OpenAPI version '{$version}' ({$path}): only 3.x documents are supported.");
+        if (preg_match('/^3\.(\d+)(?:[.\-+]|$)/', $version, $matches) !== 1 || ! in_array((int) $matches[1], [0, 1, 2], true)) {
+            throw new ParseException("Unsupported OpenAPI version '{$version}' ({$path}). ".self::SUPPORTED_MATRIX);
         }
 
         if ($document->info === null) {
             throw new ParseException("Not a valid OpenAPI document ({$path}): missing required 'info' object.");
+        }
+
+        if ((int) $matches[1] === 2) {
+            $this->warnings[] = sprintf(
+                "OpenAPI 3.2 is not fully supported yet: '%s' (%s) is accepted best-effort, and 3.2-only constructs are dropped from the generated output. Full 3.2 support is tracked in issue #102 (%s). %s",
+                $version,
+                $path,
+                self::ISSUE_102_URL,
+                self::SUPPORTED_MATRIX,
+            );
+            $this->warnings = [...$this->warnings, ...$this->scanDropped32Constructs($raw)];
+        }
+    }
+
+    /**
+     * One warning per 3.2-only construct occurrence the generator silently
+     * drops (issue #103). The scan reads raw keys only: cebe's object model
+     * ignores unknown Path Item and Media Type members, so the raw array is
+     * the only place these constructs are still visible.
+     *
+     * @param  array<array-key, mixed>  $raw
+     * @return list<string>
+     */
+    private function scanDropped32Constructs(array $raw): array
+    {
+        $warnings = [];
+
+        // The 3.2 Path Item Object gains `query` (a QUERY method operation)
+        // and `additionalOperations` (custom-method operations). Both live
+        // directly on the path items under `paths` (and 3.2 `webhooks`).
+        foreach (['paths', 'webhooks'] as $section) {
+            $items = $raw[$section] ?? null;
+            if (! is_array($items)) {
+                continue;
+            }
+
+            foreach ($items as $route => $item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+
+                if (array_key_exists('query', $item)) {
+                    $warnings[] = sprintf(
+                        'OpenAPI 3.2 `query` operation at %s.%s was dropped: QUERY routes are not generated yet. Tracked in issue #102 (%s).',
+                        $section,
+                        (string) $route,
+                        self::ISSUE_102_URL,
+                    );
+                }
+
+                if (array_key_exists('additionalOperations', $item)) {
+                    $warnings[] = sprintf(
+                        'OpenAPI 3.2 `additionalOperations` at %s.%s were dropped: custom-method routes are not generated yet. Tracked in issue #102 (%s).',
+                        $section,
+                        (string) $route,
+                        self::ISSUE_102_URL,
+                    );
+                }
+            }
+        }
+
+        $this->scanItemSchemas($raw, '', $warnings);
+
+        return $warnings;
+    }
+
+    /**
+     * Recursively find the 3.2 `itemSchema` Media Type member (sequential
+     * media types such as JSON Lines): any `content` map whose media-type
+     * entry carries an `itemSchema` key. The walk mirrors SchemaNormalizer's
+     * plain recursion over the already size-guarded raw document.
+     *
+     * @param  array<array-key, mixed>  $node
+     * @param  list<string>  $warnings
+     */
+    private function scanItemSchemas(array $node, string $trail, array &$warnings): void
+    {
+        foreach ($node as $key => $value) {
+            if (! is_array($value)) {
+                continue;
+            }
+
+            $here = $trail === '' ? (string) $key : $trail.'.'.$key;
+
+            if ($key === 'content') {
+                foreach ($value as $mediaType => $media) {
+                    if (is_array($media) && array_key_exists('itemSchema', $media)) {
+                        $warnings[] = sprintf(
+                            'OpenAPI 3.2 `itemSchema` at %s.%s was dropped: sequential media types are not read yet. Tracked in issue #102 (%s).',
+                            $here,
+                            (string) $mediaType,
+                            self::ISSUE_102_URL,
+                        );
+                    }
+                }
+            }
+
+            $this->scanItemSchemas($value, $here, $warnings);
         }
     }
 

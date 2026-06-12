@@ -165,6 +165,37 @@ it('honors security.middleware_map in the planned routes file and surfaces the u
         ->and(implode("\n", $plan->warnings))->toContain('Security scheme "apiKey" is required by the spec but has no entry in security.middleware_map');
 });
 
+it('surfaces the 3.2 best-effort warnings through the shared plan channel (#103)', function () use ($tempOut, $request) {
+    $spec = __DIR__.'/../../Fixtures/edge/openapi-3.2-constructs.yaml';
+    $out = $tempOut();
+    $planner = new GenerationPlanner;
+
+    // Generate and check share this planner, so asserting the parser warnings
+    // land in the plan's merged channel proves both surfaces see them.
+    $plan = $planner->plan($request($spec, $out, true, $out.'/Http', $out.'/routes/api.generated.php'));
+    $warnings = implode("\n", $plan->warnings);
+
+    expect($warnings)->toContain('OpenAPI 3.2 is not fully supported yet')
+        ->toContain('OpenAPI 3.2 `query` operation at paths./things was dropped')
+        ->toContain('OpenAPI 3.2 `additionalOperations` at paths./things were dropped')
+        ->toContain('OpenAPI 3.2 `itemSchema` at paths./things/stream.get.responses.200.content.application/jsonl was dropped');
+
+    // The accepted parts of the document still generate: the GET operations
+    // and the component schema come through, best-effort means degraded, not
+    // empty. A written plan re-checks as in sync, warnings included on both runs.
+    $writer = new PlanWriter;
+    foreach ([PlannedFile::CATEGORY_DATA, PlannedFile::CATEGORY_SUPPORT, PlannedFile::CATEGORY_CONTROLLER, PlannedFile::CATEGORY_ROUTES] as $category) {
+        $writer->write($plan, $category);
+    }
+
+    $replan = $planner->plan($request($spec, $out, true, $out.'/Http', $out.'/routes/api.generated.php'));
+    expect($replan->warnings)->toBe($plan->warnings);
+
+    foreach ((new DriftChecker)->check($replan) as $entry) {
+        expect($entry->status)->toBe(DriftStatus::InSync);
+    }
+});
+
 it('throws a PlanException when the spec is missing', function () use ($tempOut, $request) {
     (new GenerationPlanner)->plan($request('', $tempOut()));
 })->throws(PlanException::class);

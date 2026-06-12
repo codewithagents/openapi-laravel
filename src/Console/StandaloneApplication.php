@@ -197,6 +197,14 @@ final class StandaloneApplication
             return self::EXIT_ERROR;
         }
 
+        // The drift gate surfaces the same non-fatal diagnostics generate does
+        // (issue #103): a 3.2 spec accepted best-effort must warn here too, so
+        // CI sees the degradation even when nothing drifted. Warnings go to
+        // stderr (stdout stays clean for tooling) and never change the exit code.
+        foreach ($plan->warnings as $warning) {
+            fwrite(STDERR, 'Warning: '.$warning."\n");
+        }
+
         $entries = (new DriftChecker)->check($plan);
         $drifted = array_values(array_filter($entries, static fn (DriftEntry $entry): bool => $entry->isDrifted()));
 

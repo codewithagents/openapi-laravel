@@ -1,0 +1,53 @@
+# Issue #103: a minimal OpenAPI 3.2 document exercising every 3.2-only
+# construct the generator drops best-effort. The version gate must accept it
+# with a loud warning plus one warning per dropped construct below: the
+# `query` operation, the `additionalOperations` map, and the `itemSchema`
+# media type member.
+openapi: 3.2.0
+info:
+  title: OpenAPI 3.2 constructs
+  version: 1.0.0
+paths:
+  /things:
+    get:
+      operationId: listThings
+      tags: [Things]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Thing'
+    query:
+      operationId: queryThings
+      tags: [Things]
+      responses:
+        '200':
+          description: OK
+    additionalOperations:
+      COPY:
+        operationId: copyThings
+        responses:
+          '200':
+            description: OK
+  /things/stream:
+    get:
+      operationId: streamThings
+      tags: [Things]
+      responses:
+        '200':
+          description: A JSON Lines stream of things.
+          content:
+            application/jsonl:
+              itemSchema:
+                $ref: '#/components/schemas/Thing'
+components:
+  schemas:
+    Thing:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string

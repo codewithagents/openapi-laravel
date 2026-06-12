@@ -68,7 +68,8 @@ final readonly class GenerationPlanner
             }
         }
 
-        $document = (new SpecParser($request->maxBytes))->parseFile($request->spec);
+        $parser = new SpecParser($request->maxBytes);
+        $document = $parser->parseFile($request->spec);
 
         // Path-prefix exclusion (issue #96): drop every operation whose spec
         // path starts with one of the configured prefixes BEFORE the subset
@@ -161,11 +162,13 @@ final readonly class GenerationPlanner
 
         $files = [...$files, ...$serverFiles];
 
-        // One merged, sorted diagnostics channel: the model generator's
-        // warnings (including skipped query parameters) plus the operation
-        // collector's (header/cookie parameters) plus the path-prefix filter's
-        // (a prefix that matched nothing, issue #96).
-        $warnings = array_values(array_unique([...$generator->warnings(), ...$serverWarnings, ...$filterWarnings]));
+        // One merged, sorted diagnostics channel: the parser's warnings (a 3.2
+        // document accepted best-effort plus its dropped constructs, issue
+        // #103) plus the model generator's (including skipped query
+        // parameters) plus the operation collector's (header/cookie
+        // parameters) plus the path-prefix filter's (a prefix that matched
+        // nothing, issue #96).
+        $warnings = array_values(array_unique([...$parser->warnings(), ...$generator->warnings(), ...$serverWarnings, ...$filterWarnings]));
         sort($warnings);
 
         // "Nothing to generate" only when the data layer is COMPLETELY empty:

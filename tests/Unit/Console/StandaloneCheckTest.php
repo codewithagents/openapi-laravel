@@ -80,6 +80,39 @@ it('check prints a diff with --diff', function () use ($spec, $bin, $tempOut, $r
         ->and($output)->toContain('+final  class CustomerData extends Data');
 });
 
+it('check surfaces the 3.2 best-effort warnings exactly like generate (#103)', function () use ($bin, $tempOut, $run) {
+    $spec = __DIR__.'/../../Fixtures/edge/openapi-3.2-constructs.yaml';
+    $out = $tempOut();
+
+    // Generate accepts the 3.2 spec best-effort (exit 0) and warns loudly.
+    [$genExit, $genOutput] = $run($bin(), ['--spec='.$spec, '--output='.$out]);
+    expect($genExit)->toBe(0)
+        ->and($genOutput)->toContain('OpenAPI 3.2 is not fully supported yet')
+        ->and($genOutput)->toContain('`query` operation at paths./things was dropped')
+        ->and($genOutput)->toContain('`additionalOperations` at paths./things were dropped')
+        ->and($genOutput)->toContain('`itemSchema` at paths./things/stream.get.responses.200.content.application/jsonl was dropped');
+
+    // The drift gate behaves consistently: in sync (exit 0), same warnings.
+    [$exit, $output] = $run($bin(), ['check', '--spec='.$spec, '--output='.$out]);
+    expect($exit)->toBe(0)
+        ->and($output)->toContain('Generated code is in sync with the spec.')
+        ->and($output)->toContain('OpenAPI 3.2 is not fully supported yet')
+        ->and($output)->toContain('`query` operation at paths./things was dropped')
+        ->and($output)->toContain('`additionalOperations` at paths./things were dropped')
+        ->and($output)->toContain('`itemSchema` at paths./things/stream.get.responses.200.content.application/jsonl was dropped');
+});
+
+it('check rejects an unsupported OpenAPI version with a clear error (#103)', function () use ($bin, $tempOut, $run) {
+    $spec = sys_get_temp_dir().'/oal_standalone_check_v4_'.uniqid().'.json';
+    file_put_contents($spec, '{"openapi":"4.0.0","info":{"title":"T","version":"1.0.0"},"paths":{}}');
+
+    [$exit, $output] = $run($bin(), ['check', '--spec='.$spec, '--output='.$tempOut()]);
+
+    expect($exit)->toBe(2)
+        ->and($output)->toContain("Unsupported OpenAPI version '4.0.0'")
+        ->and($output)->toContain('Supported versions: OpenAPI 3.0.x and 3.1.x');
+});
+
 it('check exits 2 on a spec error', function () use ($bin, $tempOut, $run) {
     [$exit] = $run($bin(), ['check', '--spec=/no/such.json', '--output='.$tempOut()]);
 

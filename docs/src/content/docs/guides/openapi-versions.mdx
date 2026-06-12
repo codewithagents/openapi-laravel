@@ -1,6 +1,6 @@
 ---
 title: Supported OpenAPI versions
-description: The exact OpenAPI version matrix. OpenAPI 3.0.x and 3.1.0 are supported, Swagger 2.0 is rejected. What is handled per version, how 3.0 and 3.1 spellings are normalized, and the declared boundaries of 3.1 support.
+description: The exact OpenAPI version matrix. OpenAPI 3.0.x and 3.1.x are supported, 3.2.x is accepted best-effort with warnings, Swagger 2.0 is rejected. What is handled per version, how 3.0 and 3.1 spellings are normalized, and the declared boundaries of 3.1 support.
 ---
 
 import { Aside } from '@astrojs/starlight/components'
@@ -13,12 +13,13 @@ A stability promise is only meaningful against a declared input surface. This pa
 | ------- | ------ | ----- |
 | OpenAPI 3.1.x | **Supported** | The primary target. Most constructs are exercised by the 3.1 conformance fixture. See the 3.1 exceptions below. |
 | OpenAPI 3.0.x | **Supported** | The 3.0-divergent spellings (`nullable: true`, boolean exclusive bounds) are handled on dedicated code paths and pinned by a 3.0 conformance fixture. |
-| OpenAPI 3.x (other patch/minor) | **Accepted** | Any `openapi:` string beginning with `3.` is accepted. The generator does not branch on the patch level beyond the 3.0-versus-3.1 spelling differences listed here. |
+| OpenAPI 3.2.x | **Accepted best-effort** | Accepted with a loud generate-time warning that 3.2 is not fully supported, plus one warning per 3.2-only construct the generator drops: `query` method operations, `additionalOperations`, and `itemSchema` media types. The drift gate (`openapi:check`) surfaces the same warnings. Full 3.2 support is tracked in [issue #102](https://github.com/codewithagents/openapi-laravel/issues/102). |
+| OpenAPI 3.3+ or any 4.x | **Rejected** | The gate is exact, not a `3.` prefix check: an unknown 3.x minor is rejected with an error naming this matrix rather than silently generating an incomplete API surface. |
 | Swagger 2.0 (`swagger: "2.0"`) | **Rejected** | Has no `openapi:` version key, so it is rejected with a clear error. Convert to OpenAPI 3.x first. |
-| Any non-3.x or missing version | **Rejected** | A document without an `openapi:` string beginning with `3.`, or without an `info` object, is rejected up front rather than silently parsing into an empty result. |
+| Any other or missing version | **Rejected** | A document without a supported `openapi:` version string, or without an `info` object, is rejected up front rather than silently parsing into an empty result. |
 
 <Aside type="note" title="How the version gate works">
-  The parser does not run full OpenAPI schema validation (that would risk rejecting real-world corpus specs that work today). It runs a lightweight structural check: the document must carry an `openapi:` string that starts with `3.` and an `info` object. A Swagger 2.0 document fails the first check because its version key is `swagger`, not `openapi`. The error names what was found, for example `Not an OpenAPI 3.x document: missing 'openapi' version string. Swagger 2.0 and other formats are not supported.`
+  The parser does not run full OpenAPI schema validation (that would risk rejecting real-world corpus specs that work today). It runs a lightweight structural check: the document must carry an `openapi:` version string whose minor is exactly gated (3.0.x and 3.1.x fully supported, 3.2.x accepted best-effort with warnings, anything else rejected) and an `info` object. A Swagger 2.0 document fails the first check because its version key is `swagger`, not `openapi`. The error and warning messages name this matrix and link back to this page, for example `Unsupported OpenAPI version '4.0.0'. Supported versions: OpenAPI 3.0.x and 3.1.x (fully), 3.2.x (accepted best-effort with warnings).`
 </Aside>
 
 ## What "supported" covers
@@ -91,7 +92,8 @@ The parser is invoked with full OpenAPI validation **off** by default. It applie
 
 ## Summary
 
-- **OpenAPI 3.0.x and 3.1.0 are supported.** Both are pinned by a conformance fixture and exercised by the 130-spec corpus.
-- **Swagger 2.0 and any non-3.x document are rejected** with a clear, named error.
+- **OpenAPI 3.0.x and 3.1.x are supported.** Both are pinned by a conformance fixture and exercised by the 130-spec corpus.
+- **OpenAPI 3.2.x is accepted best-effort**: a loud warning plus one warning per dropped 3.2-only construct (`query` operations, `additionalOperations`, `itemSchema`), on generate and on the drift gate alike. Full support is tracked in [issue #102](https://github.com/codewithagents/openapi-laravel/issues/102).
+- **Swagger 2.0 and any other version are rejected** with a clear error naming this matrix.
 - **The 3.0 and 3.1 spellings** of nullability and exclusive bounds are normalized to one code path; boolean `items`, multi-type arrays, `const`, and `dependentRequired` are 3.1-only constructs that are handled.
 - **`webhooks`, tuple `prefixItems` typing, and advanced JSON Schema applicators** are the declared 3.1 boundaries: not generated from or not represented in types, by design (tuple positions ARE validated through per-index rules). **`additionalProperties: false`** is enforced by default, with `--no-enforce-closed-objects` as the lenient opt-out. All documented here and in [Limitations](/guides/limitations).
