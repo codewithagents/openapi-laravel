@@ -61,9 +61,12 @@ final class OpenApiReader
 {
     /**
      * Upper bound on schema nesting during hydration, guarding the recursive
-     * walk against hostile deeply-nested input. Aligned with `json_decode`'s
-     * own default depth limit, so a JSON spec that decodes at all also
-     * hydrates; override via the constructor only for trusted specs.
+     * walk against hostile deeply-nested input. The guard rejects a schema
+     * only once its depth EXCEEDS this bound (the root schema sits at depth
+     * 0), so up to maxDepth + 1 schema levels hydrate: 513 with the default.
+     * That is one level more than `json_decode`'s default depth limit of 512,
+     * so a JSON spec that decodes at all also hydrates; override via the
+     * constructor only for trusted specs.
      */
     public const DEFAULT_MAX_DEPTH = 512;
 
@@ -747,11 +750,14 @@ final class OpenApiReader
                     if (is_bool($value)) {
                         $additionalProperties = $value;
                         $hasAdditionalProperties = true;
-                    } elseif (is_array($value)) {
-                        $additionalProperties = $this->subschema($value, $depth + 1);
-                        $hasAdditionalProperties = true;
-                    } else {
+                        break;
+                    }
+                    $node = $this->subschema($value, $depth + 1);
+                    if ($node === null) {
                         $extra['additionalProperties'] = $value;
+                    } else {
+                        $additionalProperties = $node;
+                        $hasAdditionalProperties = true;
                     }
                     break;
                 case 'allOf':
@@ -1062,13 +1068,19 @@ final class OpenApiReader
     /**
      * Recursively find the 3.2 `itemSchema` Media Type member (sequential
      * media types such as JSON Lines): any `content` map whose media-type
-     * entry carries an `itemSchema` key.
+     * entry carries an `itemSchema` key. The walk is bounded by the same
+     * maxDepth as the hydration path, but since this is a best-effort warning
+     * scan over raw data it stops descending silently instead of throwing.
      *
      * @param  array<array-key, mixed>  $node
      * @param  list<string>  $warnings
      */
-    private function scanItemSchemas(array $node, string $trail, array &$warnings): void
+    private function scanItemSchemas(array $node, string $trail, array &$warnings, int $depth = 0): void
     {
+        if ($depth > $this->maxDepth) {
+            return;
+        }
+
         foreach ($node as $key => $value) {
             if (! is_array($value)) {
                 continue;
@@ -1089,7 +1101,7 @@ final class OpenApiReader
                 }
             }
 
-            $this->scanItemSchemas($value, $here, $warnings);
+            $this->scanItemSchemas($value, $here, $warnings, $depth + 1);
         }
     }
 

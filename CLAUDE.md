@@ -112,7 +112,7 @@ headless-Chrome suite over real HTTP against a docker-compose stack. The full lo
 ## Layout
 
 ```
-src/Parser/    wraps devizzent/cebe-php-openapi, normalization, depth bounds
+src/Parser/    in-repo OpenApiReader -> typed spec value objects (src/Parser/Spec/), normalization folded into hydration, depth bounds
 src/Naming/    spec names -> PHP identifiers (StudlyCaps, collisions, reserved words)
 src/Emitter/   Data classes, enums, rules(), controllers, routes emission
 src/Support/   canonical runtime support classes (rules, transformer); inlined into the consumer's own \Support namespace per spec (#40), not imported from the package at runtime

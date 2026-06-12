@@ -34,6 +34,14 @@ spl_autoload_register(static function (string $class) use ($root): void {
     }
 }, prepend: true);
 
+// Guard: this script intentionally calls SpecParser::parseFile(), which was
+// deleted after v0.11.0. If it is missing, the worktree root does not point at
+// a v0.11.0 checkout (see the recipe in the comment above).
+if (! method_exists(SpecParser::class, 'parseFile')) {
+    fwrite(STDERR, "SpecParser::parseFile() does not exist on this checkout. This script must run against a v0.11.0 worktree: pass its root as the first argument (see the usage comment above).\n");
+    exit(1);
+}
+
 $specs = glob($root.'/tests/Fixtures/specs/*');
 sort($specs, SORT_STRING);
 

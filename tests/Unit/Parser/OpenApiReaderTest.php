@@ -116,6 +116,46 @@ it('warns per dropped 3.2 construct and still hydrates the typed stubs', functio
         ->and($media->content['application/jsonl']->itemSchema)->toBeInstanceOf(SchemaNode::class);
 });
 
+it('bounds the 3.2 itemSchema scan against deeply nested raw input', function () {
+    // 30k nesting levels crash an unbounded recursive walk (stack or memory
+    // exhaustion); the scan must stop at the same maxDepth as the hydration
+    // path. The depth stays below PHP's own recursive zval-destruction limit
+    // so the fixture itself tears down safely.
+    $deep = ['content' => ['application/jsonl' => ['itemSchema' => ['type' => 'object']]]];
+    for ($i = 0; $i < 30_000; $i++) {
+        $deep = ['nested' => $deep];
+    }
+
+    $document = (new OpenApiReader)->read([
+        'openapi' => '3.2.0',
+        'info' => ['title' => 'T', 'version' => '1'],
+        'x-deep' => $deep,
+    ], 's');
+
+    // Only the best-effort 3.2 warning: the itemSchema sits beyond the depth
+    // bound, so the scan never reaches it.
+    expect($document->warnings)->toHaveCount(1)
+        ->and($document->warnings[0])->toContain('best-effort');
+});
+
+it('stops the itemSchema scan silently at the depth bound and still warns within it', function () {
+    $within = ['content' => ['application/jsonl' => ['itemSchema' => ['type' => 'object']]]];
+    $beyond = $within;
+    for ($i = 0; $i < 15; $i++) {
+        $beyond = ['nested' => $beyond];
+    }
+
+    $document = (new OpenApiReader(maxDepth: 10))->read([
+        'openapi' => '3.2.0',
+        'info' => ['title' => 'T', 'version' => '1'],
+        'x-within' => $within,
+        'x-beyond' => $beyond,
+    ], 's');
+
+    expect($document->warnings)->toHaveCount(2)
+        ->and($document->warnings[1])->toContain('`itemSchema` at x-within.content.application/jsonl was dropped');
+});
+
 // --- Document, info, paths, components --------------------------------------
 
 it('hydrates a minimal document', function () {
@@ -326,6 +366,18 @@ it('distinguishes explicit additionalProperties from absence', function () {
         ->and($closed->additionalProperties)->toBeFalse()
         ->and($typed->hasAdditionalProperties)->toBeTrue()
         ->and($typed->additionalProperties)->toBeInstanceOf(SchemaNode::class);
+});
+
+it('routes a mistyped additionalProperties to extra without marking presence', function () {
+    $mistyped = readSchema(['type' => 'object', 'additionalProperties' => 'yes']);
+    $empty = readSchema(['type' => 'object', 'additionalProperties' => []]);
+
+    assert($mistyped instanceof SchemaNode && $empty instanceof SchemaNode);
+    expect($mistyped->hasAdditionalProperties)->toBeFalse()
+        ->and($mistyped->additionalProperties)->toBeNull()
+        ->and($mistyped->extra)->toBe(['additionalProperties' => 'yes'])
+        ->and($empty->hasAdditionalProperties)->toBeTrue()
+        ->and($empty->additionalProperties)->toBeInstanceOf(SchemaNode::class);
 });
 
 it('keeps both exclusive bound forms and the explicit false', function () {
