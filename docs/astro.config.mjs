@@ -74,6 +74,7 @@ export default defineConfig({
             { label: 'Subset generation', slug: 'guides/subset-generation' },
             { label: 'Drift check', slug: 'guides/drift-check' },
             { label: 'Contract testing', slug: 'guides/contract-testing' },
+            { label: 'Validation error shape', slug: 'guides/validation-errors' },
             { label: 'Cookbook', slug: 'guides/cookbook' },
             { label: 'Supported OpenAPI versions', slug: 'guides/openapi-versions' },
             { label: 'End-to-end demo', slug: 'guides/end-to-end-demo' },

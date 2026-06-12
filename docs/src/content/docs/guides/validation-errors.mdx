@@ -1,0 +1,245 @@
+---
+title: Validation error shape
+description: Laravel's default 422 body rarely matches the error schema your spec declares. One exception renderer in bootstrap/app.php closes the gap, and the generated error Data classes make it type-checked.
+---
+
+import { Aside } from '@astrojs/starlight/components'
+
+The generated scaffold enforces the request half of the contract at runtime: a spec-violating body
+or query payload raises a standard `Illuminate\Validation\ValidationException` before your code
+runs. Laravel then renders that exception with its **default** 422 JSON body:
+
+```json
+{
+    "message": "The sku field is required. (and 1 more error)",
+    "errors": {
+        "sku": ["The sku field is required."],
+        "quantity": ["The quantity field must be at least 1."]
+    }
+}
+```
+
+That shape is almost never what your spec declares for the 422 response. If the spec says the
+validation failure looks like `{ type, title, status, violations: [...] }`, the scaffold's failure
+path contradicts the contract out of the box: the request is correctly rejected, but the rejection
+body is Laravel's, not the spec's. This page shows how to align the two with one exception
+renderer, using the error Data classes the generator already emits.
+
+## Decision: a documented renderer, not a generated one
+
+This was an explicit design decision
+([issue #79](https://github.com/codewithagents/openapi-laravel/issues/79)): the generator ships a
+**recipe**, not a generated renderer. A survey of the 130-spec corpus shows there is no common
+error shape to generate against: FastAPI's `HTTPValidationError` (a `detail` array of
+`loc`/`msg`/`type`), GitHub's `validation_failed`, RFC 9457 problem-details variants, flat
+`{ code, message }` objects, and one-off inline shapes all coexist, and many specs declare the
+validation failure on 400 rather than 422. The mapping from Laravel's error bag into such a shape
+(which field carries what, how per-field messages flatten, what a `type` or `code` value means) is
+application semantics the spec does not encode, so a generated renderer would either guess wrong
+for most specs or need so much configuration that writing it would equal writing the renderer by
+hand. Exception rendering is also one app-global decision that belongs in your `bootstrap/app.php`,
+not in the regenerable file set. What the generator does contribute is the typed half: the spec's
+error schemas already generate Data classes, so the recipe below is type-checked end to end.
+
+## The typed half is already generated
+
+Every named schema under `components.schemas` becomes a Data class, **including schemas that are
+only referenced from error responses**. No flag is needed. Given:
+
+```yaml
+paths:
+  /orders:
+    post:
+      operationId: createOrder
+      tags: [Orders]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrderCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '422':
+          description: Validation failed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ValidationError' }
+components:
+  schemas:
+    ValidationError:
+      type: object
+      required: [type, title, status, violations]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        violations:
+          type: array
+          items: { $ref: '#/components/schemas/Violation' }
+    Violation:
+      type: object
+      required: [field, message]
+      properties:
+        field: { type: string }
+        message: { type: string }
+```
+
+the generator emits `ValidationErrorData` and `ViolationData` alongside the request and response
+classes:
+
+```php
+final class ValidationErrorData extends Data
+{
+    public function __construct(
+        public readonly string $type,
+        public readonly string $title,
+        public readonly int $status,
+        /** @var array<int, ViolationData> */
+        #[DataCollectionOf(ViolationData::class)]
+        public readonly array $violations,
+    ) {}
+}
+```
+
+Building the 422 body through this class instead of a hand-rolled array means the error shape is
+pinned by PHP's type system: rename a spec field and regenerate, and the renderer stops compiling
+instead of silently drifting.
+
+## The renderer recipe
+
+Laravel 11+ configures exception handling in `bootstrap/app.php` via `withExceptions`. Register a
+rendering closure type-hinted on `ValidationException`; Laravel matches the closure by that type
+hint, and a returned response replaces the default rendering (returning nothing falls through to
+the default):
+
+```php
+// bootstrap/app.php
+use App\Data\ValidationErrorData;
+use App\Data\ViolationData;
+use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Configuration\Exceptions;
+use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+
+return Application::configure(basePath: dirname(__DIR__))
+    // ->withRouting(...)
+    ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->render(function (ValidationException $e, Request $request) {
+            if (! $request->expectsJson()) {
+                return; // keep Laravel's redirect-back behavior for web forms
+            }
+
+            $violations = [];
+            foreach ($e->errors() as $field => $messages) {
+                foreach ($messages as $message) {
+                    $violations[] = new ViolationData(field: $field, message: $message);
+                }
+            }
+
+            return response()->json(new ValidationErrorData(
+                type: 'https://example.com/problems/validation-error',
+                title: 'Validation failed.',
+                status: $e->status,
+                violations: $violations,
+            ), $e->status);
+        });
+    })->create();
+```
+
+For the spec above, a `POST /orders` with a missing `sku` and a zero `quantity` now answers:
+
+```json
+{
+    "type": "https://example.com/problems/validation-error",
+    "title": "Validation failed.",
+    "status": 422,
+    "violations": [
+        { "field": "sku", "message": "The sku field is required." },
+        { "field": "quantity", "message": "The quantity field must be at least 1." }
+    ]
+}
+```
+
+Why the pieces are what they are:
+
+- **One renderer covers every generated validation path.** The injected body Data classes, the
+  query classes' `fromQuery()`, and any `validate()` call you make yourself all throw the same
+  `Illuminate\Validation\ValidationException`, so this single closure reshapes all of them.
+- **`$e->errors()` is the flattened bag.** Field names use dot notation for nested and array
+  fields (`items.0.sku`), each mapping to a list of messages. The double loop above flattens that
+  into one violation per message; adapt the mapping to whatever your spec's shape wants (join the
+  messages, keep only the first, group per field, and so on).
+- **`$e->status`, not a literal 422.** `ValidationException` carries its status (422 by default),
+  so a spec that declares the validation failure on 400 only needs
+  `throw $e->status(400)`-style customization in one place, and the renderer follows. Several
+  corpus specs do exactly this.
+- **The `expectsJson()` guard** keeps the classic redirect-with-errors behavior for non-API
+  routes. In an API-only app you can drop the guard, or scope with `$request->is('api/*')`
+  instead.
+- **The generated status middleware does not interfere.** The scaffold's `RespondsWithStatus`
+  middleware only rewrites an exactly-200 response, so the renderer's 422 (or 400) passes through
+  untouched.
+
+<Aside type="note" title="Data classes serialize directly">
+  A generated Data class implements `JsonSerializable`, `Arrayable`, and `Responsable`, so
+  `response()->json($error, $e->status)` serializes the full nested shape, including the
+  `ViolationData` collection. You could even `return $error->toResponse($request)` and set the
+  status separately; the explicit `response()->json(...)` form keeps the status visible.
+</Aside>
+
+## Testing the shape
+
+The renderer is application code, so prove it in your suite. The strongest assertion is the
+contract one: [Spectator](https://github.com/hotmeteor/spectator) validates the produced 422 body
+against the **same spec file** the generator reads, see
+[contract testing](/guides/contract-testing#cover-the-error-responses):
+
+```php
+it('answers validation failures with the declared 422 body', function (): void {
+    $this->postJson('/orders', ['quantity' => 0])
+        ->assertValidResponse(422);
+});
+```
+
+Without Spectator, assert the structure directly:
+
+```php
+it('answers validation failures with the spec error shape', function (): void {
+    $this->postJson('/orders', ['quantity' => 0])
+        ->assertStatus(422)
+        ->assertJsonStructure([
+            'type', 'title', 'status',
+            'violations' => [['field', 'message']],
+        ]);
+});
+```
+
+The Spectator variant is the one worth keeping long term: when the spec's error schema evolves,
+the regenerated Data class breaks the renderer at compile time and Spectator breaks the test at
+contract level, so the shape cannot drift in either direction.
+
+## Caveats
+
+- **Name the error shape under `components.schemas`.** Only named component schemas generate Data
+  classes. A 422 whose schema is declared **inline** in the response, or that lives only inside a
+  `components.responses` entry's content, produces no class; the renderer then builds the array by
+  hand (Spectator still checks it against the spec). Lifting the shape into a named schema is the
+  one-line spec change that buys the typed renderer.
+- **The renderer is yours.** It is written once in `bootstrap/app.php` and survives regeneration
+  untouched; the generator never writes into your bootstrap file. Regenerating after a spec change
+  updates the Data classes the renderer is built from, which is exactly the coupling you want.
+- **Other error statuses follow the same pattern.** A 404 or 409 body declared in the spec also
+  generates its Data class; register additional `render` closures (for `NotFoundHttpException`,
+  your domain exceptions, and so on) and build their bodies the same way.
+
+## Related pages
+
+- [Contract testing](/guides/contract-testing) for asserting the 422 body against the spec per test.
+- [Server scaffold](/guides/server-scaffold) for where the generated validation runs and what it throws.
+- [Limitations](/guides/limitations#responses-are-not-validated-against-the-spec-at-runtime) for the
+  response-side validation boundary this recipe mitigates.
+- [Generated output](/guides/generated-output) for the full Data class reference.

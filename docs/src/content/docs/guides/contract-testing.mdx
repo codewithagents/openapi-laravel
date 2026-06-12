@@ -170,6 +170,11 @@ it('answers validation failures with the declared 422 body', function (): void {
 If the spec declares the status but no content schema (the classic Petstore 404 has no body), the
 assertion only checks that the status is declared; an undeclared status still fails.
 
+For the 422 specifically, this test usually fails on a fresh scaffold: Laravel's default
+validation-error body does not match the error schema most specs declare. The
+[validation error shape guide](/guides/validation-errors) shows the exception renderer that makes
+it pass, built from the generated error Data classes.
+
 ## CI integration
 
 The contract tests are plain Pest tests, so they run wherever your suite runs. Pair them with the

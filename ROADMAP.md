@@ -54,6 +54,12 @@ passing the import-resolution and `php -l` gates, before anything ships.
    an explicit changelog call-out. The inlined support classes are part of the output surface.
 10. **`additionalProperties: false` enforced by default.** The spec is the source of truth, so a
     closed object rejects undeclared keys without a flag; `--no-enforce-closed-objects` is the opt-out.
+11. **422 error shape: documented renderer recipe, not a generated renderer (#79).** The corpus
+    shows no common error schema to generate against (FastAPI `HTTPValidationError`, GitHub
+    `validation_failed`, RFC 9457 variants, flat `{code, message}`, inline shapes; many specs use
+    400 instead of 422), and the error-bag-to-schema mapping is application semantics the spec does
+    not encode. The generator contributes the typed half (error component schemas already generate
+    Data classes); the docs guide `guides/validation-errors` holds the bootstrap renderer recipe.
 
 ## Current capabilities
 

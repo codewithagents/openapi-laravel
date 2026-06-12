@@ -484,9 +484,16 @@ validated. The abstract method's return type pins the PHP shape, but the seriali
 checked against the spec: constraint rules run at validation (input) time only, so
 `PetData::from($model)` happily serializes a value that violates `maxLength` or an enum constraint;
 a `JsonResponse` fallback carries no schema at all; and error responses (the 404 and 422 bodies the
-spec declares) are never typed in the first place.
+spec declares) are never typed in the controller signature.
 
-The recommended mitigation is contract testing: wire
+The 422 failure path has a dedicated mitigation: Laravel's default validation-error body
+(`{message, errors}`) rarely matches the error schema a spec declares for 422, but the declared
+error schemas **do** generate Data classes, and one exception renderer in `bootstrap/app.php`
+reshapes the body through them so the failure path matches the contract, type-checked. The
+[validation error shape guide](/guides/validation-errors) holds the recipe and the decision record
+(a documented renderer, not a generated one, issue #79).
+
+The recommended mitigation for everything else is contract testing: wire
 [Spectator](https://github.com/hotmeteor/spectator) against the **same spec file** the generator
 reads and assert response conformance in your test suite, per operation and per declared error
 status. The [contract testing guide](/guides/contract-testing) walks through the setup against a
