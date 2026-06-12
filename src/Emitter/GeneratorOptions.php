@@ -15,7 +15,7 @@ final readonly class GeneratorOptions
 {
     /**
      * @param  array<string, true>|null  $keepSchemas  subset keep-set (issue #44), or null to emit every schema
-     * @param  array<string, string>|null  $schemaGroups  tag-grouped layout attribution (issue #93), schema name => owning group; null keeps the flat layout
+     * @param  array<string, string>|null  $schemaGroups  tag-grouped layout attribution (issue #93), schema name => owning group; null (the default) computes the attribution from the document
      */
     public function __construct(
         public string $namespace = 'App\\Data',
@@ -53,15 +53,17 @@ final readonly class GeneratorOptions
          */
         public ?string $validationTrait = null,
         /*
-         * Tag-grouped data layout (issue #93). When non-null, the grouped
-         * layout is ON: each entry maps a component schema name to the tag
-         * group (a StudlyCaps directory/namespace segment) that solely owns
-         * it, as computed by {@see SchemaClosure::attributeByTag()}. Classes
-         * of attributed schemas are emitted into `<output>/<Group>/` under
+         * Tag-grouped data layout attribution (issue #93, the only layout).
+         * Each entry maps a component schema name to the tag group (a
+         * StudlyCaps directory/namespace segment) that solely owns it, as
+         * computed by {@see SchemaClosure::attributeByTag()}. Classes of
+         * attributed schemas are emitted into `<output>/<Group>/` under
          * `<namespace>\<Group>`; everything absent from the map (multi-group,
          * unreferenced, or reserved) stays at the flat root, and cross-group
-         * references are imported. Null (the default) is the flat layout,
-         * byte-identical to before.
+         * references are imported. Null (the default) makes the generator
+         * compute the attribution from the document itself; a non-null map
+         * injects a precomputed attribution (a unit-test seam for the
+         * emission side).
          *
          * @var array<string, string>|null
          */

@@ -381,3 +381,29 @@ function summarizePhpLintError(string $output): string
 
     return $pick !== '' ? $pick : 'php -l failed';
 }
+
+/**
+ * Write a set of generated files under $dir (creating per-tag subdirectories,
+ * issue #93) and require_once each one whose class is not already loaded.
+ * The FQCN is derived from the file's declared namespace, so grouped and
+ * root classes both load correctly. Classes another suite already loaded are
+ * skipped: the generator is deterministic, so the definitions are identical.
+ *
+ * @param  iterable<GeneratedFile>  $files
+ */
+function loadGeneratedFiles(string $dir, iterable $files): void
+{
+    foreach ($files as $file) {
+        $path = $dir.'/'.$file->filename();
+        if (! is_dir(dirname($path))) {
+            mkdir(dirname($path), 0777, true);
+        }
+        file_put_contents($path, $file->code);
+
+        $namespace = preg_match('/^namespace ([^;]+);$/m', $file->code, $match) === 1 ? $match[1] : 'App\\Data';
+        $fqcn = $namespace.'\\'.$file->className;
+        if (! class_exists($fqcn, false) && ! enum_exists($fqcn, false)) {
+            require_once $path;
+        }
+    }
+}

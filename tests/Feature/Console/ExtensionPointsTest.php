@@ -69,7 +69,7 @@ it('adds the configured output.validation_trait to every generated Data class', 
 
     $this->artisan('openapi:generate')->assertSuccessful();
 
-    $code = file_get_contents($out.'/PetData.php');
+    $code = file_get_contents($out.'/Pet/PetData.php');
     expect($code)->toContain('use App\Support\ApiMessages;')
         ->and($code)->toContain('    use ApiMessages;');
 });

@@ -70,7 +70,7 @@ it('types an inline object request body as a synthesized per-operation Data para
 
     expect($descriptors[0]->bodyParam)->toBe(['name' => 'body', 'type' => 'CreatePetRequestData'])
         ->and($descriptors[0]->bodyRequiresRequest)->toBeFalse()
-        ->and($descriptors[0]->imports)->toContain('App\\Data\\CreatePetRequestData')
+        ->and($descriptors[0]->imports)->toContain('App\\Data\\Pet\\CreatePetRequestData')
         ->and($descriptors[0]->imports)->not->toContain('Illuminate\\Http\\Request');
 
     $files = $generator->bodyFiles();
@@ -93,7 +93,7 @@ it('renders the typed body param into the abstract controller signature', functi
     $controllers = (new ControllerGenerator(new ServerOptions))->generate($descriptors);
     $code = $controllers['AbstractPetController']->code;
 
-    expect($code)->toContain('use App\Data\CreatePetRequestData;')
+    expect($code)->toContain('use App\Data\Pet\CreatePetRequestData;')
         ->and($code)->toContain('abstract public function createPet(CreatePetRequestData $body): JsonResponse;');
 });
 
@@ -256,7 +256,7 @@ it('does not inject the query class when an inline body occupies the payload (hy
     // The typed inline body counts as a request body, so the query class is
     // reachable via ::fromQuery($request) only, never container-injected.
     expect($descriptors[0]->bodyParam)->not->toBeNull()
-        ->and($descriptors[0]->queryParam)->toBe(['name' => 'query', 'type' => 'CreatePetQueryData', 'injected' => false, 'fqcn' => 'App\\Data\\CreatePetQueryData']);
+        ->and($descriptors[0]->queryParam)->toBe(['name' => 'query', 'type' => 'CreatePetQueryData', 'injected' => false, 'fqcn' => 'App\\Data\\Untagged\\CreatePetQueryData']);
 });
 
 it('does not type an inline body when no model generator is wired in (legacy call sites)', function () {

@@ -82,7 +82,7 @@ it('imports the types the signatures reference, sorted', function () {
     sort($sorted);
 
     expect($imports)->toBe($sorted)
-        ->and($imports)->toContain('use App\Data\ListPetsQueryData;')
+        ->and($imports)->toContain('use App\Data\Pet\ListPetsQueryData;')
         ->and($imports)->toContain('use LogicException;')
         ->and($imports)->toContain('use Spatie\LaravelData\DataCollection;');
 });

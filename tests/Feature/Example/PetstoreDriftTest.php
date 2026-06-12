@@ -114,11 +114,21 @@ function demoBasenames(string $dir, string $pattern): array
 it('has no committed generated file that the generator would not produce', function () {
     $regenerated = regenerateDemo();
 
+    // Data files live in per-tag subdirectories (issue #93, the only layout),
+    // so collect them recursively as Data-relative paths, excluding the
+    // separately drift-checked Support/ directory.
     $expectedData = array_map(fn ($f) => $f->filename(), $regenerated['data']);
-    $actualData = demoBasenames(DEMO_DIR.'/Data', '*.php');
+    $actualData = [];
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(DEMO_DIR.'/Data', FilesystemIterator::SKIP_DOTS));
+    foreach ($iterator as $file) {
+        $relative = ltrim(substr((string) $file, strlen(DEMO_DIR.'/Data')), '/');
+        if (str_ends_with($relative, '.php') && ! str_starts_with($relative, 'Support/')) {
+            $actualData[] = $relative;
+        }
+    }
     sort($expectedData);
     sort($actualData);
-    expect($actualData)->toBe($expectedData);
+    expect($actualData)->toBe(array_values($expectedData));
 
     // Abstract* files only: concrete controllers and the store are hand-written.
     $expectedAbstract = array_map(fn ($f) => $f->filename(), $regenerated['controllers']);

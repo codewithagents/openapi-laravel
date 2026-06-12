@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
-use App\Data\ApiResponseData;
-use App\Data\FindPetsByStatusQueryData;
-use App\Data\FindPetsByTagsQueryData;
-use App\Data\PetData;
-use App\Data\UpdatePetWithFormQueryData;
+use App\Data\Pet\ApiResponseData;
+use App\Data\Pet\FindPetsByStatusQueryData;
+use App\Data\Pet\FindPetsByTagsQueryData;
+use App\Data\Pet\PetData;
+use App\Data\Pet\UpdatePetWithFormQueryData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Spatie\LaravelData\DataCollection;
@@ -74,7 +74,7 @@ abstract class AbstractPetController
      * Uploads an image.
      *
      * Query parameters: validate and hydrate them with
-     * \App\Data\UploadFileQueryData::fromQuery($request).
+     * \App\Data\Pet\UploadFileQueryData::fromQuery($request).
      */
     abstract public function uploadFile(Request $request, int $petId): ApiResponseData;
 }
@@ -85,7 +85,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
-use App\Data\OrderData;
+use App\Data\Store\OrderData;
 use Illuminate\Http\JsonResponse;
 
 abstract class AbstractStoreController
@@ -125,8 +125,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
-use App\Data\LoginUserQueryData;
-use App\Data\UserData;
+use App\Data\User\LoginUserQueryData;
+use App\Data\User\UserData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -186,7 +186,7 @@ abstract class AbstractUserController
 
 declare(strict_types=1);
 
-namespace App\Data;
+namespace App\Data\Pet;
 
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -225,7 +225,7 @@ final class FindPetsByStatusQueryData extends Data
 
 declare(strict_types=1);
 
-namespace App\Data;
+namespace App\Data\Pet;
 
 use Illuminate\Http\Request;
 use Spatie\LaravelData\Data;
@@ -265,7 +265,7 @@ final class FindPetsByTagsQueryData extends Data
 
 declare(strict_types=1);
 
-namespace App\Data;
+namespace App\Data\User;
 
 use Illuminate\Http\Request;
 use Spatie\LaravelData\Data;
@@ -305,7 +305,7 @@ final class LoginUserQueryData extends Data
 
 declare(strict_types=1);
 
-namespace App\Data;
+namespace App\Data\Pet;
 
 use Illuminate\Http\Request;
 use Spatie\LaravelData\Data;
@@ -345,7 +345,7 @@ final class UpdatePetWithFormQueryData extends Data
 
 declare(strict_types=1);
 
-namespace App\Data;
+namespace App\Data\Pet;
 
 use Illuminate\Http\Request;
 use Spatie\LaravelData\Data;

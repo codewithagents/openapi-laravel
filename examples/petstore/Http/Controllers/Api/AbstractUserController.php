@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Http\Controllers\Api;
 
-use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\LoginUserQueryData;
-use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\UserData;
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\User\LoginUserQueryData;
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\User\UserData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 

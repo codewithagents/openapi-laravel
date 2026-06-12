@@ -3,9 +3,7 @@
 declare(strict_types=1);
 
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
-use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
-use CodeWithAgents\OpenApiLaravel\Emitter\SchemaClosure;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ControllerGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\RouteGenerator;
@@ -13,13 +11,12 @@ use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
 /**
- * The --group-by-tag gate (issue #93) over a deliberate corpus subset: real
- * specs with large tag fan-out, shared schemas, discriminated unions, and
- * missing tags must still produce valid PHP when the data layer is split into
- * per-tag namespaces. A full second corpus pass would roughly double the
- * slowest gate for a layout-only option, so this mirrors the
- * LaravelConventionsCorpusTest approach: a handful of structurally diverse
- * specs instead.
+ * The tag-grouped data layout gate (issue #93, the only layout) over a
+ * deliberate corpus subset: real specs with large tag fan-out, shared
+ * schemas, discriminated unions, and missing tags must still produce valid
+ * PHP when the data layer is split into per-tag namespaces. The full corpus
+ * gates exercise the same layout; this subset adds the stricter
+ * namespace-aware import resolution below.
  *
  * Beyond the syntax gate, this runs a GROUPED-AWARE import-resolution check:
  * the flat-mode gate (tests/Pest.php) treats any short name defined anywhere
@@ -59,12 +56,13 @@ function definedClassNamespaces(iterable $files): array
     return $map;
 }
 
-it('generates valid, namespace-resolvable PHP with the grouped layout enabled', function (string $spec) {
+it('generates valid, namespace-resolvable PHP with the grouped layout', function (string $spec) {
     $path = __DIR__.'/../Fixtures/specs/'.$spec;
     $document = (new SpecParser)->parseFile($path);
 
-    $schemaGroups = (new SchemaClosure)->attributeByTag($document);
-    $generator = new ModelGenerator(new GeneratorOptions(schemaGroups: $schemaGroups));
+    // The default construction: the generator computes the tag attribution
+    // from the document itself, exactly like the planner-wired production run.
+    $generator = new ModelGenerator;
     $modelFiles = $generator->generate($document);
 
     $serverOptions = new ServerOptions;
@@ -80,7 +78,7 @@ it('generates valid, namespace-resolvable PHP with the grouped layout enabled', 
         try {
             token_get_all($file->code, TOKEN_PARSE);
         } catch (Throwable $e) {
-            $this->fail("Invalid PHP in {$file->filename()} (from {$spec}, --group-by-tag): {$e->getMessage()}\n\n".$file->code);
+            $this->fail("Invalid PHP in {$file->filename()} (from {$spec}, grouped layout): {$e->getMessage()}\n\n".$file->code);
         }
     }
 
@@ -103,7 +101,7 @@ it('generates valid, namespace-resolvable PHP with the grouped layout enabled', 
         if ($unresolved !== []) {
             $this->fail(
                 'Unresolved cross-namespace reference(s) ['.implode(', ', $unresolved)."] in {$file->filename()} ".
-                '(from '.$spec.", --group-by-tag): used in a signature without an import or a same-namespace definition.\n\n".$file->code
+                '(from '.$spec.", grouped layout): used in a signature without an import or a same-namespace definition.\n\n".$file->code
             );
         }
     }
@@ -117,7 +115,7 @@ it('generates valid, namespace-resolvable PHP with the grouped layout enabled', 
 
     // Compile gate: php -l over a deterministic sample of the grouped output
     // (the full corpus-wide sweep stays with the flat php -l gate).
-    $failures = phpLintFailures($dataFiles, $spec.' (--group-by-tag)', 25);
+    $failures = phpLintFailures($dataFiles, $spec.' (grouped layout)', 25);
     expect($failures)->toBe([]);
 })->with([
     'petstore-3.0.yaml',
@@ -133,8 +131,7 @@ it('generates valid, namespace-resolvable PHP with the grouped layout enabled', 
 it('actually groups real-world specs: at least one corpus spec emits a per-tag directory', function () {
     $document = (new SpecParser)->parseFile(__DIR__.'/../Fixtures/specs/petstore-3.0.yaml');
 
-    $schemaGroups = (new SchemaClosure)->attributeByTag($document);
-    $generator = new ModelGenerator(new GeneratorOptions(schemaGroups: $schemaGroups));
+    $generator = new ModelGenerator;
     $files = $generator->generate($document);
 
     $directories = [];

@@ -96,19 +96,16 @@ function inlineBodyOracleClass(): string
     if (! is_dir($dir)) {
         mkdir($dir, 0777, true);
     }
-    $all = [
+    loadGeneratedFiles($dir, [
         ...array_values($generator->supportFiles()),
         ...array_values($files),
         ...array_values($generator->bodyFiles()),
-    ];
-    foreach ($all as $file) {
-        $path = $dir.'/'.$file->filename();
-        file_put_contents($path, $file->code);
-        require_once $path;
-    }
+    ]);
 
+    // The oracle operation carries no tag, so its body class lands in the
+    // Untagged group of the tag-grouped layout (issue #93, the only layout).
     /** @var class-string $class */
-    $class = $namespace.'\\CreateThingRequestData';
+    $class = $namespace.'\\Untagged\\CreateThingRequestData';
     expect(class_exists($class))->toBeTrue('the inline-body oracle class was not generated');
 
     return $class;

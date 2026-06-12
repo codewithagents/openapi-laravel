@@ -104,7 +104,7 @@ it('generates controllers and routes by default into derived paths', function ()
     $exit = (new StandaloneApplication)->run(['bin', '--spec='.$serverSpec, '--output='.$out]);
 
     expect($exit)->toBe(0)
-        ->and(is_file($out.'/PetData.php'))->toBeTrue()
+        ->and(is_file($out.'/Pet/PetData.php'))->toBeTrue()
         ->and(is_file($out.'/Controllers/AbstractPetController.php'))->toBeTrue()
         ->and(is_file($out.'/routes.php'))->toBeTrue();
 });
@@ -122,7 +122,7 @@ it('skips the scaffold with --no-controllers and --no-routes', function () use (
     ]);
 
     expect($exit)->toBe(0)
-        ->and(is_file($out.'/PetData.php'))->toBeTrue()
+        ->and(is_file($out.'/Pet/PetData.php'))->toBeTrue()
         ->and(is_dir($out.'/Controllers'))->toBeFalse()
         ->and(is_file($out.'/routes.php'))->toBeFalse();
 });
@@ -265,7 +265,7 @@ it('honours controllers.enabled=false from the config file', function () use ($t
     $exit = (new StandaloneApplication)->run(['bin', '--config='.$configPath]);
 
     expect($exit)->toBe(0)
-        ->and(is_file($out.'/PetData.php'))->toBeTrue()
+        ->and(is_file($out.'/Pet/PetData.php'))->toBeTrue()
         ->and(is_dir($out.'/Controllers'))->toBeFalse()
         ->and(is_file($out.'/routes.php'))->toBeFalse();
 });
@@ -511,7 +511,7 @@ it('restricts the standalone scaffold to a tag with --only-tags', function () us
 
     // The pet tag covers every pet operation, whose only schema is Pet.
     expect($exit)->toBe(0)
-        ->and(is_file($out.'/PetData.php'))->toBeTrue()
+        ->and(is_file($out.'/Pet/PetData.php'))->toBeTrue()
         ->and(is_file($out.'/Controllers/AbstractPetController.php'))->toBeTrue();
 });
 
@@ -524,7 +524,7 @@ it('generates only the named schema with --only-schemas', function () use ($temp
     ]);
 
     expect($exit)->toBe(0)
-        ->and(is_file($out.'/PetData.php'))->toBeTrue();
+        ->and(is_file($out.'/Pet/PetData.php'))->toBeTrue();
 });
 
 it('exits non-zero on an unknown --only-schemas name', function () use ($tempOut) {

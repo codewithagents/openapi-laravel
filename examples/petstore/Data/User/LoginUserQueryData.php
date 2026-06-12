@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data;
+namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\User;
 
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 use Spatie\LaravelData\Data;
 
 /**
- * Query parameters of GET /pet/findByStatus.
+ * Query parameters of GET /user/login.
  */
-final class FindPetsByStatusQueryData extends Data
+final class LoginUserQueryData extends Data
 {
     public function __construct(
-        public readonly string $status = 'available',
+        public readonly ?string $username = null,
+        public readonly ?string $password = null,
     ) {}
 
     /**
@@ -32,7 +32,8 @@ final class FindPetsByStatusQueryData extends Data
     public static function rules(): array
     {
         return [
-            'status' => ['sometimes', Rule::in(['available', 'pending', 'sold'])],
+            'username' => ['sometimes', 'string'],
+            'password' => ['sometimes', 'string'],
         ];
     }
 }

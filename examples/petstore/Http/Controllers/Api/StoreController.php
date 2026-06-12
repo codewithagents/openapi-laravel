@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Http\Controllers\Api;
 
-use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\OrderData;
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Store\OrderData;
 use Illuminate\Http\JsonResponse;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 

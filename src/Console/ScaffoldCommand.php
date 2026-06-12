@@ -43,8 +43,6 @@ final class ScaffoldCommand extends Command
         {--no-enforce-closed-objects : Accept unknown keys even for additionalProperties: false schemas}
         {--laravel-conventions : Stub against Laravel-convention method names index/show/store/update/destroy (default: off)}
         {--no-laravel-conventions : Stub against operationId-derived method names even when the config enables the conventions}
-        {--group-by-tag : Plan against the per-tag grouped data layout (default: off)}
-        {--no-group-by-tag : Plan against the flat data directory even when the config enables the grouped layout}
         {--only-tags= : Scaffold only operations carrying these comma-separated tags, plus their schema closure}
         {--only-schemas= : Scaffold only these comma-separated component schemas, plus their dependency closure}
         {--exclude-path-prefix=* : Drop every operation whose path starts with this prefix (repeatable, never comma-split)}';

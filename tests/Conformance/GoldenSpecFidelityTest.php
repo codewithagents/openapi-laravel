@@ -47,12 +47,18 @@ const GOLDEN_FIDELITY_NS = 'GoldenFidelity\\Models';
  * Generate both conformance documents into one temp namespace and require_once
  * every emitted file, once for the whole suite. Abstract bases (the morphable
  * discriminated-union base) are loaded before the variants that extend them.
+ *
+ * Returns the short class name => FQCN map: under the tag-grouped layout
+ * (issue #93, the only layout) a class solely owned by one tag group lives in
+ * a per-tag subnamespace, so the catalog's short names must be resolved.
+ *
+ * @return array<string, class-string>
  */
-function goldenFidelityBoot(): void
+function goldenFidelityBoot(): array
 {
-    static $booted = false;
-    if ($booted) {
-        return;
+    static $classes = null;
+    if ($classes !== null) {
+        return $classes;
     }
 
     $dir = sys_get_temp_dir().'/oal_golden_fidelity_'.getmypid();
@@ -60,6 +66,7 @@ function goldenFidelityBoot(): void
         mkdir($dir, 0777, true);
     }
 
+    $classes = [];
     foreach ([GOLDEN_FIDELITY_31, GOLDEN_FIDELITY_30] as $path) {
         $document = (new SpecParser)->parseFile($path);
         $generator = new ModelGenerator(new GeneratorOptions(GOLDEN_FIDELITY_NS));
@@ -83,14 +90,16 @@ function goldenFidelityBoot(): void
         }
         $ordered += $rest;
 
-        foreach ([...array_values($supportFiles), ...array_values($ordered)] as $file) {
-            $target = $dir.'/'.$file->filename();
-            file_put_contents($target, $file->code);
-            require_once $target;
+        loadGeneratedFiles($dir, [...array_values($supportFiles), ...array_values($ordered)]);
+
+        foreach ($files as $name => $file) {
+            /** @var class-string $fqcn */
+            $fqcn = $generator->namespaceFor($file->className).'\\'.$file->className;
+            $classes[$name] = $fqcn;
         }
     }
 
-    $booted = true;
+    return $classes;
 }
 
 /**
@@ -120,6 +129,7 @@ function goldenFidelityOutcome(string $class, array $payload): string
 beforeEach(fn () => goldenFidelityBoot());
 
 it('runs every runtime-validatable conformance construct through the generated wrapper and ratchets the known gaps', function () {
+    $classMap = goldenFidelityBoot();
     $cases = [...GoldenFidelityCatalog::cases(), ...GoldenFidelityCatalog::cases30()];
 
     /** @var list<array{construct: string, class: string, label: string, payload: array<string, mixed>, expected: string, actual: string, violates: string}> $mismatches */
@@ -128,7 +138,7 @@ it('runs every runtime-validatable conformance construct through the generated w
     $stats = [];
 
     foreach ($cases as $case) {
-        $class = GOLDEN_FIDELITY_NS.'\\'.$case->class;
+        $class = $classMap[$case->class] ?? GOLDEN_FIDELITY_NS.'\\'.$case->class;
         $stats[$case->construct] ??= ['construct' => $case->construct, 'valid' => 0, 'invalid' => 0, 'mismatches' => 0];
 
         expect(class_exists($class))->toBeTrue($case->construct.': generated class '.$case->class.' is missing');

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Tests\Feature\Example\Writable\Http;
 
-use CodeWithAgents\OpenApiLaravel\Tests\Feature\Example\Writable\Data\WidgetData;
-use CodeWithAgents\OpenApiLaravel\Tests\Feature\Example\Writable\Data\WidgetWritableData;
+use CodeWithAgents\OpenApiLaravel\Tests\Feature\Example\Writable\Data\Widgets\WidgetData;
+use CodeWithAgents\OpenApiLaravel\Tests\Feature\Example\Writable\Data\Widgets\WidgetWritableData;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**

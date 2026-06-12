@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data;
+namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Pet;
 
 use Illuminate\Http\Request;
 use Spatie\LaravelData\Data;
 
 /**
- * Query parameters of GET /user/login.
+ * Query parameters of POST /pet/{petId}.
  */
-final class LoginUserQueryData extends Data
+final class UpdatePetWithFormQueryData extends Data
 {
     public function __construct(
-        public readonly ?string $username = null,
-        public readonly ?string $password = null,
+        public readonly ?string $name = null,
+        public readonly ?string $status = null,
     ) {}
 
     /**
@@ -32,8 +32,8 @@ final class LoginUserQueryData extends Data
     public static function rules(): array
     {
         return [
-            'username' => ['sometimes', 'string'],
-            'password' => ['sometimes', 'string'],
+            'name' => ['sometimes', 'string'],
+            'status' => ['sometimes', 'string'],
         ];
     }
 }

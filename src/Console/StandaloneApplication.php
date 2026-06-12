@@ -282,13 +282,6 @@ final class StandaloneApplication
         // --no-laravel-conventions together is the same loud contradiction.
         $laravelConventions = $this->resolveToggle($options, 'laravel-conventions', $config->laravelConventions, false);
 
-        // Tag-grouped data layout (issue #93): the same strict toggle
-        // precedence, with a default-OFF built-in, so the grouped layout is
-        // strictly opt-in and the default output stays byte-identical.
-        // --group-by-tag and --no-group-by-tag together is the same loud
-        // contradiction.
-        $groupByTag = $this->resolveToggle($options, 'group-by-tag', $config->groupByTag, false);
-
         $outputDir = rtrim($output, '/');
         $controllerOutput = $options['controller-output'] ?? $config->controllerPath ?? $outputDir.'/Controllers';
         $routesOutput = $options['routes-output'] ?? $config->routesPath ?? $outputDir.'/routes.php';
@@ -353,7 +346,6 @@ final class StandaloneApplication
             $stubs,
             $controllerBaseClass,
             $validationTrait,
-            $groupByTag,
         );
     }
 
@@ -429,8 +421,8 @@ final class StandaloneApplication
     /**
      * Resolves an enable/disable flag pair against the config file: flag beats
      * config, config beats the built-in default ($default, enabled for every
-     * toggle except the opt-in --laravel-conventions and --group-by-tag). Both flags at once is a
-     * contradiction the operator must resolve, so it fails loudly.
+     * toggle except the opt-in --laravel-conventions). Both flags at once is
+     * a contradiction the operator must resolve, so it fails loudly.
      *
      * @param  array<string, string>  $options
      *
@@ -526,7 +518,7 @@ final class StandaloneApplication
         the config file beats the built-in defaults. The config file is
         openapi-laravel.json in the working directory (if present), or the
         path given via --config. Its keys mirror config/openapi-laravel.php:
-        spec, output.{path,namespace,suffix,prune,validation_trait,group_by_tag},
+        spec, output.{path,namespace,suffix,prune,validation_trait},
         controllers.{enabled,path,namespace,base_class,laravel_conventions},
         routes.{enabled,path,middleware,prefix}, security.middleware_map,
         enforce_closed_objects, max_depth, max_bytes, only_tags, only_schemas (the
@@ -548,8 +540,6 @@ final class StandaloneApplication
           --suffix=<suffix>    Data class name suffix (default: Data)
           --max-depth=<n>      Maximum schema nesting depth (default: 64)
           --prune              Delete existing .php files in the output dir first (generate only)
-          --group-by-tag       Emit Data classes into per-tag subdirectories and subnamespaces (default: off)
-          --no-group-by-tag    Keep the flat data directory even when the config enables the grouped layout
           --enforce-closed-objects     Reject unknown keys for additionalProperties: false schemas (default: on)
           --no-enforce-closed-objects  Accept unknown keys even for additionalProperties: false schemas
           --only-tags=<list>   Generate only operations carrying these comma-separated tags, plus their schema closure

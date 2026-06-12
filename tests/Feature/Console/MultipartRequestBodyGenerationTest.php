@@ -49,9 +49,9 @@ it('writes the synthesized multipart body class with UploadedFile typing and fil
 
     $this->artisan('openapi:generate')->assertSuccessful();
 
-    expect(is_file($out.'/UploadPetImageRequestData.php'))->toBeTrue();
+    expect(is_file($out.'/Pet/UploadPetImageRequestData.php'))->toBeTrue();
 
-    $code = (string) file_get_contents($out.'/UploadPetImageRequestData.php');
+    $code = (string) file_get_contents($out.'/Pet/UploadPetImageRequestData.php');
     expect($code)->toContain('use Illuminate\Http\UploadedFile;')
         ->and($code)->toContain('public readonly UploadedFile $image')
         ->and($code)->toContain("'image' => ['required', 'file', 'mimetypes:image/png']")
@@ -82,7 +82,7 @@ it('registers a tampered multipart body class as drift', function () use ($multi
 
     $this->artisan('openapi:generate')->assertSuccessful();
 
-    $path = $out.'/UploadPetImageRequestData.php';
+    $path = $out.'/Pet/UploadPetImageRequestData.php';
     file_put_contents($path, file_get_contents($path).' ');
 
     $this->artisan('openapi:check')

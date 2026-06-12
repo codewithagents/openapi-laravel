@@ -160,7 +160,9 @@ it('keeps the injected payload inert inside the docblock, never as a PHP stateme
 
 it('emits the regex rule for a pattern containing both # and ~ instead of dropping it', function () {
     $files = generateHostileFiles();
-    $model = $files['EvilNameEndCommentData.php'] ?? '';
+    // The schema is solely owned by the 'danger' tag, so the grouped layout
+    // (issue #93, the only layout) places it in the Danger/ subdirectory.
+    $model = $files['Danger/EvilNameEndCommentData.php'] ?? '';
 
     // C-4: the field must carry a regex rule, never silently under-validated.
     expect($model)->toContain("'code' => [")

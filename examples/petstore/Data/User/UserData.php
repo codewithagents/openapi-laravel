@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data;
+namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\User;
 
 use Spatie\LaravelData\Data;
 

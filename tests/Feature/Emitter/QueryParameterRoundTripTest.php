@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-use App\Data\CreateWidgetQueryData;
-use App\Data\ListPetsQueryData;
-use App\Data\ListWidgetsQueryData;
-use App\Data\WidgetState;
+use App\Data\Pet\ListPetsQueryData;
+use App\Data\Widget\CreateWidgetQueryData;
+use App\Data\Widget\ListWidgetsQueryData;
+use App\Data\Widget\WidgetState;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
@@ -42,17 +42,10 @@ beforeEach(function () {
         // the planner wiring.
         (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($document);
 
-        $all = [...array_values($files), ...array_values($generator->queryFiles())];
-        foreach ($all as $file) {
-            $path = $dir.'/'.$file->filename();
-            file_put_contents($path, $file->code);
-            // Skip classes another suite already loaded (the status-code
-            // round-trip loads the same petstore Data set; the generator is
-            // deterministic, so the definitions are byte-identical).
-            if (! class_exists('App\\Data\\'.$file->className, false)) {
-                require_once $path;
-            }
-        }
+        // loadGeneratedFiles skips classes another suite already loaded (the
+        // status-code round-trip loads the same petstore Data set; the
+        // generator is deterministic, so the definitions are byte-identical).
+        loadGeneratedFiles($dir, [...array_values($files), ...array_values($generator->queryFiles())]);
     }
 });
 

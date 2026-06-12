@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Http\Controllers\Api;
 
-use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\OrderData;
-use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\PetData;
-use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\UserData;
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Pet\PetData;
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Store\OrderData;
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\User\UserData;
 
 /**
  * A trivial in-memory backing store for the demo controllers. This is NOT

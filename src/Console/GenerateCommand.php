@@ -24,8 +24,6 @@ final class GenerateCommand extends Command
         {--no-routes : Skip the routes file}
         {--laravel-conventions : Name clean RESTful controller methods index/show/store/update/destroy (default: off)}
         {--no-laravel-conventions : Keep operationId-derived method names even when the config enables the conventions}
-        {--group-by-tag : Emit Data classes into per-tag subdirectories and subnamespaces (default: off)}
-        {--no-group-by-tag : Keep the flat data directory even when the config enables the grouped layout}
         {--enforce-closed-objects : Reject unknown keys for schemas with additionalProperties: false (default: on)}
         {--no-enforce-closed-objects : Accept unknown keys even for additionalProperties: false schemas}
         {--only-tags= : Generate only operations carrying these comma-separated tags, plus their schema closure}

@@ -11,6 +11,15 @@ return [
 
     /*
      * Where generated classes are written, and the namespace they live under.
+     *
+     * Data classes and enums are emitted in the tag-grouped layout (issue
+     * #93): a class solely owned by one tag group lands in a per-tag
+     * subdirectory with the namespace following the directory
+     * (data/Pet/PetData.php under App\Data\Pet), mirroring the per-tag
+     * controller grouping. Multi-tag, unreferenced, and reserved-'Support'
+     * schemas stay at the flat root; per-operation query and request-body
+     * classes follow their operation's tag; the inlined runtime Support
+     * classes always stay in Support/.
      */
     'output' => [
         'path' => app_path('Data'),
@@ -39,38 +48,6 @@ return [
          * methods when validating. Null (the default) emits no trait line.
          */
         'validation_trait' => null,
-
-        /*
-         * Tag-grouped data layout (issue #93, opt-in). When true, generated
-         * Data classes and enums are emitted into per-tag subdirectories with
-         * namespaces following the directories (data/Pet/PetData.php under
-         * App\Data\Pet), mirroring the per-tag controller grouping, so a
-         * large spec does not pile every class into one flat directory.
-         *
-         * The attribution rule is deterministic:
-         *
-         *   - An operation belongs to its FIRST tag (the tag that names its
-         *     controller); untagged operations count as the pseudo-tag
-         *     'Untagged'. Tag names become StudlyCaps directory segments.
-         *   - A component schema referenced, transitively, by operations of
-         *     exactly ONE tag group goes into that group's subdirectory.
-         *     Enums follow the same rule.
-         *   - A schema referenced by several tag groups, referenced by no
-         *     operation, or owned by a tag normalizing to the reserved
-         *     'Support' name stays at the FLAT ROOT (no shared/ directory).
-         *   - Per-operation query and request-body classes follow their
-         *     operation's tag group; nested and writable-variant classes
-         *     follow the class that owns them.
-         *   - The inlined runtime Support classes always stay in Support/.
-         *
-         * Cross-group references are imported, so the generated code compiles
-         * in either layout. Default false: the flat layout, byte-identical to
-         * previous releases unless you opt in here or via --group-by-tag
-         * (--no-group-by-tag overrides a true here for one run). When
-         * toggling on an existing project, delete the previously generated
-         * files first ('prune' only clears the top-level directory).
-         */
-        'group_by_tag' => false,
     ],
 
     /*

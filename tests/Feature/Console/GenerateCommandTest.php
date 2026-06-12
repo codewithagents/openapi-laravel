@@ -198,7 +198,7 @@ it('skips controllers and routes with --no-controllers and --no-routes', functio
 
     expect(is_dir($controllerOut))->toBeFalse()
         ->and(is_file($routesOut))->toBeFalse()
-        ->and(is_file($out.'/PetData.php'))->toBeTrue();
+        ->and(is_file($out.'/Pet/PetData.php'))->toBeTrue();
 });
 
 it('lets the config disable the scaffold when no flag is passed', function () use ($tempOut) {

@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Http\Controllers\Api;
 
-use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\ApiResponseData;
-use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\FindPetsByStatusQueryData;
-use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\FindPetsByTagsQueryData;
-use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\PetData;
-use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\UpdatePetWithFormQueryData;
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Pet\ApiResponseData;
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Pet\FindPetsByStatusQueryData;
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Pet\FindPetsByTagsQueryData;
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Pet\PetData;
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Pet\UpdatePetWithFormQueryData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Spatie\LaravelData\DataCollection;

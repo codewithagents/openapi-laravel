@@ -80,21 +80,11 @@ it('rejects a non-boolean controllers.laravel_conventions (#94)', function () us
     (new StandaloneConfigLoader)->load($path, '/tmp');
 })->throws(OptionException::class, "Invalid 'controllers.laravel_conventions'");
 
-it('reads output.group_by_tag as a nullable boolean (#93)', function () use ($writeFile) {
-    $unset = (new StandaloneConfigLoader)->load($writeFile((string) json_encode(['output' => ['suffix' => 'Data']])), '/tmp');
-    $on = (new StandaloneConfigLoader)->load($writeFile((string) json_encode(['output' => ['group_by_tag' => true]])), '/tmp');
-    $off = (new StandaloneConfigLoader)->load($writeFile((string) json_encode(['output' => ['group_by_tag' => false]])), '/tmp');
-
-    expect($unset->groupByTag)->toBeNull()
-        ->and($on->groupByTag)->toBeTrue()
-        ->and($off->groupByTag)->toBeFalse();
-});
-
-it('rejects a non-boolean output.group_by_tag (#93)', function () use ($writeFile) {
-    $path = $writeFile((string) json_encode(['output' => ['group_by_tag' => 'yes']]));
+it('rejects the retired output.group_by_tag key as unknown (#93, the grouped layout is the only layout)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['output' => ['group_by_tag' => true]]));
 
     (new StandaloneConfigLoader)->load($path, '/tmp');
-})->throws(OptionException::class, "Invalid 'output.group_by_tag'");
+})->throws(OptionException::class, "Unknown key 'output.group_by_tag'");
 
 it('keeps a parameterized middleware name intact, never comma-splitting it (#71)', function () use ($writeFile) {
     $path = $writeFile((string) json_encode(['routes' => ['middleware' => ['throttle:60,1']]]));

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data;
+namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Store;
 
 use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Support\Rfc3339DateTimeRule;
 use Illuminate\Validation\Rule;

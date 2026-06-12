@@ -239,6 +239,15 @@ final class ModelGenerator
      */
     private array $refScopes = [];
 
+    /**
+     * The tag-grouped layout attribution for the current generate() run
+     * (issue #93): schema name => owning group. Computed from the document
+     * itself unless the options injected a precomputed map (a test seam).
+     *
+     * @var array<string, string>
+     */
+    private array $schemaGroups = [];
+
     public function __construct(
         private readonly GeneratorOptions $options = new GeneratorOptions,
     ) {
@@ -266,6 +275,14 @@ final class ModelGenerator
         $this->usedSupportClasses = [];
         $this->fileGroups = [];
         $this->refScopes = [];
+
+        // Tag-grouped data layout (issue #93, the only layout): attribute each
+        // component schema to the tag group that solely owns it, via the same
+        // transitive walk as the subset closure. Computed here from the
+        // document itself so EVERY caller gets the grouped layout; the options
+        // map is an injection seam for unit tests of the emission side.
+        $this->schemaGroups = $this->options->schemaGroups
+            ?? (new SchemaClosure)->attributeByTag($document);
 
         $schemas = $this->componentSchemas($document);
         ksort($schemas);
@@ -1778,20 +1795,17 @@ final class ModelGenerator
 
     /**
      * The tag group a component schema's classes belong to under the grouped
-     * layout (issue #93), or null for the flat root. Attribution comes from
-     * the precomputed map. A SYNTHESIZED inline-union variant (issue #38) is
-     * not a component, so the map can never name it: it follows its base. A
-     * named-component variant is attributed like every other component (the
+     * layout (issue #93), or null for the flat root (multi-group,
+     * unreferenced, or reserved schemas). Attribution comes from the map
+     * computed in generate(). A SYNTHESIZED inline-union variant (issue #38)
+     * is not a component, so the map can never name it: it follows its base.
+     * A named-component variant is attributed like every other component (the
      * closure walk links it to its base, so it lands with the base unless
-     * another tag group also reaches it). Always null when the grouped layout
-     * is off.
+     * another tag group also reaches it).
      */
     private function groupForSchema(string $schemaName): ?string
     {
-        $groups = $this->options->schemaGroups;
-        if ($groups === null) {
-            return null;
-        }
+        $groups = $this->schemaGroups;
 
         if (isset($groups[$schemaName])) {
             return $groups[$schemaName];
@@ -1810,12 +1824,12 @@ final class ModelGenerator
     /**
      * The tag group a per-operation class (query, issue #63; body, issue #76)
      * belongs to: its operation's tag group, which is unambiguous because an
-     * operation has exactly one controller tag. Null in the flat layout, for a
-     * tagless caller, or for the reserved 'Support' group.
+     * operation has exactly one controller tag. Null for a tagless caller or
+     * for the reserved 'Support' group.
      */
     private function groupForTag(?string $tag): ?string
     {
-        if ($this->options->schemaGroups === null || $tag === null) {
+        if ($tag === null) {
             return null;
         }
 

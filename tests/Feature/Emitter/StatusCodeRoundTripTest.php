@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ControllerGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
@@ -42,21 +41,13 @@ beforeEach(function () {
         // Write and load each generated class once, skipping any already
         // declared in this process (the query round-trip suite loads the same
         // petstore Data classes; the generator is deterministic, so the
-        // definitions are byte-identical).
-        $load = function (array $files, string $namespace) use ($dir): void {
-            foreach ($files as $file) {
-                /** @var GeneratedFile $file */
-                $path = $dir.'/'.$file->filename();
-                file_put_contents($path, $file->code);
-                if (! class_exists($namespace.'\\'.$file->className, false)) {
-                    require_once $path;
-                }
-            }
-        };
-
-        $load([...array_values($modelFiles), ...array_values($generator->queryFiles())], 'App\\Data');
-        $load(array_values($generator->supportFiles()), 'App\\Data\\Support');
-        $load(array_values($controllers), 'App\\Http\\Controllers\\Api');
+        // definitions are byte-identical). The support and controller files
+        // declare no `directory`, so they land in per-purpose subdirectories
+        // here only for tidiness; loadGeneratedFiles resolves each FQCN from
+        // the file's own namespace declaration.
+        loadGeneratedFiles($dir, [...array_values($modelFiles), ...array_values($generator->queryFiles())]);
+        loadGeneratedFiles($dir.'/Support', array_values($generator->supportFiles()));
+        loadGeneratedFiles($dir.'/Controllers', array_values($controllers));
 
         // The hand-written concrete controllers: plain returns only, no
         // response() helpers, no status codes. The whole point of #64 is that
@@ -68,9 +59,9 @@ beforeEach(function () {
 
         namespace App\Http\Controllers\Api;
 
-        use App\Data\ListPetsQueryData;
-        use App\Data\PetData;
-        use App\Data\PetWritableData;
+        use App\Data\Pet\ListPetsQueryData;
+        use App\Data\Pet\PetData;
+        use App\Data\Pet\PetWritableData;
         use Illuminate\Http\JsonResponse;
         use Spatie\LaravelData\DataCollection;
 

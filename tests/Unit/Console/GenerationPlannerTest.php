@@ -75,9 +75,9 @@ it('plans query Data classes even when controllers and routes are both disabled 
     // them, in the CATEGORY_DATA bucket, while planning no scaffold files.
     $dataPaths = array_map(static fn (PlannedFile $f): string => $f->path, $plan->filesByCategory(PlannedFile::CATEGORY_DATA));
 
-    expect($dataPaths)->toContain($out.'/ListWidgetsQueryData.php')
-        ->and($dataPaths)->toContain($out.'/CreateWidgetQueryData.php')
-        ->and($dataPaths)->toContain($out.'/UploadBlobQueryData.php')
+    expect($dataPaths)->toContain($out.'/Widget/ListWidgetsQueryData.php')
+        ->and($dataPaths)->toContain($out.'/Widget/CreateWidgetQueryData.php')
+        ->and($dataPaths)->toContain($out.'/Widget/UploadBlobQueryData.php')
         ->and($plan->filesByCategory(PlannedFile::CATEGORY_CONTROLLER))->toBe([])
         ->and($plan->filesByCategory(PlannedFile::CATEGORY_ROUTES))->toBe([]);
 });

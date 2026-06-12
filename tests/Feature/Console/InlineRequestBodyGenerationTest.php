@@ -52,8 +52,8 @@ it('writes the synthesized body class (and its nested class) next to the model D
 
     $this->artisan('openapi:generate')->assertSuccessful();
 
-    expect(is_file($out.'/CreatePetRequestData.php'))->toBeTrue()
-        ->and(is_file($out.'/CreatePetRequestHomeData.php'))->toBeTrue()
+    expect(is_file($out.'/Pet/CreatePetRequestData.php'))->toBeTrue()
+        ->and(is_file($out.'/Pet/CreatePetRequestHomeData.php'))->toBeTrue()
         ->and((string) file_get_contents($out.'/Http/AbstractPetController.php'))
         ->toContain('abstract public function createPet(CreatePetRequestData $body): JsonResponse;');
 });
@@ -81,7 +81,7 @@ it('registers a tampered body class as drift', function () use ($inlineBodySpec,
 
     $this->artisan('openapi:generate')->assertSuccessful();
 
-    $path = $out.'/CreatePetRequestData.php';
+    $path = $out.'/Pet/CreatePetRequestData.php';
     file_put_contents($path, file_get_contents($path).' ');
 
     $this->artisan('openapi:check')
@@ -98,7 +98,7 @@ it('registers a deleted body class as missing drift', function () use ($inlineBo
 
     $this->artisan('openapi:generate')->assertSuccessful();
 
-    $path = $out.'/CreatePetRequestData.php';
+    $path = $out.'/Pet/CreatePetRequestData.php';
     unlink($path);
 
     $this->artisan('openapi:check')

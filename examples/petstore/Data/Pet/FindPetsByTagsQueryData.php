@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data;
+namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Pet;
 
 use Illuminate\Http\Request;
 use Spatie\LaravelData\Data;
 
 /**
- * Query parameters of POST /pet/{petId}.
+ * Query parameters of GET /pet/findByTags.
  */
-final class UpdatePetWithFormQueryData extends Data
+final class FindPetsByTagsQueryData extends Data
 {
     public function __construct(
-        public readonly ?string $name = null,
-        public readonly ?string $status = null,
+        /** @var array<int, string> */
+        public readonly array $tags,
     ) {}
 
     /**
@@ -32,8 +32,8 @@ final class UpdatePetWithFormQueryData extends Data
     public static function rules(): array
     {
         return [
-            'name' => ['sometimes', 'string'],
-            'status' => ['sometimes', 'string'],
+            'tags' => ['required', 'array'],
+            'tags.*' => ['string'],
         ];
     }
 }

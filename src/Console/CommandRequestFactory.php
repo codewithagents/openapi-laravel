@@ -12,9 +12,8 @@ use Illuminate\Console\Command;
  * read their inputs identically. Both commands accept the same options
  * (--spec, --output, --namespace, --controllers/--no-controllers,
  * --routes/--no-routes, --enforce-closed-objects/--no-enforce-closed-objects,
- * --laravel-conventions/--no-laravel-conventions,
- * --group-by-tag/--no-group-by-tag), so neither can compute a different plan
- * than the other.
+ * --laravel-conventions/--no-laravel-conventions), so neither can compute a
+ * different plan than the other.
  *
  * Toggle precedence is strict: an explicit flag beats the config value, the
  * config value beats the built-in default (enabled). Passing both the enable
@@ -23,8 +22,8 @@ use Illuminate\Console\Command;
  * @throws OptionException when --controllers/--no-controllers,
  *                         --routes/--no-routes,
  *                         --enforce-closed-objects/--no-enforce-closed-objects,
- *                         --laravel-conventions/--no-laravel-conventions,
- *                         or --group-by-tag/--no-group-by-tag are combined
+ *                         or --laravel-conventions/--no-laravel-conventions
+ *                         are combined
  *
  * @internal
  */
@@ -69,13 +68,6 @@ final readonly class CommandRequestFactory
         // stays byte-identical. --laravel-conventions and
         // --no-laravel-conventions together is the same loud contradiction.
         $laravelConventions = $this->resolveToggle($command, 'laravel-conventions', 'openapi-laravel.controllers.laravel_conventions', false);
-
-        // Tag-grouped data layout (issue #93): the same strict toggle
-        // precedence, with a default-OFF built-in, so the grouped layout is
-        // strictly opt-in and the default output stays byte-identical.
-        // --group-by-tag and --no-group-by-tag together is the same loud
-        // contradiction.
-        $groupByTag = $this->resolveToggle($command, 'group-by-tag', 'openapi-laravel.output.group_by_tag', false);
 
         $controllerPath = $this->configString('openapi-laravel.controllers.path');
         $controllerNamespace = $this->configString('openapi-laravel.controllers.namespace') ?? 'App\\Http\\Controllers\\Api';
@@ -136,7 +128,6 @@ final readonly class CommandRequestFactory
             $stubs,
             $controllerBaseClass,
             $validationTrait,
-            $groupByTag,
         );
     }
 
@@ -328,8 +319,8 @@ final readonly class CommandRequestFactory
     /**
      * Resolves an enable/disable flag pair against the config: flag beats
      * config, config beats the built-in default ($default, enabled for every
-     * toggle except the opt-in --laravel-conventions and --group-by-tag). Both flags at once is a
-     * contradiction the operator must resolve, so it fails loudly.
+     * toggle except the opt-in --laravel-conventions). Both flags at once is
+     * a contradiction the operator must resolve, so it fails loudly.
      *
      * @throws OptionException when both --{$flag} and --no-{$flag} are passed
      */

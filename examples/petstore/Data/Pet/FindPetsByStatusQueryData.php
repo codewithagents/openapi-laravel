@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data;
+namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Pet;
 
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Spatie\LaravelData\Data;
 
 /**
- * Query parameters of GET /pet/findByTags.
+ * Query parameters of GET /pet/findByStatus.
  */
-final class FindPetsByTagsQueryData extends Data
+final class FindPetsByStatusQueryData extends Data
 {
     public function __construct(
-        /** @var array<int, string> */
-        public readonly array $tags,
+        public readonly string $status = 'available',
     ) {}
 
     /**
@@ -32,8 +32,7 @@ final class FindPetsByTagsQueryData extends Data
     public static function rules(): array
     {
         return [
-            'tags' => ['required', 'array'],
-            'tags.*' => ['string'],
+            'status' => ['sometimes', Rule::in(['available', 'pending', 'sold'])],
         ];
     }
 }

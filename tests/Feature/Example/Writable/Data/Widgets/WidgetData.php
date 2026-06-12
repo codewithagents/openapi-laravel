@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace CodeWithAgents\OpenApiLaravel\Tests\Feature\Example\Writable\Data;
+namespace CodeWithAgents\OpenApiLaravel\Tests\Feature\Example\Writable\Data\Widgets;
 
 use Spatie\LaravelData\Data;
 

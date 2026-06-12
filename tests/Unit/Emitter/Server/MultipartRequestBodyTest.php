@@ -71,7 +71,7 @@ it('types a multipart object body as a synthesized per-operation Data param', fu
 
     expect($descriptors[0]->bodyParam)->toBe(['name' => 'body', 'type' => 'UploadPetImageRequestData'])
         ->and($descriptors[0]->bodyRequiresRequest)->toBeFalse()
-        ->and($descriptors[0]->imports)->toContain('App\\Data\\UploadPetImageRequestData')
+        ->and($descriptors[0]->imports)->toContain('App\\Data\\Pet\\UploadPetImageRequestData')
         ->and($descriptors[0]->imports)->not->toContain('Illuminate\\Http\\Request');
 
     $code = $generator->bodyFiles()['UploadPetImageRequestData']->code;
@@ -93,7 +93,7 @@ it('renders the typed multipart param into the abstract controller signature', f
     $controllers = (new ControllerGenerator(new ServerOptions))->generate($descriptors);
     $code = $controllers['AbstractPetController']->code;
 
-    expect($code)->toContain('use App\Data\UploadPetImageRequestData;')
+    expect($code)->toContain('use App\Data\Pet\UploadPetImageRequestData;')
         ->and($code)->toContain('abstract public function uploadPetImage(UploadPetImageRequestData $body): JsonResponse;');
 });
 

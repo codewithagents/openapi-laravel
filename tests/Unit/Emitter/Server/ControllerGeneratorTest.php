@@ -143,7 +143,7 @@ it('injects the query Data class into a body-less method signature (issue #63)',
     $code = generateQueryControllers()['AbstractWidgetController']->code;
 
     expect($code)->toContain('abstract public function listWidgets(ListWidgetsQueryData $query): JsonResponse;')
-        ->and($code)->toContain('use App\Data\ListWidgetsQueryData;');
+        ->and($code)->toContain('use App\Data\Widget\ListWidgetsQueryData;');
 });
 
 it('keeps the query class out of a body-carrying signature and points at fromQuery in the docblock', function () {
@@ -151,7 +151,7 @@ it('keeps the query class out of a body-carrying signature and points at fromQue
 
     expect($code)->toContain('abstract public function createWidget(WidgetData $widget): JsonResponse;')
         ->and($code)->toContain('* Query parameters: validate and hydrate them with')
-        ->and($code)->toContain('* \App\Data\CreateWidgetQueryData::fromQuery($request).')
+        ->and($code)->toContain('* \App\Data\Widget\CreateWidgetQueryData::fromQuery($request).')
         // No import for a class referenced only in docblock prose: consumer
         // Pint runs would strip it as unused.
         ->and($code)->not->toContain('use App\Data\CreateWidgetQueryData;');
@@ -161,7 +161,7 @@ it('keeps the query class out of a Request-fallback signature too', function () 
     $code = generateQueryControllers()['AbstractWidgetController']->code;
 
     expect($code)->toContain('abstract public function uploadBlob(Request $request): JsonResponse;')
-        ->and($code)->toContain('* \App\Data\UploadBlobQueryData::fromQuery($request).');
+        ->and($code)->toContain('* \App\Data\Widget\UploadBlobQueryData::fromQuery($request).');
 });
 
 it('orders an injected query param after the body slot and before path params', function () {
@@ -179,5 +179,5 @@ it('orders an injected query param after the body slot and before path params', 
         ->and($code)->toContain('abstract public function getPetById(int $petId): PetData;')
         // createPet carries a body, so its dryRun query class is fromQuery-only.
         ->and($code)->toContain('abstract public function createPet(PetWritableData $pet): PetData;')
-        ->and($code)->toContain('* \App\Data\CreatePetQueryData::fromQuery($request).');
+        ->and($code)->toContain('* \App\Data\Pet\CreatePetQueryData::fromQuery($request).');
 });

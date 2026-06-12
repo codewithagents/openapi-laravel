@@ -10,9 +10,10 @@ use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 
 /**
- * Unit tests for the EMISSION side of the opt-in grouped data layout (issue
- * #93): given a precomputed schema-to-group attribution, the model generator
- * must place each class in its group's namespace and directory, and every
+ * Unit tests for the EMISSION side of the tag-grouped data layout (issue #93,
+ * the only layout): given an injected schema-to-group attribution (the test
+ * seam; production computes it from the document), the model generator must
+ * place each class in its group's namespace and directory, and every
  * cross-group reference (property types, DataCollectionOf targets, Rule::enum
  * classes, morph arms, the variant base) must be imported from its real
  * namespace. Attribution itself is covered by TagGroupAttributionTest.
@@ -220,13 +221,13 @@ it('places a multipart body class (issue #75) in its operation tag group too', f
         ->and($generator->bodyFiles()['UploadAvatarRequestData']->code)->toContain('namespace App\Data\Profile;');
 });
 
-it('keeps query and body classes flat for the reserved Support tag and in the flat layout', function () {
-    $flat = new ModelGenerator;
-    $flat->generate(groupedDocument([]));
-    $flatBody = $flat->generateBodyData('CreatePet', 'POST /pets', new Schema([
+it('keeps query and body classes flat for the reserved Support tag and a tagless caller', function () {
+    $generator = new ModelGenerator;
+    $generator->generate(groupedDocument([]));
+    $taglessBody = $generator->generateBodyData('CreatePet', 'POST /pets', new Schema([
         'type' => 'object',
         'properties' => ['name' => ['type' => 'string']],
-    ]), 'pet');
+    ]));
 
     $grouped = new ModelGenerator(new GeneratorOptions(schemaGroups: []));
     $grouped->generate(groupedDocument([]));
@@ -235,14 +236,14 @@ it('keeps query and body classes flat for the reserved Support tag and in the fl
         'properties' => ['subject' => ['type' => 'string']],
     ]), 'support');
 
-    expect($flatBody)->toBe('CreatePetRequestData')
-        ->and($flat->bodyFiles()['CreatePetRequestData']->filename())->toBe('CreatePetRequestData.php')
-        ->and($flat->bodyFiles()['CreatePetRequestData']->code)->toContain("namespace App\Data;\n")
+    expect($taglessBody)->toBe('CreatePetRequestData')
+        ->and($generator->bodyFiles()['CreatePetRequestData']->filename())->toBe('CreatePetRequestData.php')
+        ->and($generator->bodyFiles()['CreatePetRequestData']->code)->toContain("namespace App\Data;\n")
         ->and($supportBody)->toBe('OpenTicketRequestData')
         ->and($grouped->bodyFiles()['OpenTicketRequestData']->filename())->toBe('OpenTicketRequestData.php');
 });
 
-it('emits byte-identical output for a null attribution and the flat default', function () {
+it('emits byte-identical output for an injected attribution and the self-computed one', function () {
     $schemas = [
         'Customer' => [
             'type' => 'object',
@@ -257,13 +258,15 @@ it('emits byte-identical output for a null attribution and the flat default', fu
         'Tag' => ['type' => 'object', 'properties' => ['label' => ['type' => 'string']]],
     ];
 
-    $flat = (new ModelGenerator)->generate(groupedDocument($schemas));
-    $defaultOptions = (new ModelGenerator(new GeneratorOptions))->generate(groupedDocument($schemas));
+    // The document declares no operations, so the self-computed attribution
+    // is empty: injecting the same empty map must change nothing.
+    $injected = (new ModelGenerator(new GeneratorOptions(schemaGroups: [])))->generate(groupedDocument($schemas));
+    $computed = (new ModelGenerator(new GeneratorOptions))->generate(groupedDocument($schemas));
 
-    expect(array_keys($flat))->toBe(array_keys($defaultOptions));
-    foreach ($flat as $name => $file) {
-        expect($file->code)->toBe($defaultOptions[$name]->code)
-            ->and($file->filename())->toBe($defaultOptions[$name]->filename());
+    expect(array_keys($injected))->toBe(array_keys($computed));
+    foreach ($injected as $name => $file) {
+        expect($file->code)->toBe($computed[$name]->code)
+            ->and($file->filename())->toBe($computed[$name]->filename());
     }
 });
 

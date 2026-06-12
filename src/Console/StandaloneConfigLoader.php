@@ -43,7 +43,7 @@ final readonly class StandaloneConfigLoader
      */
     private const SCHEMA = [
         'spec' => null,
-        'output' => ['path', 'namespace', 'suffix', 'prune', 'validation_trait', 'group_by_tag'],
+        'output' => ['path', 'namespace', 'suffix', 'prune', 'validation_trait'],
         'controllers' => ['enabled', 'path', 'namespace', 'base_class', 'laravel_conventions'],
         'routes' => ['enabled', 'path', 'middleware', 'prefix'],
         'security' => ['middleware_map'],
@@ -105,7 +105,6 @@ final readonly class StandaloneConfigLoader
             suffix: $this->string($decoded['output'] ?? [], 'suffix', $path, 'output.'),
             prune: $this->bool($decoded['output'] ?? [], 'prune', $path, 'output.'),
             validationTrait: $this->nonEmptyString($decoded['output'] ?? [], 'validation_trait', $path, 'output.'),
-            groupByTag: $this->bool($decoded['output'] ?? [], 'group_by_tag', $path, 'output.'),
             controllersEnabled: $this->bool($decoded['controllers'] ?? [], 'enabled', $path, 'controllers.'),
             controllerPath: $containment->contain($this->string($decoded['controllers'] ?? [], 'path', $path, 'controllers.'), 'controllers.path', $path),
             controllerNamespace: $this->string($decoded['controllers'] ?? [], 'namespace', $path, 'controllers.'),
