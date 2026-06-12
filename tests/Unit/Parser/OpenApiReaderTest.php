@@ -14,6 +14,7 @@ use CodeWithAgents\OpenApiLaravel\Parser\Spec\RequestBodyNode;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\ResponseNode;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\SchemaNode;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\SecurityRequirementNode;
+use Symfony\Component\Yaml\Yaml;
 
 /**
  * #104: OpenApiReader hydrates the decoded raw spec array into the typed
@@ -692,6 +693,76 @@ it('hydrates nesting within the depth bound', function () {
     ], 's');
 
     expect($document->components?->schemas['Deep'])->toBeInstanceOf(SchemaNode::class);
+});
+
+// --- Node-count bound (issue #107) -------------------------------------------
+
+it('rejects total schema node count beyond the configured bound', function () {
+    // A flat-but-wide document: 40 sibling object schemas, each with two
+    // properties, hydrates to well over 20 schema nodes, exceeding a tight cap.
+    $schemas = [];
+    for ($i = 0; $i < 40; $i++) {
+        $schemas["S{$i}"] = [
+            'type' => 'object',
+            'properties' => [
+                'a' => ['type' => 'string'],
+                'b' => ['type' => 'integer'],
+            ],
+        ];
+    }
+
+    (new OpenApiReader(maxNodes: 20))->read([
+        'openapi' => '3.1.0',
+        'info' => ['title' => 'T', 'version' => '1'],
+        'components' => ['schemas' => $schemas],
+    ], 's');
+})->throws(ParseException::class, 'maximum hydrated schema node count (20)');
+
+it('rejects a YAML alias-fanout bomb that stays under the byte and depth bounds', function () {
+    // A classic alias-amplification bomb: each level references the previous
+    // anchor several times, so a tiny file expands to an enormous schema graph.
+    // The byte guard (the file is well under a kilobyte) and the depth guard
+    // (only a handful of nesting levels) both miss it; the node-count guard is
+    // what fails closed. The cap is set low so the test trips the guard after a
+    // few thousand nodes, never churning real memory.
+    $yaml = <<<'YAML'
+    openapi: 3.1.0
+    info: { title: T, version: "1" }
+    paths: {}
+    components:
+      schemas:
+        Bomb:
+          type: object
+          properties:
+            l0: &l0 { type: object, properties: { a: { type: string } } }
+            l1: &l1 { type: object, properties: { a: *l0, b: *l0, c: *l0, d: *l0 } }
+            l2: &l2 { type: object, properties: { a: *l1, b: *l1, c: *l1, d: *l1 } }
+            l3: &l3 { type: object, properties: { a: *l2, b: *l2, c: *l2, d: *l2 } }
+            l4: &l4 { type: object, properties: { a: *l3, b: *l3, c: *l3, d: *l3 } }
+            l5: { type: object, properties: { a: *l4, b: *l4, c: *l4, d: *l4 } }
+    YAML;
+
+    $data = Yaml::parse($yaml);
+
+    expect(strlen($yaml))->toBeLessThan(1024);
+
+    (new OpenApiReader(maxNodes: 2000))->read($data, 'bomb.yaml');
+})->throws(ParseException::class, 'maximum hydrated schema node count');
+
+it('hydrates a normal corpus spec well under the default node-count bound', function () {
+    $reader = new OpenApiReader;
+    $document = $reader->read(
+        Yaml::parse((string) file_get_contents(__DIR__.'/../../Fixtures/specs/petstore-3.0.yaml')),
+        'petstore-3.0.yaml',
+    );
+
+    // The spec hydrates cleanly, and the count stays far below the default cap.
+    expect($document->components?->schemas)->not->toBeEmpty();
+
+    $count = (new ReflectionProperty(OpenApiReader::class, 'nodeCount'))->getValue($reader);
+    expect($count)
+        ->toBeGreaterThan(0)
+        ->toBeLessThan(OpenApiReader::DEFAULT_MAX_NODES);
 });
 
 // --- Media types and parameters ----------------------------------------------
