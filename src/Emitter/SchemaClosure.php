@@ -296,7 +296,7 @@ final readonly class SchemaClosure
     private function collectRefs(SchemaNode|ReferenceNode|null $node, array &$found): void
     {
         if ($node instanceof ReferenceNode) {
-            $name = $this->refName($node->pointer());
+            $name = SchemaPointer::refName($node->pointer());
             if ($name !== null) {
                 $found[$name] = true;
             }
@@ -336,7 +336,7 @@ final readonly class SchemaClosure
         $discriminator = $node->discriminator;
         if ($discriminator !== null) {
             foreach ($discriminator->mapping ?? [] as $target) {
-                $resolved = str_starts_with($target, '#/') ? $this->refName($target) : ($target === '' ? null : $target);
+                $resolved = str_starts_with($target, '#/') ? SchemaPointer::refName($target) : ($target === '' ? null : $target);
                 if ($resolved !== null) {
                     $found[$resolved] = true;
                 }
@@ -436,18 +436,6 @@ final readonly class SchemaClosure
         }
 
         return $result;
-    }
-
-    private function refName(string $pointer): ?string
-    {
-        if (! str_starts_with($pointer, '#/components/schemas/')) {
-            return null;
-        }
-
-        $parts = explode('/', $pointer);
-        $last = end($parts);
-
-        return $last === '' ? null : $last;
     }
 
     /**

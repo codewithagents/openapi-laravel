@@ -6,6 +6,7 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter\Server;
 
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\ResolvedClosure;
+use CodeWithAgents\OpenApiLaravel\Emitter\SchemaPointer;
 use CodeWithAgents\OpenApiLaravel\Naming\PhpIdentifier;
 use CodeWithAgents\OpenApiLaravel\Naming\UniqueNames;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\MediaTypeNode;
@@ -629,7 +630,7 @@ final class OperationCollector
         }
 
         $pointer = $candidate->pointer();
-        $name = $this->componentName($pointer, 'parameters');
+        $name = SchemaPointer::componentName($pointer, 'parameters');
 
         if ($name === null) {
             $this->warnings[sprintf(
@@ -783,7 +784,7 @@ final class OperationCollector
 
         if ($schema instanceof ReferenceNode) {
             $pointer = $schema->pointer();
-            $name = $this->refName($pointer);
+            $name = SchemaPointer::refName($pointer);
             if ($name !== null && isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'data') {
                 $entry = $this->registry[$name];
                 $type = $entry['writeClass'] ?? $entry['dataClass'];
@@ -883,7 +884,7 @@ final class OperationCollector
 
         if ($schema instanceof ReferenceNode) {
             $pointer = $schema->pointer();
-            $name = $this->refName($pointer);
+            $name = SchemaPointer::refName($pointer);
             if ($name !== null && isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'data') {
                 $type = $this->registry[$name]['dataClass'];
                 $imports[] = $this->dataFqcn($type);
@@ -973,7 +974,7 @@ final class OperationCollector
                 return null;
             }
 
-            $name = $this->refName($member->pointer());
+            $name = SchemaPointer::refName($member->pointer());
             if ($name === null || ! isset($this->registry[$name]) || $this->registry[$name]['kind'] !== 'data') {
                 return null;
             }
@@ -998,7 +999,7 @@ final class OperationCollector
             return null;
         }
 
-        $name = $this->refName($items->pointer());
+        $name = SchemaPointer::refName($items->pointer());
         if ($name !== null && isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'data') {
             return $this->registry[$name]['dataClass'];
         }
@@ -1222,26 +1223,5 @@ final class OperationCollector
         $rank = array_search($method, self::HTTP_METHODS, true);
 
         return $rank === false ? count(self::HTTP_METHODS) : $rank;
-    }
-
-    private function refName(string $pointer): ?string
-    {
-        return $this->componentName($pointer, 'schemas');
-    }
-
-    /**
-     * The component name a local `#/components/<section>/<Name>` pointer
-     * targets, or null for an external or differently shaped pointer.
-     */
-    private function componentName(string $pointer, string $section): ?string
-    {
-        if (! str_starts_with($pointer, '#/components/'.$section.'/')) {
-            return null;
-        }
-
-        $parts = explode('/', $pointer);
-        $last = end($parts);
-
-        return $last === '' ? null : $last;
     }
 }

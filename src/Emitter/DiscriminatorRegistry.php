@@ -316,7 +316,7 @@ final class DiscriminatorRegistry
                 if (! $member instanceof ReferenceNode) {
                     continue;
                 }
-                $baseName = $this->refName($member->pointer());
+                $baseName = SchemaPointer::refName($member->pointer());
                 if ($baseName === null) {
                     continue;
                 }
@@ -405,7 +405,7 @@ final class DiscriminatorRegistry
      */
     private function analyzeUnion(string $name, SchemaNode $schema, array $schemas, array $mapping, string $propertyName): ?array
     {
-        $members = $this->unionMembers($schema);
+        $members = SchemaPointer::unionMembers($schema);
         if ($members === []) {
             return null;
         }
@@ -446,7 +446,7 @@ final class DiscriminatorRegistry
             if (! $member instanceof ReferenceNode) {
                 return null;
             }
-            $refName = $this->refName($member->pointer());
+            $refName = SchemaPointer::refName($member->pointer());
             if ($refName === null) {
                 return null;
             }
@@ -764,29 +764,6 @@ final class DiscriminatorRegistry
     }
 
     /**
-     * The `oneOf`/`anyOf` members of a schema in source order, deduplicated for
-     * the all-ref case by reference but kept positional for the inline case.
-     *
-     * @return list<SchemaNode|ReferenceNode>
-     */
-    private function unionMembers(SchemaNode $schema): array
-    {
-        $members = [];
-        if (is_array($schema->oneOf)) {
-            foreach ($schema->oneOf as $member) {
-                $members[] = $member;
-            }
-        }
-        if (is_array($schema->anyOf)) {
-            foreach ($schema->anyOf as $member) {
-                $members[] = $member;
-            }
-        }
-
-        return $members;
-    }
-
-    /**
      * The locally declared properties of a schema (own `properties`, no allOf
      * merge), name => schema, used to read a member's discriminator const/enum.
      *
@@ -816,7 +793,7 @@ final class DiscriminatorRegistry
     private function resolveMappingTarget(string $target): ?string
     {
         if (str_starts_with($target, '#/')) {
-            return $this->refName($target);
+            return SchemaPointer::refName($target);
         }
 
         return $target === '' ? null : $target;
@@ -855,18 +832,6 @@ final class DiscriminatorRegistry
         }
 
         return false;
-    }
-
-    private function refName(string $pointer): ?string
-    {
-        if (! str_starts_with($pointer, '#/components/schemas/')) {
-            return null;
-        }
-
-        $parts = explode('/', $pointer);
-        $last = end($parts);
-
-        return $last === '' ? null : $last;
     }
 
     private function notEmptyArray(mixed $value): bool

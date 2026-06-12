@@ -778,7 +778,7 @@ final class ModelGenerator
         $this->warningContext = sprintf('Multipart request body of operation %s', $operationLabel);
 
         if ($schema instanceof ReferenceNode) {
-            $name = $this->refName($schema->pointer());
+            $name = SchemaPointer::refName($schema->pointer());
             if ($name === null || ! isset($this->registry[$name]) || $this->registry[$name]['kind'] !== 'data') {
                 $this->warnings[sprintf(
                     'Operation %s: the multipart/form-data request body $ref "%s" does not resolve to an object component schema; the controller method falls back to Illuminate\Http\Request.',
@@ -864,7 +864,7 @@ final class ModelGenerator
         // payload, so it keeps the Request fallback instead.
         $aliasRef = $this->bareAllOfRef($schema);
         if ($aliasRef !== null) {
-            $name = $this->refName($aliasRef->pointer());
+            $name = SchemaPointer::refName($aliasRef->pointer());
             if ($name === null || ! isset($this->registry[$name]) || $this->registry[$name]['kind'] !== 'data') {
                 return 'it is an allOf alias of a non-object component, so no Data class can type it';
             }
@@ -1075,7 +1075,7 @@ final class ModelGenerator
     private function isQueryArraySchema(SchemaNode|ReferenceNode $schema): bool
     {
         if ($schema instanceof ReferenceNode) {
-            $name = $this->refName($schema->pointer());
+            $name = SchemaPointer::refName($schema->pointer());
 
             return $name !== null
                 && isset($this->aliasSchemas[$name])
@@ -1102,7 +1102,7 @@ final class ModelGenerator
         }
 
         if ($schema instanceof ReferenceNode) {
-            $name = $this->refName($schema->pointer());
+            $name = SchemaPointer::refName($schema->pointer());
             if ($name === null) {
                 // External or non-schema pointer: degrades to mixed,
                 // presence-only, exactly like a body property would.
@@ -2809,7 +2809,7 @@ final class ModelGenerator
      */
     private function referencedMapSchema(ReferenceNode $reference): ?SchemaNode
     {
-        $name = $this->refName($reference->pointer());
+        $name = SchemaPointer::refName($reference->pointer());
 
         return $name !== null ? ($this->mapSchemas[$name] ?? null) : null;
     }
@@ -2822,7 +2822,7 @@ final class ModelGenerator
      */
     private function referencedObjectSchema(ReferenceNode $reference): ?SchemaNode
     {
-        $name = $this->refName($reference->pointer());
+        $name = SchemaPointer::refName($reference->pointer());
         if ($name === null) {
             return null;
         }
@@ -2839,7 +2839,7 @@ final class ModelGenerator
      */
     private function referencedAliasSchema(ReferenceNode $reference): ?SchemaNode
     {
-        $name = $this->refName($reference->pointer());
+        $name = SchemaPointer::refName($reference->pointer());
 
         return $name !== null ? ($this->aliasSchemas[$name] ?? null) : null;
     }
@@ -2860,7 +2860,7 @@ final class ModelGenerator
             return $schema;
         }
 
-        $name = $this->refName($ref->pointer());
+        $name = SchemaPointer::refName($ref->pointer());
         if ($name === null || isset($seen[$name])) {
             return $schema;
         }
@@ -3117,7 +3117,7 @@ final class ModelGenerator
 
     private function referencedEnumClass(ReferenceNode $reference): ?string
     {
-        $name = $this->refName($reference->pointer());
+        $name = SchemaPointer::refName($reference->pointer());
 
         if ($name !== null && isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'enum') {
             // Every Rule::enum(X::class) expression flows through here, so
@@ -3548,7 +3548,7 @@ final class ModelGenerator
      */
     private function resolveUnion(SchemaNode $schema, string $nameHint, int $depth, string $variant): ResolvedType
     {
-        $members = $this->unionMembers($schema);
+        $members = SchemaPointer::unionMembers($schema);
 
         // A `oneOf`/`anyOf` with no usable members carries no shape: mixed.
         if ($members === []) {
@@ -3717,31 +3717,6 @@ final class ModelGenerator
     }
 
     /**
-     * The combined member list of a `oneOf`/`anyOf` schema, in source order.
-     * Both keywords are unioned: a schema rarely uses both, but if it does the
-     * members compose into one type union (oneOf members first, then anyOf).
-     *
-     * @return list<SchemaNode|ReferenceNode>
-     */
-    private function unionMembers(SchemaNode $schema): array
-    {
-        $members = [];
-
-        foreach ([$schema->oneOf, $schema->anyOf] as $set) {
-            if (! is_array($set)) {
-                continue;
-            }
-            foreach ($set as $member) {
-                if ($member instanceof SchemaNode || $member instanceof ReferenceNode) {
-                    $members[] = $member;
-                }
-            }
-        }
-
-        return $members;
-    }
-
-    /**
      * Whether a union member is the bare `null` type (`{type: 'null'}` or a type
      * array of only null), which contributes nullability rather than a PHP type.
      */
@@ -3771,7 +3746,7 @@ final class ModelGenerator
     private function isCleanUnionMember(SchemaNode|ReferenceNode $member): bool
     {
         if ($member instanceof ReferenceNode) {
-            $name = $this->refName($member->pointer());
+            $name = SchemaPointer::refName($member->pointer());
             if ($name === null) {
                 return false;
             }
@@ -3832,7 +3807,7 @@ final class ModelGenerator
     private function resolveReference(ReferenceNode $reference): ResolvedType
     {
         $pointer = $reference->pointer();
-        $name = $this->refName($pointer);
+        $name = SchemaPointer::refName($pointer);
 
         if ($name === null) {
             $this->warnings[sprintf(
@@ -4455,7 +4430,7 @@ final class ModelGenerator
                     continue;
                 }
 
-                $target = $this->refName($ref->pointer());
+                $target = SchemaPointer::refName($ref->pointer());
                 if ($target === null || ! isset($this->aliasSchemas[$target])) {
                     continue;
                 }
@@ -4752,7 +4727,7 @@ final class ModelGenerator
         }
 
         $pointer = $member->pointer();
-        $name = $this->refName($pointer);
+        $name = SchemaPointer::refName($pointer);
 
         if ($name === null) {
             $this->warnings[sprintf(
@@ -4838,7 +4813,7 @@ final class ModelGenerator
             return null;
         }
 
-        return $this->refName($member->pointer()) !== null ? $member : null;
+        return SchemaPointer::refName($member->pointer()) !== null ? $member : null;
     }
 
     /**
@@ -4855,7 +4830,7 @@ final class ModelGenerator
             return [$member, $seen];
         }
 
-        $name = $this->refName($member->pointer());
+        $name = SchemaPointer::refName($member->pointer());
 
         if ($name === null || isset($seen[$name]) || ! isset($this->registry[$name])) {
             return null;
@@ -4932,18 +4907,6 @@ final class ModelGenerator
         }
 
         return null;
-    }
-
-    private function refName(string $pointer): ?string
-    {
-        if (! str_starts_with($pointer, '#/components/schemas/')) {
-            return null;
-        }
-
-        $parts = explode('/', $pointer);
-        $last = end($parts);
-
-        return $last === '' ? null : $last;
     }
 
     private function withSuffix(string $base): string
