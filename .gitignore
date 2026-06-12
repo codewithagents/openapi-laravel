@@ -4,6 +4,8 @@ composer.lock
 .phpunit.cache/
 .phpunit.result.cache
 .deptrac.cache
+# Local Qodana artifacts, incl. the code-coverage drop dir used by CI (#89)
+.qodana/
 .DS_Store
 .idea/
 
