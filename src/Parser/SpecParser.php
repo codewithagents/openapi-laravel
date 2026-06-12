@@ -55,7 +55,16 @@ final class SpecParser
     /** @var list<string> */
     private array $warnings = [];
 
-    public function __construct(?int $maxBytes = null)
+    /**
+     * `$useNewReader` is the issue #104 Task 3 comparison toggle: when set,
+     * {@see parseFile} routes the decoded data through {@see OpenApiReader}
+     * and {@see SpecArraySerializer} before constructing the cebe object
+     * model, so the corpus acceptance gate can compare the generated output
+     * of both paths byte-for-byte with the emitter unchanged. Throwaway
+     * scaffolding, deleted with the cebe path in Task 7; nothing outside the
+     * comparison gate may set it.
+     */
+    public function __construct(?int $maxBytes = null, private readonly bool $useNewReader = false)
     {
         $this->maxBytes = $maxBytes ?? self::DEFAULT_MAX_BYTES;
     }
@@ -204,7 +213,17 @@ final class SpecParser
             ? Yaml::parse($contents)
             : json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
 
-        $data = SchemaNormalizer::normalize($data);
+        if ($this->useNewReader) {
+            // Issue #104 Task 3 comparison path: hydrate the typed graph and
+            // serialize it back to the raw array form. The reader performs
+            // the SchemaNormalizer rewrites itself, so the cebe model below
+            // is built from the round-tripped data; any information the
+            // reader loses shows up as a byte diff in the corpus gate.
+            $data = SpecArraySerializer::toArray((new OpenApiReader)->read($data, $absolute));
+        } else {
+            $data = SchemaNormalizer::normalize($data);
+        }
+
         $raw = is_array($data) ? $data : [];
 
         $document = new OpenApi($raw);
