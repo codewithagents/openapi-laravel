@@ -210,6 +210,7 @@ final readonly class GenerationPlanner
             routeMiddleware: $request->routesMiddleware,
             routePrefix: $request->routesPrefix,
             securityMiddlewareMap: $request->securityMiddlewareMap,
+            laravelConventions: $request->laravelConventions,
         );
 
         // Collect descriptors once and feed the same list to both generators so

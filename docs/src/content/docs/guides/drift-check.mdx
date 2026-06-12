@@ -41,7 +41,7 @@ Stale-file detection (files on disk that the generator would no longer produce) 
 
 ## Usage
 
-`openapi:check` honours the same config and the same flags as `openapi:generate` (`--spec`, `--output`, `--namespace`, `--no-controllers`, `--no-routes`), with the same [precedence rules](/guides/configuration#precedence-flags-beat-config-config-beats-defaults), so it always checks exactly what generate would produce: models, controllers, and routes by default.
+`openapi:check` honours the same config and the same flags as `openapi:generate` (`--spec`, `--output`, `--namespace`, `--no-controllers`, `--no-routes`, `--laravel-conventions` / `--no-laravel-conventions`), with the same [precedence rules](/guides/configuration#precedence-flags-beat-config-config-beats-defaults), so it always checks exactly what generate would produce: models, controllers, and routes by default.
 
 <Tabs>
 <TabItem label="Laravel (artisan)">

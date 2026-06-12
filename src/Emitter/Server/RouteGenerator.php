@@ -12,9 +12,12 @@ use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
  * (the user's subclass, not the abstract). Because the routing table derives
  * from the spec, path-level spec/code drift is structurally impossible.
  *
- * Every route carries a `->name()` derived from its operationId (issue #71),
- * unique across the table, so the route() helper, URL generation, and
- * route-based authorization can target generated routes. When the config sets
+ * Every route carries a `->name()` that follows the controller method name
+ * (issue #71): the operationId-derived identifier by default, or the
+ * conventional index/show/store/update/destroy under the opt-in
+ * --laravel-conventions (issue #94). Names are unique across the table, so
+ * the route() helper, URL generation, and route-based authorization can
+ * target generated routes. When the config sets
  * routes.middleware and/or routes.prefix, the routes are wrapped in one
  * Route::middleware(...)->prefix(...)->group(...) block; with neither set the
  * output stays the flat list it always was.

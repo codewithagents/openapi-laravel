@@ -76,6 +76,8 @@ Scaffold-related flags for the artisan command:
 | `--no-routes`                 | Skip the routes file                                           |
 | `--controllers`               | Generate abstract controllers even when disabled in config     |
 | `--routes`                    | Generate the routes file even when disabled in config          |
+| `--laravel-conventions`       | Name clean RESTful methods `index`/`show`/`store`/`update`/`destroy` (default: off, [details](#laravel-convention-method-names-opt-in)) |
+| `--no-laravel-conventions`    | Keep operationId-derived method names even when the config enables the conventions |
 | `--spec=<path>`               | OpenAPI document to read (overrides config)                    |
 | `--output=<path>`             | Directory for Data classes (overrides config)                  |
 | `--prune`                     | Delete stale `*.php` files in the Data output directory        |
@@ -99,6 +101,8 @@ vendor/bin/openapi-laravel \
 | `--no-routes`               | Skip the routes file                                           |
 | `--controllers`             | Generate abstract controllers even when disabled in config     |
 | `--routes`                  | Generate the routes file even when disabled in config          |
+| `--laravel-conventions`     | Name clean RESTful methods `index`/`show`/`store`/`update`/`destroy` (default: off) |
+| `--no-laravel-conventions`  | Keep operationId-derived method names even when the config enables the conventions |
 | `--controller-namespace`    | PHP namespace for the generated abstract controllers           |
 | `--controller-output`       | Directory for the abstract controllers (default: `<output>/Controllers`) |
 | `--routes-output`           | Path the routes file is written to (default: `<output>/routes.php`) |
@@ -275,13 +279,16 @@ Route::delete('/store/order/{orderId}', [StoreController::class, 'deleteOrder'])
 
 ### Route names
 
-Every generated route carries a `->name()` derived from its `operationId` (the same sanitized
-identifier used for the controller method name; an operation without an `operationId` gets a
-deterministic name synthesized from the HTTP method and path, e.g. `getHealth` for `GET /health`).
-Names are unique across the whole route table: if two operations in different controllers resolve
-to the same identifier, the later one (in path-then-method order) gets a numeric suffix
-(`listThings`, `listThings_2`). That means the `route()` helper, URL generation, and route-based
-authorization can target any generated operation:
+Every generated route carries a `->name()` that follows the controller method name: the
+operationId-derived identifier by default (an operation without an `operationId` gets a
+deterministic name synthesized from the HTTP method and path, e.g. `getHealth` for `GET /health`),
+or the conventional `index`/`show`/`store`/`update`/`destroy` under the opt-in
+[`--laravel-conventions`](#laravel-convention-method-names-opt-in). Names are unique across the
+whole route table: if two operations in different controllers resolve to the same identifier, the
+later one (in path-then-method order) gets a numeric suffix (`listThings`, `listThings_2`; with
+the conventions on, the second controller's `index` route becomes `index_2`). That means the
+`route()` helper, URL generation, and route-based authorization can target any generated
+operation:
 
 ```php
 route('getPetById', ['petId' => 7]);   // => /pet/7
@@ -432,6 +439,68 @@ Or from `bootstrap/app.php` in Laravel 11+:
   source of truth. Re-run the generator when the spec changes and review the diff the same way
   you would review any code change.
 </Aside>
+
+## Laravel-convention method names (opt-in)
+
+By default, controller method names derive from the spec's `operationId`, which is unambiguous
+but often reads like `apiV1AppointmentStoreAppointmentPOST` in real-world specs. Laravel
+developers expect `store`, `index`, `show`, `update`, `destroy`. Opt in with the
+`--laravel-conventions` flag (or `controllers.laravel_conventions: true` in the config) and every
+clean RESTful operation gets the conventional name, in the abstract controller AND in the route
+name:
+
+| HTTP method   | Path shape                     | Method name |
+| ------------- | ------------------------------ | ----------- |
+| `GET`         | collection (`/pets`)           | `index`     |
+| `POST`        | collection (`/pets`)           | `store`     |
+| `GET`         | item (`/pets/{petId}`)         | `show`      |
+| `PUT`/`PATCH` | item (`/pets/{petId}`)         | `update`    |
+| `DELETE`      | item (`/pets/{petId}`)         | `destroy`   |
+
+**The path rule.** A path is an *item* path when its last non-empty segment is a path parameter
+(`/pets/{petId}`, `/users/{id}/pets/{petId}`); every other path is a *collection* path, including
+the root `/` and paths whose parameter sits in the middle (`/users/{id}/pets`). The
+classification is literal and deterministic, no heuristics.
+
+**The fallback rule.** Anything that does not fit falls back to the operationId-derived name,
+deterministically:
+
+- **Non-CRUD operations** (`POST` on an item path, `PUT`/`PATCH`/`DELETE` on a collection,
+  `HEAD`/`OPTIONS`/`TRACE`) always keep the operationId-derived name.
+- **Ambiguity within a controller**: when two operations in the same controller (tag) would claim
+  the same conventional name, say two collection GETs (`GET /pet/findByStatus` and
+  `GET /pet/findByTags` both mapping to `index`), BOTH keep their operationId-derived names. The
+  rule is order-independent: nobody wins by sort position.
+- **Residual collisions** (an operationId literally named `index` next to a conventional `index`)
+  go through the same per-controller unique-name machinery as before and get a numeric suffix.
+
+With the conventions on, the Petstore routes above become:
+
+```php
+Route::get('/pet/findByStatus', [PetController::class, 'findPetsByStatus'])->name('findPetsByStatus');
+Route::get('/pet/findByTags', [PetController::class, 'findPetsByTags'])->name('findPetsByTags');
+Route::get('/pet/{petId}', [PetController::class, 'show'])->name('show');
+Route::post('/pet/{petId}', [PetController::class, 'updatePetWithForm'])->name('updatePetWithForm');
+Route::delete('/pet/{petId}', [PetController::class, 'destroy'])->name('destroy');
+Route::post('/store/order', [StoreController::class, 'store'])->name('store');
+Route::get('/store/order/{orderId}', [StoreController::class, 'show'])->name('show_2');
+```
+
+The two `findPetsBy*` collection GETs are ambiguous, so both fall back; `POST /pet/{petId}` is
+non-CRUD, so it falls back too. Route names follow the chosen method names and stay globally
+unique, so a second controller's `show` becomes `show_2`.
+
+Three things deliberately do **not** change under the flag:
+
+- **The default output.** The flag is strictly opt-in; without it the output is byte-identical to
+  previous releases.
+- **The Data layer.** Generated Data classes, including the per-operation
+  [query classes](#query-parameters) (`FindPetsByStatusQueryData`), keep their operationId-derived
+  names in both modes: query classes live in the shared Data namespace, where an `IndexQueryData`
+  would collide across controllers.
+- **The drift gate.** `openapi:check` honors the same flag and config key, so generate and check
+  stay in lockstep; checking with a different setting than you generated with reports drift, as
+  it should.
 
 ## Method signatures in detail
 

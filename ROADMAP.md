@@ -90,6 +90,13 @@ per-route middleware via the config-only `security.middleware_map` key (#77): op
 overrides global, `security: []` keeps an operation public, AND requirements apply all mapped
 middleware, OR alternatives enforce only the first requirement object (warned per operation), and a
 required-but-unmapped scheme (or a mapped name the spec never declares) warns at generation time.
+Opt-in Laravel-convention method names (#94, `--laravel-conventions` /
+`controllers.laravel_conventions`, default off): a clean RESTful operation gets
+index/show/store/update/destroy as its method AND route name (item path = last segment is a path
+parameter); a conventional name claimed twice in one controller makes ALL claimants fall back to
+the operationId-derived name (order-independent), non-CRUD operations always fall back, residual
+clashes go through UniqueNames, and the Data layer (incl. query classes) stays operationId-derived
+in both modes.
 
 ### Honest residuals (documented, not hidden)
 - Undiscriminated object unions (no `discriminator`) stay `mixed`, presence-only by design (#31).

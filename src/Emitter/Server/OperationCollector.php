@@ -165,9 +165,17 @@ final class OperationCollector
         // they get one global allocator instead of the per-controller ones.
         $routeNames = new UniqueNames;
 
+        // Opt-in Laravel-convention method names (issue #94): resolve each
+        // operation's conventional candidate BEFORE the descriptors are built,
+        // so the per-controller ambiguity rule (a conventional name claimed by
+        // more than one operation in the same controller makes ALL claimants
+        // fall back) is decided over the whole controller at once,
+        // independently of descriptor order.
+        $conventional = $this->conventionalNames($rows);
+
         $descriptors = [];
-        foreach ($rows as $row) {
-            $descriptors[] = $this->describe($row['path'], $row['method'], $row['operation'], $row['parameters'], $methodNames, $routeNames, $security);
+        foreach ($rows as $index => $row) {
+            $descriptors[] = $this->describe($row['path'], $row['method'], $row['operation'], $row['parameters'], $methodNames, $routeNames, $security, $conventional[$index]);
         }
 
         // The resolver's warnings (unmapped schemes, OR alternatives, mapped
@@ -179,24 +187,89 @@ final class OperationCollector
     }
 
     /**
+     * The conventional Laravel method name (issue #94) each row's descriptor
+     * should try first, aligned with $rows by index. All null when the option
+     * is off (the default), keeping the output byte-identical to before.
+     *
+     * Two passes so the result is order-independent: first every row's raw
+     * candidate is counted per (controller, name) pair, then a candidate
+     * claimed by more than one operation in the SAME controller is withdrawn
+     * for all claimants (e.g. two collection GETs under one tag would both be
+     * `index`, so both keep their operationId-derived name instead). The same
+     * conventional name in different controllers is fine.
+     *
+     * @param  list<array{path: string, method: string, operation: Operation, parameters: list<Parameter>}>  $rows
+     * @return array<int, ?string> aligned with $rows by index
+     */
+    private function conventionalNames(array $rows): array
+    {
+        if (! $this->options->laravelConventions) {
+            return array_fill(0, count($rows), null);
+        }
+
+        $candidates = [];
+        $claims = [];
+        foreach ($rows as $index => $row) {
+            $candidate = LaravelConventionNames::candidate($row['method'], $row['path']);
+            $candidates[$index] = $candidate;
+
+            if ($candidate !== null) {
+                // Keyed by the resolved controller CLASS, not the raw tag: two
+                // tags that normalize to the same class ('pet store' and
+                // 'PetStore') share one controller, so they must share one
+                // conventional-name budget too.
+                $key = $this->controllerClass($row['operation']).' '.$candidate;
+                $claims[$key] = ($claims[$key] ?? 0) + 1;
+            }
+        }
+
+        foreach ($rows as $index => $row) {
+            $candidate = $candidates[$index];
+            if ($candidate !== null && $claims[$this->controllerClass($row['operation']).' '.$candidate] > 1) {
+                $candidates[$index] = null;
+            }
+        }
+
+        return $candidates;
+    }
+
+    /**
+     * The controller class an operation belongs to, derived from its first
+     * tag. The single naming point shared by describe() and the
+     * conventional-name resolution, so the two can never disagree about which
+     * controller an operation lands in.
+     */
+    private function controllerClass(Operation $operation): string
+    {
+        return PhpIdentifier::toClassName($this->firstTag($operation)).$this->options->controllerSuffix;
+    }
+
+    /**
      * @param  list<Parameter>  $parameters
      * @param  array<string, UniqueNames>  $methodNames
      */
-    private function describe(string $path, string $method, Operation $operation, array $parameters, array &$methodNames, UniqueNames $routeNames, SecurityMiddlewareResolver $security): OperationDescriptor
+    private function describe(string $path, string $method, Operation $operation, array $parameters, array &$methodNames, UniqueNames $routeNames, SecurityMiddlewareResolver $security, ?string $conventionalName): OperationDescriptor
     {
-        $tag = $this->firstTag($operation);
-        $controllerClass = PhpIdentifier::toClassName($tag).$this->options->controllerSuffix;
+        $controllerClass = $this->controllerClass($operation);
         $abstractClass = $this->options->abstractPrefix.$controllerClass;
 
         if (! isset($methodNames[$controllerClass])) {
             $methodNames[$controllerClass] = new UniqueNames;
         }
-        $methodName = $methodNames[$controllerClass]->reserve($this->methodName($operation, $method, $path));
+
+        // The unambiguous conventional name (issue #94, opt-in) wins over the
+        // operationId-derived one; any residual clash inside the controller
+        // (say, another operation whose operationId is literally `index`)
+        // still goes through the per-controller allocator and gets suffixed.
+        $methodName = $methodNames[$controllerClass]->reserve($conventionalName ?? $this->methodName($operation, $method, $path));
 
         // The route name reuses the (already per-controller-unique) method
         // name as its candidate, then the global allocator suffixes any
         // cross-controller clash (_2, _3, ...). Deterministic because the
-        // descriptor order is.
+        // descriptor order is. Under --laravel-conventions this deliberately
+        // follows the CHOSEN method name (issue #94), so the routes file reads
+        // conventionally too; with several controllers each owning an `index`,
+        // the later ones become index_2, index_3, ...
         $routeName = $routeNames->reserve($methodName);
 
         $pathParams = $this->pathParams($path, $parameters);
@@ -332,6 +405,10 @@ final class OperationCollector
 
         // The class name derives from the same operationId-or-fallback the
         // method name uses, so `findPetsByStatus` yields FindPetsByStatusQueryData.
+        // Deliberately NOT the conventional name under --laravel-conventions
+        // (issue #94): query classes live in the global Data namespace, where
+        // an `IndexQueryData` would clash across controllers, so the Data
+        // layer stays operationId-derived (and byte-identical) in both modes.
         $baseName = PhpIdentifier::toClassName($this->methodName($operation, $method, $path));
         $label = strtoupper($method).' '.$path;
 

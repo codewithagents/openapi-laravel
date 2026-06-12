@@ -51,9 +51,10 @@ return [
      * Enabled by default. Disable with 'enabled' => false or pass --no-controllers.
      */
     'controllers' => [
-        'enabled'   => true,
-        'path'      => app_path('Http/Controllers/Api'),
-        'namespace' => 'App\\Http\\Controllers\\Api',
+        'enabled'             => true,
+        'path'                => app_path('Http/Controllers/Api'),
+        'namespace'           => 'App\\Http\\Controllers\\Api',
+        'laravel_conventions' => false,
     ],
 
     /*
@@ -139,13 +140,14 @@ Maximum raw spec file size, in bytes, accepted before parsing. Defaults to `25_1
 
 ### `controllers`
 
-Controls the server scaffold: abstract controller generation. All three sub-keys are optional.
+Controls the server scaffold: abstract controller generation. All four sub-keys are optional.
 
-| Key         | Default                            | Description                                                                 |
-| ----------- | ---------------------------------- | --------------------------------------------------------------------------- |
-| `enabled`   | `true`                             | Generate abstract controllers. Overridden by `--controllers` / `--no-controllers`. |
-| `path`      | `app_path('Http/Controllers/Api')` | Directory the abstract controller files are written to.                     |
-| `namespace` | `'App\\Http\\Controllers\\Api'`   | PHP namespace for the generated abstract controllers.                       |
+| Key                   | Default                            | Description                                                                 |
+| --------------------- | ---------------------------------- | --------------------------------------------------------------------------- |
+| `enabled`             | `true`                             | Generate abstract controllers. Overridden by `--controllers` / `--no-controllers`. |
+| `path`                | `app_path('Http/Controllers/Api')` | Directory the abstract controller files are written to.                     |
+| `namespace`           | `'App\\Http\\Controllers\\Api'`   | PHP namespace for the generated abstract controllers.                       |
+| `laravel_conventions` | `false`                            | Opt in to conventional `index`/`show`/`store`/`update`/`destroy` method and route names for clean RESTful operations. Overridden by `--laravel-conventions` / `--no-laravel-conventions`. See the [server scaffold guide](/guides/server-scaffold#laravel-convention-method-names-opt-in) for the mapping table and the fallback rule. |
 
 When enabled, the generator writes one `Abstract{Tag}Controller` file per OpenAPI tag into `path`. Each file is overwritten on every run. Your concrete controllers (which extend the abstract classes) are never touched.
 
@@ -275,6 +277,7 @@ oversight ([issue #73](https://github.com/codewithagents/openapi-laravel/issues/
 
 **Shared by both surfaces** (the artisan commands and the standalone binary): `--spec`,
 `--output`, `--namespace`, `--controllers` / `--no-controllers`, `--routes` / `--no-routes`,
+`--laravel-conventions` / `--no-laravel-conventions`,
 `--enforce-closed-objects` / `--no-enforce-closed-objects`, `--only-tags`, `--only-schemas`,
 `--exclude-path-prefix` (repeatable), plus `--prune` (generate only) and `--diff` (check only).
 
@@ -311,7 +314,8 @@ one to one:
   "controllers": {
     "enabled": true,
     "path": "src/Http/Controllers",
-    "namespace": "Acme\\Http\\Controllers"
+    "namespace": "Acme\\Http\\Controllers",
+    "laravel_conventions": false
   },
   "routes": {
     "enabled": true,

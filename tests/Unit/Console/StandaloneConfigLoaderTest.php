@@ -64,6 +64,22 @@ it('defaults routes.middleware and routes.prefix to null when absent (#71)', fun
         ->and($config->routesPrefix)->toBeNull();
 });
 
+it('reads controllers.laravel_conventions as a nullable boolean (#94)', function () use ($writeFile) {
+    $unset = (new StandaloneConfigLoader)->load($writeFile((string) json_encode(['controllers' => ['enabled' => true]])), '/tmp');
+    $on = (new StandaloneConfigLoader)->load($writeFile((string) json_encode(['controllers' => ['laravel_conventions' => true]])), '/tmp');
+    $off = (new StandaloneConfigLoader)->load($writeFile((string) json_encode(['controllers' => ['laravel_conventions' => false]])), '/tmp');
+
+    expect($unset->laravelConventions)->toBeNull()
+        ->and($on->laravelConventions)->toBeTrue()
+        ->and($off->laravelConventions)->toBeFalse();
+});
+
+it('rejects a non-boolean controllers.laravel_conventions (#94)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['controllers' => ['laravel_conventions' => 'yes']]));
+
+    (new StandaloneConfigLoader)->load($path, '/tmp');
+})->throws(OptionException::class, "Invalid 'controllers.laravel_conventions'");
+
 it('keeps a parameterized middleware name intact, never comma-splitting it (#71)', function () use ($writeFile) {
     $path = $writeFile((string) json_encode(['routes' => ['middleware' => ['throttle:60,1']]]));
 

@@ -46,7 +46,11 @@ middleware guaranteeing the empty body; only an exactly-200 response is ever rew
 config-only `security.middleware_map` key (#77) maps security scheme names to per-route middleware:
 operation `security` overrides global, `security: []` stays public, AND applies all mapped
 middleware, OR enforces only the first requirement object (warned), and unmapped-required or
-mapped-undeclared schemes warn.
+mapped-undeclared schemes warn. Opt-in `--laravel-conventions` / `controllers.laravel_conventions`
+(#94, default off): clean RESTful operations get index/show/store/update/destroy as method AND
+route name (item path = last segment is a path parameter); ambiguous claimants in one controller
+ALL fall back to the operationId-derived name, non-CRUD always falls back, and the Data layer
+(incl. query classes) stays operationId-derived in both modes.
 
 **Drift gate:** `openapi:check` (and `vendor/bin/openapi-laravel check`) regenerates the file set
 in memory and compares byte-for-byte against disk; exit 0 in sync, 1 drift, 2 config/spec error;

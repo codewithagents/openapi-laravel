@@ -93,5 +93,17 @@ final readonly class GenerationRequest
          * CLI flag, a map is config-shaped.
          */
         public array $securityMiddlewareMap = [],
+        /*
+         * Laravel-convention method names (issue #94). When true, a clean
+         * RESTful operation gets the conventional controller method name
+         * (index/show/store/update/destroy) and the matching route name;
+         * ambiguous or non-CRUD operations keep their operationId-derived
+         * name. Default false (opt-in), so the default output stays
+         * byte-identical to a run without the flag. Resolved like the other
+         * toggles: --laravel-conventions / --no-laravel-conventions beat the
+         * controllers.laravel_conventions config key, which beats this
+         * built-in default (disabled).
+         */
+        public bool $laravelConventions = false,
     ) {}
 }
