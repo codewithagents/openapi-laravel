@@ -94,6 +94,27 @@ constraints carry through verbatim.
   `PriceData::validate($value)`) if you need typed, checked objects.
 </Aside>
 
+### Key-count bounds (minProperties / maxProperties)
+
+`minProperties` and `maxProperties` are emitted as `min:` / `max:` rules on the property: a JSON
+object arrives as a PHP array, and Laravel's `min:` / `max:` count the elements of an array value,
+so the key count maps directly (exactly like `minItems` / `maxItems` on an array). The bounds are
+emitted wherever the schema is **known** to describe an object: a typed or untyped map (inline or
+via `$ref` to a pure-map component), an explicit inline `type: object` property, a `$ref` to a
+component with an explicit `type: object`, and an object-shaped map value (on the `field.*`
+wildcard).
+
+Two cases are deliberately skipped because emitting would risk false-rejecting valid data or cannot
+be expressed per-field:
+
+- **Untyped schemas.** A schema without `type: object` (and not map-shaped) may legally hold a
+  non-object instance, which JSON Schema exempts from `minProperties` / `maxProperties` entirely,
+  but Laravel's `min:` / `max:` would measure a string's length or a number's value. No rule is
+  emitted there.
+- **A component's own root payload.** Generated `rules()` are keyed per field, so a component's own
+  `minProperties` / `maxProperties` are not enforced when that component is the request body root.
+  They are enforced everywhere the component appears as a property.
+
 ### Pure-map components
 
 A component that is a pure map (`type: object` with only `additionalProperties` and no named

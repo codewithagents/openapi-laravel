@@ -1435,13 +1435,14 @@ final class ModelGenerator
 
         if ($schema instanceof Reference) {
             // A $ref to a pure-map component: the value is a typed array, so the
-            // property rule is 'array' plus a wildcard value rule derived from
-            // the map's value schema.
+            // property rule is 'array' plus the map's own key-count bounds
+            // (minProperties/maxProperties, issue #72) and a wildcard value rule
+            // derived from the map's value schema.
             $mapSchema = $this->referencedMapSchema($schema);
             if ($mapSchema !== null) {
                 [$valueRules, $valueUses] = $this->mapValueRules($mapSchema);
 
-                return [array_merge($rules, ["'array'"]), $this->wildcardMap($valueRules), $valueUses];
+                return [array_merge($rules, ["'array'"], $this->objectCountRules($mapSchema)), $this->wildcardMap($valueRules), $valueUses];
             }
 
             // A $ref to a non-object alias component (scalar/array/union): derive
@@ -1465,14 +1466,30 @@ final class ModelGenerator
                 return [$rules, [], true];
             }
 
+            // A $ref to an explicit `type: object` component that bounds its own
+            // key count (issue #72): the nested Data class carries the body
+            // rules, but minProperties/maxProperties constrain THIS value's key
+            // count, and the use site is the only place a per-field rule can see
+            // the value. Guarded on the explicit object type so an untyped
+            // component (whose instances may legally be non-objects) is never
+            // measured by string length or numeric value.
+            $objectSchema = $this->referencedObjectSchema($schema);
+            if ($objectSchema !== null && ($this->normalizeTypes($objectSchema)[0] ?? null) === 'object') {
+                $countRules = $this->objectCountRules($objectSchema);
+                if ($countRules !== []) {
+                    return [array_merge($rules, ["'array'"], $countRules), [], false];
+                }
+            }
+
             return [$rules, [], false];
         }
 
-        // A pure-map property: 'array' plus a wildcard value rule.
+        // A pure-map property: 'array' plus the map's own key-count bounds
+        // (minProperties/maxProperties, issue #72) and a wildcard value rule.
         if ($this->isPureMap($schema)) {
             [$valueRules, $valueUses] = $this->mapValueRules($schema);
 
-            return [array_merge($rules, ["'array'"]), $this->wildcardMap($valueRules), $valueUses];
+            return [array_merge($rules, ["'array'"], $this->objectCountRules($schema)), $this->wildcardMap($valueRules), $valueUses];
         }
 
         // oneOf/anyOf stay presence-only (no variant enforcement). allOf is an
@@ -1531,6 +1548,21 @@ final class ModelGenerator
             [$wildcards, $itemUses] = $this->arrayWildcardRules($schema, '.*');
 
             return [array_merge($rules, ["'array'"], $this->arrayCountRules($schema)), $wildcards, $itemUses];
+        }
+
+        // An explicit inline `type: object` property (a nested Data class
+        // shape): its body rules live in the nested class, but
+        // minProperties/maxProperties constrain THIS value's key count
+        // (issue #72), so they are emitted here together with the 'array'
+        // shape assertion. Without count bounds the output stays presence-only,
+        // byte-identical to before. An untyped object-ish schema is skipped:
+        // its instances may legally be non-objects, where Laravel's min:/max:
+        // would false-reject valid data (see objectCountRules()).
+        if ($primary === 'object') {
+            $countRules = $this->objectCountRules($schema);
+            if ($countRules !== []) {
+                return [array_merge($rules, ["'array'"], $countRules), [], false];
+            }
         }
 
         return [$rules, [], false];
@@ -1691,7 +1723,8 @@ final class ModelGenerator
             'number' => array_merge(["'numeric'"], $this->numericRules($value)),
             'boolean' => ["'boolean'"],
             'array' => array_merge(["'array'"], $this->arrayCountRules($value)),
-            'object' => ["'array'"],
+            // An object map value carries its own key-count bounds (issue #72).
+            'object' => array_merge(["'array'"], $this->objectCountRules($value)),
             default => [],
         };
 
@@ -1708,6 +1741,24 @@ final class ModelGenerator
         $name = $this->refName($reference->getReference());
 
         return $name !== null ? ($this->mapSchemas[$name] ?? null) : null;
+    }
+
+    /**
+     * If a reference points at an emitted object Data-class component, return
+     * that component's schema so the caller can read schema-level constraints
+     * (minProperties/maxProperties, issue #72) that must be enforced at the use
+     * site. Returns null for enums and unregistered names.
+     */
+    private function referencedObjectSchema(Reference $reference): ?Schema
+    {
+        $name = $this->refName($reference->getReference());
+        if ($name === null) {
+            return null;
+        }
+
+        $entry = $this->registry[$name] ?? null;
+
+        return $entry !== null && $entry['kind'] === 'data' ? $entry['schema'] : null;
     }
 
     /**
@@ -1855,6 +1906,38 @@ final class ModelGenerator
         }
 
         $min = $schema->minItems;
+        if (is_int($min)) {
+            $rules[] = "'min:".$min."'";
+        }
+
+        return $rules;
+    }
+
+    /**
+     * minProperties/maxProperties as Laravel key-count rules (issue #72). A
+     * JSON object arrives as a PHP array, and Laravel's `min:`/`max:` count the
+     * elements of an array value, so the property count maps directly onto
+     * `min:`/`max:`, exactly like minItems/maxItems on an array.
+     *
+     * Callers must only emit these alongside an `'array'` rule on a schema
+     * KNOWN to describe an object (a typed map or an explicit `type: object`).
+     * On an untyped schema the instance may legally be a non-object, where
+     * JSON Schema ignores minProperties/maxProperties entirely but Laravel's
+     * `min:`/`max:` would measure a string's length or a number's value and
+     * false-reject valid data, so untyped schemas are skipped.
+     *
+     * @return list<string>
+     */
+    private function objectCountRules(Schema $schema): array
+    {
+        $rules = [];
+
+        $max = $schema->maxProperties;
+        if (is_int($max)) {
+            $rules[] = "'max:".$max."'";
+        }
+
+        $min = $schema->minProperties;
         if (is_int($min)) {
             $rules[] = "'min:".$min."'";
         }

@@ -616,6 +616,56 @@ final class ConstraintCatalog
                     ['label' => 'a map value too short', 'payload' => ['labels' => ['a' => 'x']], 'violates' => 'addlProps.minLength'],
                 ],
             ),
+            // minProperties/maxProperties on a typed map (#72): a JSON object
+            // arrives as a PHP array, so Laravel's min:/max: count its keys.
+            new ConstraintCase(
+                'ObjMinMaxProperties', 'object',
+                [
+                    'type' => 'object',
+                    'required' => ['scores'],
+                    'properties' => [
+                        'scores' => [
+                            'type' => 'object',
+                            'additionalProperties' => ['type' => 'integer'],
+                            'minProperties' => 2,
+                            'maxProperties' => 3,
+                        ],
+                    ],
+                ],
+                [
+                    ['label' => 'at lower boundary (2 keys)', 'payload' => ['scores' => ['a' => 1, 'b' => 2]]],
+                    ['label' => 'at upper boundary (3 keys)', 'payload' => ['scores' => ['a' => 1, 'b' => 2, 'c' => 3]]],
+                ],
+                [
+                    ['label' => 'one key short', 'payload' => ['scores' => ['a' => 1]], 'violates' => 'minProperties'],
+                    ['label' => 'one key over', 'payload' => ['scores' => ['a' => 1, 'b' => 2, 'c' => 3, 'd' => 4]], 'violates' => 'maxProperties'],
+                ],
+            ),
+            // minProperties on an explicit inline object property (#72): the
+            // nested class carries the body rules, the use site the key count.
+            new ConstraintCase(
+                'ObjMinPropertiesInline', 'object',
+                [
+                    'type' => 'object',
+                    'required' => ['meta'],
+                    'properties' => [
+                        'meta' => [
+                            'type' => 'object',
+                            'minProperties' => 1,
+                            'properties' => [
+                                'note' => ['type' => 'string'],
+                                'tag' => ['type' => 'string'],
+                            ],
+                        ],
+                    ],
+                ],
+                [
+                    ['label' => 'one key present', 'payload' => ['meta' => ['note' => 'x']]],
+                ],
+                [
+                    ['label' => 'empty object below minProperties', 'payload' => ['meta' => []], 'violates' => 'minProperties'],
+                ],
+            ),
             // additionalProperties: false is enforced by default (#30): an extra
             // undeclared key is rejected through the real validator. The opt-out
             // (--no-enforce-closed-objects) is exercised separately in
