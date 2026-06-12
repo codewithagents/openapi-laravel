@@ -476,6 +476,22 @@ base and variants for you. Failing that, sniff a distinguishing field as above (
 only `CatData` defines), or register a custom cast on the property. Scalar unions (`string|int`) need
 none of this: they hydrate directly.
 
+## Responses are not validated against the spec at runtime
+
+The scaffold enforces the **request half** of the contract: a body or query payload is validated
+against the spec-derived `rules()` before your code runs. The **response half** is typed, not
+validated. The abstract method's return type pins the PHP shape, but the serialized JSON is never
+checked against the spec: constraint rules run at validation (input) time only, so
+`PetData::from($model)` happily serializes a value that violates `maxLength` or an enum constraint;
+a `JsonResponse` fallback carries no schema at all; and error responses (the 404 and 422 bodies the
+spec declares) are never typed in the first place.
+
+The recommended mitigation is contract testing: wire
+[Spectator](https://github.com/hotmeteor/spectator) against the **same spec file** the generator
+reads and assert response conformance in your test suite, per operation and per declared error
+status. The [contract testing guide](/guides/contract-testing) walks through the setup against a
+generated scaffold, including the worked Pest example and CI integration.
+
 ## Server scaffold gaps
 
 Where the scaffold cannot derive a typed Data class it falls back to injecting
