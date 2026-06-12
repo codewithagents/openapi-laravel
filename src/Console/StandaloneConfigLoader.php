@@ -22,6 +22,8 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  * absolute escape, or a symlinked-parent escape fails closed before anything is
  * written. CLI flags keep full freedom by design (explicit operator input), so
  * the containment is applied here, not in the shared request builder.
+ *
+ * @internal
  */
 final readonly class StandaloneConfigLoader
 {

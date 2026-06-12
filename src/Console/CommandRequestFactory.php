@@ -22,6 +22,8 @@ use Illuminate\Console\Command;
  *                         --routes/--no-routes, or
  *                         --enforce-closed-objects/--no-enforce-closed-objects
  *                         are combined
+ *
+ * @internal
  */
 final readonly class CommandRequestFactory
 {

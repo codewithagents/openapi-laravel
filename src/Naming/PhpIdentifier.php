@@ -12,6 +12,8 @@ namespace CodeWithAgents\OpenApiLaravel\Naming;
  *
  * All splitting uses linear-time character-class patterns (no nested quantifiers)
  * to stay free of polynomial ReDoS on adversarial spec names.
+ *
+ * @internal
  */
 final class PhpIdentifier
 {

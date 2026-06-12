@@ -63,6 +63,8 @@ use cebe\openapi\spec\Schema;
  * nothing and holds no PHP identifiers (the generator owns naming), only raw
  * schema names. Ordering is deterministic: component schemas are scanned in
  * sorted order.
+ *
+ * @internal
  */
 final class DiscriminatorRegistry
 {

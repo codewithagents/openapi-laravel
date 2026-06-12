@@ -10,6 +10,8 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  * then write the exact bytes. Because the plan encodes the exact paths and
  * content the generators produced, output stays byte-identical and
  * deterministic.
+ *
+ * @internal
  */
 final readonly class PlanWriter
 {

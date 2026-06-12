@@ -29,6 +29,8 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  * CLOSED: any path that escapes the root, or any path that cannot be safely
  * resolved, is rejected with an actionable error before a single file is
  * written. Legitimate in-root relative and nested paths are unaffected.
+ *
+ * @internal
  */
 final readonly class PathContainment
 {

@@ -27,6 +27,8 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter;
  * `DataCollectionOf` targets `class-string<BaseData>`, and spatie hydrates a
  * backed enum from the typed array via the generated array-of-enum docblock
  * on its own.
+ *
+ * @internal
  */
 final readonly class ResolvedType
 {

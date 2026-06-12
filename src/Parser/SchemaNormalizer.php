@@ -50,6 +50,8 @@ namespace CodeWithAgents\OpenApiLaravel\Parser;
  * keys under component schemas, etc.). It deliberately does not try to
  * understand the surrounding schema; these keys only ever carry their OpenAPI
  * meaning, so a blunt key-based rewrite is both correct and cheap.
+ *
+ * @internal
  */
 final class SchemaNormalizer
 {

@@ -45,6 +45,8 @@ use cebe\openapi\spec\Schema;
  * of selection order. The resolver reports unknown tags and schemas (a flag
  * that matched nothing) so the caller can fail loudly instead of silently
  * emitting an empty slice.
+ *
+ * @internal
  */
 final readonly class SchemaClosure
 {

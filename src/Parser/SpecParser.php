@@ -22,6 +22,8 @@ use Throwable;
  * large spec (thousands of internal $refs) is pathologically slow, and the
  * generator wants component $refs mapped to class names anyway, not inlined.
  * The emitter resolves the $refs it needs, with cycle protection.
+ *
+ * @internal
  */
 final class SpecParser
 {

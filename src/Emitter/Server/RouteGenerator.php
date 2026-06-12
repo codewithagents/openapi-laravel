@@ -21,6 +21,8 @@ use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
  *
  * Output is deterministic: imports sorted and unique, route lines in the
  * descriptor order (already path then HTTP method).
+ *
+ * @internal
  */
 final readonly class RouteGenerator
 {

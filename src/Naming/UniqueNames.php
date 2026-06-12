@@ -15,6 +15,8 @@ namespace CodeWithAgents\OpenApiLaravel\Naming;
  * named `Data` would otherwise emit `final class Data extends Data {}`, a fatal
  * "Cannot redeclare class". Pre-reserving forces such a schema onto the normal
  * suffix path (Data -> Data_2), keeping the imported base class unshadowed.
+ *
+ * @internal
  */
 final class UniqueNames
 {

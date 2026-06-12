@@ -12,6 +12,8 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  *
  * Only the generator-owned files in the plan are checked, so a user's
  * hand-written concrete controllers and any unrelated files are never flagged.
+ *
+ * @internal
  */
 final readonly class DriftChecker
 {

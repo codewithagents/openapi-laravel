@@ -16,6 +16,8 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  * Paths may be null (not configured) or empty; the planner is responsible for
  * rejecting an empty spec/output and for rejecting a requested server target
  * that has no path, mirroring the original command error handling.
+ *
+ * @internal
  */
 final readonly class GenerationRequest
 {

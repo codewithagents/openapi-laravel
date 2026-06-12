@@ -37,6 +37,8 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  * @throws OptionException when an operator-supplied identifier is illegal
  * @throws ParseException on an unparseable spec
  * @throws GenerationException on a generation failure
+ *
+ * @internal
  */
 final readonly class GenerationPlanner
 {

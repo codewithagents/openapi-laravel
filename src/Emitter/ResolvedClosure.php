@@ -15,6 +15,8 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter;
  * "METHOD path" (upper-case method, e.g. "GET /pets"), the same shape
  * {@see SchemaClosure} keys them by, so a server emitter can test membership
  * cheaply.
+ *
+ * @internal
  */
 final readonly class ResolvedClosure
 {

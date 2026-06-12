@@ -22,6 +22,8 @@ A code generator has two distinct compatibility surfaces, and they version diffe
 
 A normal library only has surface 1. A generator's stability promise has to cover surface 2 as well, because a silent change there is exactly what consumers cannot see coming.
 
+One thing the tool surface deliberately does **not** include: the PHP classes under `CodeWithAgents\OpenApiLaravel\*`. They are internal implementation, marked `@internal` ([issue #69](https://github.com/codewithagents/openapi-laravel/issues/69)), and may change in any release without notice. The BC promise covers the CLI commands and flags, the config keys, the exit codes, and the generated output, per the two surfaces above; consumers interact with the artisan commands, the standalone binary, the config file, and the generated code, never with the generator classes directly.
+
 ## What counts as a breaking change
 
 Under this policy, a **major** version bump (post-1.0.0) is required for any of:

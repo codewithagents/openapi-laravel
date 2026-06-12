@@ -17,6 +17,8 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  * a non-standard per-property `required` key the spec used and OpenAPI ignores).
  * The generate paths print them after writing; nothing in the planned files is
  * affected. It defaults to an empty list so existing constructions keep working.
+ *
+ * @internal
  */
 final readonly class GenerationPlan
 {

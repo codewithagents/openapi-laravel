@@ -7,6 +7,8 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter;
 /**
  * A single emitted PHP file: the class it defines and its rendered source.
  * The relative path is derived from the class name so writers stay trivial.
+ *
+ * @internal
  */
 final readonly class GeneratedFile
 {

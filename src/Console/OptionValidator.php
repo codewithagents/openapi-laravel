@@ -11,6 +11,8 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  * space, a quote, arbitrary text) produces broken or injected PHP. Validation
  * happens at startup so a misconfiguration fails fast and loudly instead of
  * emitting a corrupt scaffold.
+ *
+ * @internal
  */
 final class OptionValidator
 {

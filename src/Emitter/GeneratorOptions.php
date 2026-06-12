@@ -8,6 +8,8 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter;
  * Generation settings, mirrored from the published openapi-laravel config.
  * Kept as a plain value object so the generator is testable without booting
  * a Laravel container.
+ *
+ * @internal
  */
 final readonly class GeneratorOptions
 {

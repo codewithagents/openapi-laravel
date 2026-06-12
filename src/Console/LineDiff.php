@@ -10,6 +10,8 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  * walks both sides with a longest-common-subsequence over lines, emits "-"
  * (expected) and "+" (on-disk) markers, and caps the output so a wholesale
  * rewrite cannot flood the terminal.
+ *
+ * @internal
  */
 final readonly class LineDiff
 {

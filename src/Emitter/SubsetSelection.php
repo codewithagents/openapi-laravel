@@ -15,6 +15,8 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter;
  * closure) is {@see SchemaClosure}'s job; this object only carries the raw,
  * de-duplicated, order-stable request so the generator and the planner can be
  * told what the operator asked for.
+ *
+ * @internal
  */
 final readonly class SubsetSelection
 {

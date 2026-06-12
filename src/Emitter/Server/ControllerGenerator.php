@@ -19,6 +19,8 @@ use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
  *
  * Output is deterministic: controllers keyed and ordered by abstract class
  * name, methods ordered by path then HTTP method, imports sorted.
+ *
+ * @internal
  */
 final readonly class ControllerGenerator
 {

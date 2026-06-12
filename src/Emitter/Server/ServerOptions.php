@@ -9,6 +9,8 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter\Server;
  * Kept as a plain value object so the generators are testable without booting
  * a Laravel container. `dataNamespace` must match the namespace the model
  * generator wrote its Data classes under, so imports in controllers resolve.
+ *
+ * @internal
  */
 final readonly class ServerOptions
 {

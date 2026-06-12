@@ -6,4 +6,7 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter;
 
 use RuntimeException;
 
+/**
+ * @internal
+ */
 final class GenerationException extends RuntimeException {}

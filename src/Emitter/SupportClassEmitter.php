@@ -29,6 +29,8 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter;
  * appears whenever a schema declares `additionalProperties: false` (enforced by
  * default, suppressed only under `--no-enforce-closed-objects`). Same spec in -> byte-identical
  * support set out.
+ *
+ * @internal
  */
 final readonly class SupportClassEmitter
 {

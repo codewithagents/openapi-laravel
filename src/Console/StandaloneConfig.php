@@ -14,6 +14,8 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  *
  * Every property is nullable: null means "not set in the file", letting the
  * binary apply its flag-over-config-over-default precedence per value.
+ *
+ * @internal
  */
 final readonly class StandaloneConfig
 {

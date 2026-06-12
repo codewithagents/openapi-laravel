@@ -14,6 +14,8 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  * runtime support class, abstract controller, or routes file). Only
  * generator-owned files appear here, so a drift check never flags a user's
  * hand-written concrete controllers.
+ *
+ * @internal
  */
 final readonly class PlannedFile
 {

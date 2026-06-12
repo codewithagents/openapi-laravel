@@ -31,6 +31,8 @@ use CodeWithAgents\OpenApiLaravel\Naming\UniqueNames;
  *
  * Output is deterministic: descriptors are sorted by path, then by a fixed
  * HTTP-method order, and method names are made unique per controller.
+ *
+ * @internal
  */
 final class OperationCollector
 {

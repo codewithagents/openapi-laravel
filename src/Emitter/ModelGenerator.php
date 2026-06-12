@@ -22,6 +22,8 @@ use CodeWithAgents\OpenApiLaravel\Naming\UniqueNames;
  *
  * Output is deterministic: component schemas are processed in sorted order and
  * the returned files are keyed and ordered by class name.
+ *
+ * @internal
  */
 final class ModelGenerator
 {

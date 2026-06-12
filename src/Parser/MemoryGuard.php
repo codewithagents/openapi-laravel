@@ -20,6 +20,8 @@ namespace CodeWithAgents\OpenApiLaravel\Parser;
  * This cannot be exercised by a real OOM in a cheap unit test, so the message
  * construction is factored into {@see self::messageFor()} and tested directly
  * with a simulated `error_get_last()` array. See the test for the limitation.
+ *
+ * @internal
  */
 final class MemoryGuard
 {

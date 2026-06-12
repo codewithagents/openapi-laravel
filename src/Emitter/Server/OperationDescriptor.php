@@ -13,6 +13,8 @@ namespace CodeWithAgents\OpenApiLaravel\Emitter\Server;
  *
  * A plain immutable value object: no behaviour, just resolved data, so both
  * downstream generators stay trivial and deterministic.
+ *
+ * @internal
  */
 final readonly class OperationDescriptor
 {

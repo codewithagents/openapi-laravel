@@ -6,4 +6,7 @@ namespace CodeWithAgents\OpenApiLaravel\Parser;
 
 use RuntimeException;
 
+/**
+ * @internal
+ */
 final class ParseException extends RuntimeException {}

@@ -6,6 +6,8 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
 
 /**
  * The drift verdict for a single planned file, compared against disk.
+ *
+ * @internal
  */
 enum DriftStatus: string
 {
