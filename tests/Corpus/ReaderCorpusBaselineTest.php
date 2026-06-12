@@ -119,10 +119,10 @@ const READER_BASELINE_REBASELINED_110 = [
 ];
 
 /*
- * INTENTIONAL post-freeze rebaseline (#111): the fourteen specs in
- * READER_BASELINE_REBASELINED_111 carry a post-#111 hash, because their
+ * INTENTIONAL post-freeze rebaseline (#116): the fourteen specs in
+ * READER_BASELINE_REBASELINED_116 carry a post-#116 hash, because their
  * generated output (or warning list) involves response `$ref`s, which
- * v0.11.0 left as a warned JsonResponse fallback. Issue #111 resolves a
+ * v0.11.0 left as a warned JsonResponse fallback. Issue #116 resolves a
  * `#/components/responses/...` ref and routes it through the same
  * content-type logic an inline response takes: a wrapped schema `$ref` types
  * the return with the existing Data class, an inline object schema
@@ -133,22 +133,22 @@ const READER_BASELINE_REBASELINED_110 = [
  * the reworded unresolvable warning, which alone changes those two hashes.
  * Every divergence is therefore a strict improvement (typed returns and
  * removed/reworded fallback warnings). clevercloud, sendgrid, and xero sit
- * in BOTH the #110 and #111 lists: their hashes carry both rebaselines.
+ * in BOTH the #110 and #116 lists: their hashes carry both rebaselines.
  * Every spec outside the rebaseline lists stays the frozen v0.11.0 freeze,
  * byte for byte.
  */
 
 /**
- * Specs whose frozen hash was deliberately updated to the post-#111 output
+ * Specs whose frozen hash was deliberately updated to the post-#116 output
  * (component responses resolved to typed returns), keyed by spec basename,
  * with the dominant change for auditability. The per-spec test below still
- * compares against the JSON baseline, which now holds these specs' post-#111
+ * compares against the JSON baseline, which now holds these specs' post-#116
  * hashes; the coverage test pins that every listed name exists on disk and
  * in the baseline, so the list cannot rot.
  *
  * @var array<string, string>
  */
-const READER_BASELINE_REBASELINED_111 = [
+const READER_BASELINE_REBASELINED_116 = [
     'ably.json' => 'schema-$ref component responses typed against existing Data classes',
     'amadeus.json' => 'inline-object component responses synthesize 2 shared classes',
     'brex.json' => 'unresolvable #/paths/... response $refs keep the fallback with the reworded warning',
@@ -233,11 +233,11 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
             ->and(READER_BASELINE_POST_FREEZE_SPECS)->not->toHaveKey($rebaselined);
     }
 
-    // Every spec rebaselined for #110 or #111 must still exist on disk and
+    // Every spec rebaselined for #110 or #116 must still exist on disk and
     // carry a hash in the baseline (it is an update, not an exemption): a
     // renamed or deleted spec would make the documented rebaseline lists rot
     // silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_111)] as $spec) {
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }

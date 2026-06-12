@@ -155,7 +155,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Gizmo'
 
-  # Component RESPONSES (#111): a response that is a $ref into
+  # Component RESPONSES (#116): a response that is a $ref into
   # components.responses resolves to a typed return. Three forms: a wrapped
   # schema $ref (reuses GizmoData), an inline object schema (synthesizes the
   # shared GizmoSummaryResponseData class), and a body-less 204 (stays void).
@@ -319,7 +319,7 @@ components:
 
   responses:
 
-    # Component response wrapping a schema $ref (#111): the return type
+    # Component response wrapping a schema $ref (#116): the return type
     # reuses the existing GizmoData class, nothing is synthesized.
     GizmoResponse:
       description: A single gizmo as JSON
@@ -328,7 +328,7 @@ components:
           schema:
             $ref: '#/components/schemas/Gizmo'
 
-    # Component response with an INLINE object schema (#111): synthesizes ONE
+    # Component response with an INLINE object schema (#116): synthesizes ONE
     # shared GizmoSummaryResponseData class through the model pipeline.
     GizmoSummary:
       description: Aggregate gizmo counts
@@ -344,7 +344,7 @@ components:
               newestName:
                 type: string
 
-    # Body-less 204 component response (#111): the method stays void.
+    # Body-less 204 component response (#116): the method stays void.
     GizmoDeleted:
       description: Gizmo deleted, no content
 

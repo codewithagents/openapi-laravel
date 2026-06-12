@@ -133,7 +133,7 @@ final class OperationCollector
 
     /**
      * The document's `components.responses` map for the current collect()
-     * run (issue #111), keyed by component name, so an operation whose
+     * run (issue #116), keyed by component name, so an operation whose
      * selected success response is a `$ref` resolves through the same
      * content-type routing an inline response takes. Only direct Response
      * entries are kept: a ref-to-ref chain inside the components stays
@@ -818,7 +818,7 @@ final class OperationCollector
 
     /**
      * The document's `components.responses` map, keyed by component name
-     * (issue #111). Only direct Response entries are kept: a ref-to-ref
+     * (issue #116). Only direct Response entries are kept: a ref-to-ref
      * chain inside the components is left unresolved and degrades like any
      * other unresolvable ref, mirroring {@see collectComponentRequestBodies()}.
      *
@@ -845,7 +845,7 @@ final class OperationCollector
     /**
      * Attribute each component response to the single tag its referencing
      * operations share, or null when they span different tag groups (issue
-     * #111, mirroring {@see collectComponentBodyTags()} exactly). Walks every
+     * #116, mirroring {@see collectComponentBodyTags()} exactly). Walks every
      * `$ref` entry in every operation's responses map across the whole
      * document (not the subset closure, and not only the selected success
      * response), so a component response's placement is stable across subset
@@ -1117,7 +1117,7 @@ final class OperationCollector
      * middleware sets the status and guarantees the empty body.
      *
      * A selected response that was a `$ref` to `#/components/responses/<Name>`
-     * (issue #111) arrives here already resolved, with the component name
+     * (issue #116) arrives here already resolved, with the component name
      * carried alongside: the schema-level `$ref`, array-of-Data, and
      * oneOf/anyOf union paths below apply to the resolved content unchanged,
      * and the one NEW case is an inline JSON object schema, which synthesizes
@@ -1190,7 +1190,7 @@ final class OperationCollector
                 return [implode('|', $union), null, $status];
             }
 
-            // A component response with an INLINE object schema (issue #111)
+            // A component response with an INLINE object schema (issue #116)
             // synthesizes ONE shared class named after the component, placed
             // in the single tag group its referencing operations share (or
             // the flat root when they span groups). A non-object shape
@@ -1300,7 +1300,7 @@ final class OperationCollector
      * first-response fallback) must keep seeing the same map.
      *
      * A selected response that is a `$ref` resolves against
-     * `components.responses` (issue #111) and carries the component name
+     * `components.responses` (issue #116) and carries the component name
      * forward, so {@see responseType()} can emit one shared class per
      * component. An UNRESOLVABLE `$ref` (an external pointer, a
      * non-responses pointer, a missing component, or a ref-to-ref chain) is
@@ -1386,7 +1386,7 @@ final class OperationCollector
 
     /**
      * Resolve a selected `$ref` response against `components.responses`
-     * (issue #111), returning the resolved node plus the component name. An
+     * (issue #116), returning the resolved node plus the component name. An
      * unresolvable `$ref` (external pointer, non-responses pointer, missing
      * component, or ref-to-ref chain) returns [null, null] with one warning
      * naming the pointer (issue #67): the operation cannot derive a typed

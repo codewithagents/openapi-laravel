@@ -62,7 +62,7 @@ final class RequestDataSynthesizer
 
     /**
      * Component response name => the SHARED Data class synthesized for it
-     * (issue #111), mirroring $componentBodyClasses: several operations
+     * (issue #116), mirroring $componentBodyClasses: several operations
      * routinely `$ref` one `#/components/responses/<Name>` entry, and the
      * shared shape gets ONE class instead of per-operation duplicates. Only
      * successful syntheses are cached: a failed one (non-object shape) warns
@@ -455,7 +455,7 @@ final class RequestDataSynthesizer
     }
 
     /**
-     * Emit the SHARED Data class of a component response (issue #111) whose
+     * Emit the SHARED Data class of a component response (issue #116) whose
      * JSON content schema is an inline object, mirroring
      * {@see generateComponentBodyData()} exactly with ONE deliberate
      * difference: a response is server OUTPUT, so a schema that splits fields

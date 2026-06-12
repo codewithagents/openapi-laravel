@@ -496,7 +496,7 @@ it('warns when the selected success response $ref does not resolve to a componen
     );
 });
 
-it('stays silent for a resolved component response without JSON content (issue #111)', function () {
+it('stays silent for a resolved component response without JSON content (issue #116)', function () {
     [$warnings] = degradationCollectorRun([
         '/pets' => [
             'get' => [
@@ -510,13 +510,13 @@ it('stays silent for a resolved component response without JSON content (issue #
         ],
     ]);
 
-    // The $ref resolves (issue #111); a resolved response with no JSON
+    // The $ref resolves (issue #116); a resolved response with no JSON
     // content keeps the same silent JsonResponse fallback an inline non-JSON
     // response takes.
     expect($warnings)->toBe([]);
 });
 
-it('warns when a component response resolves to an inline non-object schema (issue #111)', function () {
+it('warns when a component response resolves to an inline non-object schema (issue #116)', function () {
     [$warnings, $modelWarnings] = degradationCollectorRun([
         '/pets' => [
             'get' => [

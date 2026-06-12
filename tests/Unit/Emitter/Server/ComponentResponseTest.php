@@ -11,7 +11,7 @@ use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 
 /**
- * Issue #111: a selected success response that is a `$ref` to
+ * Issue #116: a selected success response that is a `$ref` to
  * `#/components/responses/<Name>` resolves to the component and routes
  * through the same content-type logic an inline response takes. A JSON
  * content schema that is itself a `$ref` to a component schema reuses that

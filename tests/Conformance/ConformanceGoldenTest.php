@@ -87,7 +87,7 @@ function conformanceCode(string $class): string
 }
 
 /**
- * The server scaffold of the 3.1 fixture (issue #111), memoized: the
+ * The server scaffold of the 3.1 fixture (issue #116), memoized: the
  * abstract controllers plus the generator that ran the collection, so the
  * component-response assertions can read both the controller signatures and
  * the synthesized response classes. Wired exactly like the planner.
@@ -701,9 +701,9 @@ it('emits a recursive self-referential schema and a deep ref chain (TreeNode, Ch
         ->and($files['ChainBData']->code)->toContain('ChainCData');
 });
 
-// --- Component $ref responses (#111) ----------------------------------------
+// --- Component $ref responses (#116) ----------------------------------------
 
-it('resolves component $ref responses to typed returns in the abstract controllers (#111)', function () {
+it('resolves component $ref responses to typed returns in the abstract controllers (#116)', function () {
     [$controllers] = conformance31Server();
     expect($controllers)->toHaveKey('AbstractGizmosController');
 
@@ -723,7 +723,7 @@ it('resolves component $ref responses to typed returns in the abstract controlle
         ->and($code)->toContain('use App\Data\Gizmos\GizmoSummaryResponseData;');
 });
 
-it('synthesizes the shared component-response class through the full rules pipeline (#111)', function () {
+it('synthesizes the shared component-response class through the full rules pipeline (#116)', function () {
     [, $generator] = conformance31Server();
 
     $files = $generator->responseFiles();

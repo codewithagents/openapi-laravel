@@ -120,7 +120,7 @@ final class GenerationState
     public array $bodyFiles = [];
 
     /**
-     * Shared component-response Data classes (issue #111), emitted on demand
+     * Shared component-response Data classes (issue #116), emitted on demand
      * AFTER generate() ran, keyed by class name. The bucket also holds every
      * nested class an inline component-response schema spawned. Kept apart
      * from $bodyFiles so the request and response synthesis stay auditable

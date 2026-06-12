@@ -129,7 +129,7 @@ Data class (write variant when split), an inline object schema synthesizes ONE s
 `<Component>RequestData` class reused by every referencing operation (placed in the single tag
 group they share, or the flat root when they span groups), and a non-object shape keeps the warned
 Request fallback. A selected success response that is a `$ref` to `#/components/responses/<Name>`
-(#111) resolves the same way on the output side: a wrapped schema `$ref` types the return with that
+(#116) resolves the same way on the output side: a wrapped schema `$ref` types the return with that
 component schema's existing Data class, an inline object schema synthesizes ONE shared
 `<Component>ResponseData` class (READ variant: responses are server output, so readOnly fields stay
 and writeOnly fields drop) with the same tag-group placement rule, the #64 status semantics are
@@ -172,7 +172,7 @@ collisions failing loudly.
   object shape (an array, scalar, union, enum, free-form map, or a whole-body binary multipart
   schema) keeps the warned `Illuminate\Http\Request` fallback, whether it arrives inline (#76),
   as multipart (#75), or through a component requestBody (#110). Component `$ref` responses resolve
-  to typed returns the same way (#111); a component response whose JSON schema is NOT an object
+  to typed returns the same way (#116); a component response whose JSON schema is NOT an object
   shape keeps the warned JsonResponse fallback, an unresolvable response `$ref` (external,
   `#/paths/...`, missing, or ref-to-ref) keeps it too, and an INLINE (non-component) object
   response schema is still not synthesized (nothing names a shared class; JsonResponse, silent).

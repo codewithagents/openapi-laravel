@@ -55,7 +55,7 @@ A `#/components/requestBodies/...` $ref body resolves to the component and route
 content-type logic (#110): a wrapped schema $ref reuses that component's existing Data class, an
 inline object schema emits ONE shared `<Component>RequestData` class for every referencing
 operation (single shared tag group, or the flat root when they span groups).
-A `#/components/responses/...` $ref on the selected success response resolves the same way (#111):
+A `#/components/responses/...` $ref on the selected success response resolves the same way (#116):
 a wrapped schema $ref reuses the existing Data class as the return type, an inline object schema
 emits ONE shared `<Component>ResponseData` class (READ variant: readOnly stays, writeOnly drops)
 with the same tag-group placement, the #64 status semantics are unchanged (a 204 $ref stays `void`
@@ -109,7 +109,7 @@ a wrong value when validated standalone (morph routing through the base is unaff
 inline JSON OBJECT bodies are generated as `<Operation>RequestData` classes (#76) and
 multipart/form-data OBJECT bodies too (#75), but a body that is not an object shape (array, scalar,
 union, enum, free-form map, whole-body binary multipart) keeps the warned Request fallback.
-Component `$ref` responses resolve to typed returns (#111); a component response whose JSON schema
+Component `$ref` responses resolve to typed returns (#116); a component response whose JSON schema
 is not an object shape keeps the warned JsonResponse fallback, an unresolvable response $ref
 (external, `#/paths/...`, missing, ref-to-ref) keeps it too, and an inline (non-component) object
 response schema is still not synthesized. Multipart residuals (#75):

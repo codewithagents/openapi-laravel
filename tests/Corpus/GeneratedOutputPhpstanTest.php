@@ -82,7 +82,7 @@ it('generates PHPStan-max-clean output (phpstan analyse reports no errors)', fun
         $generator = new ModelGenerator;
         $files = $generator->generate($document);
         // The per-operation query (issue #63), inline request-body (issue
-        // #76), and shared component-response (issue #111) Data classes are
+        // #76), and shared component-response (issue #116) Data classes are
         // generated output too: run the collector with the generator wired
         // in, exactly like the planner, so they are analysed alongside the
         // model classes. Stripe in particular emits hundreds of them.

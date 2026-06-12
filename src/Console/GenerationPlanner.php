@@ -142,7 +142,7 @@ final readonly class GenerationPlanner
 
         // The per-operation query Data classes (issue #63), inline
         // request-body Data classes (issue #76), and shared component-response
-        // Data classes (issue #111) live next to the model Data classes: same
+        // Data classes (issue #116) live next to the model Data classes: same
         // namespace, same output directory, same drift-checked CATEGORY_DATA
         // bucket.
         foreach ([...$generator->queryFiles(), ...$generator->bodyFiles(), ...$generator->responseFiles()] as $operationFile) {
@@ -261,7 +261,7 @@ final readonly class GenerationPlanner
      * Plan the server scaffold (controllers + routes). The model generator is
      * handed through so the operation collector can emit the per-operation
      * query Data classes (issue #63), inline request-body Data classes
-     * (issue #76), and shared component-response Data classes (issue #111)
+     * (issue #76), and shared component-response Data classes (issue #116)
      * with the exact rules pipeline the model classes used; the planner
      * collects those files via queryFiles() / bodyFiles() / responseFiles()
      * after this returns.

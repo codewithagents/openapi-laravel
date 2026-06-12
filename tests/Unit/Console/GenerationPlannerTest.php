@@ -82,7 +82,7 @@ it('plans query Data classes even when controllers and routes are both disabled 
         ->and($plan->filesByCategory(PlannedFile::CATEGORY_ROUTES))->toBe([]);
 });
 
-it('plans component ResponseData classes even when controllers and routes are both disabled (#111)', function () use ($tempOut, $request) {
+it('plans component ResponseData classes even when controllers and routes are both disabled (#116)', function () use ($tempOut, $request) {
     $out = $tempOut();
     $spec = __DIR__.'/../../Fixtures/server/component-responses.yaml';
     $plan = (new GenerationPlanner)->plan($request($spec, $out));

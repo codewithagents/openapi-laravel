@@ -396,7 +396,7 @@ final class ModelGenerator
 
     /**
      * Emit (or reuse) the SHARED Data class of a component response whose
-     * JSON schema is an inline object (issue #111). Must be called AFTER
+     * JSON schema is an inline object (issue #116). Must be called AFTER
      * generate(); see {@see RequestDataSynthesizer::generateComponentResponseData()}
      * for the full contract.
      *
@@ -441,7 +441,7 @@ final class ModelGenerator
 
     /**
      * The shared component-response Data classes emitted since the last
-     * generate() run (issue #111), keyed and ordered by class name. A
+     * generate() run (issue #116), keyed and ordered by class name. A
      * dedicated bucket mirroring bodyFiles() rather than an overload of it,
      * so the request and response synthesis stay auditable as distinct
      * surfaces; the planner collects both into the same data output.

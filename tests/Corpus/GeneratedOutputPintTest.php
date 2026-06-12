@@ -31,7 +31,7 @@ it('generates Pint-idempotent output (pint --test reports no reformats)', functi
     $generator = new ModelGenerator;
     $files = $generator->generate($document);
     // The per-operation query (issue #63), inline request-body (issue #76),
-    // and shared component-response (issue #111) Data classes are part of the
+    // and shared component-response (issue #116) Data classes are part of the
     // generated output too: run the collector with the generator wired in,
     // exactly like the planner, so they are gated for Pint-idempotency.
     (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($document);

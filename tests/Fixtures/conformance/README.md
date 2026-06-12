@@ -189,9 +189,9 @@ lives in `src/` (out of scope for the test layer).
 | `deleteAllWidgets` (`DELETE /widgets`) | 204 no content | |
 | `createGadget` (`POST /gadgets`) | requestBody $ref to component schema, response oneOf of $ref objects, 422 with no content schema | |
 | `createGizmo` (`POST /gizmos`) | requestBody $ref to a component requestBody (resolved to the wrapped schema's Data class) | #110 |
-| `getGizmo` (`GET /gizmos/{gizmoId}`) | 200 response $ref to a component response wrapping a schema $ref (reuses the existing Data class) | #111 |
-| `deleteGizmo` (`DELETE /gizmos/{gizmoId}`) | 204 response $ref to a body-less component response (stays void) | #111 |
-| `getGizmoSummary` (`GET /gizmos/summary`) | 200 response $ref to a component response with an inline object schema (synthesizes the shared `GizmoSummaryResponseData`) | #111 |
+| `getGizmo` (`GET /gizmos/{gizmoId}`) | 200 response $ref to a component response wrapping a schema $ref (reuses the existing Data class) | #116 |
+| `deleteGizmo` (`DELETE /gizmos/{gizmoId}`) | 204 response $ref to a body-less component response (stays void) | #116 |
+| `getGizmoSummary` (`GET /gizmos/summary`) | 200 response $ref to a component response with an inline object schema (synthesizes the shared `GizmoSummaryResponseData`) | #116 |
 | `downloadWidgetBlob` (`GET /widgets/{widgetId}/blob`) | non-JSON response (application/octet-stream binary) | |
 | `uploadStuff` (`POST /uploads`) | multipart/form-data body, application/x-www-form-urlencoded body | |
 | (no id) (`GET /pingless`) | operation with no operationId, multiple tags | |
