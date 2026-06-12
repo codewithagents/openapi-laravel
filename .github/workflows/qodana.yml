@@ -38,6 +38,30 @@ jobs:
           # A full history lets Qodana attribute findings and diff against the base.
           fetch-depth: 0
 
+      # Code coverage for the Qodana report (#89). Qodana for PHP ingests a
+      # PHPUnit Clover XML report from the default coverage directory
+      # <project-root>/.qodana/code-coverage, so Pest writes it there and the
+      # scan picks it up without extra args. Informational like the rest of
+      # this workflow: every coverage step is continue-on-error, so a failure
+      # here only loses the coverage number, never the scan or the merge.
+      - uses: shivammathur/setup-php@v2
+        continue-on-error: true
+        with:
+          php-version: '8.4'
+          coverage: pcov
+          tools: composer:v2
+
+      - name: Install dependencies
+        continue-on-error: true
+        run: composer install --no-interaction --no-progress
+
+      - name: Pest coverage (Clover for Qodana)
+        continue-on-error: true
+        # Exclude the slow group (the generated-output Pint/PHPStan gates, about
+        # two thirds of suite runtime); the fast suite already exercises the
+        # same src/ paths, so the coverage number stays representative.
+        run: php -d memory_limit=512M vendor/bin/pest --exclude-group=slow --coverage-clover .qodana/code-coverage/coverage.xml
+
       - name: Qodana scan
         uses: JetBrains/qodana-action@v2026.1
         with:
