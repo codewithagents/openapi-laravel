@@ -484,9 +484,16 @@ final class GoldenFidelityCatalog
                         'payload' => ['scalarUnion' => 7],
                         'roundTrip' => ['scalarUnion' => 7],
                     ],
+                    [
+                        'label' => 'a closed prefixItems tuple with per-position types, preserved (#82)',
+                        'payload' => ['tuple' => ['a', 1, true]],
+                        'roundTrip' => ['tuple' => ['a', 1, true]],
+                    ],
                 ],
                 [
                     ['label' => 'a scalar array below minItems is rejected', 'payload' => ['scalarArray' => []], 'violates' => 'minItems'],
+                    ['label' => 'a wrong type at tuple position 0 is rejected (#82)', 'payload' => ['tuple' => [1, 1, true]], 'violates' => 'prefixItems[0].type'],
+                    ['label' => 'an element beyond the closed tuple length is rejected (#82)', 'payload' => ['tuple' => ['a', 1, true, 'x']], 'violates' => 'items:false (closed tuple length)'],
                     ['label' => 'a scalar array above maxItems is rejected', 'payload' => ['scalarArray' => ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k']], 'violates' => 'maxItems'],
                     ['label' => 'duplicate items in a uniqueItems array are rejected', 'payload' => ['scalarArray' => ['a', 'a']], 'violates' => 'uniqueItems'],
                     // Note: an empty string cannot be a reliable minLength reject

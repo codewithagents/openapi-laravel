@@ -468,6 +468,55 @@ final class ConstraintCatalog
                     ['label' => 'inner item below minimum', 'payload' => ['v' => [[1], [-1]]], 'violates' => 'items.items.minimum'],
                 ],
             ),
+            // Tuple prefixItems (issue #82): per-index rules. Each position is
+            // validated against its own schema; a shorter tuple stays valid
+            // (only minItems pins a minimum length).
+            new ConstraintCase(
+                'ArrTuplePrefixItems', 'array',
+                self::obj('v', ['type' => 'array', 'prefixItems' => [
+                    ['type' => 'integer'],
+                    ['type' => 'string', 'minLength' => 2],
+                ]]),
+                [
+                    ['label' => 'valid tuple', 'payload' => ['v' => [1, 'ab']]],
+                    ['label' => 'shorter tuple allowed without minItems', 'payload' => ['v' => [1]]],
+                    ['label' => 'extra elements allowed on an open tuple', 'payload' => ['v' => [1, 'ab', true]]],
+                ],
+                [
+                    ['label' => 'wrong type at position 0', 'payload' => ['v' => ['x', 'ab']], 'violates' => 'prefixItems[0].type'],
+                    ['label' => 'position 1 below minLength', 'payload' => ['v' => [1, 'a']], 'violates' => 'prefixItems[1].minLength'],
+                ],
+            ),
+            // Closed tuple (issue #82): `items: false` pins the length at the
+            // tuple size, surviving the normalizer as a synthesized maxItems.
+            new ConstraintCase(
+                'ArrTupleClosed', 'array',
+                self::obj('v', ['type' => 'array', 'prefixItems' => [
+                    ['type' => 'integer'],
+                    ['type' => 'string'],
+                ], 'items' => false]),
+                [
+                    ['label' => 'tuple at exact length', 'payload' => ['v' => [1, 'a']]],
+                ],
+                [
+                    ['label' => 'one element beyond the closed tuple', 'payload' => ['v' => [1, 'a', 2]], 'violates' => 'items:false (closed tuple length)'],
+                ],
+            ),
+            // Nullable and enum tuple positions (issue #82): a spec-valid null
+            // must not be false-rejected, an unlisted enum value must fail.
+            new ConstraintCase(
+                'ArrTupleNullableEnum', 'array',
+                self::obj('v', ['type' => 'array', 'prefixItems' => [
+                    ['type' => ['string', 'null']],
+                    ['type' => 'string', 'enum' => ['x', 'y']],
+                ]]),
+                [
+                    ['label' => 'null accepted at the nullable position', 'payload' => ['v' => [null, 'x']]],
+                ],
+                [
+                    ['label' => 'unlisted enum value at position 1', 'payload' => ['v' => ['a', 'z']], 'violates' => 'prefixItems[1].enum'],
+                ],
+            ),
         ];
     }
 

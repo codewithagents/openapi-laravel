@@ -552,6 +552,53 @@ items. Numeric `enum` values, including floats, emit a `Rule::in([...])` constra
 number-enum component (which cannot be a PHP backed enum) becomes a single-`value` Data class that
 carries that constraint rather than an empty class.
 
+## Tuple prefixItems: per-index rules, loose typing
+
+A positional tuple (OpenAPI 3.1 `prefixItems`) is **validated per position but typed loosely**.
+Laravel addresses tuple positions directly (`field.0`, `field.1`, ...), so each position schema
+emits its own rule list through the same constraint mapping as any other value: scalar type rules,
+string/number bounds, formats, enums (inline `Rule::in` and `$ref`'d backed enums via `Rule::enum`),
+and `nullable` for a nullable position.
+
+```yaml
+coordinate:
+  type: array
+  prefixItems:
+    - type: number
+    - type: number
+    - type: string
+      enum: [WGS84, ETRS89]
+  items: false
+```
+
+This generates
+
+```php
+'coordinate' => ['sometimes', 'array', 'max:3'],
+'coordinate.0' => ['numeric'],
+'coordinate.1' => ['numeric'],
+'coordinate.2' => [Rule::in(['WGS84', 'ETRS89'])],
+```
+
+The closed-tuple spelling `items: false` ("no items beyond the prefix") survives the pre-parse
+normalizer as a synthesized `maxItems` of the tuple size, so the length cap is enforced as the
+`max:3` above. An explicit tighter `maxItems` wins; `minItems` passes through unchanged, so a spec
+that pins both bounds gets a fixed-length tuple.
+
+What stays loose, honestly:
+
+- **Typing degrades to `array<int, mixed>`.** PHP has no native tuple type, and a per-position
+  typed structure (a generated shape class) is not emitted. The property is a plain `?array` with
+  an `array<int, mixed>` docblock; validation carries the per-position contract instead.
+- **A post-prefix `items` schema is not enforced.** A 3.1 `items` next to `prefixItems` constrains
+  only the elements AFTER the prefix, but a Laravel `field.*` rule would also hit the prefix
+  positions and false-reject valid tuples, so those extra elements stay unvalidated (presence-only).
+  `uniqueItems: true` still applies to every element via `distinct`.
+- **A multi-type or composition position stays presence-only.** A position typed
+  `["string", "integer"]` or built from `oneOf`/`anyOf`/`allOf` gets no type rule, exactly like the
+  same construct at a property site, because a single type rule would false-reject the other valid
+  members.
+
 ## const is a single-value enum
 
 A schema with `const` (OpenAPI 3.1 / JSON Schema) pins a value to one literal. The generator treats

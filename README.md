@@ -252,8 +252,10 @@ morphable base and variants, with full per-variant validation and hydration in a
 discriminator forms: named-component, inline-union, and allOf-inheritance (issue #38). A
 `$ref`-valued `additionalProperties` map is typed in the docblock but not auto-hydrated into Data
 objects at runtime, a request body referencing a component `$ref` falls back to
-`Illuminate\Http\Request` instead of a typed Data param, and tuple `prefixItems`, int64 literal
-bounds, and non-JSON responses are represented loosely. A non-standard per-property `required: true` key (a boolean set inside an
+`Illuminate\Http\Request` instead of a typed Data param, and int64 literal bounds and non-JSON
+responses are represented loosely. A tuple (`prefixItems`) is validated per position (`field.0`,
+`field.1`, ... rules, plus a length cap for the closed `items: false` form) but typed loosely as
+`array<int, mixed>`. A non-standard per-property `required: true` key (a boolean set inside an
 individual property schema, which some generators emit) is ignored, because OpenAPI 3.x only honours
 the schema-level `required: [...]` array; the field is generated as optional and the run prints a
 diagnostic to stderr naming the property and schema, so use the schema-level array to make a field

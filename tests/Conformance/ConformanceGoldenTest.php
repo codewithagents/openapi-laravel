@@ -469,6 +469,20 @@ it('inlines an array alias to its array type at the use site (Exerciser)', funct
         ->and($code)->not->toContain('ArrayAliasData');
 });
 
+it('emits per-index rules plus the closed-tuple length cap for prefixItems (#82, Exerciser)', function () {
+    $code = conformanceCode('ExerciserData');
+
+    // TupleSchema is [string, integer, boolean] closed via `items: false`. Each
+    // position carries its own rule, the closed form lands as `max:3` (the
+    // normalizer synthesizes maxItems from the tuple size), and the typing
+    // keeps degrading to a loose array (rules-only, issue #82).
+    expect($code)->toContain("'tuple' => ['sometimes', 'array', 'max:3'],")
+        ->and($code)->toContain("'tuple.0' => ['string'],")
+        ->and($code)->toContain("'tuple.1' => ['integer'],")
+        ->and($code)->toContain("'tuple.2' => ['boolean'],")
+        ->and($code)->toContain('public readonly ?array $tuple = null');
+});
+
 // --- Unions: oneOf of scalars, oneOf of objects, ?mixed (#8) ---------------
 
 it('inlines a oneOf-of-scalars alias to a native scalar union (Exerciser)', function () {

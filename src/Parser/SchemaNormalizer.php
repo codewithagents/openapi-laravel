@@ -23,11 +23,15 @@ namespace CodeWithAgents\OpenApiLaravel\Parser;
  * generator:
  *   - `items: true`  -> `items: {}`  (an empty schema, meaning "any"), which is
  *                       the exact JSON-Schema equivalent of `true`.
- *   - `items: false` -> drop the key. A closed tuple's "no additional items"
- *                       constraint has no Laravel representation anyway (the
- *                       generator types tuples from `prefixItems`), so dropping
- *                       it loses nothing the emitter could have used, and avoids
- *                       inventing a fake "match nothing" schema.
+ *   - `items: false` -> drop the key, but first preserve the closed-tuple
+ *                       length (issue #82): next to a non-empty `prefixItems`
+ *                       list, "no items beyond the tuple" pins the maximum
+ *                       length at the tuple size, so a `maxItems` of that size
+ *                       is synthesized (or an existing larger/absent bound is
+ *                       tightened to it). The emitter turns `maxItems` into a
+ *                       `max:` rule, so the closed-tuple constraint survives as
+ *                       a count rule instead of being lost. Without
+ *                       `prefixItems` the key is simply dropped, as before.
  *
  * It also coerces a second class of slightly-off real-world specs (issues #32
  * and #33): a scalar keyword emitted as a JSON STRING where a number or boolean
@@ -88,6 +92,28 @@ final class SchemaNormalizer
     {
         if (! is_array($data)) {
             return $data;
+        }
+
+        // A closed tuple (`items: false` next to a non-empty `prefixItems`
+        // list, issue #82) pins the maximum length at the tuple size. Encode
+        // that as `maxItems` BEFORE the boolean `items` is dropped below, so
+        // the emitter sees the bound as a plain count constraint. An existing
+        // numeric `maxItems` at or below the tuple size already binds tighter
+        // and is kept; anything else (absent, larger, or malformed) becomes
+        // the tuple size. A string-typed bound is read through the same
+        // numeric coercion the keyword gets later in this pass (#32).
+        if (($data['items'] ?? null) === false) {
+            $prefixItems = $data['prefixItems'] ?? null;
+            if (is_array($prefixItems) && $prefixItems !== [] && array_is_list($prefixItems)) {
+                $size = count($prefixItems);
+                $existing = $data['maxItems'] ?? null;
+                if (is_string($existing) && is_numeric($existing)) {
+                    $existing = self::numericFromString($existing);
+                }
+                if (! (is_int($existing) || is_float($existing)) || $existing > $size) {
+                    $data['maxItems'] = $size;
+                }
+            }
         }
 
         $result = [];

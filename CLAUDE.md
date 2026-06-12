@@ -66,7 +66,8 @@ inline-union, allOf-inheritance) now validate and hydrate (#38); the only discri
 that an allOf-inheritance variant whose discriminator is not pinned by a `const` is not rejected for
 a wrong value when validated standalone (morph routing through the base is unaffected). A component
 `$ref` request body falls back to `Illuminate\Http\Request` instead of a typed Data param; tuple
-`prefixItems`, int64 bounds, and non-JSON responses degrade gracefully.
+`prefixItems` validates per position (#82, incl. a length cap for the closed `items: false` form)
+but still types as `array<int, mixed>`; int64 bounds and non-JSON responses degrade gracefully.
 
 **Cross-language e2e demo (`e2e/`, owned by another agent, do not edit):** one petstore-plus spec
 drives a generated Laravel backend and an openapi-zod-ts TypeScript client + SPA, with a Playwright

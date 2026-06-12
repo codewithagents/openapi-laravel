@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Emitter;
 
+use cebe\openapi\exceptions\TypeErrorException;
 use cebe\openapi\spec\OpenApi;
 use cebe\openapi\spec\Parameter;
 use cebe\openapi\spec\Reference;
@@ -1635,6 +1636,24 @@ final class ModelGenerator
         }
 
         if ($primary === 'array') {
+            // A tuple (3.1 `prefixItems`, issue #82): Laravel addresses tuple
+            // positions directly (`field.0`, `field.1`), so each position gets
+            // the rules its schema pins. The post-prefix `items` schema is NOT
+            // enforced (a `field.*` rule would also hit the prefix positions
+            // and false-reject valid tuples); `uniqueItems` still applies to
+            // every element, so its `distinct` wildcard is kept. The closed
+            // form (`items: false`) arrives here as a synthesized `maxItems`
+            // (see SchemaNormalizer) and lands in the count rules.
+            $prefixes = $this->prefixItemSchemas($schema);
+            if ($prefixes !== []) {
+                [$indexed, $indexUses] = $this->prefixItemRules($prefixes);
+                if ($schema->uniqueItems === true) {
+                    $indexed['.*'] = ["'distinct'"];
+                }
+
+                return [array_merge($rules, ["'array'"], $this->arrayCountRules($schema)), $indexed, $indexUses];
+            }
+
             [$wildcards, $itemUses] = $this->arrayWildcardRules($schema, '.*');
 
             return [array_merge($rules, ["'array'"], $this->arrayCountRules($schema)), $wildcards, $itemUses];
@@ -1964,6 +1983,21 @@ final class ModelGenerator
             return [["'array'"], false];
         }
 
+        return $this->inlineValueRules($value);
+    }
+
+    /**
+     * Scalar/shape rules for one inline schema sitting in a nested value
+     * position (a map value or a tuple position): the enum literals, the
+     * scalar-constraint families (string/integer/number/boolean), and the
+     * shape-plus-count assertion for arrays and objects. Shared by
+     * mapValueRules() and prefixItemRules() so both nested contexts reuse the
+     * exact same per-constraint mapping.
+     *
+     * @return array{0: ?list<string>, 1: bool} value rules, whether Rule:: is used
+     */
+    private function inlineValueRules(Schema $value): array
+    {
         if ($this->notEmptyArray($value->enum)) {
             $values = $this->enumValues($value);
             if ($values !== []) {
@@ -1985,6 +2019,135 @@ final class ModelGenerator
         };
 
         return [$rules === [] ? null : $rules, false];
+    }
+
+    /**
+     * The tuple position schemas a 3.1 `prefixItems` declares, keyed by their
+     * zero-based position. cebe has no typed attribute for `prefixItems` (a
+     * JSON Schema keyword OpenAPI 3.1 admits), so it is read from the
+     * serialized data, where cebe keeps unknown keys verbatim, and each entry
+     * is instantiated into the cebe object model here. The spec is untrusted
+     * input: a malformed entry (a non-object, or data cebe rejects) maps to
+     * null so the later positions keep their correct index, and a `prefixItems`
+     * that is not a non-empty list at all yields []. A non-empty result, even
+     * one of all nulls, signals that the schema IS a tuple, which suppresses
+     * the post-prefix `items` wildcard rules (they would false-reject valid
+     * prefix positions).
+     *
+     * @return array<int, Schema|Reference|null>
+     */
+    private function prefixItemSchemas(Schema $schema): array
+    {
+        $serialized = (array) $schema->getSerializableData();
+        $raw = $serialized['prefixItems'] ?? null;
+        if (! is_array($raw) || $raw === [] || ! array_is_list($raw)) {
+            return [];
+        }
+
+        $positions = [];
+        foreach ($raw as $index => $entry) {
+            if (! is_array($entry)) {
+                $positions[$index] = null;
+
+                continue;
+            }
+
+            if (isset($entry['$ref']) && is_string($entry['$ref'])) {
+                $positions[$index] = new Reference(['$ref' => $entry['$ref']], null);
+
+                continue;
+            }
+
+            try {
+                $positions[$index] = new Schema($entry);
+            } catch (TypeErrorException) {
+                $positions[$index] = null;
+            }
+        }
+
+        return $positions;
+    }
+
+    /**
+     * Per-index rules for a tuple's `prefixItems` positions (issue #82), keyed
+     * by their suffix relative to the property name ('.0', '.1', ...). Each
+     * position reuses the shared inline-value mapping (scalar constraints,
+     * enums, formats); a nullable position is prefixed with `nullable` so a
+     * spec-valid null is not rejected. Mirroring buildRules(), a multi-type
+     * position and a composition keyword stay presence-only (no rule), since a
+     * single type rule would false-reject the other valid members. A `$ref`
+     * position resolves like a property-level $ref: a backed enum gets its
+     * Rule::enum, a scalar/array alias is followed to its terminal schema, and
+     * an object component is asserted as an array shape.
+     *
+     * @param  array<int, Schema|Reference|null>  $positions
+     * @return array{0: array<string, list<string>>, 1: bool} rules keyed by index suffix, whether Rule:: is used
+     */
+    private function prefixItemRules(array $positions): array
+    {
+        $map = [];
+        $uses = false;
+
+        foreach ($positions as $index => $position) {
+            if ($position === null) {
+                continue;
+            }
+
+            [$rules, $positionUses] = $this->prefixItemValueRules($position);
+            if ($rules !== null && $rules !== []) {
+                $map['.'.$index] = $rules;
+                $uses = $uses || $positionUses;
+            }
+        }
+
+        return [$map, $uses];
+    }
+
+    /**
+     * @return array{0: ?list<string>, 1: bool}
+     */
+    private function prefixItemValueRules(Schema|Reference $position): array
+    {
+        if ($position instanceof Reference) {
+            $enumClass = $this->referencedEnumClass($position);
+            if ($enumClass !== null) {
+                return [['Rule::enum('.$enumClass.'::class)'], true];
+            }
+
+            // A scalar/array/union alias position enforces its terminal
+            // schema's constraints, exactly like an alias at a property site.
+            $aliasSchema = $this->referencedAliasSchema($position);
+            if ($aliasSchema !== null) {
+                return $this->prefixItemValueRules($this->terminalAliasSchema($aliasSchema));
+            }
+
+            // A map or object component arrives as a raw array: assert the
+            // shape only (nested hydration is a typing concern, not a rules
+            // one). An unresolvable $ref stays presence-only.
+            if ($this->referencedMapSchema($position) !== null || $this->referencedObjectSchema($position) !== null) {
+                return [["'array'"], false];
+            }
+
+            return [null, false];
+        }
+
+        // A multi-type position (`type: ["string", "integer"]`) and a
+        // composition keyword stay presence-only: a single type rule would
+        // wrongly reject the other valid members (mirrors buildRules()).
+        if (count($this->normalizeTypes($position)) > 1
+            || $this->notEmptyArray($position->oneOf)
+            || $this->notEmptyArray($position->anyOf)
+            || $this->notEmptyArray($position->allOf)) {
+            return [null, false];
+        }
+
+        [$rules, $uses] = $this->inlineValueRules($position);
+
+        if ($rules !== null && $this->isNullable($position)) {
+            $rules = array_merge(["'nullable'"], $rules);
+        }
+
+        return [$rules, $uses];
     }
 
     /**

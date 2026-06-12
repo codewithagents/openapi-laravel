@@ -144,6 +144,8 @@ it('parses a 3.1 spec with boolean items: true and a closed tuple (items: false)
     // `items: true` normalised to an empty schema (any).
     expect($schemas['AnyItems']->items)->not->toBeNull();
 
-    // `items: false` dropped; the tuple is still described by prefixItems.
-    expect($schemas['ClosedTuple']->prefixItems)->toHaveCount(2);
+    // `items: false` dropped; the tuple is still described by prefixItems, and
+    // the closed-tuple length survives as a synthesized maxItems (#82).
+    expect($schemas['ClosedTuple']->prefixItems)->toHaveCount(2)
+        ->and($schemas['ClosedTuple']->maxItems)->toBe(2);
 });

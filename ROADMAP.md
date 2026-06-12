@@ -92,8 +92,12 @@ error responses and explicitly set statuses pass through untouched.
 - An allOf-inheritance variant that does not pin its discriminator with a `const` is not rejected for
   a wrong value when validated STANDALONE (morph routing through the base is unaffected).
 - A component `$ref` request body falls back to `Illuminate\Http\Request` instead of a typed Data param.
-- Tuple `prefixItems`, int64/bignum literal bounds, non-JSON responses, and `$ref`-valued map values
-  degrade gracefully (typed in the docblock, not auto-hydrated).
+- Tuple `prefixItems` validates per position (#82: `field.0`, `field.1`, ... rules through the
+  shared constraint mapping, plus a `max:` length cap for the closed `items: false` form) but the
+  TYPING still degrades to `array<int, mixed>`; a post-prefix `items` schema stays unenforced (a
+  `field.*` rule would false-reject the prefix positions).
+- int64/bignum literal bounds, non-JSON responses, and `$ref`-valued map values degrade gracefully
+  (typed in the docblock, not auto-hydrated).
 - `in: header` / `in: cookie` parameters are not generated (warned per operation, #63 scoped them out).
 - Query parameters without a flat `key=value` / `key[]=value` form are skipped with a warning:
   `deepObject` (Stripe's filter objects), `spaceDelimited`/`pipeDelimited`, non-exploded arrays,

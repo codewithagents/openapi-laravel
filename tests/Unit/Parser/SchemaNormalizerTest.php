@@ -7,9 +7,10 @@ use CodeWithAgents\OpenApiLaravel\Parser\SchemaNormalizer;
 /**
  * #20: boolean `items` (valid OpenAPI 3.1) is rewritten before cebe sees it,
  * since cebe cannot instantiate a Schema from a boolean. `items: true` becomes
- * an empty schema (any); `items: false` is dropped (a closed tuple's "no extra
- * items" has no Laravel representation). Boolean `additionalProperties` is NOT
- * touched, because cebe accepts it.
+ * an empty schema (any); `items: false` is dropped, but next to a non-empty
+ * `prefixItems` list the closed tuple's length survives as a synthesized
+ * `maxItems` (#82) so the emitter can enforce it as a count rule. Boolean
+ * `additionalProperties` is NOT touched, because cebe accepts it.
  */
 it('rewrites items: true to an empty schema', function () {
     $out = SchemaNormalizer::normalize(['type' => 'array', 'items' => true]);
@@ -17,7 +18,7 @@ it('rewrites items: true to an empty schema', function () {
     expect($out)->toBe(['type' => 'array', 'items' => []]);
 });
 
-it('drops items: false (closed tuple)', function () {
+it('drops items: false and synthesizes maxItems from the tuple size (closed tuple, #82)', function () {
     $out = SchemaNormalizer::normalize([
         'type' => 'array',
         'prefixItems' => [['type' => 'string']],
@@ -27,6 +28,68 @@ it('drops items: false (closed tuple)', function () {
     expect($out)->toBe([
         'type' => 'array',
         'prefixItems' => [['type' => 'string']],
+        'maxItems' => 1,
+    ]);
+});
+
+it('drops items: false without prefixItems and synthesizes nothing', function () {
+    $out = SchemaNormalizer::normalize(['type' => 'array', 'items' => false]);
+
+    expect($out)->toBe(['type' => 'array']);
+});
+
+it('tightens a larger explicit maxItems to the closed tuple size', function () {
+    $out = SchemaNormalizer::normalize([
+        'type' => 'array',
+        'prefixItems' => [['type' => 'string'], ['type' => 'integer']],
+        'maxItems' => 5,
+        'items' => false,
+    ]);
+
+    expect($out['maxItems'])->toBe(2);
+});
+
+it('keeps a tighter explicit maxItems under a closed tuple, coercing a numeric string (#32)', function () {
+    $out = SchemaNormalizer::normalize([
+        'type' => 'array',
+        'prefixItems' => [['type' => 'string'], ['type' => 'integer']],
+        'maxItems' => '1',
+        'items' => false,
+    ]);
+
+    expect($out['maxItems'])->toBe(1);
+});
+
+it('replaces a malformed maxItems with the closed tuple size', function () {
+    $out = SchemaNormalizer::normalize([
+        'type' => 'array',
+        'prefixItems' => [['type' => 'string']],
+        'maxItems' => 'lots',
+        'items' => false,
+    ]);
+
+    expect($out['maxItems'])->toBe(1);
+});
+
+it('does not synthesize maxItems for an open tuple (no items: false)', function () {
+    $input = [
+        'type' => 'array',
+        'prefixItems' => [['type' => 'string']],
+    ];
+
+    expect(SchemaNormalizer::normalize($input))->toBe($input);
+});
+
+it('does not synthesize maxItems when prefixItems is not a list', function () {
+    $out = SchemaNormalizer::normalize([
+        'type' => 'array',
+        'prefixItems' => ['first' => ['type' => 'string']],
+        'items' => false,
+    ]);
+
+    expect($out)->toBe([
+        'type' => 'array',
+        'prefixItems' => ['first' => ['type' => 'string']],
     ]);
 });
 

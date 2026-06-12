@@ -54,9 +54,9 @@ Both emit a strict bound: `gt:N` for an exclusive minimum, `lt:N` for an exclusi
 | | OpenAPI 3.0.x | OpenAPI 3.1.0 |
 | --- | --- | --- |
 | `items: true` | not legal | rewritten to `items: {}` (an "any" schema) |
-| `items: false` | not legal | the key is dropped (closed-tuple "no extra items", which has no Laravel representation) |
+| `items: false` | not legal | the key is dropped; next to `prefixItems` the closed-tuple length survives as a synthesized `maxItems` |
 
-OpenAPI 3.1 allows a boolean `items`. The vendored parser cannot instantiate a schema from a boolean, so a [pre-parse normalizer](/guides/limitations) rewrites boolean `items` before the parser sees it: `true` becomes an empty any-schema, `false` is dropped. This is faithful to JSON Schema and avoids inventing a fake "match nothing" schema.
+OpenAPI 3.1 allows a boolean `items`. The vendored parser cannot instantiate a schema from a boolean, so a [pre-parse normalizer](/guides/limitations) rewrites boolean `items` before the parser sees it: `true` becomes an empty any-schema, `false` is dropped. When `items: false` sits next to a non-empty `prefixItems` list (the canonical closed-tuple spelling), the tuple length is preserved as a synthesized `maxItems` of the tuple size, which the emitter enforces as a `max:` count rule. This is faithful to JSON Schema and avoids inventing a fake "match nothing" schema.
 
 ### Multi-type arrays (3.1 only)
 
@@ -79,7 +79,7 @@ Some generators (across both versions) emit numeric keywords or the `nullable` f
 3.1 support is real, but it has declared boundaries. The following 3.1 (or JSON Schema) features are **not** generated from, by design:
 
 - **`webhooks`** (the 3.1 top-level `webhooks` object). The generator does not emit controllers, routes, or Data classes from `webhooks`. Only `paths` drives the server scaffold. A spec with `webhooks` still generates cleanly from its `components` and `paths`; the `webhooks` entries are simply not a generation source.
-- **Tuple `prefixItems`**. A positional tuple degrades to `array<int, mixed>` rather than a per-position typed structure. See the [roadmap](/roadmap) and [limitations](/guides/limitations).
+- **Tuple `prefixItems` typing**. A positional tuple degrades to `array<int, mixed>` rather than a per-position typed structure. Validation does NOT degrade: each tuple position gets its own per-index rule (`field.0`, `field.1`, ...) from its position schema, and the closed form (`items: false`) enforces the tuple length as a `max:` count rule. See [tuple prefixItems](/guides/limitations#tuple-prefixitems-per-index-rules-loose-typing) in the limitations guide.
 - **Advanced JSON Schema applicators** beyond `allOf` / `oneOf` / `anyOf`: `if` / `then` / `else`, `not`, `dependentSchemas`, `patternProperties`, and `unevaluatedProperties` are not translated into rules (`dependentRequired`, the simpler presence-only sibling of `dependentSchemas`, IS translated, see above). A schema using them still generates a class from its plain `properties`; the conditional or pattern constraints are not enforced. One carve-out: under `additionalProperties: false`, `patternProperties` patterns do widen the closed-object rule's key allow-list so spec-legal keys are not falsely rejected (key admission only, the value schemas stay unenforced). See [patternProperties under a closed object](/guides/limitations#patternproperties-under-a-closed-object).
 - **`additionalProperties: false`** is enforced by default: undeclared keys are rejected because the spec is the source of truth. The `--no-enforce-closed-objects` flag opts out for lenient, forward-compatible output during contract evolution. See [additionalProperties: false](/guides/limitations#additionalproperties-false-enforced-by-default).
 
@@ -94,4 +94,4 @@ The parser is invoked with full OpenAPI validation **off** by default. It applie
 - **OpenAPI 3.0.x and 3.1.0 are supported.** Both are pinned by a conformance fixture and exercised by the 130-spec corpus.
 - **Swagger 2.0 and any non-3.x document are rejected** with a clear, named error.
 - **The 3.0 and 3.1 spellings** of nullability and exclusive bounds are normalized to one code path; boolean `items`, multi-type arrays, `const`, and `dependentRequired` are 3.1-only constructs that are handled.
-- **`webhooks`, tuple `prefixItems`, and advanced JSON Schema applicators** are the declared 3.1 boundaries: not generated from or not enforced, by design. **`additionalProperties: false`** is enforced by default, with `--no-enforce-closed-objects` as the lenient opt-out. All documented here and in [Limitations](/guides/limitations).
+- **`webhooks`, tuple `prefixItems` typing, and advanced JSON Schema applicators** are the declared 3.1 boundaries: not generated from or not represented in types, by design (tuple positions ARE validated through per-index rules). **`additionalProperties: false`** is enforced by default, with `--no-enforce-closed-objects` as the lenient opt-out. All documented here and in [Limitations](/guides/limitations).
