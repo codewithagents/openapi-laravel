@@ -30,7 +30,7 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  * Regenerating the baseline is only legitimate from v0.11.0 itself:
  *   git worktree add /tmp/openapi-laravel-v0110 v0.11.0
  * then run this exact pipeline + recipe there (cebe parseFile instead of
- * parseFileToDocument/buildCebeModel, everything else identical).
+ * parseFileToDocument, everything else identical).
  */
 it('generates output byte-identical to the frozen v0.11.0 baseline', function (string $path) {
     $baseline = readerBaselineHashes();
@@ -77,11 +77,10 @@ function readerBaselineHashes(): array
  * The full generation pipeline (models, support classes, per-operation
  * query/body Data classes, controllers, routes), mirroring the
  * command/standalone wiring exactly as GenerateServerCorpusTest does, with
- * default options. The model layer consumes the typed spec graph; the
- * operation collector still walks the cebe model built from the SAME parsed
- * document (the Task 4 -> Task 5 bridge, exactly like GenerationPlanner).
- * Returns the generated code keyed by relative filename plus the combined
- * deterministic warning list.
+ * default options. The whole pipeline (model layer AND operation collector)
+ * consumes the one typed spec graph, exactly like GenerationPlanner since
+ * Task 5. Returns the generated code keyed by relative filename plus the
+ * combined deterministic warning list.
  *
  * @return array{0: array<string, string>, 1: list<string>}
  */
@@ -95,7 +94,7 @@ function readerBaselinePipeline(string $path): array
 
     $options = new ServerOptions;
     $collector = new OperationCollector($options, $generator->registry(), null, $generator);
-    $descriptors = $collector->collect($parser->buildCebeModel($document, $path));
+    $descriptors = $collector->collect($document);
     $controllers = (new ControllerGenerator($options))->generate($descriptors);
     $routes = (new RouteGenerator($options))->generate($descriptors);
 

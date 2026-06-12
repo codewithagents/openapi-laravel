@@ -16,12 +16,11 @@ function generateControllers(): array
 {
     $parser104 = new SpecParser;
     $doc = $parser104->parseFileToDocument(__DIR__.'/../../../Fixtures/server/petstore.yaml');
-    $docCebe = $parser104->buildCebeModel($doc, __DIR__.'/../../../Fixtures/server/petstore.yaml');
     $generator = new ModelGenerator;
     $generator->generate($doc);
     $options = new ServerOptions;
 
-    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($docCebe);
+    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($doc);
 
     return (new ControllerGenerator($options))->generate($descriptors);
 }
@@ -133,12 +132,11 @@ function generateQueryControllers(): array
 {
     $parser104 = new SpecParser;
     $doc = $parser104->parseFileToDocument(__DIR__.'/../../../Fixtures/server/query-parameters.yaml');
-    $docCebe = $parser104->buildCebeModel($doc, __DIR__.'/../../../Fixtures/server/query-parameters.yaml');
     $generator = new ModelGenerator;
     $generator->generate($doc);
     $options = new ServerOptions;
 
-    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($docCebe);
+    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($doc);
 
     return (new ControllerGenerator($options))->generate($descriptors);
 }
@@ -174,11 +172,10 @@ it('orders an injected query param after the body slot and before path params', 
     // a query class while getPetById keeps its path param untouched.
     $parser104 = new SpecParser;
     $doc = $parser104->parseFileToDocument(__DIR__.'/../../../Fixtures/server/petstore.yaml');
-    $docCebe = $parser104->buildCebeModel($doc, __DIR__.'/../../../Fixtures/server/petstore.yaml');
     $generator = new ModelGenerator;
     $generator->generate($doc);
     $options = new ServerOptions;
-    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($docCebe);
+    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($doc);
     $code = (new ControllerGenerator($options))->generate($descriptors)['AbstractPetController']->code;
 
     expect($code)->toContain('abstract public function index(ListPetsQueryData $query): DataCollection;')

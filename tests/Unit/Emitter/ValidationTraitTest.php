@@ -120,10 +120,9 @@ it('adds the trait to a discriminated union base and its variants', function () 
 it('adds the trait to per-operation query Data classes (#63)', function () {
     $parser104 = new SpecParser;
     $doc = $parser104->parseFileToDocument(__DIR__.'/../../Fixtures/server/query-parameters.yaml');
-    $docCebe = $parser104->buildCebeModel($doc, __DIR__.'/../../Fixtures/server/query-parameters.yaml');
     $generator = new ModelGenerator(new GeneratorOptions(validationTrait: 'App\\Support\\ApiMessages'));
     $generator->generate($doc);
-    (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($docCebe);
+    (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($doc);
 
     $queryFiles = $generator->queryFiles();
 

@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
@@ -22,19 +20,14 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  */
 
 /**
- * Both views of one spec array during the #104 migration: the typed document
- * for the model pipeline, the cebe model for the operation collector (which
- * stays on cebe until Task 5).
+ * The typed document for one spec array: since issue #104 the model pipeline
+ * and the operation collector consume the same graph.
  *
  * @param  array<string, mixed>  $document
- * @return array{0: OpenApiDocument, 1: OpenApi}
  */
-function degradationSpec(array $document): array
+function degradationSpec(array $document): OpenApiDocument
 {
-    return [
-        (new OpenApiReader)->read($document),
-        Reader::readFromJson((string) json_encode($document), OpenApi::class),
-    ];
+    return (new OpenApiReader)->read($document);
 }
 
 /**
@@ -43,7 +36,7 @@ function degradationSpec(array $document): array
  */
 function degradationModelRun(array $schemas): array
 {
-    [$spec] = degradationSpec([
+    $spec = degradationSpec([
         'openapi' => '3.0.3',
         'info' => ['title' => 'Test', 'version' => '1.0.0'],
         'paths' => new stdClass,
@@ -62,7 +55,7 @@ function degradationModelRun(array $schemas): array
  */
 function degradationCollectorRun(array $paths, array $components = []): array
 {
-    [$spec, $specCebe] = degradationSpec([
+    $spec = degradationSpec([
         'openapi' => '3.0.3',
         'info' => ['title' => 'Test', 'version' => '1.0.0'],
         'paths' => $paths,
@@ -72,7 +65,7 @@ function degradationCollectorRun(array $paths, array $components = []): array
     $generator = new ModelGenerator;
     $generator->generate($spec);
     $collector = new OperationCollector(new ServerOptions, $generator->registry(), null, $generator);
-    $collector->collect($specCebe);
+    $collector->collect($spec);
 
     return [$collector->warnings(), $generator->warnings()];
 }
@@ -406,7 +399,7 @@ it('warns when an inline request body is a free-form object map', function () {
 });
 
 it('warns when the request body schema is inline and no model generator is wired in (legacy call sites)', function () {
-    [$spec, $specCebe] = degradationSpec([
+    $spec = degradationSpec([
         'openapi' => '3.0.3',
         'info' => ['title' => 'Test', 'version' => '1.0.0'],
         'paths' => [
@@ -431,7 +424,7 @@ it('warns when the request body schema is inline and no model generator is wired
     // No model generator wired in (the legacy, pre-#63 wiring): the collector
     // cannot synthesize the body class, so the degradation is its own to report.
     $collector = new OperationCollector(new ServerOptions, $generator->registry());
-    $collector->collect($specCebe);
+    $collector->collect($spec);
 
     expect($collector->warnings())->toContain(
         'Operation POST /pets: the request body schema is inline (not a $ref to a component schema) and no model generator is wired in to synthesize a Data class; the controller method falls back to Illuminate\Http\Request.',
@@ -595,12 +588,11 @@ it('attributes a degraded query-parameter $ref to the operation, not a schema', 
 it('surfaces every external-$ref degradation of a multi-file spec instead of hollowing output silently', function () {
     $parser104 = new SpecParser;
     $spec = $parser104->parseFileToDocument(__DIR__.'/../../Fixtures/multifile/main.yaml');
-    $specCebe = $parser104->buildCebeModel($spec, __DIR__.'/../../Fixtures/multifile/main.yaml');
 
     $generator = new ModelGenerator;
     $files = $generator->generate($spec);
     $collector = new OperationCollector(new ServerOptions, $generator->registry(), null, $generator);
-    $collector->collect($specCebe);
+    $collector->collect($spec);
 
     $modelWarnings = implode("\n", $generator->warnings());
     $collectorWarnings = implode("\n", $collector->warnings());

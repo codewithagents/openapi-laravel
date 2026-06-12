@@ -22,13 +22,12 @@ it('generates valid controllers and routes under the Laravel-convention naming',
     $path = __DIR__.'/../Fixtures/specs/'.$spec;
     $parser104 = new SpecParser;
     $document = $parser104->parseFileToDocument($path);
-    $documentCebe = $parser104->buildCebeModel($document, $path);
 
     $generator = new ModelGenerator;
     $generator->generate($document);
     $options = new ServerOptions;
 
-    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($documentCebe);
+    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($document);
     $controllers = (new ControllerGenerator($options))->generate($descriptors);
     $routes = (new RouteGenerator($options))->generate($descriptors);
 

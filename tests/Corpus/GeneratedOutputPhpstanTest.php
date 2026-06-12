@@ -76,7 +76,6 @@ it('generates PHPStan-max-clean output (phpstan analyse reports no errors)', fun
 
         $parser104 = new SpecParser;
         $document = $parser104->parseFileToDocument($path);
-        $documentCebe = $parser104->buildCebeModel($document, $path);
         $generator = new ModelGenerator;
         $files = $generator->generate($document);
         // The per-operation query (issue #63) and inline request-body (issue
@@ -84,7 +83,7 @@ it('generates PHPStan-max-clean output (phpstan analyse reports no errors)', fun
         // the generator wired in, exactly like the planner, so they are
         // analysed alongside the model classes. Stripe in particular emits
         // hundreds of them.
-        (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($documentCebe);
+        (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($document);
         $files = array_merge($files, $generator->queryFiles(), $generator->bodyFiles());
         // The inlined runtime support classes (issue #40) are owned output and
         // the Data classes import them, so analyse them too: both to prove the

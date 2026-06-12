@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Console;
 
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GenerationException;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
@@ -18,6 +17,7 @@ use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\StubGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\SubsetSelection;
 use CodeWithAgents\OpenApiLaravel\Parser\ParseException;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
 /**
@@ -135,14 +135,10 @@ final readonly class GenerationPlanner
         // per-operation query Data classes (issue #63) and inline request-body
         // Data classes (issue #76) are emitted while the operations are
         // collected, and their rules may reference support classes that must
-        // land in the inlined set below.
-        //
-        // The operation collector still walks the cebe object model until
-        // Task 5 of issue #104 migrates it, so the FILTERED typed document is
-        // round-tripped into a cebe model here: both views are derived from
-        // the same graph and can never disagree about which operations exist.
-        $cebeDocument = $parser->buildCebeModel($document, $request->spec);
-        [$serverFiles, $serverWarnings] = $this->planServer($request, $cebeDocument, $generator, $closure);
+        // land in the inlined set below. The collector consumes the same
+        // FILTERED typed document the model generator did (issue #104), so the
+        // two views can never disagree about which operations exist.
+        [$serverFiles, $serverWarnings] = $this->planServer($request, $document, $generator, $closure);
 
         // The per-operation query Data classes (issue #63) and inline
         // request-body Data classes (issue #76) live next to the model Data
@@ -237,7 +233,7 @@ final readonly class GenerationPlanner
      *
      * @return array{0: list<PlannedFile>, 1: list<string>} planned files, collector warnings
      */
-    private function planServer(GenerationRequest $request, OpenApi $document, ModelGenerator $generator, ?ResolvedClosure $closure): array
+    private function planServer(GenerationRequest $request, OpenApiDocument $document, ModelGenerator $generator, ?ResolvedClosure $closure): array
     {
         if ($request->controllers && ($request->controllerPath === null || $request->controllerPath === '')) {
             throw new PlanException('No controllers path configured. Set openapi-laravel.controllers.path.');

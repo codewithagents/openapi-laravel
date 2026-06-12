@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\RouteGenerator;
@@ -27,14 +25,13 @@ use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 function securedRoutesRun(array $document, array $middlewareMap = []): array
 {
     $spec = (new OpenApiReader)->read($document);
-    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
     expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $generator->generate($spec);
     $options = new ServerOptions(securityMiddlewareMap: $middlewareMap);
     $collector = new OperationCollector($options, $generator->registry(), null, $generator);
-    $descriptors = $collector->collect($specCebe);
+    $descriptors = $collector->collect($spec);
     $code = (new RouteGenerator($options))->generate($descriptors)->code;
 
     return [$code, $collector->warnings()];
@@ -173,7 +170,6 @@ it('escapes quotes and backslashes in mapped middleware names', function () {
 
 it('combines security middleware on the routes with a configured route group (#71)', function () {
     $spec = (new OpenApiReader)->read(securedPetstore());
-    $specCebe = Reader::readFromJson((string) json_encode(securedPetstore()), OpenApi::class);
     expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
@@ -183,7 +179,7 @@ it('combines security middleware on the routes with a configured route group (#7
         routePrefix: 'v1',
         securityMiddlewareMap: ['bearerAuth' => ['auth:sanctum'], 'apiKey' => ['auth.apikey']],
     );
-    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($specCebe);
+    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($spec);
     $code = (new RouteGenerator($options))->generate($descriptors)->code;
 
     expect($code)->toContain("Route::middleware(['api'])->prefix('v1')->group(function (): void {")

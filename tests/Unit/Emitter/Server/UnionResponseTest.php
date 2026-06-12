@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ControllerGenerator;
@@ -22,14 +20,13 @@ use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 function generateUnionResponseScaffold(array $document): array
 {
     $spec = (new OpenApiReader)->read($document);
-    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
     expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $modelFiles = $generator->generate($spec);
     $options = new ServerOptions;
 
-    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($specCebe);
+    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($spec);
     $controllers = (new ControllerGenerator($options))->generate($descriptors);
 
     return array_merge($modelFiles, $controllers);

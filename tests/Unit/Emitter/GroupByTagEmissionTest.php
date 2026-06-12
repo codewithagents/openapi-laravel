@@ -6,6 +6,8 @@ use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\ParameterNode;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\SchemaNode;
 
 /**
  * Unit tests for the EMISSION side of the tag-grouped data layout (issue #93,
@@ -31,6 +33,43 @@ function groupedDocument(array $schemas): OpenApiDocument
     expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     return $spec;
+}
+
+/**
+ * One component schema hydrated through a whole-document read: the typed
+ * graph has no fragment-level hydration surface (the issue #104 bridge seams
+ * are gone), so test fixtures pluck their nodes from a minimal document.
+ *
+ * @param  array<string, mixed>  $schema
+ */
+function groupedSchemaNode(array $schema): SchemaNode
+{
+    $node = groupedDocument(['Fixture' => $schema])->components?->schemas['Fixture'] ?? null;
+    expect($node)->toBeInstanceOf(SchemaNode::class);
+    assert($node instanceof SchemaNode);
+
+    return $node;
+}
+
+/**
+ * One component parameter hydrated through a whole-document read, see
+ * {@see groupedSchemaNode()}.
+ *
+ * @param  array<string, mixed>  $parameter
+ */
+function groupedParameterNode(array $parameter): ParameterNode
+{
+    $document = (new OpenApiReader)->read([
+        'openapi' => '3.0.3',
+        'info' => ['title' => 'Test', 'version' => '1.0.0'],
+        'paths' => new stdClass,
+        'components' => ['parameters' => ['Fixture' => $parameter]],
+    ]);
+    $node = $document->components?->parameters['Fixture'] ?? null;
+    expect($node)->toBeInstanceOf(ParameterNode::class);
+    assert($node instanceof ParameterNode);
+
+    return $node;
 }
 
 /**
@@ -185,13 +224,13 @@ it('places per-operation query and body classes in their operation tag group', f
     $generator = new ModelGenerator(new GeneratorOptions(schemaGroups: []));
     $generator->generate(groupedDocument([]));
 
-    $parameter = (new OpenApiReader)->hydrateParameter([
+    $parameter = groupedParameterNode([
         'name' => 'limit',
         'in' => 'query',
         'schema' => ['type' => 'integer'],
     ]);
     $queryClass = $generator->generateQueryData('ListPets', 'GET /pets', [$parameter], 'pet');
-    $bodyClass = $generator->generateBodyData('CreatePet', 'POST /pets', (new OpenApiReader)->hydrateSchema([
+    $bodyClass = $generator->generateBodyData('CreatePet', 'POST /pets', groupedSchemaNode([
         'type' => 'object',
         'properties' => ['name' => ['type' => 'string']],
     ]), 'pet');
@@ -209,7 +248,7 @@ it('places a multipart body class (issue #75) in its operation tag group too', f
     $generator = new ModelGenerator(new GeneratorOptions(schemaGroups: []));
     $generator->generate(groupedDocument([]));
 
-    $class = $generator->generateMultipartBodyData('UploadAvatar', 'POST /avatars', (new OpenApiReader)->hydrateSchema([
+    $class = $generator->generateMultipartBodyData('UploadAvatar', 'POST /avatars', groupedSchemaNode([
         'type' => 'object',
         'properties' => ['avatar' => ['type' => 'string', 'format' => 'binary']],
     ]), 'profile');
@@ -222,14 +261,14 @@ it('places a multipart body class (issue #75) in its operation tag group too', f
 it('keeps query and body classes flat for the reserved Support tag and a tagless caller', function () {
     $generator = new ModelGenerator;
     $generator->generate(groupedDocument([]));
-    $taglessBody = $generator->generateBodyData('CreatePet', 'POST /pets', (new OpenApiReader)->hydrateSchema([
+    $taglessBody = $generator->generateBodyData('CreatePet', 'POST /pets', groupedSchemaNode([
         'type' => 'object',
         'properties' => ['name' => ['type' => 'string']],
     ]));
 
     $grouped = new ModelGenerator(new GeneratorOptions(schemaGroups: []));
     $grouped->generate(groupedDocument([]));
-    $supportBody = $grouped->generateBodyData('OpenTicket', 'POST /tickets', (new OpenApiReader)->hydrateSchema([
+    $supportBody = $grouped->generateBodyData('OpenTicket', 'POST /tickets', groupedSchemaNode([
         'type' => 'object',
         'properties' => ['subject' => ['type' => 'string']],
     ]), 'support');

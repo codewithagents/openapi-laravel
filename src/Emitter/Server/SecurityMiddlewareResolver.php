@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Emitter\Server;
 
-use cebe\openapi\spec\SecurityRequirement;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\SecurityRequirementNode;
 
 /**
  * Resolves the spec's security declarations into route middleware through the
@@ -44,7 +44,7 @@ final class SecurityMiddlewareResolver
 
     /**
      * @param  array<string, list<string>>  $middlewareMap  scheme name => middleware names (security.middleware_map)
-     * @param  list<SecurityRequirement>  $globalSecurity  the document-level `security` array; empty means none
+     * @param  list<SecurityRequirementNode>  $globalSecurity  the document-level `security` array; empty means none
      */
     public function __construct(
         private readonly array $middlewareMap,
@@ -76,7 +76,7 @@ final class SecurityMiddlewareResolver
      * deduplicated).
      *
      * @param  string  $label  "GET /pets", for warning messages
-     * @param  list<SecurityRequirement>|null  $operationSecurity  the operation's own `security`; null means "not declared, inherit global", [] means "explicitly public"
+     * @param  list<SecurityRequirementNode>|null  $operationSecurity  the operation's own `security`; null means "not declared, inherit global", [] means "explicitly public"
      * @return list<string>
      */
     public function middlewareFor(string $label, ?array $operationSecurity): array
@@ -90,9 +90,12 @@ final class SecurityMiddlewareResolver
             return [];
         }
 
+        // The typed SecurityRequirementNode carries the dynamic scheme-name
+        // map as a plain array (issue #104), so the names are a direct read;
+        // the old cebe path needed a getSerializableData() escape here.
         $alternatives = [];
         foreach ($requirements as $requirement) {
-            $alternatives[] = $this->schemeNames($requirement);
+            $alternatives[] = $requirement->schemeNames();
         }
 
         if (count($alternatives) > 1) {
@@ -164,27 +167,5 @@ final class SecurityMiddlewareResolver
     private function describeAlternative(array $schemes): string
     {
         return $schemes === [] ? '(anonymous access)' : '('.implode(' + ', $schemes).')';
-    }
-
-    /**
-     * The scheme names one requirement object references, in spec order. A
-     * SecurityRequirement has no fixed attributes, so the names are read from
-     * its raw property bag; a numeric-looking name survives as a string.
-     *
-     * @return list<string>
-     */
-    private function schemeNames(SecurityRequirement $requirement): array
-    {
-        $data = $requirement->getSerializableData();
-        if (! is_object($data)) {
-            return [];
-        }
-
-        $names = [];
-        foreach (array_keys(get_object_vars($data)) as $name) {
-            $names[] = (string) $name;
-        }
-
-        return $names;
     }
 }

@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
@@ -78,12 +76,11 @@ function queryOracleClass(): string
     $decoded = json_decode((string) json_encode($document), true);
     $normalized = SchemaNormalizer::normalize($decoded);
     $spec = (new OpenApiReader)->read($normalized);
-    $specCebe = Reader::readFromJson((string) json_encode($normalized), OpenApi::class);
 
     $namespace = 'QueryOracle\\Models';
     $generator = new ModelGenerator(new GeneratorOptions($namespace));
     $files = $generator->generate($spec);
-    (new OperationCollector(new ServerOptions(dataNamespace: $namespace), $generator->registry(), null, $generator))->collect($specCebe);
+    (new OperationCollector(new ServerOptions(dataNamespace: $namespace), $generator->registry(), null, $generator))->collect($spec);
 
     $dir = sys_get_temp_dir().'/oal_query_oracle_'.getmypid();
     if (! is_dir($dir)) {
