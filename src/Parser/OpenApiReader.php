@@ -660,7 +660,12 @@ final class OpenApiReader
                     if (is_string($value)) {
                         $type = $value;
                     } elseif (is_array($value)) {
-                        $type = array_values(array_filter($value, static fn (mixed $entry): bool => is_string($entry)));
+                        $type = [];
+                        foreach ($value as $entry) {
+                            if (is_string($entry)) {
+                                $type[] = $entry;
+                            }
+                        }
                     } else {
                         $extra['type'] = $value;
                     }
@@ -706,7 +711,12 @@ final class OpenApiReader
                     if (is_bool($value)) {
                         $required = $value;
                     } elseif (is_array($value)) {
-                        $required = array_values(array_filter($value, static fn (mixed $entry): bool => is_string($entry)));
+                        $required = [];
+                        foreach ($value as $entry) {
+                            if (is_string($entry)) {
+                                $required[] = $entry;
+                            }
+                        }
                     } else {
                         $extra['required'] = $value;
                     }
@@ -807,9 +817,17 @@ final class OpenApiReader
                     if (is_array($value)) {
                         $dependentRequired = [];
                         foreach ($value as $property => $dependents) {
-                            if (is_array($dependents)) {
-                                $dependentRequired[(string) $property] = array_values(array_filter($dependents, static fn (mixed $entry): bool => is_string($entry)));
+                            if (! is_array($dependents)) {
+                                continue;
                             }
+
+                            $names = [];
+                            foreach ($dependents as $entry) {
+                                if (is_string($entry)) {
+                                    $names[] = $entry;
+                                }
+                            }
+                            $dependentRequired[(string) $property] = $names;
                         }
                     } else {
                         $extra['dependentRequired'] = $value;
