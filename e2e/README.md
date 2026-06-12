@@ -293,22 +293,23 @@ The two seed pets also carry both variants: Rex #1 has `"ext-rex-legacy"`
 the `string|int|null` union without coercing either side, so the scalar union
 is clean end to end.
 
-## Known seam quirk (reported honestly)
+## Former seam quirk: empty map encoding (resolved)
 
-An EMPTY `attributes` map round-trips as a JSON array `[]`, not an object `{}`:
+Older generator output had the classic PHP ambiguity: an EMPTY `attributes` map
+round-tripped as a JSON array `[]`, because an empty associative array is
+identical to an empty list and `json_encode` emits `[]`. The generator now
+attaches a `MapObjectTransformer` to `additionalProperties` map fields, which
+forces object encoding for the empty case. Verified live against this stack:
 
 ```bash
 curl -s -X POST "$B/pet" ... -d '{... ,"attributes":{}}'
-# 201 -> "attributes":[]
+# 201 -> "attributes":{}     (object, not [])
+curl -s "$B/pet/<id>"
+# 200 -> "attributes":{}     (survives the file-store persistence round trip)
 ```
 
-This is the classic PHP ambiguity: an empty associative array is identical to an
-empty list, so `json_encode` emits `[]`. A NON-empty map encodes correctly as an
-object (proof 5). A strict typed client expecting `Record<string,string>` would
-see an array for the empty case. The honest fixes live on either side of the
-seam (a cast that forces object encoding, or a client that tolerates `[] | {}`),
-and are noted here rather than papered over. `null` vs empty map is unaffected:
-a null `attributes` stays `null`.
+A non-empty map still encodes as an object (proof 5), and `null` vs empty map
+is unaffected: a null `attributes` stays `null`.
 
 Note also that `PUT /pet` does a full replace (the write variant is the whole
 resource), so fields omitted from a PUT body become null. `created_at` is the
