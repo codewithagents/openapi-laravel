@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use CodeWithAgents\OpenApiLaravel\Parser\ParseException;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\SchemaNode;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
 function writeTempSpec(string $name, string $contents): string
@@ -213,4 +215,87 @@ it('parses a 3.1 spec with boolean items: true and a closed tuple (items: false)
     // the closed-tuple length survives as a synthesized maxItems (#82).
     expect($schemas['ClosedTuple']->prefixItems)->toHaveCount(2)
         ->and($schemas['ClosedTuple']->maxItems)->toBe(2);
+});
+
+// #104 T2: the new-reader path. Same file handling (existence, size guard,
+// MemoryGuard, format sniffing), but the decoded data hydrates into the typed
+// OpenApiDocument graph via OpenApiReader, with warnings traveling on the
+// document AND mirrored into warnings() so both paths report identically.
+
+it('parses a JSON document into the typed graph', function () {
+    $path = writeTempSpec('spec.json', MINIMAL_JSON);
+
+    $document = (new SpecParser)->parseFileToDocument($path);
+
+    expect($document)->toBeInstanceOf(OpenApiDocument::class)
+        ->and($document->info->title)->toBe('T');
+});
+
+it('parses a YAML document into the typed graph', function () {
+    $path = writeTempSpec('spec.yaml', MINIMAL_YAML);
+
+    expect((new SpecParser)->parseFileToDocument($path)->info->version)->toBe('1.0.0');
+});
+
+it('sniffs JSON content for an unknown extension on the document path', function () {
+    $path = writeTempSpec('spec.txt', MINIMAL_JSON);
+
+    expect((new SpecParser)->parseFileToDocument($path)->info->title)->toBe('T');
+});
+
+it('throws for a missing file on the document path', function () {
+    (new SpecParser)->parseFileToDocument('/no/such/spec.json');
+})->throws(ParseException::class, 'not found');
+
+it('wraps malformed content in a ParseException on the document path', function () {
+    $path = writeTempSpec('broken.json', '{not valid json');
+
+    (new SpecParser)->parseFileToDocument($path);
+})->throws(ParseException::class, 'Failed to parse OpenAPI spec');
+
+it('rejects an empty file on the document path with the structural error', function () {
+    $path = writeTempSpec('empty.yaml', '');
+
+    (new SpecParser)->parseFileToDocument($path);
+})->throws(ParseException::class, "missing 'openapi' version string");
+
+it('enforces the size guard on the document path', function () {
+    $path = writeTempSpec('big.json', str_repeat(' ', 2048).MINIMAL_JSON);
+
+    (new SpecParser(maxBytes: 1024))->parseFileToDocument($path);
+})->throws(ParseException::class, 'too large');
+
+it('mirrors the document warnings into warnings() and resets them between parses', function () {
+    $parser = new SpecParser;
+
+    $document = $parser->parseFileToDocument(__DIR__.'/../../Fixtures/edge/openapi-3.2-constructs.yaml');
+
+    expect($document->warnings)->toHaveCount(4)
+        ->and($parser->warnings())->toBe($document->warnings)
+        ->and(implode("\n", $document->warnings))
+        ->toContain('OpenAPI 3.2 `query` operation at paths./things was dropped: QUERY routes are not generated yet.')
+        ->toContain('OpenAPI 3.2 `additionalOperations` at paths./things were dropped: custom-method routes are not generated yet.')
+        ->toContain('OpenAPI 3.2 `itemSchema` at paths./things/stream.get.responses.200.content.application/jsonl was dropped: sequential media types are not read yet.');
+
+    $clean = writeTempSpec('clean.json', MINIMAL_JSON);
+    $parser->parseFileToDocument($clean);
+
+    expect($parser->warnings())->toBe([]);
+});
+
+it('folds the boolean items normalization into the document path (#20, #82)', function () {
+    $path = writeTempSpec('boolean-items.yaml', BOOLEAN_ITEMS_YAML);
+
+    $document = (new SpecParser)->parseFileToDocument($path);
+
+    $schemas = $document->components?->schemas ?? [];
+    $anyItems = $schemas['AnyItems'] ?? null;
+    $closedTuple = $schemas['ClosedTuple'] ?? null;
+    assert($anyItems instanceof SchemaNode);
+    assert($closedTuple instanceof SchemaNode);
+
+    expect($anyItems->items)->not->toBeNull()
+        ->and($closedTuple->items)->toBeNull()
+        ->and($closedTuple->prefixItems)->toHaveCount(2)
+        ->and($closedTuple->maxItems)->toBe(2);
 });

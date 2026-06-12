@@ -9,6 +9,7 @@ use cebe\openapi\exceptions\UnresolvableReferenceException;
 use cebe\openapi\json\JsonPointer;
 use cebe\openapi\ReferenceContext;
 use cebe\openapi\spec\OpenApi;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 use Symfony\Component\Yaml\Yaml;
 use Throwable;
 
@@ -40,15 +41,14 @@ final class SpecParser
     public const DEFAULT_MAX_BYTES = 25_165_824; // 24 MiB
 
     /**
-     * The canonical statement of the supported version matrix (issue #103).
-     * Both the rejection error and the 3.2 best-effort warning point here so
-     * the docs page stays the single source of truth.
+     * The canonical statement of the supported version matrix (issue #103)
+     * lives on {@see OpenApiReader} since Task 2 of issue #104; these aliases
+     * keep the cebe path reading the same single source of truth until that
+     * path is deleted (Task 7).
      */
-    private const VERSION_MATRIX_URL = 'https://openapi-laravel.codewithagents.de/guides/openapi-versions/';
+    private const ISSUE_102_URL = OpenApiReader::ISSUE_102_URL;
 
-    private const ISSUE_102_URL = 'https://github.com/codewithagents/openapi-laravel/issues/102';
-
-    private const SUPPORTED_MATRIX = 'Supported versions: OpenAPI 3.0.x and 3.1.x (fully), 3.2.x (accepted best-effort with warnings). See '.self::VERSION_MATRIX_URL;
+    private const SUPPORTED_MATRIX = OpenApiReader::SUPPORTED_MATRIX;
 
     private readonly int $maxBytes;
 
@@ -112,6 +112,59 @@ final class SpecParser
 
             throw new ParseException("OpenAPI spec failed validation ({$path}): {$errors}");
         }
+
+        return $document;
+    }
+
+    /**
+     * The new-reader path (issue #104, Task 2): same file handling as
+     * {@see parseFile} (existence check, size guard, MemoryGuard around the
+     * decode and hydration, format sniffing), but the decoded data is handed
+     * to {@see OpenApiReader} and comes back as the typed internal
+     * {@see OpenApiDocument} graph instead of the cebe object model. The
+     * reader folds the SchemaNormalizer rewrites and the structural/version
+     * gates itself, and its warnings travel on the document; they are
+     * mirrored into {@see warnings()} so both paths report identically.
+     *
+     * Additive for now: nothing in src/ consumes this yet. Task 3 wires the
+     * corpus comparison gate against it, Tasks 4-5 migrate the callers, and
+     * Task 7 deletes the cebe path.
+     */
+    public function parseFileToDocument(string $path): OpenApiDocument
+    {
+        $this->warnings = [];
+
+        if (! is_file($path) || ! is_readable($path)) {
+            throw new ParseException("OpenAPI spec not found or not readable: {$path}");
+        }
+
+        $absolute = realpath($path);
+
+        if ($absolute === false) {
+            throw new ParseException("Unable to resolve real path for spec: {$path}");
+        }
+
+        $this->guardSize($absolute);
+
+        MemoryGuard::arm($absolute, $this->maxBytes);
+
+        try {
+            $contents = (string) file_get_contents($absolute);
+
+            $data = $this->isYaml($absolute)
+                ? Yaml::parse($contents)
+                : json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
+
+            $document = (new OpenApiReader)->read($data, $path);
+        } catch (ParseException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            throw new ParseException("Failed to parse OpenAPI spec ({$path}): {$e->getMessage()}", 0, $e);
+        } finally {
+            MemoryGuard::disarm();
+        }
+
+        $this->warnings = $document->warnings;
 
         return $document;
     }
