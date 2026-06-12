@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Http\Controllers\Api;
 
 use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\ApiResponseData;
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\FindPetsByStatusQueryData;
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\FindPetsByTagsQueryData;
 use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\PetData;
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\UpdatePetWithFormQueryData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Spatie\LaravelData\DataCollection;
@@ -33,7 +36,7 @@ abstract class AbstractPetController
      *
      * @return DataCollection<int, PetData>
      */
-    abstract public function findPetsByStatus(): DataCollection;
+    abstract public function findPetsByStatus(FindPetsByStatusQueryData $query): DataCollection;
 
     /**
      * GET /pet/findByTags
@@ -42,7 +45,7 @@ abstract class AbstractPetController
      *
      * @return DataCollection<int, PetData>
      */
-    abstract public function findPetsByTags(): DataCollection;
+    abstract public function findPetsByTags(FindPetsByTagsQueryData $query): DataCollection;
 
     /**
      * GET /pet/{petId}
@@ -56,7 +59,7 @@ abstract class AbstractPetController
      *
      * Updates a pet in the store with form data.
      */
-    abstract public function updatePetWithForm(int $petId): PetData;
+    abstract public function updatePetWithForm(UpdatePetWithFormQueryData $query, int $petId): PetData;
 
     /**
      * DELETE /pet/{petId}
@@ -69,6 +72,9 @@ abstract class AbstractPetController
      * POST /pet/{petId}/uploadImage
      *
      * Uploads an image.
+     *
+     * Query parameters: validate and hydrate them with
+     * \CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\UploadFileQueryData::fromQuery($request).
      */
     abstract public function uploadFile(Request $request, int $petId): ApiResponseData;
 }

@@ -80,6 +80,16 @@ final readonly class ControllerGenerator
             $doc[] = '     *';
             $doc[] = '     * '.$this->docblockSafe($operation->summary);
         }
+        if ($operation->queryParam !== null && ! $operation->queryParam['injected']) {
+            // The query class is NOT injected here: the request body occupies
+            // the payload, and container resolution would validate the query
+            // class against the merged body + query input. Point the
+            // implementer at the explicit query-only factory instead. The FQCN
+            // is spelled out as prose, not imported, so no `use` goes unused.
+            $doc[] = '     *';
+            $doc[] = '     * Query parameters: validate and hydrate them with';
+            $doc[] = '     * \\'.$this->options->dataNamespace.'\\'.$operation->queryParam['type'].'::fromQuery($request).';
+        }
         if ($operation->returnDoc !== null) {
             $doc[] = '     *';
             $doc[] = '     * @return '.$operation->returnDoc;
@@ -120,6 +130,15 @@ final readonly class ControllerGenerator
             $params[] = $operation->bodyParam['type'].' $'.$operation->bodyParam['name'];
         } elseif ($operation->bodyRequiresRequest) {
             $params[] = 'Request $request';
+        }
+
+        // The generated query Data class (issue #63), type-hinted only for
+        // body-less operations: laravel-data resolves it from the container
+        // and the class's fromQuery magic creation method hydrates it from
+        // the query string only. With a body present the class is reachable
+        // via ::fromQuery($request) instead (see the method docblock).
+        if ($operation->queryParam !== null && $operation->queryParam['injected']) {
+            $params[] = $operation->queryParam['type'].' $'.$operation->queryParam['name'];
         }
 
         foreach ($operation->pathParams as $pathParam) {

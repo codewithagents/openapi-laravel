@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Http\Controllers\Api;
 
 use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\ApiResponseData;
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\FindPetsByStatusQueryData;
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\FindPetsByTagsQueryData;
 use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\PetData;
+use CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\UpdatePetWithFormQueryData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Spatie\LaravelData\DataCollection;
@@ -36,19 +39,18 @@ final class PetController extends AbstractPetController
         return $this->store->putPet($pet);
     }
 
-    public function findPetsByStatus(): DataCollection
+    public function findPetsByStatus(FindPetsByStatusQueryData $query): DataCollection
     {
-        $status = (string) request()->query('status', 'available');
-
-        return PetData::collect($this->store->petsByStatus($status), DataCollection::class);
+        // $query arrived typed, validated against the spec rules(), and
+        // hydrated from the query string only (issue #63): an out-of-enum
+        // status 422'd before this method ran, and the spec default
+        // ('available') filled in when the parameter was omitted.
+        return PetData::collect($this->store->petsByStatus($query->status), DataCollection::class);
     }
 
-    public function findPetsByTags(): DataCollection
+    public function findPetsByTags(FindPetsByTagsQueryData $query): DataCollection
     {
-        $tags = request()->query('tags', []);
-        $tags = is_array($tags) ? array_values(array_filter($tags, 'is_string')) : [(string) $tags];
-
-        return PetData::collect($this->store->petsByTags($tags), DataCollection::class);
+        return PetData::collect($this->store->petsByTags($query->tags), DataCollection::class);
     }
 
     public function getPetById(int $petId): PetData
@@ -62,7 +64,7 @@ final class PetController extends AbstractPetController
         return $pet;
     }
 
-    public function updatePetWithForm(int $petId): PetData
+    public function updatePetWithForm(UpdatePetWithFormQueryData $query, int $petId): PetData
     {
         $pet = $this->store->findPet($petId);
 
@@ -70,18 +72,15 @@ final class PetController extends AbstractPetController
             throw new NotFoundHttpException("Pet {$petId} not found.");
         }
 
-        // Form fields arrive as query/body params (the spec models them inline),
-        // so we patch the existing pet rather than rehydrate a whole PetData.
-        $name = request()->input('name');
-        $status = request()->input('status');
-
+        // The spec models name/status as query parameters; $query carries them
+        // typed and validated, so we patch the existing pet from it.
         $updated = new PetData(
-            name: is_string($name) ? $name : $pet->name,
+            name: $query->name ?? $pet->name,
             photoUrls: $pet->photoUrls,
             id: $pet->id,
             category: $pet->category,
             tags: $pet->tags,
-            status: is_string($status) ? $status : $pet->status,
+            status: $query->status ?? $pet->status,
         );
 
         return $this->store->putPet($updated);

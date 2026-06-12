@@ -11,10 +11,12 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
 /**
  * The server-scaffold gate: for every real-world corpus spec, collecting
- * operations and emitting controllers + routes must never throw, and every
- * generated file must be syntactically valid PHP. Robustness is the contract:
- * missing operationIds, absent tags, inline bodies, weird path tokens, and
- * unresolved $refs must degrade to Request / JsonResponse, never fatal.
+ * operations and emitting controllers, per-operation query Data classes
+ * (issue #63), and routes must never throw, and every generated file must be
+ * syntactically valid PHP. Robustness is the contract: missing operationIds,
+ * absent tags, inline bodies, weird path tokens, un-serializable query
+ * parameters, and unresolved $refs must degrade (Request / JsonResponse /
+ * skip-with-warning), never fatal.
  */
 it('generates valid controllers and routes for every corpus spec', function (string $path) {
     $document = (new SpecParser)->parseFile($path);
@@ -24,12 +26,15 @@ it('generates valid controllers and routes for every corpus spec', function (str
     $registry = $generator->registry();
     $options = new ServerOptions;
 
-    // Collect once, share with both generators (mirrors the command/standalone wiring).
-    $descriptors = (new OperationCollector($options, $registry))->collect($document);
+    // Collect once, share with both generators (mirrors the command/standalone
+    // wiring), with the model generator wired in so the per-operation query
+    // Data classes are emitted and gated too.
+    $descriptors = (new OperationCollector($options, $registry, null, $generator))->collect($document);
     $controllers = (new ControllerGenerator($options))->generate($descriptors);
     $routes = (new RouteGenerator($options))->generate($descriptors);
+    $queryFiles = array_values($generator->queryFiles());
 
-    $files = $controllers;
+    $files = array_merge(array_values($controllers), $queryFiles);
     $files[] = $routes;
 
     foreach ($files as $file) {

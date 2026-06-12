@@ -117,7 +117,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Data\ApiResponseData;
+use App\Data\FindPetsByStatusQueryData;
+use App\Data\FindPetsByTagsQueryData;
 use App\Data\PetData;
+use App\Data\UpdatePetWithFormQueryData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Spatie\LaravelData\DataCollection;
@@ -145,7 +148,7 @@ abstract class AbstractPetController
      *
      * @return DataCollection<int, PetData>
      */
-    abstract public function findPetsByStatus(): DataCollection;
+    abstract public function findPetsByStatus(FindPetsByStatusQueryData $query): DataCollection;
 
     /**
      * GET /pet/findByTags
@@ -154,7 +157,7 @@ abstract class AbstractPetController
      *
      * @return DataCollection<int, PetData>
      */
-    abstract public function findPetsByTags(): DataCollection;
+    abstract public function findPetsByTags(FindPetsByTagsQueryData $query): DataCollection;
 
     /**
      * GET /pet/{petId}
@@ -168,7 +171,7 @@ abstract class AbstractPetController
      *
      * Updates a pet in the store with form data.
      */
-    abstract public function updatePetWithForm(int $petId): PetData;
+    abstract public function updatePetWithForm(UpdatePetWithFormQueryData $query, int $petId): PetData;
 
     /**
      * DELETE /pet/{petId}
@@ -181,6 +184,9 @@ abstract class AbstractPetController
      * POST /pet/{petId}/uploadImage
      *
      * Uploads an image.
+     *
+     * Query parameters: validate and hydrate them with
+     * \App\Data\UploadFileQueryData::fromQuery($request).
      */
     abstract public function uploadFile(Request $request, int $petId): ApiResponseData;
 }
@@ -197,6 +203,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Data\FindPetsByStatusQueryData;
 use App\Data\PetData;
 use App\Services\PetService;
 use Illuminate\Http\JsonResponse;
@@ -207,10 +214,11 @@ final class PetController extends AbstractPetController
 {
     public function __construct(private readonly PetService $petService) {}
 
-    public function findPetsByStatus(): DataCollection
+    public function findPetsByStatus(FindPetsByStatusQueryData $query): DataCollection
     {
-        $status = request()->query('status', 'available');
-        return PetData::collect($this->petService->findByStatus($status), DataCollection::class);
+        // $query is already validated against the spec-derived rules() and
+        // hydrated from the query string when Laravel injects it.
+        return PetData::collect($this->petService->findByStatus($query->status), DataCollection::class);
     }
 
     public function addPet(PetData $pet): PetData
@@ -341,6 +349,8 @@ The generator resolves the type of each parameter and return value from the spec
 | Request body referencing a component `$ref` (non-readOnly schema)     | Typed Data param, e.g. `PetData $pet`                   |
 | Request body referencing a component `$ref` (schema with writeOnly fields) | Write-variant Data param, e.g. `PetWritableData $pet` |
 | Request body that is an array schema or non-JSON content type         | `Illuminate\Http\Request $request`                      |
+| `in: query` parameters on a body-less operation                       | Per-operation query Data param, e.g. `FindPetsByStatusQueryData $query` |
+| `in: query` parameters on an operation with a request body            | No extra param; the docblock points at `<Operation>QueryData::fromQuery($request)` |
 | Response that is a single object `$ref`                               | Data class, e.g. `PetData`                              |
 | Response that is an array of objects                                  | `Spatie\LaravelData\DataCollection` with `@return DataCollection<int, PetData>` docblock |
 | Response with no structured body (204, 4xx, 5xx, etc.)               | `Illuminate\Http\JsonResponse`                          |
@@ -358,6 +368,104 @@ The generator resolves the type of each parameter and return value from the spec
   resolve component request bodies. Reference the schema directly under `content` if you want a typed
   Data parameter.
 </Aside>
+
+## Query parameters
+
+An operation that declares `in: query` parameters gets a **per-operation query Data class**, named
+from the `operationId` (or the method+path fallback) plus a `QueryData` suffix. It lives next to the
+model Data classes, in the same namespace and output directory, and its `rules()` are derived from
+the parameter schemas by the exact same pipeline the body Data classes use: enum membership, numeric
+bounds, string lengths and formats, array element rules, defaults.
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data;
+
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Spatie\LaravelData\Data;
+
+/**
+ * Query parameters of GET /pet/findByStatus.
+ */
+final class FindPetsByStatusQueryData extends Data
+{
+    public function __construct(
+        public readonly string $status = 'available',
+    ) {}
+
+    /**
+     * Validate against rules() and hydrate from the query string only, so
+     * request-body fields never bleed into query validation (or vice versa).
+     */
+    public static function fromQuery(Request $request): static
+    {
+        return self::validateAndCreate($request->query->all());
+    }
+
+    /**
+     * @return array<array-key, list<string|object>>
+     */
+    public static function rules(): array
+    {
+        return [
+            'status' => ['sometimes', Rule::in(['available', 'pending', 'sold'])],
+        ];
+    }
+}
+```
+
+A required parameter gets a `required` rule; an optional parameter validates with `sometimes`; a
+parameter with a spec `default` fills it when the value is omitted, exactly like a defaulted body
+property. Exploded form arrays (`?ids[]=1&ids[]=2`, the OpenAPI default serialization) validate with
+an `array` rule plus per-element rules. Boolean parameters accept the form-style literals
+`?flag=true` / `?flag=false` as well as `1` / `0`: `fromQuery()` maps the literals before validation,
+so they validate and hydrate to the correct `bool` (never PHP's "non-empty string is truthy"
+coercion).
+
+### The hybrid injection rule
+
+Where the query class appears depends on whether the operation has a request body:
+
+- **No request body** (typical `GET` / `DELETE`): the class is **type-hinted into the method
+  signature** (`FindPetsByStatusQueryData $query`). Laravel resolves it from the container,
+  laravel-data picks `fromQuery()` as the creation method, and your implementation receives an
+  already validated, typed object. A spec violation never reaches your code: it surfaces as a
+  standard Laravel `ValidationException` (a 422 by default).
+- **With a request body** (a typed Data param or the `Request` fallback): the class is **not**
+  injected. Container resolution would hand both Data classes the merged body+query input, so body
+  fields would bleed into query validation and vice versa. Instead, the generated method docblock
+  names the class, and you call it explicitly in your implementation:
+
+```php
+public function uploadFile(Request $request, int $petId): ApiResponseData
+{
+    $query = UploadFileQueryData::fromQuery($request);
+    // ...
+}
+```
+
+Every query class carries the `fromQuery()` factory, including the auto-injected ones, so the
+explicit path always works. `fromQuery()` validates and hydrates from `$request->query()` **only**:
+request-body fields never leak into query validation.
+
+### What is skipped, with a warning
+
+The generator only emits typed properties for parameters that survive Laravel's flat query parsing
+(`key=value` scalars, `key[]=value` arrays). Anything else is **skipped with a generator warning**
+rather than given rules that would false-reject valid requests:
+
+- `in: header` and `in: cookie` parameters (not supported yet),
+- `style: deepObject` parameters (bracket-notation objects, e.g. Stripe's filter objects),
+- `style: spaceDelimited` / `pipeDelimited` and non-exploded (`explode: false`) arrays, which
+  serialize the whole array into one delimited value,
+- object-shaped and content-typed parameters, which have no flat query-string form.
+
+An operation whose every query parameter is skipped gets no query class at all. See
+[limitations](/guides/limitations#query-parameters) for the full list of residuals.
 
 ## Pruning
 

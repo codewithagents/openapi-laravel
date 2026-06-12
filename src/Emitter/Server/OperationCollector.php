@@ -14,6 +14,7 @@ use cebe\openapi\spec\RequestBody;
 use cebe\openapi\spec\Response;
 use cebe\openapi\spec\Responses;
 use cebe\openapi\spec\Schema;
+use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\ResolvedClosure;
 use CodeWithAgents\OpenApiLaravel\Naming\PhpIdentifier;
 use CodeWithAgents\OpenApiLaravel\Naming\UniqueNames;
@@ -58,13 +59,45 @@ final class OperationCollector
          * keeps every operation, byte-identical to a full run.
          */
         private readonly ?ResolvedClosure $closure = null,
+        /*
+         * Query-parameter support (issue #63). When non-null, each operation's
+         * `in: query` parameters are turned into a per-operation query Data
+         * class through the model generator's rules pipeline (the generator
+         * must already have run generate() for this document). Null (the
+         * default) skips query emission, keeping legacy call sites and tests
+         * byte-identical.
+         */
+        private readonly ?ModelGenerator $models = null,
     ) {}
+
+    /**
+     * Non-fatal diagnostics from the last collect() run, sorted for
+     * determinism: header/cookie parameters the scaffold does not generate
+     * yet. Keyed by message so a path-level parameter shared across the
+     * operations of one path is reported once per operation, never duplicated
+     * across re-collections. Mirrors ModelGenerator::warnings().
+     *
+     * @var array<string, true>
+     */
+    private array $warnings = [];
+
+    /**
+     * @return list<string>
+     */
+    public function warnings(): array
+    {
+        $warnings = array_keys($this->warnings);
+        sort($warnings);
+
+        return $warnings;
+    }
 
     /**
      * @return list<OperationDescriptor>
      */
     public function collect(OpenApi $document): array
     {
+        $this->warnings = [];
         $componentParameters = $this->componentParameters($document);
         $rows = [];
 
@@ -147,6 +180,9 @@ final class OperationCollector
         [$bodyParam, $bodyRequiresRequest] = $this->requestBody($operation, $imports);
         [$returnType, $returnDoc] = $this->responseType($operation, $imports);
 
+        $this->warnUnsupportedParameterLocations($method, $path, $parameters);
+        $queryParam = $this->queryParam($method, $path, $operation, $parameters, $bodyParam, $bodyRequiresRequest, $pathParams, $imports);
+
         sort($imports);
         $imports = array_values(array_unique($imports));
 
@@ -164,7 +200,110 @@ final class OperationCollector
             returnDoc: $returnDoc,
             summary: $this->summary($operation),
             imports: $imports,
+            queryParam: $queryParam,
         );
+    }
+
+    /**
+     * Resolve the operation's `in: query` parameters into a generated query
+     * Data class descriptor entry (issue #63), or null when there is nothing
+     * to generate (no query params, no model generator wired in, or every
+     * parameter was skipped as un-serializable).
+     *
+     * The hybrid injection rule: a body-less operation gets the class
+     * type-hinted into its signature (laravel-data resolves it from the
+     * container, and the generated `fromQuery` magic creation method hydrates
+     * it from the query string only). An operation WITH a request body (a
+     * typed Data param or the Request fallback) must NOT auto-inject:
+     * container resolution would hand the query class the merged body + query
+     * input. Those operations get a docblock pointer to `::fromQuery($request)`
+     * instead, and the class import is only added when it appears in the
+     * signature, so no `use` goes unused.
+     *
+     * @param  list<Parameter>  $parameters
+     * @param  array{name: string, type: string}|null  $bodyParam
+     * @param  list<array{name: string, phpType: string}>  $pathParams
+     * @param  list<string>  $imports
+     * @return array{name: string, type: string, injected: bool}|null
+     */
+    private function queryParam(string $method, string $path, Operation $operation, array $parameters, ?array $bodyParam, bool $bodyRequiresRequest, array $pathParams, array &$imports): ?array
+    {
+        if ($this->models === null) {
+            return null;
+        }
+
+        $queryParameters = [];
+        foreach ($parameters as $parameter) {
+            if ($parameter->in === 'query') {
+                $queryParameters[] = $parameter;
+            }
+        }
+
+        if ($queryParameters === []) {
+            return null;
+        }
+
+        // The class name derives from the same operationId-or-fallback the
+        // method name uses, so `findPetsByStatus` yields FindPetsByStatusQueryData.
+        $baseName = PhpIdentifier::toClassName($this->methodName($operation, $method, $path));
+        $label = strtoupper($method).' '.$path;
+
+        $class = $this->models->generateQueryData($baseName, $label, $queryParameters);
+        if ($class === null) {
+            return null;
+        }
+
+        $injected = $bodyParam === null && ! $bodyRequiresRequest;
+        if ($injected) {
+            $imports[] = $this->dataFqcn($class);
+        }
+
+        // `$query` unless a body or path parameter already took that name.
+        $taken = new UniqueNames;
+        if ($bodyParam !== null) {
+            $taken->reserve($bodyParam['name']);
+        }
+        if ($bodyRequiresRequest) {
+            $taken->reserve('request');
+        }
+        foreach ($pathParams as $pathParameter) {
+            $taken->reserve($pathParameter['name']);
+        }
+
+        return ['name' => $taken->reserve('query'), 'type' => $class, 'injected' => $injected];
+    }
+
+    /**
+     * Record a warning for each `in: header` / `in: cookie` parameter group on
+     * an operation: the scaffold does not generate typing or validation for
+     * those locations yet (issue #63 scoped them out), and silence would hide
+     * the information loss. One warning per location kind per operation, with
+     * the parameter names listed, so a spec-wide trace header does not flood
+     * the channel.
+     *
+     * @param  list<Parameter>  $parameters
+     */
+    private function warnUnsupportedParameterLocations(string $method, string $path, array $parameters): void
+    {
+        foreach (['header', 'cookie'] as $kind) {
+            $names = [];
+            foreach ($parameters as $parameter) {
+                if ($parameter->in === $kind && is_string($parameter->name) && $parameter->name !== '') {
+                    $names[] = '"'.$parameter->name.'"';
+                }
+            }
+
+            if ($names !== []) {
+                $this->warnings[sprintf(
+                    'Operation %s %s: %s parameter(s) %s are not generated (%s parameters are not supported yet).',
+                    strtoupper($method),
+                    $path,
+                    $kind,
+                    implode(', ', $names),
+                    $kind,
+                )] = true;
+            }
+        }
     }
 
     private function firstTag(Operation $operation): string

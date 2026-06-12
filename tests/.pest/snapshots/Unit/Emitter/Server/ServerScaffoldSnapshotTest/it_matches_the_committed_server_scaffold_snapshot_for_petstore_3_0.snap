@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Data\ApiResponseData;
+use App\Data\FindPetsByStatusQueryData;
+use App\Data\FindPetsByTagsQueryData;
 use App\Data\PetData;
+use App\Data\UpdatePetWithFormQueryData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Spatie\LaravelData\DataCollection;
@@ -33,7 +36,7 @@ abstract class AbstractPetController
      *
      * @return DataCollection<int, PetData>
      */
-    abstract public function findPetsByStatus(): DataCollection;
+    abstract public function findPetsByStatus(FindPetsByStatusQueryData $query): DataCollection;
 
     /**
      * GET /pet/findByTags
@@ -42,7 +45,7 @@ abstract class AbstractPetController
      *
      * @return DataCollection<int, PetData>
      */
-    abstract public function findPetsByTags(): DataCollection;
+    abstract public function findPetsByTags(FindPetsByTagsQueryData $query): DataCollection;
 
     /**
      * GET /pet/{petId}
@@ -56,7 +59,7 @@ abstract class AbstractPetController
      *
      * Updates a pet in the store with form data.
      */
-    abstract public function updatePetWithForm(int $petId): PetData;
+    abstract public function updatePetWithForm(UpdatePetWithFormQueryData $query, int $petId): PetData;
 
     /**
      * DELETE /pet/{petId}
@@ -69,6 +72,9 @@ abstract class AbstractPetController
      * POST /pet/{petId}/uploadImage
      *
      * Uploads an image.
+     *
+     * Query parameters: validate and hydrate them with
+     * \App\Data\UploadFileQueryData::fromQuery($request).
      */
     abstract public function uploadFile(Request $request, int $petId): ApiResponseData;
 }
@@ -119,6 +125,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Data\LoginUserQueryData;
 use App\Data\UserData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -144,7 +151,7 @@ abstract class AbstractUserController
      *
      * Logs user into the system.
      */
-    abstract public function loginUser(): JsonResponse;
+    abstract public function loginUser(LoginUserQueryData $query): JsonResponse;
 
     /**
      * GET /user/logout
@@ -173,6 +180,203 @@ abstract class AbstractUserController
      * Delete user resource.
      */
     abstract public function deleteUser(string $username): JsonResponse;
+}
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data;
+
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Spatie\LaravelData\Data;
+
+/**
+ * Query parameters of GET /pet/findByStatus.
+ */
+final class FindPetsByStatusQueryData extends Data
+{
+    public function __construct(
+        public readonly string $status = 'available',
+    ) {}
+
+    /**
+     * Validate against rules() and hydrate from the query string only, so
+     * request-body fields never bleed into query validation (or vice versa).
+     */
+    public static function fromQuery(Request $request): static
+    {
+        return self::validateAndCreate($request->query->all());
+    }
+
+    /**
+     * @return array<array-key, list<string|object>>
+     */
+    public static function rules(): array
+    {
+        return [
+            'status' => ['sometimes', Rule::in(['available', 'pending', 'sold'])],
+        ];
+    }
+}
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data;
+
+use Illuminate\Http\Request;
+use Spatie\LaravelData\Data;
+
+/**
+ * Query parameters of GET /pet/findByTags.
+ */
+final class FindPetsByTagsQueryData extends Data
+{
+    public function __construct(
+        /** @var array<int, string> */
+        public readonly array $tags,
+    ) {}
+
+    /**
+     * Validate against rules() and hydrate from the query string only, so
+     * request-body fields never bleed into query validation (or vice versa).
+     */
+    public static function fromQuery(Request $request): static
+    {
+        return self::validateAndCreate($request->query->all());
+    }
+
+    /**
+     * @return array<array-key, list<string|object>>
+     */
+    public static function rules(): array
+    {
+        return [
+            'tags' => ['required', 'array'],
+            'tags.*' => ['string'],
+        ];
+    }
+}
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data;
+
+use Illuminate\Http\Request;
+use Spatie\LaravelData\Data;
+
+/**
+ * Query parameters of GET /user/login.
+ */
+final class LoginUserQueryData extends Data
+{
+    public function __construct(
+        public readonly ?string $username = null,
+        public readonly ?string $password = null,
+    ) {}
+
+    /**
+     * Validate against rules() and hydrate from the query string only, so
+     * request-body fields never bleed into query validation (or vice versa).
+     */
+    public static function fromQuery(Request $request): static
+    {
+        return self::validateAndCreate($request->query->all());
+    }
+
+    /**
+     * @return array<array-key, list<string|object>>
+     */
+    public static function rules(): array
+    {
+        return [
+            'username' => ['sometimes', 'string'],
+            'password' => ['sometimes', 'string'],
+        ];
+    }
+}
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data;
+
+use Illuminate\Http\Request;
+use Spatie\LaravelData\Data;
+
+/**
+ * Query parameters of POST /pet/{petId}.
+ */
+final class UpdatePetWithFormQueryData extends Data
+{
+    public function __construct(
+        public readonly ?string $name = null,
+        public readonly ?string $status = null,
+    ) {}
+
+    /**
+     * Validate against rules() and hydrate from the query string only, so
+     * request-body fields never bleed into query validation (or vice versa).
+     */
+    public static function fromQuery(Request $request): static
+    {
+        return self::validateAndCreate($request->query->all());
+    }
+
+    /**
+     * @return array<array-key, list<string|object>>
+     */
+    public static function rules(): array
+    {
+        return [
+            'name' => ['sometimes', 'string'],
+            'status' => ['sometimes', 'string'],
+        ];
+    }
+}
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data;
+
+use Illuminate\Http\Request;
+use Spatie\LaravelData\Data;
+
+/**
+ * Query parameters of POST /pet/{petId}/uploadImage.
+ */
+final class UploadFileQueryData extends Data
+{
+    public function __construct(
+        public readonly ?string $additionalMetadata = null,
+    ) {}
+
+    /**
+     * Validate against rules() and hydrate from the query string only, so
+     * request-body fields never bleed into query validation (or vice versa).
+     */
+    public static function fromQuery(Request $request): static
+    {
+        return self::validateAndCreate($request->query->all());
+    }
+
+    /**
+     * @return array<array-key, list<string|object>>
+     */
+    public static function rules(): array
+    {
+        return [
+            'additionalMetadata' => ['sometimes', 'string'],
+        ];
+    }
 }
 
 <?php

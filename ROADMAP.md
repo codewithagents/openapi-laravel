@@ -72,6 +72,15 @@ Generated routes plus one abstract controller per tag, typed by the Data classes
 a PHP fatal. Path-level drift is structurally impossible. Every route carries a deterministic
 `->name()` derived from its operationId (globally unique, suffixed on cross-controller clashes), and
 the config-only `routes.middleware` / `routes.prefix` keys wrap the routes in one Route::group (#71).
+PathItem-level parameters merge into every operation, and `$ref` parameters resolve through
+components (#66). Query parameters (#63) generate a per-operation query Data class
+(`<Operation>QueryData`) with spec-derived `rules()` through the exact body-class pipeline, plus a
+`fromQuery(Request)` factory that validates and hydrates from the query string only. Hybrid
+injection: body-less operations get the class type-hinted into the signature (laravel-data routes
+container injection through `fromQuery`); operations with a request body get a docblock pointer to
+`::fromQuery($request)` instead, so body and query inputs never bleed into each other. Boolean
+parameters accept the form-style `true`/`false` literals (mapped to 1/0 before validation, so
+hydration is correct too).
 
 ### Honest residuals (documented, not hidden)
 - Undiscriminated object unions (no `discriminator`) stay `mixed`, presence-only by design (#31).
@@ -80,6 +89,12 @@ the config-only `routes.middleware` / `routes.prefix` keys wrap the routes in on
 - A component `$ref` request body falls back to `Illuminate\Http\Request` instead of a typed Data param.
 - Tuple `prefixItems`, int64/bignum literal bounds, non-JSON responses, and `$ref`-valued map values
   degrade gracefully (typed in the docblock, not auto-hydrated).
+- `in: header` / `in: cookie` parameters are not generated (warned per operation, #63 scoped them out).
+- Query parameters without a flat `key=value` / `key[]=value` form are skipped with a warning:
+  `deepObject` (Stripe's filter objects), `spaceDelimited`/`pipeDelimited`, non-exploded arrays,
+  object-shaped and content-typed parameters.
+- Array query parameters validate their elements against the spec type but hydrate them as the raw
+  query strings (PHP query parsing produces strings; top-level scalars hydrate typed).
 
 ### Client generation [maybe, decide later]
 Generate a typed PHP client for *consuming* a third-party or internal API from its spec, built on the
@@ -147,7 +162,9 @@ OpenAPI 3.1 conformance fixture covers the full generator surface with a golden 
 per-construct output and verifies byte-for-byte determinism. The differential validation oracle (#23)
 generates a class per constraint and runs valid and invalid payloads through the real Laravel
 Validator, with a known-gap ratchet documenting acknowledged gaps (currently the single by-design
-undiscriminated-union gap, #31). Two generated-output gates assert the emitted code is Pint-idempotent
+undiscriminated-union gap, #31). The query-parameter oracle (#63) drives the generated `fromQuery`
+through real Request objects (payloads serialized to a query string and parsed back), so spec-valid
+queries must accept and spec-invalid queries must reject through the actual wire path. Two generated-output gates assert the emitted code is Pint-idempotent
 and PHPStan-max-clean; both are tagged `slow` (see CLAUDE.md "Test workflow"). Hostile-input suite for
 the security surfaces. Pest native mutation (>=90%), 100% type coverage, PHPStan max, Pint, Deptrac,
 composer-unused / composer-require-checker, `composer audit`, and Qodana run in CI. The e2e demo adds

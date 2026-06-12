@@ -185,3 +185,134 @@ it('produces a writable variant whose rules() still enforce required non-readOnl
     expect($writableCode)->toContain("'name' => ['required', 'string']")
         ->and($writableCode)->not->toContain("'id' =>");
 });
+
+/**
+ * Collect the query-parameters fixture WITH the model generator wired in
+ * (issue #63), so per-operation query Data classes are emitted. Returns the
+ * descriptors plus the generator and collector for warning/file assertions.
+ *
+ * @return array{0: list<OperationDescriptor>, 1: ModelGenerator, 2: OperationCollector}
+ */
+function collectQueryParameters(): array
+{
+    $doc = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/server/query-parameters.yaml');
+    $generator = new ModelGenerator;
+    $generator->generate($doc);
+
+    $collector = new OperationCollector(new ServerOptions, $generator->registry(), null, $generator);
+
+    return [$collector->collect($doc), $generator, $collector];
+}
+
+it('describes a body-less operation with an injected query Data param (issue #63)', function () {
+    [$descriptors] = collectQueryParameters();
+    $get = descriptorFor($descriptors, 'get', '/widgets');
+
+    expect($get->queryParam)->toBe(['name' => 'query', 'type' => 'ListWidgetsQueryData', 'injected' => true])
+        ->and($get->imports)->toContain('App\\Data\\ListWidgetsQueryData');
+});
+
+it('marks the query class non-injected when the operation has a typed body param', function () {
+    [$descriptors] = collectQueryParameters();
+    $post = descriptorFor($descriptors, 'post', '/widgets');
+
+    // The body would bleed into query validation under container injection, so
+    // the class is reachable only via ::fromQuery($request); no import either,
+    // since the FQCN appears only as docblock prose.
+    expect($post->queryParam)->toBe(['name' => 'query', 'type' => 'CreateWidgetQueryData', 'injected' => false])
+        ->and($post->imports)->not->toContain('App\\Data\\CreateWidgetQueryData');
+});
+
+it('marks the query class non-injected when the operation falls back to a Request body', function () {
+    [$descriptors] = collectQueryParameters();
+    $post = descriptorFor($descriptors, 'post', '/untyped');
+
+    expect($post->bodyRequiresRequest)->toBeTrue()
+        ->and($post->queryParam)->toBe(['name' => 'query', 'type' => 'UploadBlobQueryData', 'injected' => false]);
+});
+
+it('leaves queryParam null for an operation without query parameters', function () {
+    [$descriptors] = collectQueryParameters();
+
+    expect(descriptorFor($descriptors, 'get', '/widgets/{widgetId}')->queryParam)->toBeNull();
+});
+
+it('leaves queryParam null when every query parameter is un-serializable, with one warning each', function () {
+    [$descriptors, $generator] = collectQueryParameters();
+
+    expect(descriptorFor($descriptors, 'get', '/search')->queryParam)->toBeNull();
+
+    $warnings = implode("\n", $generator->warnings());
+    expect($warnings)->toContain('query parameter "filter" was skipped: style "deepObject" is not supported yet')
+        ->and($warnings)->toContain('query parameter "shape" was skipped: it is an object')
+        ->and($warnings)->toContain('query parameter "matrix" was skipped: style "pipeDelimited"')
+        ->and($warnings)->toContain('query parameter "csv" was skipped: a non-exploded (explode: false) array')
+        ->and($warnings)->toContain('query parameter "payload" was skipped: it declares no schema');
+});
+
+it('warns about header and cookie parameters instead of silently dropping them', function () {
+    [, , $collector] = collectQueryParameters();
+
+    expect($collector->warnings())->toBe([
+        'Operation GET /widgets/{widgetId}: cookie parameter(s) "session" are not generated (cookie parameters are not supported yet).',
+        'Operation GET /widgets/{widgetId}: header parameter(s) "X-Trace-Id" are not generated (header parameters are not supported yet).',
+    ]);
+});
+
+it('merges a PathItem-level query parameter into the generated query class with full rules', function () {
+    [, $generator] = collectQueryParameters();
+    $files = $generator->queryFiles();
+
+    expect($files)->toHaveKeys(['CreateWidgetQueryData', 'ListWidgetsQueryData', 'UploadBlobQueryData']);
+
+    $code = $files['ListWidgetsQueryData']->code;
+    expect($code)->toContain('final class ListWidgetsQueryData extends Data')
+        // Required spec param first, then the optionals in spec order
+        // (PathItem-level page first, then the operation's own).
+        ->and($code)->toContain('public readonly WidgetState $state')
+        ->and($code)->toContain('public readonly ?int $page = null')
+        ->and($code)->toContain('public readonly ?array $ids = null')
+        ->and($code)->toContain('public readonly ?string $q = null')
+        // The exact rules pipeline the body classes use: enum membership,
+        // numeric bounds, array element rules, string length bounds.
+        ->and($code)->toContain("'state' => ['required', Rule::enum(WidgetState::class)]")
+        ->and($code)->toContain("'page' => ['sometimes', 'integer', 'min:1']")
+        ->and($code)->toContain("'ids' => ['sometimes', 'array']")
+        ->and($code)->toContain("'ids.*' => ['integer', 'min:1']")
+        ->and($code)->toContain("'q' => ['sometimes', 'string', 'max:64', 'min:2']")
+        // Every query class carries the query-only factory.
+        ->and($code)->toContain('public static function fromQuery(Request $request): static')
+        ->and($code)->toContain('return self::validateAndCreate($request->query->all());');
+});
+
+it('maps the boolean true/false literals in fromQuery only when the class has boolean parameters', function () {
+    [, $generator] = collectQueryParameters();
+    $files = $generator->queryFiles();
+
+    // validateOnly is a boolean: its fromQuery maps the form-style literals to
+    // 1/0 before validating (Laravel's boolean rule rejects the literals, and
+    // PHP's coercive cast would turn the string "false" into TRUE).
+    $boolean = $files['CreateWidgetQueryData']->code;
+    expect($boolean)->toContain("foreach (['validateOnly'] as \$name) {")
+        ->and($boolean)->toContain("'true' => '1',")
+        ->and($boolean)->toContain("'false' => '0',")
+        ->and($boolean)->toContain('return self::validateAndCreate($query);');
+
+    // No boolean parameter: the factory stays the simple one-liner.
+    $plain = $files['ListWidgetsQueryData']->code;
+    expect($plain)->toContain('return self::validateAndCreate($request->query->all());')
+        ->and($plain)->not->toContain('foreach');
+});
+
+it('emits byte-identical query classes across runs (determinism)', function () {
+    $codeOf = function (): string {
+        [, $generator] = collectQueryParameters();
+
+        return implode("\n", array_map(
+            static fn ($file): string => $file->code,
+            array_values($generator->queryFiles()),
+        ));
+    };
+
+    expect($codeOf())->toBe($codeOf());
+});
