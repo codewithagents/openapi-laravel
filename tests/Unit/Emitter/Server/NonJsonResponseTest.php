@@ -6,6 +6,7 @@ use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ControllerGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationDescriptor;
+use CodeWithAgents\OpenApiLaravel\Emitter\Server\RouteGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
 use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
@@ -182,7 +183,7 @@ it('renders the base Response import and signature into the abstract controller'
         ->toContain('abstract public function show(int $thingId): Response;');
 });
 
-it('preserves the #64 status enforcement for a non-200 non-JSON response', function () {
+it('preserves the #64 status enforcement for a non-200 non-JSON response, end to end into the routes file', function () {
     [$descriptor] = collectNonJsonResponse([
         '201' => [
             'description' => 'created, returns plain text',
@@ -195,4 +196,15 @@ it('preserves the #64 status enforcement for a non-200 non-JSON response', funct
     expect($descriptor->returnType)->toBe('Response')
         ->and($descriptor->successStatus)->toBe(201)
         ->and($descriptor->needsStatusMiddleware())->toBeTrue();
+
+    // And the guarantee holds in the RENDERED output, not just on the
+    // descriptor: the generated route carries the RespondsWithStatus
+    // middleware pinned to the declared 201, with the support class
+    // imported, exactly as for a JSON-typed operation.
+    $routes = (new RouteGenerator(new ServerOptions))->generate([$descriptor]);
+
+    expect($routes->code)->toContain('use App\Data\Support\RespondsWithStatus;')
+        ->and($routes->code)->toContain(
+            "Route::get('/things/{thingId}', [ThingController::class, 'show'])->name('show')->middleware(RespondsWithStatus::class.':201');",
+        );
 });
