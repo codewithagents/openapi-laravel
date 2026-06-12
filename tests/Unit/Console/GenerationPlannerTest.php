@@ -140,6 +140,31 @@ it('emits query-skip warnings in a model-only run but keeps the scaffold header/
         ->and($full)->toContain('cookie parameter(s) "session" are not generated');
 });
 
+it('honors security.middleware_map in the planned routes file and surfaces the unmapped-scheme warning (#77)', function () use ($tempOut) {
+    $out = $tempOut();
+    $plan = (new GenerationPlanner)->plan(new GenerationRequest(
+        spec: __DIR__.'/../../Fixtures/server/secured-petstore.yaml',
+        output: $out,
+        namespace: 'App\\Data',
+        suffix: 'Data',
+        maxDepth: 64,
+        maxBytes: null,
+        controllers: true,
+        controllerPath: $out.'/Http',
+        controllerNamespace: 'App\\Http\\Controllers\\Api',
+        routes: true,
+        routesPath: $out.'/routes/api.generated.php',
+        securityMiddlewareMap: ['bearerAuth' => ['auth:sanctum']],
+    ));
+
+    $routes = $plan->filesByCategory(PlannedFile::CATEGORY_ROUTES)[0]->content;
+
+    // The mapped global scheme lands on the inheriting route; the unmapped
+    // apiKey override warns through the plan's merged diagnostics channel.
+    expect($routes)->toContain("->name('listPets')->middleware(['auth:sanctum']);")
+        ->and(implode("\n", $plan->warnings))->toContain('Security scheme "apiKey" is required by the spec but has no entry in security.middleware_map');
+});
+
 it('throws a PlanException when the spec is missing', function () use ($tempOut, $request) {
     (new GenerationPlanner)->plan($request('', $tempOut()));
 })->throws(PlanException::class);

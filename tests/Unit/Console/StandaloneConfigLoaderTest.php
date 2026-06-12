@@ -104,6 +104,58 @@ it('drops empty and whitespace-only middleware entries (#71)', function () use (
     expect($config->routesMiddleware)->toBe(['api']);
 });
 
+it('reads security.middleware_map with string and list values, normalized to lists (#77)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['security' => ['middleware_map' => [
+        'bearerAuth' => 'auth:sanctum',
+        'apiKey' => ['auth.apikey', 'throttle:60,1'],
+        'handledElsewhere' => [],
+    ]]]));
+
+    $config = (new StandaloneConfigLoader)->load($path, '/tmp');
+
+    expect($config->securityMiddlewareMap)->toBe([
+        'bearerAuth' => ['auth:sanctum'],
+        'apiKey' => ['auth.apikey', 'throttle:60,1'],
+        'handledElsewhere' => [],
+    ]);
+});
+
+it('defaults security.middleware_map to null when absent (#77)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['routes' => ['enabled' => true]]));
+
+    expect((new StandaloneConfigLoader)->load($path, '/tmp')->securityMiddlewareMap)->toBeNull();
+});
+
+it('rejects a non-object security.middleware_map (#77)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['security' => ['middleware_map' => ['auth:sanctum']]]));
+
+    (new StandaloneConfigLoader)->load($path, '/tmp');
+})->throws(OptionException::class, "Invalid 'security.middleware_map'");
+
+it('rejects a non-string, non-list value inside security.middleware_map (#77)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['security' => ['middleware_map' => ['bearerAuth' => 42]]]));
+
+    (new StandaloneConfigLoader)->load($path, '/tmp');
+})->throws(OptionException::class, "Invalid 'security.middleware_map.bearerAuth'");
+
+it('rejects a non-string entry inside a security.middleware_map list value (#77)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['security' => ['middleware_map' => ['bearerAuth' => ['auth', 42]]]]));
+
+    (new StandaloneConfigLoader)->load($path, '/tmp');
+})->throws(OptionException::class, 'every entry must be a string');
+
+it('rejects an unknown key inside the security section (#77)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['security' => ['middleware' => []]]));
+
+    (new StandaloneConfigLoader)->load($path, '/tmp');
+})->throws(OptionException::class, "Unknown key 'security.middleware'");
+
+it('keeps a parameterized middleware name in the map intact, never comma-splitting it (#77)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['security' => ['middleware_map' => ['bearerAuth' => 'throttle:60,1']]]));
+
+    expect((new StandaloneConfigLoader)->load($path, '/tmp')->securityMiddlewareMap)->toBe(['bearerAuth' => ['throttle:60,1']]);
+});
+
 it('reads only_tags and only_schemas as a comma-separated string', function () use ($writeFile) {
     $path = $writeFile((string) json_encode([
         'only_tags' => 'pets, store',

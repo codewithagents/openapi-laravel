@@ -25,6 +25,11 @@ use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
  * produces the spec-declared status while the controller keeps returning the
  * plain Data object (or nothing, for 204).
  *
+ * An operation whose spec security resolves to mapped middleware through
+ * security.middleware_map (issue #77) gets one ->middleware([...]) call with
+ * those names; the status-enforcing entry folds into the same array when both
+ * apply.
+ *
  * Output is deterministic: imports sorted and unique, route lines in the
  * descriptor order (already path then HTTP method).
  *
@@ -63,9 +68,26 @@ final readonly class RouteGenerator
                 .$descriptor->controllerClass."::class, '".$this->escape($descriptor->methodName)."'])"
                 ."->name('".$this->escape($descriptor->routeName)."')";
 
-            if ($descriptor->needsStatusMiddleware()) {
-                $needsStatusMiddleware = true;
-                $line .= '->middleware(RespondsWithStatus::class.\':'.$descriptor->successStatus.'\')';
+            if ($descriptor->securityMiddleware === []) {
+                // No security middleware: the historical single-argument form,
+                // byte-identical to the pre-#77 output.
+                if ($descriptor->needsStatusMiddleware()) {
+                    $needsStatusMiddleware = true;
+                    $line .= '->middleware(RespondsWithStatus::class.\':'.$descriptor->successStatus.'\')';
+                }
+            } else {
+                // Security middleware (issue #77), with the status-enforcing
+                // entry (issue #64) folded into the same array so each route
+                // carries exactly one ->middleware([...]) call.
+                $entries = array_map(
+                    fn (string $name): string => "'".$this->escape($name)."'",
+                    $descriptor->securityMiddleware,
+                );
+                if ($descriptor->needsStatusMiddleware()) {
+                    $needsStatusMiddleware = true;
+                    $entries[] = 'RespondsWithStatus::class.\':'.$descriptor->successStatus.'\'';
+                }
+                $line .= '->middleware(['.implode(', ', $entries).'])';
             }
 
             $lines[] = $line.';';

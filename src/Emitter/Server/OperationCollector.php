@@ -14,6 +14,7 @@ use cebe\openapi\spec\RequestBody;
 use cebe\openapi\spec\Response;
 use cebe\openapi\spec\Responses;
 use cebe\openapi\spec\Schema;
+use cebe\openapi\spec\SecurityRequirement;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\ResolvedClosure;
 use CodeWithAgents\OpenApiLaravel\Naming\PhpIdentifier;
@@ -107,6 +108,17 @@ final class OperationCollector
     {
         $this->warnings = [];
         $componentParameters = $this->componentParameters($document);
+
+        // Security-to-middleware resolution (issue #77): one resolver per run,
+        // seeded with the configured map and the document-level security so
+        // every operation resolves against the same state. The typo check
+        // (a mapped scheme the spec never declares) runs once, up front.
+        $security = new SecurityMiddlewareResolver(
+            $this->options->securityMiddlewareMap,
+            $this->securityRequirements($document->security) ?? [],
+        );
+        $security->warnUndeclaredMappings($this->declaredSchemeNames($document));
+
         $rows = [];
 
         foreach ($this->pathItems($document) as $path => $pathItem) {
@@ -155,8 +167,13 @@ final class OperationCollector
 
         $descriptors = [];
         foreach ($rows as $row) {
-            $descriptors[] = $this->describe($row['path'], $row['method'], $row['operation'], $row['parameters'], $methodNames, $routeNames);
+            $descriptors[] = $this->describe($row['path'], $row['method'], $row['operation'], $row['parameters'], $methodNames, $routeNames, $security);
         }
+
+        // The resolver's warnings (unmapped schemes, OR alternatives, mapped
+        // typos) join the collector's channel, already keyed by message so a
+        // global scheme shared by every operation reports once.
+        $this->warnings += $security->warnings();
 
         return $descriptors;
     }
@@ -165,7 +182,7 @@ final class OperationCollector
      * @param  list<Parameter>  $parameters
      * @param  array<string, UniqueNames>  $methodNames
      */
-    private function describe(string $path, string $method, Operation $operation, array $parameters, array &$methodNames, UniqueNames $routeNames): OperationDescriptor
+    private function describe(string $path, string $method, Operation $operation, array $parameters, array &$methodNames, UniqueNames $routeNames, SecurityMiddlewareResolver $security): OperationDescriptor
     {
         $tag = $this->firstTag($operation);
         $controllerClass = PhpIdentifier::toClassName($tag).$this->options->controllerSuffix;
@@ -222,7 +239,56 @@ final class OperationCollector
             imports: $imports,
             queryParam: $queryParam,
             successStatus: $successStatus,
+            securityMiddleware: $security->middlewareFor($label, $this->securityRequirements($operation->security)),
         );
+    }
+
+    /**
+     * Normalize a spec-level `security` value into a clean requirement list,
+     * preserving the three-way distinction the resolver needs: null (not
+     * declared), [] (explicitly public), or the requirement objects. Anything
+     * that is not a SecurityRequirement (a malformed entry in a hostile spec)
+     * is dropped.
+     *
+     * @return list<SecurityRequirement>|null
+     */
+    private function securityRequirements(mixed $security): ?array
+    {
+        if (! is_array($security)) {
+            return null;
+        }
+
+        $requirements = [];
+        foreach ($security as $requirement) {
+            if ($requirement instanceof SecurityRequirement) {
+                $requirements[] = $requirement;
+            }
+        }
+
+        return $requirements;
+    }
+
+    /**
+     * The scheme names `components.securitySchemes` declares. Only the names
+     * matter for the middleware map; the scheme objects themselves (or
+     * unresolved $refs to them) are never inspected.
+     *
+     * @return list<string>
+     */
+    private function declaredSchemeNames(OpenApi $document): array
+    {
+        $components = $document->components;
+
+        if ($components === null) {
+            return [];
+        }
+
+        $names = [];
+        foreach (array_keys($this->asArray($components->securitySchemes)) as $name) {
+            $names[] = (string) $name;
+        }
+
+        return $names;
     }
 
     /**

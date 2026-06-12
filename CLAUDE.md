@@ -42,7 +42,11 @@ cross-controller clashes), and the config-only `routes.middleware` / `routes.pre
 routes in one Route::group (#71, no CLI flags). The spec-declared success status is honored (#64):
 a non-200 selected success response (smallest 2xx, the same pick as the return type) gets the
 inlined `RespondsWithStatus` route middleware, and a selected 204 types the method `void` with the
-middleware guaranteeing the empty body; only an exactly-200 response is ever rewritten.
+middleware guaranteeing the empty body; only an exactly-200 response is ever rewritten. The
+config-only `security.middleware_map` key (#77) maps security scheme names to per-route middleware:
+operation `security` overrides global, `security: []` stays public, AND applies all mapped
+middleware, OR enforces only the first requirement object (warned), and unmapped-required or
+mapped-undeclared schemes warn.
 
 **Drift gate:** `openapi:check` (and `vendor/bin/openapi-laravel check`) regenerates the file set
 in memory and compares byte-for-byte against disk; exit 0 in sync, 1 drift, 2 config/spec error;

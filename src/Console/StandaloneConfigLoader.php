@@ -46,6 +46,7 @@ final readonly class StandaloneConfigLoader
         'output' => ['path', 'namespace', 'suffix', 'prune'],
         'controllers' => ['enabled', 'path', 'namespace'],
         'routes' => ['enabled', 'path', 'middleware', 'prefix'],
+        'security' => ['middleware_map'],
         'enforce_closed_objects' => null,
         'max_depth' => null,
         'max_bytes' => null,
@@ -116,6 +117,7 @@ final readonly class StandaloneConfigLoader
             onlyTags: $this->stringList($decoded, 'only_tags', $path),
             onlySchemas: $this->stringList($decoded, 'only_schemas', $path),
             excludePathPrefixes: $this->pathPrefixList($decoded, $path),
+            securityMiddlewareMap: $this->securityMiddlewareMap($decoded['security'] ?? [], $path),
         );
     }
 
@@ -240,6 +242,67 @@ final readonly class StandaloneConfigLoader
         }
 
         return $names;
+    }
+
+    /**
+     * Read security.middleware_map (issue #77) as a JSON object mapping
+     * security scheme names to a middleware name or a list of names. Strictly
+     * validated like every other key: a non-object value, or a map value that
+     * is neither a string nor a list of strings, fails with a clear message.
+     * Middleware names are never comma-split ("throttle:60,1" stays one
+     * entry); an empty string or empty list value keeps the scheme mapped to
+     * nothing, the documented "handled elsewhere" acknowledgment. Returns null
+     * when the key is absent (no mapping).
+     *
+     * @param  mixed  $section  the decoded `security` section
+     * @return array<string, list<string>>|null
+     *
+     * @throws OptionException when the key is present but not an object of string-or-string-list values
+     */
+    private function securityMiddlewareMap(mixed $section, string $path): ?array
+    {
+        $value = is_array($section) ? ($section['middleware_map'] ?? null) : null;
+        if ($value === null) {
+            return null;
+        }
+
+        if (! is_array($value) || ($value !== [] && array_is_list($value))) {
+            throw new OptionException("Invalid 'security.middleware_map' in config file {$path}: expected a JSON object mapping security scheme names to a middleware name or a list of names.");
+        }
+
+        $map = [];
+        foreach ($value as $scheme => $middleware) {
+            $scheme = trim((string) $scheme);
+            if ($scheme === '') {
+                continue;
+            }
+
+            if (is_string($middleware)) {
+                $middleware = trim($middleware);
+                $map[$scheme] = $middleware === '' ? [] : [$middleware];
+
+                continue;
+            }
+
+            if (! is_array($middleware) || ! array_is_list($middleware)) {
+                throw new OptionException("Invalid 'security.middleware_map.{$scheme}' in config file {$path}: expected a middleware name or a list of names (never comma-split, pass each as its own entry).");
+            }
+
+            $names = [];
+            foreach ($middleware as $element) {
+                if (! is_string($element)) {
+                    throw new OptionException("Invalid 'security.middleware_map.{$scheme}' in config file {$path}: every entry must be a string.");
+                }
+                $element = trim($element);
+                if ($element !== '') {
+                    $names[] = $element;
+                }
+            }
+
+            $map[$scheme] = $names;
+        }
+
+        return $map;
     }
 
     /**

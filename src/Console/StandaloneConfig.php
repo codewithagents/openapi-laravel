@@ -8,10 +8,10 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  * The settings a standalone-binary run can read from an openapi-laravel.json
  * config file. The keys mirror config/openapi-laravel.php one to one (spec,
  * output.path/namespace/suffix/prune, controllers.enabled/path/namespace,
- * routes.enabled/path/middleware/prefix, enforce_closed_objects, max_depth,
- * max_bytes, only_tags, only_schemas, exclude_path_prefixes), so a team can
- * keep one mental model across the artisan command and the framework-free
- * binary.
+ * routes.enabled/path/middleware/prefix, security.middleware_map,
+ * enforce_closed_objects, max_depth, max_bytes, only_tags, only_schemas,
+ * exclude_path_prefixes), so a team can keep one mental model across the
+ * artisan command and the framework-free binary.
  *
  * Every property is nullable: null means "not set in the file", letting the
  * binary apply its flag-over-config-over-default precedence per value.
@@ -25,6 +25,7 @@ final readonly class StandaloneConfig
      * @param  list<string>|null  $onlyTags  subset tag selection (issue #44), or null when unset
      * @param  list<string>|null  $onlySchemas  subset schema selection (issue #44), or null when unset
      * @param  list<string>|null  $excludePathPrefixes  path-prefix exclusion (issue #96), or null when unset
+     * @param  array<string, list<string>>|null  $securityMiddlewareMap  security scheme name => middleware names (issue #77), or null when unset
      */
     public function __construct(
         public ?string $spec = null,
@@ -71,5 +72,16 @@ final readonly class StandaloneConfig
          * @var list<string>|null
          */
         public ?array $excludePathPrefixes = null,
+        /*
+         * Security scheme to middleware mapping (issue #77). A JSON object
+         * whose keys are scheme names from components.securitySchemes and
+         * whose values are a middleware name or a list of names (never
+         * comma-split). An empty list value acknowledges a scheme as handled
+         * elsewhere. Null means the key was not set, in which case no
+         * middleware is mapped.
+         *
+         * @var array<string, list<string>>|null
+         */
+        public ?array $securityMiddlewareMap = null,
     ) {}
 }

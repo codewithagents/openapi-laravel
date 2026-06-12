@@ -85,7 +85,11 @@ response (smallest 2xx, the same pick that drives the return type) is enforced b
 `RespondsWithStatus` route middleware when it is not 200, so a 201 create operation answers 201 out
 of the box, and a selected 204 types the abstract method `void` with the middleware setting the
 status and guaranteeing the empty body. The middleware only rewrites an exactly-200 response, so
-error responses and explicitly set statuses pass through untouched.
+error responses and explicitly set statuses pass through untouched. Security schemes map to
+per-route middleware via the config-only `security.middleware_map` key (#77): operation `security`
+overrides global, `security: []` keeps an operation public, AND requirements apply all mapped
+middleware, OR alternatives enforce only the first requirement object (warned per operation), and a
+required-but-unmapped scheme (or a mapped name the spec never declares) warns at generation time.
 
 ### Honest residuals (documented, not hidden)
 - Undiscriminated object unions (no `discriminator`) stay `mixed`, presence-only by design (#31).

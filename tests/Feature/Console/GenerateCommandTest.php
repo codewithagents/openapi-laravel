@@ -152,6 +152,34 @@ it('wraps the routes in a Route::group when routes.middleware and routes.prefix 
         ->and($routes)->toContain("    Route::get('/pets', [PetController::class, 'listPets'])->name('listPets');");
 });
 
+it('maps security schemes to route middleware via security.middleware_map (#77)', function () use ($tempOut) {
+    $spec = __DIR__.'/../../Fixtures/server/secured-petstore.yaml';
+    $out = $tempOut();
+    $routesOut = $out.'/routes/api.generated.php';
+
+    config()->set('openapi-laravel.controllers.path', $out.'/Http/Controllers/Api');
+    config()->set('openapi-laravel.routes.path', $routesOut);
+    // A string value is one middleware, a list value several; both shapes
+    // normalize to the same map.
+    config()->set('openapi-laravel.security.middleware_map', [
+        'bearerAuth' => 'auth:sanctum',
+        'apiKey' => ['auth.apikey'],
+    ]);
+
+    $this->artisan('openapi:generate', [
+        '--spec' => $spec,
+        '--output' => $out,
+    ])->assertSuccessful();
+
+    $routes = file_get_contents($routesOut);
+    // listPets inherits the global bearerAuth; createPet overrides with
+    // apiKey (plus the 201 status middleware in the same array); getHealth
+    // declares security: [] and stays public.
+    expect($routes)->toContain("Route::get('/pets', [PetController::class, 'listPets'])->name('listPets')->middleware(['auth:sanctum']);")
+        ->and($routes)->toContain("Route::post('/pets', [PetController::class, 'createPet'])->name('createPet')->middleware(['auth.apikey', RespondsWithStatus::class.':201']);")
+        ->and($routes)->toContain("Route::get('/health', [MetaController::class, 'getHealth'])->name('getHealth');");
+});
+
 it('skips controllers and routes with --no-controllers and --no-routes', function () use ($tempOut) {
     $spec = __DIR__.'/../../Fixtures/server/petstore.yaml';
     $out = $tempOut();

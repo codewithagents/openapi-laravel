@@ -66,6 +66,29 @@ return [
     ],
 
     /*
+     * Map the spec's security schemes to Laravel middleware (issue #77).
+     * Keys are scheme names from components.securitySchemes; values are one
+     * middleware name or a list of names (each entry its own string, never
+     * comma-split). Every generated route whose operation requires a mapped
+     * scheme gets ->middleware([...]) with the mapped names.
+     *
+     * Semantics: operation-level `security` overrides the global one, and an
+     * explicit `security: []` makes that operation public (no middleware).
+     * Multiple schemes in one requirement object (AND) apply all mapped
+     * middleware; multiple requirement objects (OR) cannot be expressed as
+     * middleware, so the first requirement object is enforced and a warning
+     * names the ignored alternatives. A scheme the spec requires but the map
+     * does not name leaves its routes open and warns at generation time; map
+     * it to an empty list to acknowledge it is handled elsewhere and silence
+     * the warning. Empty (the default) maps nothing.
+     *
+     * Example: ['bearerAuth' => 'auth:sanctum', 'apiKey' => ['auth.apikey', 'throttle:60,1']]
+     */
+    'security' => [
+        'middleware_map' => [],
+    ],
+
+    /*
      * Enforce closed object shapes: when true, a schema declaring
      * `additionalProperties: false` emits a rule that rejects any input key
      * outside its declared property set (issue #30). Enabled by default, because

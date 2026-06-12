@@ -524,6 +524,28 @@ used to be listed here too; since issue #64 they are honored, with the residuals
 An unresolvable parameter `$ref` (external or dangling) is dropped from its operation, also with a
 warning naming the pointer.
 
+### Security: a name-to-middleware map, not an auth implementation
+
+The spec's `securitySchemes` and `security` declarations map to per-route middleware through the
+config-only [`security.middleware_map` key](/guides/server-scaffold#security-middleware-from-the-spec):
+operation-level `security` overrides the global one, an explicit `security: []` keeps an operation
+public, and all schemes of one requirement object (AND) apply their mapped middleware. The honest
+residuals:
+
+- **OR alternatives are not expressible.** Multiple requirement objects mean "any one of these
+  suffices", and a flat middleware list cannot encode that. Only the **first** requirement object
+  is enforced, with a warning per operation naming the ignored alternatives. If the first
+  alternative is the empty requirement (`{}`, anonymous access allowed), nothing is enforced.
+- **Scopes are ignored.** The mapping is scheme-name-based; OAuth2 scope checking is your
+  middleware's job (e.g. `auth:api,scope-name` style parameterized middleware, which you can
+  encode in the mapped name yourself).
+- **The middleware itself is yours.** The generator wires names onto routes; it does not generate
+  guards, token validation, or any auth code.
+- A scheme the spec requires but the map does not name leaves its routes **without** auth
+  middleware, exactly like before the mapping existed, but now with a warning per scheme. With no
+  map configured (the default), a secured spec generates open routes and warns, so the degradation
+  is visible instead of silent.
+
 ## String formats: a few are no-ops
 
 A `format` on a string is mapped to the closest Laravel rule where one exists. `email`/`idn-email`

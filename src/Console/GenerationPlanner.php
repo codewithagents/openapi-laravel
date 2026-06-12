@@ -209,6 +209,7 @@ final readonly class GenerationPlanner
             dataNamespace: $request->namespace,
             routeMiddleware: $request->routesMiddleware,
             routePrefix: $request->routesPrefix,
+            securityMiddlewareMap: $request->securityMiddlewareMap,
         );
 
         // Collect descriptors once and feed the same list to both generators so

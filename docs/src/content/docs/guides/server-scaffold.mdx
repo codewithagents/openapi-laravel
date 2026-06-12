@@ -315,6 +315,59 @@ exactly as before. These two keys are config-only: there are no CLI flags for th
 artisan command and the standalone binary (via `routes.middleware` / `routes.prefix` in
 [`openapi-laravel.json`](/guides/configuration#standalone-binary-openapi-laraveljson)).
 
+### Security middleware from the spec
+
+The spec's `securitySchemes` and `security` declarations map to per-route middleware through the
+config-only `security.middleware_map` key. Keys are scheme names from
+`components.securitySchemes`; values are one middleware name or a list of names (each entry its
+own string, never comma-split):
+
+```php
+// config/openapi-laravel.php
+'security' => [
+    'middleware_map' => [
+        'bearerAuth' => 'auth:sanctum',
+        'apiKey'     => ['auth.apikey', 'throttle:60,1'],
+    ],
+],
+```
+
+Every generated route whose operation requires a mapped scheme carries the mapped middleware:
+
+```php
+Route::get('/pets', [PetController::class, 'listPets'])->name('listPets')->middleware(['auth:sanctum']);
+```
+
+The resolution follows the OpenAPI security semantics exactly:
+
+| Spec declares | Generated route carries |
+| --- | --- |
+| no `security` on the operation, global `security` set | the mapped middleware of the global requirement |
+| operation-level `security` | the mapped middleware of the operation's own requirement (the global one is overridden entirely) |
+| operation-level `security: []` | nothing: the operation is explicitly public, even when global security exists |
+| one requirement object with several schemes (AND) | all mapped middleware, in spec order, deduplicated |
+| several requirement objects (OR) | the mapped middleware of the **first** requirement object only, with a warning per operation naming the ignored alternatives (middleware is a flat AND list and cannot express OR) |
+| an empty requirement object `{}` as the first alternative | nothing: the spec allows anonymous access |
+
+Scopes inside a requirement are ignored; the mapping is name-based. When both this mapping and a
+non-200 [status enforcement](#response-status-codes) apply, the route carries a single
+`->middleware([...])` array holding both. The `routes.middleware` group wraps around everything,
+so group middleware and per-route security middleware compose.
+
+Two warnings keep the mapping honest, on the same channel as the other generation diagnostics:
+
+- A scheme the spec **requires but the map does not name** warns once per scheme, because that
+  route is generated without auth middleware (the pre-mapping behavior, now visible). Map the
+  scheme to an empty list (`'schemeName' => []`) to acknowledge it is handled elsewhere and
+  silence the warning.
+- A mapped scheme name the spec **never declares** in `components.securitySchemes` warns once: it
+  is almost certainly a typo in the config.
+
+The key is config-only on both surfaces, like the route group settings: the publishable
+`config/openapi-laravel.php` shown above, and `security.middleware_map` in
+[`openapi-laravel.json`](/guides/configuration#standalone-binary-openapi-laraveljson) for the
+standalone binary (a JSON object; values a string or a list of strings, strictly validated).
+
 ### Response status codes
 
 The success status your spec declares is the status the scaffold produces. For each operation the

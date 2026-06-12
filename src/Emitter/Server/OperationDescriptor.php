@@ -32,6 +32,7 @@ final readonly class OperationDescriptor
      * @param  array{name: string, type: string}|null  $bodyParam
      * @param  list<string>  $imports  FQCNs the controller file must `use`
      * @param  array{name: string, type: string, injected: bool}|null  $queryParam
+     * @param  list<string>  $securityMiddleware
      */
     public function __construct(
         public string $httpMethod,
@@ -62,6 +63,15 @@ final readonly class OperationDescriptor
          * response, where no success status is actually declared.
          */
         public ?int $successStatus = null,
+        /*
+         * The middleware names the spec's security declarations resolve to
+         * through security.middleware_map (issue #77): the operation's own
+         * `security` when declared (an explicit [] means public, so this stays
+         * empty), otherwise the document-level security. Already deduplicated
+         * and in deterministic spec order; empty means the route carries no
+         * security middleware.
+         */
+        public array $securityMiddleware = [],
     ) {}
 
     /**

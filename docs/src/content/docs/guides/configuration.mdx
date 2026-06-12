@@ -180,6 +180,32 @@ is a flat route list with no group wrapper.
 
 See the [server scaffold guide](/guides/server-scaffold) for a complete worked example.
 
+### `security.middleware_map`
+
+Maps the spec's security schemes to Laravel middleware on the generated routes. Keys are scheme
+names from `components.securitySchemes`; values are one middleware name or a list of names (each
+entry its own string, never comma-split, so `'throttle:60,1'` stays intact):
+
+```php
+'security' => [
+    'middleware_map' => [
+        'bearerAuth' => 'auth:sanctum',
+        'apiKey'     => ['auth.apikey', 'throttle:60,1'],
+    ],
+],
+```
+
+Every generated route whose operation requires a mapped scheme gets `->middleware([...])` with the
+mapped names. Operation-level `security` overrides the global one, an explicit `security: []`
+keeps that operation public, multiple schemes in one requirement object (AND) apply all mapped
+middleware, and of multiple requirement objects (OR) only the first is enforced, with a warning. A
+scheme the spec requires but the map does not name leaves its routes without auth middleware and
+warns at generation time; map it to an empty list (`'schemeName' => []`) to acknowledge it is
+handled elsewhere and silence the warning. Defaults to `[]` (nothing mapped, no middleware).
+Config-only, no CLI flag; the `openapi-laravel.json` file accepts the same key as a JSON object.
+See [security middleware from the spec](/guides/server-scaffold#security-middleware-from-the-spec)
+for the full semantics table.
+
 ### `enforce_closed_objects`
 
 When `true` (the default), every schema declaring `additionalProperties: false` emits a rule that
@@ -292,6 +318,12 @@ one to one:
     "path": "src/routes/api.generated.php",
     "middleware": ["api", "throttle:60,1"],
     "prefix": "api/v1"
+  },
+  "security": {
+    "middleware_map": {
+      "bearerAuth": "auth:sanctum",
+      "apiKey": ["auth.apikey", "throttle:60,1"]
+    }
   },
   "max_depth": 64,
   "max_bytes": 25165824

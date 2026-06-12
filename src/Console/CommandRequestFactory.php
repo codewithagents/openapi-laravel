@@ -80,6 +80,10 @@ final readonly class CommandRequestFactory
         // "exclude nothing".
         $excludePathPrefixes = $this->resolveRepeatable($command, 'exclude-path-prefix', 'openapi-laravel.exclude_path_prefixes');
 
+        // Security-to-middleware mapping (issue #77). Config-only like the
+        // route group settings: a map is config-shaped, there is no CLI flag.
+        $securityMiddlewareMap = $this->configMiddlewareMap('openapi-laravel.security.middleware_map');
+
         return new GenerationRequest(
             $spec,
             $output,
@@ -98,7 +102,56 @@ final readonly class CommandRequestFactory
             $routesMiddleware,
             $routesPrefix,
             $excludePathPrefixes,
+            $securityMiddlewareMap,
         );
+    }
+
+    /**
+     * Read the security.middleware_map config key (issue #77): a map of
+     * security scheme name => middleware name(s). A string value is one
+     * middleware; a list value is several (each entry its own string, never
+     * comma-split, so 'throttle:60,1' stays intact); an empty string or list
+     * keeps the scheme mapped to nothing, the documented "handled elsewhere"
+     * acknowledgment. Entries of any other shape are dropped, mirroring the
+     * lenient reads of the other PHP-config keys.
+     *
+     * @return array<string, list<string>>
+     */
+    private function configMiddlewareMap(string $key): array
+    {
+        $configured = config($key);
+        if (! is_array($configured)) {
+            return [];
+        }
+
+        $map = [];
+        foreach ($configured as $scheme => $value) {
+            $scheme = trim((string) $scheme);
+            if ($scheme === '') {
+                continue;
+            }
+
+            if (is_string($value)) {
+                $value = trim($value);
+                $map[$scheme] = $value === '' ? [] : [$value];
+
+                continue;
+            }
+
+            if (! is_array($value)) {
+                continue;
+            }
+
+            $names = [];
+            foreach ($value as $name) {
+                if (is_string($name) && trim($name) !== '') {
+                    $names[] = trim($name);
+                }
+            }
+            $map[$scheme] = $names;
+        }
+
+        return $map;
     }
 
     /**

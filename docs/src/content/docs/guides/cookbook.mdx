@@ -13,9 +13,40 @@ documents a flag or config key that does not exist.
 
 ## Auth middleware on generated routes
 
-The generator does not read `securitySchemes` or operation-level `security` from the spec. There is
-no PHP file in the output that knows about authentication. Auth is wired in Laravel, and there are
-three places to do it, from coarsest to finest.
+The generator reads `securitySchemes` and operation/global `security` from the spec and maps them
+to per-route middleware through the config-only
+[`security.middleware_map` key](/guides/server-scaffold#security-middleware-from-the-spec). The
+generated middleware names are wiring only: the auth implementation itself (guards, tokens) stays
+Laravel's job. There are four places to put auth, from spec-driven to fully hand-wired.
+
+### From the spec: `security.middleware_map`
+
+When the spec declares security, map each scheme name to the middleware that implements it:
+
+```php
+// config/openapi-laravel.php
+'security' => [
+    'middleware_map' => [
+        'bearerAuth' => 'auth:sanctum',
+    ],
+],
+```
+
+After regenerating, every route whose operation requires `bearerAuth` carries the middleware, and
+an operation with `security: []` stays public:
+
+```php
+Route::get('/pets', [PetController::class, 'listPets'])->name('listPets')->middleware(['auth:sanctum']);
+Route::get('/health', [MetaController::class, 'getHealth'])->name('getHealth');
+```
+
+Operation-level `security` overrides the global one, AND requirements apply all mapped middleware,
+and OR alternatives enforce only the first requirement object (with a warning). A required scheme
+missing from the map warns at generation time and leaves those routes open, so a secured spec is
+never silently unprotected. The full semantics table lives in the
+[server scaffold guide](/guides/server-scaffold#security-middleware-from-the-spec). When the spec
+declares no security (or you prefer auth policy outside the spec), use one of the recipes below
+instead.
 
 ### The whole API: `routes.middleware`
 

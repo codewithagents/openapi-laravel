@@ -370,6 +370,25 @@ it('wraps the routes per routes.middleware and routes.prefix from the config fil
         ->and($routes)->toContain("    Route::get('/pets', [PetController::class, 'listPets'])->name('listPets');");
 });
 
+it('maps security schemes to route middleware per security.middleware_map from the config file (#77)', function () use ($tempOut, $writeConfig) {
+    $securedSpec = __DIR__.'/../../Fixtures/server/secured-petstore.yaml';
+    $out = $tempOut();
+    $configPath = $writeConfig([
+        'spec' => $securedSpec,
+        'output' => ['path' => $out],
+        'security' => ['middleware_map' => ['bearerAuth' => 'auth:sanctum', 'apiKey' => ['auth.apikey']]],
+    ], $out);
+
+    $exit = (new StandaloneApplication)->run(['bin', '--config='.$configPath]);
+
+    $routes = file_get_contents($out.'/routes.php');
+    expect($exit)->toBe(0)
+        ->and($routes)->toContain("Route::get('/pets', [PetController::class, 'listPets'])->name('listPets')->middleware(['auth:sanctum']);")
+        ->and($routes)->toContain("Route::post('/pets', [PetController::class, 'createPet'])->name('createPet')->middleware(['auth.apikey', RespondsWithStatus::class.':201']);")
+        // security: [] keeps the health probe public.
+        ->and($routes)->toContain("Route::get('/health', [MetaController::class, 'getHealth'])->name('getHealth');");
+});
+
 it('keeps the routes flat with names when neither routes.middleware nor routes.prefix is set (#71)', function () use ($tempOut, $writeConfig) {
     $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
     $out = $tempOut();

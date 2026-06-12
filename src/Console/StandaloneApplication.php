@@ -238,6 +238,10 @@ final class StandaloneApplication
             ? trim($config->routesPrefix)
             : null;
 
+        // Security-to-middleware mapping (issue #77). Config-only like the
+        // route group settings: a map is config-shaped, there is no CLI flag.
+        $securityMiddlewareMap = $config->securityMiddlewareMap ?? [];
+
         return new GenerationRequest(
             $spec,
             $output,
@@ -256,6 +260,7 @@ final class StandaloneApplication
             $routesMiddleware,
             $routesPrefix,
             $excludePathPrefixes,
+            $securityMiddlewareMap,
         );
     }
 
@@ -408,12 +413,15 @@ final class StandaloneApplication
         openapi-laravel.json in the working directory (if present), or the
         path given via --config. Its keys mirror config/openapi-laravel.php:
         spec, output.{path,namespace,suffix,prune}, controllers.{enabled,path,
-        namespace}, routes.{enabled,path,middleware,prefix}, enforce_closed_objects,
-        max_depth, max_bytes, only_tags, only_schemas (the only_* keys each a
-        comma-separated string or a JSON list of names), exclude_path_prefixes
-        (a JSON list of literal path prefixes, never comma-split). routes.middleware
-        (a JSON list of names, never comma-split) and routes.prefix wrap the generated
-        routes in one Route::group block; they are config-only, with no CLI flags.
+        namespace}, routes.{enabled,path,middleware,prefix}, security.middleware_map,
+        enforce_closed_objects, max_depth, max_bytes, only_tags, only_schemas (the
+        only_* keys each a comma-separated string or a JSON list of names),
+        exclude_path_prefixes (a JSON list of literal path prefixes, never
+        comma-split). routes.middleware (a JSON list of names, never comma-split)
+        and routes.prefix wrap the generated routes in one Route::group block.
+        security.middleware_map (a JSON object: scheme name => middleware name or
+        list of names) puts mapped middleware on each route the spec secures.
+        These three are config-only, with no CLI flags.
 
         Options:
           --config=<path>      Path to a JSON config file (default: ./openapi-laravel.json)

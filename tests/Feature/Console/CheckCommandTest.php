@@ -211,6 +211,39 @@ it('stays in lockstep with generate when routes.middleware and routes.prefix are
         ->assertExitCode(1);
 });
 
+it('stays in lockstep with generate when security.middleware_map is configured (#77)', function () use ($tempOut) {
+    $securedSpec = __DIR__.'/../../Fixtures/server/secured-petstore.yaml';
+    $out = $tempOut();
+    $routesOut = $out.'/routes/api.generated.php';
+
+    config()->set('openapi-laravel.controllers.path', $out.'/Http/Controllers/Api');
+    config()->set('openapi-laravel.routes.path', $routesOut);
+    config()->set('openapi-laravel.security.middleware_map', ['bearerAuth' => 'auth:sanctum', 'apiKey' => 'auth.apikey']);
+
+    $this->artisan('openapi:generate', [
+        '--spec' => $securedSpec,
+        '--output' => $out,
+    ])->assertSuccessful();
+
+    // Same config: generate and check share the planner, so the routes file
+    // carrying the mapped middleware reads as in sync.
+    $this->artisan('openapi:check', [
+        '--spec' => $securedSpec,
+        '--output' => $out,
+    ])->assertExitCode(0);
+
+    // Changing the map changes the expected output, so the committed file
+    // must now read as drifted.
+    config()->set('openapi-laravel.security.middleware_map', ['bearerAuth' => 'auth:api', 'apiKey' => 'auth.apikey']);
+
+    $this->artisan('openapi:check', [
+        '--spec' => $securedSpec,
+        '--output' => $out,
+    ])
+        ->expectsOutputToContain('[changed] '.$routesOut)
+        ->assertExitCode(1);
+});
+
 it('skips the scaffold in check with --no-controllers and --no-routes', function () use ($serverSpec, $tempOut) {
     $out = $tempOut();
 

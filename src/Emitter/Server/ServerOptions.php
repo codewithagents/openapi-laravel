@@ -17,6 +17,7 @@ final readonly class ServerOptions
     /**
      * @param  list<string>  $routeMiddleware  middleware names the generated routes are grouped under (issue #71); empty means no group
      * @param  ?string  $routePrefix  URI prefix the generated routes are grouped under (issue #71); null or '' means no prefix
+     * @param  array<string, list<string>>  $securityMiddlewareMap  security scheme name => middleware names (issue #77); empty means no mapping
      */
     public function __construct(
         public string $controllerNamespace = 'App\\Http\\Controllers\\Api',
@@ -25,5 +26,6 @@ final readonly class ServerOptions
         public string $controllerSuffix = 'Controller',
         public array $routeMiddleware = [],
         public ?string $routePrefix = null,
+        public array $securityMiddlewareMap = [],
     ) {}
 }

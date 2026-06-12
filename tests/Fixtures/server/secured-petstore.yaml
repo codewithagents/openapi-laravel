@@ -1,0 +1,42 @@
+openapi: 3.0.3
+info:
+  title: Secured Petstore
+  version: 1.0.0
+security:
+  - bearerAuth: []
+paths:
+  /pets:
+    get:
+      tags: [Pet]
+      operationId: listPets
+      summary: List all pets
+      responses:
+        '200':
+          description: OK
+    post:
+      tags: [Pet]
+      operationId: createPet
+      summary: Create a pet
+      security:
+        - apiKey: []
+      responses:
+        '201':
+          description: Created
+  /health:
+    get:
+      tags: [Meta]
+      operationId: getHealth
+      summary: Liveness probe
+      security: []
+      responses:
+        '200':
+          description: OK
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    apiKey:
+      type: apiKey
+      name: X-Api-Key
+      in: header

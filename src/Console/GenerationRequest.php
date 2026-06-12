@@ -26,6 +26,7 @@ final readonly class GenerationRequest
      * @param  list<string>  $onlySchemas  subset schema selection (issue #44); empty means the full spec
      * @param  list<string>  $routesMiddleware  middleware names the generated routes are grouped under (issue #71); empty means no group
      * @param  list<string>  $excludePathPrefixes  path-prefix exclusion (issue #96); empty means no path is excluded
+     * @param  array<string, list<string>>  $securityMiddlewareMap  security scheme name => middleware names (issue #77); empty means no mapping
      */
     public function __construct(
         public ?string $spec,
@@ -83,5 +84,14 @@ final readonly class GenerationRequest
          * @var list<string>
          */
         public array $excludePathPrefixes = [],
+        /*
+         * Security scheme to middleware mapping (issue #77). Keys are scheme
+         * names from the spec's components.securitySchemes; values are the
+         * middleware names a route requiring that scheme must carry. An empty
+         * list value acknowledges a scheme as handled elsewhere (no middleware,
+         * no warning). Config-only, like the route group settings: there is no
+         * CLI flag, a map is config-shaped.
+         */
+        public array $securityMiddlewareMap = [],
     ) {}
 }
