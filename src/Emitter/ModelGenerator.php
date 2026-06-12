@@ -55,7 +55,16 @@ final class ModelGenerator
         'WithTransformer',
         'MapObjectTransformer',
         'Rule',
+        // Multipart file parts (issue #75) type their properties UploadedFile
+        // by short name, so a component class with that exact name (an enum
+        // would carry no Data suffix) must not shadow the import.
+        'UploadedFile',
     ];
+
+    /**
+     * The PHP type a multipart file part (issue #75) is hydrated into.
+     */
+    private const UPLOADED_FILE_FQCN = 'Illuminate\\Http\\UploadedFile';
 
     // Deepest array nesting a query parameter may have: bracket query strings beyond a few levels are not a real wire format.
     private const QUERY_MAX_ARRAY_DEPTH = 4;
@@ -181,6 +190,18 @@ final class ModelGenerator
     private string $warningContext = 'Document';
 
     /**
+     * Whether the class currently being emitted is the ROOT of a
+     * multipart/form-data request body (issue #75). Only the root properties
+     * of such a body are form parts, so only there a `type: string,
+     * format: binary` property (or an array of them) becomes an UploadedFile
+     * with `file` rules; a binary string nested deeper sits inside a
+     * JSON-serialized part and keeps its plain string typing. Set by
+     * generateMultipartBodyData() around its emitData() call and consulted
+     * together with `depth === 0`, mirroring the $warningContext pattern.
+     */
+    private bool $multipartBody = false;
+
+    /**
      * Runtime support classes the current generate() run actually referenced
      * (issue #40), keyed by short name so each is recorded once. Drives the
      * inlined Support file set: only the support classes a spec uses are emitted
@@ -214,6 +235,7 @@ final class ModelGenerator
         $this->bodyFiles = [];
         $this->warnings = [];
         $this->warningContext = 'Document';
+        $this->multipartBody = false;
         $this->usedSupportClasses = [];
 
         $schemas = $this->componentSchemas($document);
@@ -643,6 +665,79 @@ final class ModelGenerator
     }
 
     /**
+     * Emit a per-operation request-body Data class for a multipart/form-data
+     * body (issue #75), through the exact emitData pipeline the JSON bodies of
+     * issue #76 use, with ONE multipart-specific twist: a root property that is
+     * a `type: string, format: binary` schema (or an array of binary items) is
+     * an uploaded file part, typed `UploadedFile` (or `array<int, UploadedFile>`)
+     * with Laravel's `file` rule plus a `mimetypes:` constraint when the part
+     * pins its media type via `contentMediaType`. Every non-binary part is
+     * validated exactly like a JSON body field.
+     *
+     * Unlike the JSON path, a schema-level `$ref` body is NOT typed against the
+     * component's class: that class was emitted with JSON semantics, where a
+     * binary string property is a plain string whose `string` rule would
+     * false-reject every actual upload. Instead the referenced component schema
+     * is re-emitted as a per-operation class with multipart semantics. A `$ref`
+     * that does not resolve to an object component, and any non-object shape,
+     * keeps the documented Request fallback with a warning, mirroring
+     * {@see generateBodyData()}.
+     *
+     * @param  string  $baseName  StudlyCaps operation context (operationId or the method+path fallback), without suffix
+     * @param  string  $operationLabel  "POST /pets", for warning messages
+     * @return string|null the reserved body class name, or null when the schema cannot type a body
+     */
+    public function generateMultipartBodyData(string $baseName, string $operationLabel, Schema|Reference $schema): ?string
+    {
+        $this->warningContext = sprintf('Multipart request body of operation %s', $operationLabel);
+
+        if ($schema instanceof Reference) {
+            $name = $this->refName($schema->getReference());
+            if ($name === null || ! isset($this->registry[$name]) || $this->registry[$name]['kind'] !== 'data') {
+                $this->warnings[sprintf(
+                    'Operation %s: the multipart/form-data request body $ref "%s" does not resolve to an object component schema; the controller method falls back to Illuminate\Http\Request.',
+                    $operationLabel,
+                    $schema->getReference(),
+                )] = true;
+
+                return null;
+            }
+
+            $schema = $this->registry[$name]['schema'];
+        }
+
+        $reason = $this->bodySkipReason($schema);
+        if ($reason !== null) {
+            $this->warnings[sprintf(
+                'Operation %s: the multipart/form-data request body schema was not generated as a typed Data class (%s); the controller method falls back to Illuminate\Http\Request.',
+                $operationLabel,
+                $reason,
+            )] = true;
+
+            return null;
+        }
+
+        $className = $this->names->reserve($this->withSuffix($baseName.'Request'));
+
+        // Same bucket discipline as generateBodyData(): emit into a clean
+        // bucket and collect into $bodyFiles for the planner.
+        $mainFiles = $this->files;
+        $this->files = [];
+        $this->multipartBody = true;
+
+        $variant = $this->hasReadWriteFlags($schema) ? 'write' : 'all';
+        $this->emitData($className, $schema, 0, $variant, ['Multipart request body of '.$this->docblockSafe($operationLabel).'.']);
+
+        $this->multipartBody = false;
+        foreach ($this->files as $name => $file) {
+            $this->bodyFiles[$name] = $file;
+        }
+        $this->files = $mainFiles;
+
+        return $className;
+    }
+
+    /**
      * Why an inline request-body schema cannot become a typed Data class, or
      * null when it can. The bar mirrors the component classification exactly:
      * only the shapes that would have become a `kind: data` component (an
@@ -694,6 +789,155 @@ final class ModelGenerator
         }
 
         return 'it is not an object schema';
+    }
+
+    /**
+     * Classify one root property of a multipart/form-data body (issue #75) as
+     * an uploaded-file part, or null for a regular field. `kind` is 'file' for
+     * a binary string and 'files' for an array of binary items; `schema` is
+     * the (alias-resolved) part schema the nullability and array-count bounds
+     * are read from; `leaf` is the binary string schema the `mimetypes:`
+     * constraint is read from (the items schema for an array part).
+     *
+     * A `$ref` part (or array items entry) is followed through the non-object
+     * alias caches so `file: {$ref: BinaryFile}` is still recognized as an
+     * upload. Without that resolution the alias path in buildRules() would
+     * emit a `string` rule that false-rejects every actual UploadedFile, which
+     * is worse than the old no-validation fallback. A `$ref` to a Data class
+     * or enum returns null and keeps its normal typing.
+     *
+     * @return array{kind: 'file'|'files', schema: Schema, leaf: Schema}|null
+     */
+    private function multipartFilePart(Schema|Reference $schema): ?array
+    {
+        $resolved = $this->multipartPartSchema($schema);
+        if ($resolved === null) {
+            return null;
+        }
+
+        if ($this->isBinaryString($resolved)) {
+            return ['kind' => 'file', 'schema' => $resolved, 'leaf' => $resolved];
+        }
+
+        if (($this->normalizeTypes($resolved)[0] ?? null) === 'array') {
+            $items = $resolved->items;
+            if ($items instanceof Schema || $items instanceof Reference) {
+                $leaf = $this->multipartPartSchema($items);
+                if ($leaf !== null && $this->isBinaryString($leaf)) {
+                    return ['kind' => 'files', 'schema' => $resolved, 'leaf' => $leaf];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve a multipart part schema for binary-file detection: an inline
+     * Schema as-is, a `$ref` (or chained allOf-of-$ref alias) to a non-object
+     * alias component to its terminal schema. Null for anything else.
+     */
+    private function multipartPartSchema(Schema|Reference $schema): ?Schema
+    {
+        if ($schema instanceof Schema) {
+            return $schema;
+        }
+
+        $alias = $this->referencedAliasSchema($schema);
+
+        return $alias === null ? null : $this->terminalAliasSchema($alias);
+    }
+
+    private function isBinaryString(Schema $schema): bool
+    {
+        return ($this->normalizeTypes($schema)[0] ?? null) === 'string' && $schema->format === 'binary';
+    }
+
+    /**
+     * The resolved PHP type of a multipart file part: `UploadedFile` for a
+     * single file, a typed `array<int, UploadedFile>` for an array of files.
+     *
+     * @param  array{kind: 'file'|'files', schema: Schema, leaf: Schema}  $part
+     */
+    private function multipartFileType(array $part): ResolvedType
+    {
+        $nullable = $this->isNullable($part['schema']);
+
+        if ($part['kind'] === 'file') {
+            return new ResolvedType('UploadedFile', $nullable, null, [self::UPLOADED_FILE_FQCN]);
+        }
+
+        return new ResolvedType('array', $nullable, 'array<int, UploadedFile>', [self::UPLOADED_FILE_FQCN]);
+    }
+
+    /**
+     * The validation rules of a multipart file part: presence as usual, then
+     * `file` (plus the `mimetypes:` constraint) on the value itself for a
+     * single file, or `array` plus the spec's minItems/maxItems bounds with
+     * the file rules on the `.*` wildcard for an array of files.
+     *
+     * @param  array{kind: 'file'|'files', schema: Schema, leaf: Schema}  $part
+     * @return array{0: list<string>, 1: array<string, list<string>>, 2: bool} property rules,
+     *                                                                         wildcard item rules keyed by suffix, whether Rule:: is used
+     */
+    private function multipartFileRules(array $part, bool $required, ResolvedType $type): array
+    {
+        $rules = $this->presenceRules($required, $type->nullable);
+
+        if ($part['kind'] === 'file') {
+            return [array_merge($rules, $this->fileLeafRules($part['leaf'])), [], false];
+        }
+
+        return [
+            array_merge($rules, ["'array'"], $this->arrayCountRules($part['schema'])),
+            ['.*' => $this->fileLeafRules($part['leaf'])],
+            false,
+        ];
+    }
+
+    /**
+     * The per-file rules of one uploaded-file value: Laravel's `file` rule,
+     * plus a `mimetypes:` constraint when the schema pins the part's media
+     * type via `contentMediaType` (a JSON Schema 2020-12 keyword OpenAPI 3.1
+     * admits). Deliberately NO size rule: OpenAPI has no standard keyword for
+     * a file's byte size (`maxLength` bounds a STRING's character length, and
+     * Laravel's file `max:` counts kilobytes), so no clean mapping exists and
+     * none is invented.
+     *
+     * @return list<string>
+     */
+    private function fileLeafRules(Schema $schema): array
+    {
+        $rules = ["'file'"];
+
+        $mediaType = $this->contentMediaTypeOf($schema);
+        if ($mediaType !== null) {
+            $rules[] = "'mimetypes:".$mediaType."'";
+        }
+
+        return $rules;
+    }
+
+    /**
+     * The schema's `contentMediaType`, when it is a well-formed media type.
+     * cebe has no typed attribute for the keyword, so it is read from the
+     * serialized data. The spec is untrusted input and the value lands inside
+     * a single-quoted rule string, so anything not matching the strict
+     * type/subtype token shape (including the `image/*` wildcard form
+     * Laravel's mimetypes rule understands) is dropped rather than escaped.
+     */
+    private function contentMediaTypeOf(Schema $schema): ?string
+    {
+        $serialized = (array) $schema->getSerializableData();
+        $value = $serialized['contentMediaType'] ?? null;
+
+        if (! is_string($value)) {
+            return null;
+        }
+
+        return preg_match('~^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/(\*|[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*)$~', $value) === 1
+            ? $value
+            : null;
     }
 
     /**
@@ -929,7 +1173,18 @@ final class ModelGenerator
             // (first_name + firstName); suffix collisions to avoid duplicate params.
             $propertyName = $propertyNames->reserve(PhpIdentifier::toPropertyName($wireName));
             $listedRequired = in_array($wireName, $required, true);
-            $type = $this->resolveType($propertySchema, $base.PhpIdentifier::toClassName($wireName), $depth + 1, $variant);
+
+            // A multipart file part (issue #75): at the root of a
+            // multipart/form-data body, a binary string property is an uploaded
+            // file and an array of binary items a list of uploaded files. Only
+            // root properties are form parts, so the detection is gated on
+            // depth 0; a binary string nested deeper sits inside a
+            // JSON-serialized part and keeps its plain string typing.
+            $filePart = $this->multipartBody && $depth === 0 ? $this->multipartFilePart($propertySchema) : null;
+
+            $type = $filePart !== null
+                ? $this->multipartFileType($filePart)
+                : $this->resolveType($propertySchema, $base.PhpIdentifier::toClassName($wireName), $depth + 1, $variant);
 
             // A scalar `default` makes the property optional on input even when
             // the spec lists it as required: an omitted value is filled by the
@@ -951,7 +1206,9 @@ final class ModelGenerator
             // Validation rules are keyed by the wire (mapped input) name. The
             // wildcard map carries one entry per array-nesting level ('.*',
             // '.*.*', ...) so a nested array enforces its inner item rules too.
-            [$propertyRules, $wildcardRules, $uses] = $this->buildRules($propertySchema, $isRequired, $type);
+            [$propertyRules, $wildcardRules, $uses] = $filePart !== null
+                ? $this->multipartFileRules($filePart, $isRequired, $type)
+                : $this->buildRules($propertySchema, $isRequired, $type);
             $rules[$wireName] = $propertyRules;
             foreach ($wildcardRules as $suffix => $ruleList) {
                 if ($ruleList !== []) {

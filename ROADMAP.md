@@ -90,7 +90,14 @@ object request body (#76) synthesizes a per-operation Data class (`<Operation>Re
 from the operationId like the query class, collision-safe through the shared allocator) through the
 exact component-class pipeline (full `rules()`, nested objects, closed-object enforcement, the
 write shape when readOnly fields exist) and types the controller param, so inline bodies validate
-exactly like `$ref` bodies. Hybrid
+exactly like `$ref` bodies. A `multipart/form-data` object body (#75, inline or schema-`$ref`)
+synthesizes the same per-operation class with `format: binary` root parts typed `UploadedFile`
+(Laravel `file` rule, plus `mimetypes:` from a well-formed `contentMediaType`, incl. the `type/*`
+wildcard form), arrays of binary items as `array<int, UploadedFile>` with per-item `field.*` file
+rules, and every non-binary part validated like a JSON field. JSON wins when an operation declares
+both media types, and a `$ref` multipart schema is re-emitted per operation rather than typed
+against the component class (that class carries JSON semantics, whose `string` rule would
+false-reject actual uploads). Hybrid
 injection: body-less operations get the class type-hinted into the signature (laravel-data routes
 container injection through `fromQuery`); operations with a request body get a docblock pointer to
 `::fromQuery($request)` instead, so body and query inputs never bleed into each other. Boolean
@@ -126,8 +133,14 @@ collisions failing loudly.
   a wrong value when validated STANDALONE (morph routing through the base is unaffected).
 - A component `$ref` request body (`#/components/requestBodies/...`) falls back to
   `Illuminate\Http\Request` instead of a typed Data param. Inline JSON OBJECT bodies are generated
-  (#76); an inline body that is NOT an object shape (an array, scalar, union, enum, or free-form
-  map body) keeps the Request fallback, warned per operation.
+  (#76) and multipart/form-data OBJECT bodies too (#75); a body that is NOT an object shape (an
+  array, scalar, union, enum, free-form map, or a whole-body binary multipart schema) keeps the
+  Request fallback, warned per operation.
+- Multipart residuals (#75): no file-size rule is derived (OpenAPI has no standard byte-size
+  keyword; `maxLength` is a string bound and Laravel's file `max:` counts kilobytes, no clean
+  mapping), the `encoding.contentType` map is not read (only schema-level `contentMediaType` feeds
+  `mimetypes:`), a binary string nested BELOW the body root stays a plain string (it sits in a
+  JSON-serialized part), and form-urlencoded bodies keep the Request fallback.
 - Tuple `prefixItems` validates per position (#82: `field.0`, `field.1`, ... rules through the
   shared constraint mapping, plus a `max:` length cap for the closed `items: false` form) but the
   TYPING still degrades to `array<int, mixed>`; a post-prefix `items` schema stays unenforced (a

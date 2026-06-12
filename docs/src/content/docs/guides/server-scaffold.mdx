@@ -613,7 +613,8 @@ The generator resolves the type of each parameter and return value from the spec
 | Request body referencing a component `$ref` (non-readOnly schema)     | Typed Data param, e.g. `PetData $pet`                   |
 | Request body referencing a component `$ref` (schema with writeOnly fields) | Write-variant Data param, e.g. `PetWritableData $pet` |
 | Inline JSON object request body (no `$ref`)                           | Synthesized per-operation Data param, e.g. `CreatePetRequestData $body` |
-| Request body that is an inline array/scalar schema or non-JSON content type | `Illuminate\Http\Request $request`                 |
+| `multipart/form-data` object request body (inline or schema `$ref`)   | Synthesized per-operation Data param with `UploadedFile` file parts, e.g. `UploadPetImageRequestData $body` |
+| Request body that is an inline array/scalar schema or an unsupported content type (form-urlencoded, octet-stream, ...) | `Illuminate\Http\Request $request` |
 | `in: query` parameters on a body-less operation                       | Per-operation query Data param, e.g. `FindPetsByStatusQueryData $query` |
 | `in: query` parameters on an operation with a request body            | No extra param; the docblock points at `<Operation>QueryData::fromQuery($request)` |
 | Response that is a single object `$ref`                               | Data class, e.g. `PetData`                              |
@@ -630,8 +631,9 @@ The generator resolves the type of each parameter and return value from the spec
   synthesized `<Operation>RequestData` class is emitted as the write shape (readOnly fields
   dropped), because a request body is input by definition.
 
-  Array bodies, scalar bodies, and non-JSON content types fall back to a plain
-  `Illuminate\Http\Request` parameter, because there is no single Data class to type them against.
+  Array bodies, scalar bodies, and content types other than JSON and `multipart/form-data` fall
+  back to a plain `Illuminate\Http\Request` parameter, because there is no single Data class to
+  type them against.
 
   Request bodies expressed as a component reference (`$ref: '#/components/requestBodies/...'`) are
   also left untyped today and fall back to `Illuminate\Http\Request`, because the parser does not
@@ -681,6 +683,81 @@ Only an **object** schema synthesizes a class. An inline body that is an array, 
 `oneOf`/`anyOf` union, an enum, or a free-form map (`additionalProperties` only) keeps the
 `Illuminate\Http\Request` fallback **with a generator warning**, because no single Data class can
 type it; see [limitations](/guides/limitations#request-bodies-that-fall-back-to-request-with-a-warning).
+
+## Multipart bodies and file uploads
+
+An operation whose request body declares `multipart/form-data` with an **object schema** gets the
+same synthesized `<Operation>RequestData` class as a JSON body, with one multipart-specific
+mapping: a root property of `type: string, format: binary` is an **uploaded file**, typed
+`Illuminate\Http\UploadedFile` and validated with Laravel's `file` rule. When the part pins its
+media type via `contentMediaType` (an OpenAPI 3.1 / JSON Schema keyword), a `mimetypes:` rule is
+added; Laravel's wildcard form (`image/*`) is supported. An array of binary items becomes a typed
+`array<int, UploadedFile>` with the spec's `minItems`/`maxItems` bounds and a per-item
+`field.* => file` rule. Every non-binary part is validated exactly like a JSON body field, through
+the same rules pipeline.
+
+```yaml
+paths:
+  /pets/upload:
+    post:
+      operationId: uploadPetImage
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image: { type: string, format: binary, contentMediaType: image/png }
+                caption: { type: string, maxLength: 80 }
+```
+
+```php
+// generated: app/Data/UploadPetImageRequestData.php
+final class UploadPetImageRequestData extends Data
+{
+    public function __construct(
+        public readonly UploadedFile $image,
+        public readonly ?string $caption = null,
+    ) {}
+
+    public static function rules(): array
+    {
+        return [
+            'image' => ['required', 'file', 'mimetypes:image/png'],
+            'caption' => ['sometimes', 'string', 'max:80'],
+        ];
+    }
+}
+```
+
+```php
+// generated: app/Http/Controllers/Api/AbstractPetController.php
+abstract public function uploadPetImage(UploadPetImageRequestData $body): JsonResponse;
+```
+
+spatie/laravel-data hydrates the `UploadedFile` straight from the multipart request, so the
+implementation receives a ready `$body->image` to store.
+
+Four boundaries to know about:
+
+- **JSON wins on a tie.** An operation declaring BOTH `application/json` and `multipart/form-data`
+  keeps the JSON typing: the scaffold validates one body shape, and JSON is the established,
+  richer mapping. The multipart variant of such an operation is the implementer's responsibility.
+- **Schema `$ref` bodies are re-emitted, not reused.** A multipart body whose schema is a `$ref`
+  to an object component gets a fresh per-operation class instead of the component's Data class:
+  the component was emitted with JSON semantics, where a binary string is a plain `string` whose
+  `string` rule would false-reject every actual upload.
+- **Only root properties are file parts.** A `format: binary` string nested inside an object
+  property sits in a JSON-serialized part and keeps its plain string typing.
+- **No file-size rule is derived.** OpenAPI has no standard keyword for a file's byte size
+  (`maxLength` bounds a string's character length, and Laravel's file `max:` counts kilobytes), so
+  no `max:` is invented. Add size limits in your concrete controller (or middleware) if you need
+  them.
+
+A multipart body that is not an object shape (a bare binary schema, an array, a union) keeps the
+`Illuminate\Http\Request` fallback **with a generator warning**, exactly like the non-object
+inline JSON bodies.
 
 ## Query parameters
 

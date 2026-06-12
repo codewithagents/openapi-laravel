@@ -28,10 +28,12 @@ use CodeWithAgents\OpenApiLaravel\Naming\UniqueNames;
  * Robustness is a hard requirement: a missing operationId, absent tags, no
  * responses, non-JSON bodies, weird path tokens, and unresolved $refs must
  * never fatal. An inline JSON object body synthesizes a per-operation Data
- * class through the model generator (issue #76); when a type cannot be
- * derived the collector falls back to injecting Request / returning
- * JsonResponse, and every such fallback is surfaced through the warnings
- * channel (issue #67) so the degradation is visible at generation time.
+ * class through the model generator (issue #76), and a multipart/form-data
+ * object body does the same with UploadedFile typing for its binary parts
+ * (issue #75); when a type cannot be derived the collector falls back to
+ * injecting Request / returning JsonResponse, and every such fallback is
+ * surfaced through the warnings channel (issue #67) so the degradation is
+ * visible at generation time.
  *
  * Output is deterministic: descriptors are sorted by path, then by a fixed
  * HTTP-method order, and method names are made unique per controller.
@@ -708,7 +710,10 @@ final class OperationCollector
      * (issue #76) synthesizes a per-operation Data class
      * (`<Operation>RequestData`) through the model generator's emission
      * pipeline, so the inline shape gets the same rules() and typed param a
-     * component schema would.
+     * component schema would. A multipart/form-data object body (issue #75,
+     * inline or `$ref`) synthesizes the same per-operation class with
+     * UploadedFile typing for its binary file parts; JSON wins when an
+     * operation declares both media types.
      *
      * @param  list<string>  $imports
      * @param  string  $label  "GET /pets", for warning messages
@@ -743,11 +748,44 @@ final class OperationCollector
         $schema = $this->jsonSchema($this->asArray($body->content));
 
         if ($schema === null) {
-            // Body exists but no application/json schema (inline, octet-stream,
+            // No JSON content: a multipart/form-data object body (issue #75)
+            // synthesizes its own per-operation Data class with UploadedFile
+            // parts. Consulted only after jsonSchema() found nothing, so an
+            // operation declaring BOTH keeps the JSON typing (documented
+            // precedence: the scaffold validates one body shape, and JSON is
+            // the established, richer mapping).
+            $multipart = $this->multipartSchema($this->asArray($body->content));
+
+            if ($multipart !== null) {
+                if ($this->models !== null) {
+                    $class = $this->models->generateMultipartBodyData($bodyBaseName, $label, $multipart);
+
+                    if ($class !== null) {
+                        $imports[] = $this->dataFqcn($class);
+
+                        return [['name' => $this->bodyParamName($pathParams), 'type' => $class], false];
+                    }
+                    // The generator already warned (a non-object shape or an
+                    // unresolvable $ref); keep the documented Request fallback.
+                } else {
+                    // Legacy wiring without a model generator (internal call
+                    // sites and tests only; the planner always wires one in).
+                    $this->warnings[sprintf(
+                        'Operation %s: the request body is multipart/form-data and no model generator is wired in to synthesize a Data class; the controller method falls back to Illuminate\Http\Request.',
+                        $label,
+                    )] = true;
+                }
+
+                $imports[] = self::REQUEST_FQCN;
+
+                return [null, true];
+            }
+
+            // Body exists but no schema this generator types (octet-stream,
             // form-urlencoded, etc.): fall back to injecting Request.
             if ($this->bodyContentPresent($body)) {
                 $this->warnings[sprintf(
-                    'Operation %s: the request body declares no application/json schema; no body validation is generated and the controller method falls back to Illuminate\Http\Request.',
+                    'Operation %s: the request body declares no application/json or multipart/form-data schema; no body validation is generated and the controller method falls back to Illuminate\Http\Request.',
                     $label,
                 )] = true;
                 $imports[] = self::REQUEST_FQCN;
@@ -1096,6 +1134,34 @@ final class OperationCollector
         $base = strtolower(trim(explode(';', $mediaType)[0]));
 
         return $base === 'application/json' || str_ends_with($base, '+json');
+    }
+
+    /**
+     * Find the multipart/form-data schema in a content map (issue #75). Only
+     * consulted after {@see jsonSchema()} found nothing, so JSON wins when an
+     * operation declares both media types.
+     *
+     * @param  array<array-key, mixed>  $content
+     */
+    private function multipartSchema(array $content): Schema|Reference|null
+    {
+        foreach ($content as $mediaType => $media) {
+            if (! is_string($mediaType) || ! $this->isMultipartFormData($mediaType) || ! $media instanceof MediaType) {
+                continue;
+            }
+
+            $schema = $media->schema;
+            if ($schema instanceof Schema || $schema instanceof Reference) {
+                return $schema;
+            }
+        }
+
+        return null;
+    }
+
+    private function isMultipartFormData(string $mediaType): bool
+    {
+        return strtolower(trim(explode(';', $mediaType)[0])) === 'multipart/form-data';
     }
 
     private function scalarType(Schema $schema): ?string

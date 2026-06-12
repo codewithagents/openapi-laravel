@@ -516,16 +516,30 @@ residuals described under
 
 An inline JSON **object** body no longer falls back: it synthesizes a per-operation
 `<Operation>RequestData` class with the full `rules()` pipeline and a typed controller param
-(issue #76, see the [server scaffold guide](/guides/server-scaffold#inline-request-bodies)). The
-remaining fallbacks:
+(issue #76, see the [server scaffold guide](/guides/server-scaffold#inline-request-bodies)). A
+`multipart/form-data` **object** body no longer falls back either: it synthesizes the same class
+with `UploadedFile` typing and `file` / `mimetypes:` rules for its binary parts (issue #75, see
+[multipart bodies](/guides/server-scaffold#multipart-bodies-and-file-uploads)). The remaining
+fallbacks:
 
 - A body that is a `$ref` into `components.requestBodies` (not resolved yet; this is a separate
   residual from the inline case, reference the schema directly under `content` for a typed param).
-- An inline JSON body that is **not an object shape**: an array, a scalar, a `oneOf`/`anyOf` union,
-  an enum, or a free-form map (`additionalProperties` only). No single Data class can type these.
-- A body with no `application/json` content (multipart, form-urlencoded, octet-stream, ...): there
-  is no JSON schema to type, so read and validate it from the `Request` yourself.
+- An inline JSON or multipart body that is **not an object shape**: an array, a scalar, a
+  `oneOf`/`anyOf` union, an enum, or a free-form map (`additionalProperties` only). No single Data
+  class can type these; for multipart this includes the whole-body binary form
+  (`schema: {type: string, format: binary}`).
+- A body with no `application/json` or `multipart/form-data` content (form-urlencoded,
+  octet-stream, ...): there is no schema mapping to type, so read and validate it from the
+  `Request` yourself.
 - A body schema `$ref` that is external or does not resolve to a generated Data class.
+
+Multipart residuals on the bodies that ARE generated (issue #75): no file-size rule is derived
+(OpenAPI has no standard keyword for a file's byte size; `maxLength` bounds a string's character
+length and Laravel's file `max:` counts kilobytes, so no clean mapping exists), the
+`encoding.contentType` map of a multipart media type is not read (only the schema-level
+`contentMediaType` keyword feeds `mimetypes:`), a `format: binary` string **nested below the body
+root** stays a plain string (it sits inside a JSON-serialized part), and an operation declaring
+BOTH `application/json` and `multipart/form-data` keeps the JSON typing (documented precedence).
 
 ### Responses that fall back to JsonResponse
 

@@ -227,6 +227,10 @@ What the generator handles today:
 - **Inline request bodies** → an operation whose JSON request body is an inline object schema (not a
   `$ref`) gets a synthesized per-operation Data class (`<Operation>RequestData`) with the full
   `rules()` pipeline and a typed controller param, exactly like a `$ref` body
+- **Multipart file uploads** → a `multipart/form-data` object body gets the same per-operation Data
+  class with `format: binary` parts typed `UploadedFile` (`file` rule, plus `mimetypes:` from
+  `contentMediaType`), arrays of binary as `UploadedFile` lists, and every non-binary part validated
+  like a JSON field; JSON wins when an operation declares both
 - **Spec response status codes** → an operation whose success response declares a non-200 status
   (201, 202, 204, ...) produces that status out of the box: the generated route attaches an inlined
   `RespondsWithStatus` middleware, your controller keeps returning the plain Data object, and a 204
@@ -270,9 +274,11 @@ morphable base and variants, with full per-variant validation and hydration in a
 discriminator forms: named-component, inline-union, and allOf-inheritance (issue #38). A
 `$ref`-valued `additionalProperties` map is typed in the docblock but not auto-hydrated into Data
 objects at runtime, a request body referencing a component request body
-(`$ref: '#/components/requestBodies/...'`) or an inline body that is not an object shape (an array
-or scalar body) falls back to `Illuminate\Http\Request` instead of a typed Data param, and int64
-literal bounds and non-JSON responses are represented loosely. A tuple (`prefixItems`) is validated per position (`field.0`,
+(`$ref: '#/components/requestBodies/...'`) or an inline or multipart body that is not an object
+shape (an array, scalar, or whole-body binary schema) falls back to `Illuminate\Http\Request`
+instead of a typed Data param, and int64 literal bounds and non-JSON responses are represented
+loosely. A generated multipart body derives no file-size rule (OpenAPI has no standard keyword for
+one) and reads only the schema-level `contentMediaType`, not the `encoding.contentType` map. A tuple (`prefixItems`) is validated per position (`field.0`,
 `field.1`, ... rules, plus a length cap for the closed `items: false` form) but typed loosely as
 `array<int, mixed>`. A non-standard per-property `required: true` key (a boolean set inside an
 individual property schema, which some generators emit) is ignored, because OpenAPI 3.x only honours

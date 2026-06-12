@@ -316,7 +316,7 @@ it('warns about header and cookie parameters instead of silently dropping them',
         'Operation GET /widgets/{widgetId}: header parameter(s) "X-Trace-Id" are not generated (header parameters are not supported yet).',
         // The octet-stream body on POST /untyped falls back to Request, which
         // also warns since issue #67 (no silent degradation).
-        'Operation POST /untyped: the request body declares no application/json schema; no body validation is generated and the controller method falls back to Illuminate\Http\Request.',
+        'Operation POST /untyped: the request body declares no application/json or multipart/form-data schema; no body validation is generated and the controller method falls back to Illuminate\Http\Request.',
     ]);
 });
 
