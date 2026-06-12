@@ -43,13 +43,6 @@ return [
          * so a removed schema does not leave a stale class behind.
          */
         'prune' => false,
-
-        /*
-         * Opt-in: emit Data classes into per-tag subdirectories with
-         * namespaces following the directories (data/Pet/PetData.php under
-         * App\Data\Pet), mirroring the controller grouping.
-         */
-        'group_by_tag' => false,
     ],
 
     /*
@@ -58,10 +51,9 @@ return [
      * Enabled by default. Disable with 'enabled' => false or pass --no-controllers.
      */
     'controllers' => [
-        'enabled'             => true,
-        'path'                => app_path('Http/Controllers/Api'),
-        'namespace'           => 'App\\Http\\Controllers\\Api',
-        'laravel_conventions' => false,
+        'enabled'   => true,
+        'path'      => app_path('Http/Controllers/Api'),
+        'namespace' => 'App\\Http\\Controllers\\Api',
     ],
 
     /*
@@ -114,6 +106,12 @@ The `--spec` flag on the artisan command and the standalone binary overrides thi
 
 Directory the generated classes are written to. Defaults to `app_path('Data')`, that is `app/Data`. Overridden by the `--output` flag.
 
+Data classes and enums are emitted in the tag-grouped layout: a class solely owned by one tag lands
+in a per-tag subdirectory with the namespace following the directory (`app/Data/Pet/PetData.php`
+declares `App\Data\Pet\PetData`), mirroring the per-tag controller grouping. See
+[the grouped data layout](/guides/generated-output#tag-grouped-data-layout) for the attribution
+rules.
+
 ### `output.namespace`
 
 PHP namespace the generated classes live under. Defaults to `App\Data`. Keep this aligned with `output.path` so the autoloader resolves the classes. Both the artisan command and the standalone binary accept a `--namespace` flag that overrides this value per run (the binary can also read it from [`openapi-laravel.json`](#standalone-binary-openapi-laraveljson)).
@@ -151,27 +149,6 @@ name before anything is written (a malformed value is a configuration error, exi
 See [customizing validation messages and attributes](/guides/generated-output#customizing-validation-messages-and-attributes)
 for the worked example.
 
-### `output.group_by_tag`
-
-Opt-in tag-grouped data layout. When `true`, generated Data classes and enums that are solely owned
-by one tag are emitted into a per-tag subdirectory, with the namespace following the directory:
-`data/Pet/PetData.php` declares `App\Data\Pet\PetData`. The grouping mirrors the per-tag controller
-grouping, so a 176-path spec no longer piles 128 classes into one flat directory. Defaults to
-`false`: the flat layout, byte-identical to previous releases. Overridden per run by
-`--group-by-tag` / `--no-group-by-tag` on `openapi:generate`, `openapi:check`, `openapi:scaffold`,
-and the standalone binary (passing both together exits `2`).
-
-The schema-to-tag attribution rule is deterministic; see
-[the grouped data layout](/guides/generated-output#tag-grouped-data-layout-opt-in) for the full
-rule table. Cross-group references are imported, so the generated code compiles in either layout,
-and `openapi:check` verifies whichever layout the same flags and config select.
-
-<Aside type="caution">
-  Toggling the layout moves files. When switching an existing project, delete the previously
-  generated Data files first: `output.prune` only clears the top level of the output directory,
-  so files from the other layout would linger as stale duplicates.
-</Aside>
-
 ### `max_depth`
 
 Maximum schema nesting depth the parser follows before it bails out. Defaults to `64`. This guards against pathological or maliciously deep specs that would otherwise recurse without bound. Raise it only if you have a legitimately deeply nested spec and trust its source.
@@ -190,9 +167,8 @@ Controls the server scaffold: abstract controller generation. All sub-keys are o
 | `path`                | `app_path('Http/Controllers/Api')` | Directory the abstract controller files are written to.                     |
 | `namespace`           | `'App\\Http\\Controllers\\Api'`   | PHP namespace for the generated abstract controllers.                       |
 | `base_class`          | `null`                             | Fully-qualified class every generated abstract controller `extends`, e.g. `'App\\Http\\Controllers\\Controller'`. `null` keeps the abstracts base-class-free. Validated as a legal FQCN (a malformed value exits `2`). On the standalone binary the `--controller-base-class` flag overrides it. |
-| `laravel_conventions` | `false`                            | Opt in to conventional `index`/`show`/`store`/`update`/`destroy` method and route names for clean RESTful operations. Overridden by `--laravel-conventions` / `--no-laravel-conventions`. See the [server scaffold guide](/guides/server-scaffold#laravel-convention-method-names-opt-in) for the mapping table and the fallback rule. |
 
-When enabled, the generator writes one `Abstract{Tag}Controller` file per OpenAPI tag into `path`. Each file is overwritten on every run. Your concrete controllers (which extend the abstract classes) are never touched. See [custom base class](/guides/server-scaffold#custom-base-class) for what `base_class` emits.
+When enabled, the generator writes one `Abstract{Tag}Controller` file per OpenAPI tag into `path`. Each file is overwritten on every run. Your concrete controllers (which extend the abstract classes) are never touched. Method names follow the Laravel conventions: a clean RESTful operation gets `index`/`show`/`store`/`update`/`destroy` (method and route name), everything else keeps its operationId-derived name; see the [server scaffold guide](/guides/server-scaffold#laravel-convention-method-names) for the mapping table and the fallback rules. See [custom base class](/guides/server-scaffold#custom-base-class) for what `base_class` emits.
 
 <Aside type="note">
   `--no-controllers` skips controller generation for one run regardless of the config;
@@ -211,7 +187,7 @@ Controls the server scaffold: routes file generation.
 | `middleware` | `[]`                                        | List of middleware names; when non-empty the routes are wrapped in a `Route::middleware([...])->group(...)` block. Config-only, no CLI flag. |
 | `prefix`     | `''`                                        | URI prefix for the generated routes, emitted as `->prefix('...')` on the group. Empty means no prefix. Config-only, no CLI flag. |
 
-The generated file contains one `Route::{method}(...)` call per operation, referencing the concrete controller class by tag name, each carrying a deterministic `->name()` derived from its `operationId` (unique across the whole table, so `route('getPetById')` works). It is overwritten on every run.
+The generated file contains one `Route::{method}(...)` call per operation, referencing the concrete controller class by tag name, each carrying a deterministic `->name()` following the chosen method name (the conventional Laravel name for a clean RESTful operation, otherwise the operationId-derived one; unique across the whole table, so `route('show')` works). It is overwritten on every run.
 
 Each `middleware` entry is its own string and is never comma-split, so a parameterized name like
 `'throttle:60,1'` stays intact. With `middleware` empty and `prefix` empty (the defaults) the file
@@ -320,7 +296,6 @@ oversight ([issue #73](https://github.com/codewithagents/openapi-laravel/issues/
 
 **Shared by both surfaces** (the artisan commands and the standalone binary): `--spec`,
 `--output`, `--namespace`, `--controllers` / `--no-controllers`, `--routes` / `--no-routes`,
-`--laravel-conventions` / `--no-laravel-conventions`, `--group-by-tag` / `--no-group-by-tag`,
 `--enforce-closed-objects` / `--no-enforce-closed-objects`, `--only-tags`, `--only-schemas`,
 `--exclude-path-prefix` (repeatable), plus `--prune` (generate only) and `--diff` (check only).
 
@@ -356,15 +331,13 @@ one to one:
     "namespace": "Acme\\Dto",
     "suffix": "Data",
     "prune": false,
-    "validation_trait": "Acme\\Support\\ApiValidationMessages",
-    "group_by_tag": false
+    "validation_trait": "Acme\\Support\\ApiValidationMessages"
   },
   "controllers": {
     "enabled": true,
     "path": "src/Http/Controllers",
     "namespace": "Acme\\Http\\Controllers",
-    "base_class": "Acme\\Http\\Controllers\\Controller",
-    "laravel_conventions": false
+    "base_class": "Acme\\Http\\Controllers\\Controller"
   },
   "routes": {
     "enabled": true,

@@ -422,12 +422,11 @@ non-empty string). On both surfaces the value is validated as a legal fully-qual
 before anything is written; there is deliberately no CLI flag, because the trait is a standing
 project convention, not a per-run switch.
 
-## Tag-grouped data layout (opt-in)
+## Tag-grouped data layout
 
-By default every Data class and enum lands flat in the output directory. For a large spec that
-gets unwieldy (a real 176-path spec produces 128 files in one `data/` directory), so
-`output.group_by_tag` (or `--group-by-tag`) opts into a per-tag layout that mirrors the controller
-grouping:
+Data classes and enums are emitted in a per-tag layout that mirrors the controller grouping. A
+flat directory does not scale (a real 176-path spec would pile 128 files into one `data/`
+directory), so the generator owns the layout:
 
 ```
 app/Data/
@@ -444,7 +443,7 @@ app/Data/
 
 Namespaces follow the directories, and every cross-group reference (a property type, a
 `#[DataCollectionOf(...)]` target, a `Rule::enum(...)` class, a discriminated union's `extends` or
-`morph()` arm) is imported with a `use` statement, so the generated code compiles in either layout.
+`morph()` arm) is imported with a `use` statement, so the generated code always compiles.
 
 ### The attribution rule
 
@@ -478,16 +477,15 @@ The details, all deterministic:
 Multi-tag and unreferenced schemas go to the **flat root**, not a `shared/` subdirectory: the root
 already is the shared namespace, and keeping it avoids inventing a second special directory.
 
-The output stays deterministic (same spec in, byte-identical files out, in either layout), and
-`openapi:check` verifies whichever layout the flags and config select, through the same shared
-planner as generate.
+The output stays deterministic (same spec in, byte-identical files out), and `openapi:check`
+verifies the grouped tree through the same shared planner as generate.
 
 <Aside type="caution">
-  Toggling the layout moves files. Delete the previously generated Data files when switching an
-  existing project: `output.prune` only clears the top level of the output directory, so files
-  from the other layout would linger as stale duplicates.
+  Upgrading from a release with the flat layout moves files. Delete the previously generated Data
+  files before regenerating: `output.prune` only clears the top level of the output directory, so
+  files from the old layout would linger as stale duplicates.
 </Aside>
 
 ## Determinism
 
-The generator emits stable ordering everywhere: properties, rules, enum cases, and file output. The same spec in produces byte-identical files out, so re-running in CI yields either no diff or a diff that is entirely a consequence of the spec changing. The [tag-grouped layout](#tag-grouped-data-layout-opt-in) is equally deterministic; the flat default is byte-identical to previous releases.
+The generator emits stable ordering everywhere: properties, rules, enum cases, and file output. The same spec in produces byte-identical files out, so re-running in CI yields either no diff or a diff that is entirely a consequence of the spec changing. The [tag-grouped layout](#tag-grouped-data-layout) is equally deterministic.

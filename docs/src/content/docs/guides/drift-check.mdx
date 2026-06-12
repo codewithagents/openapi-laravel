@@ -41,7 +41,7 @@ Stale-file detection (files on disk that the generator would no longer produce) 
 
 ## Usage
 
-`openapi:check` honours the same config and the same flags as `openapi:generate` (`--spec`, `--output`, `--namespace`, `--no-controllers`, `--no-routes`, `--laravel-conventions` / `--no-laravel-conventions`), with the same [precedence rules](/guides/configuration#precedence-flags-beat-config-config-beats-defaults), so it always checks exactly what generate would produce: models, controllers, and routes by default.
+`openapi:check` honours the same config and the same flags as `openapi:generate` (`--spec`, `--output`, `--namespace`, `--no-controllers`, `--no-routes`), with the same [precedence rules](/guides/configuration#precedence-flags-beat-config-config-beats-defaults), so it always checks exactly what generate would produce: models, controllers, and routes by default.
 
 <Tabs>
 <TabItem label="Laravel (artisan)">
@@ -88,7 +88,7 @@ When something has drifted, it lists each affected file with a status tag:
 
 ```
 Drift detected in 2 file(s):
-  [changed] app/Data/PetData.php
+  [changed] app/Data/Pet/PetData.php
   [missing] app/Data/TagData.php
 ```
 
@@ -114,7 +114,7 @@ php artisan openapi:check --diff
 
 ```
 Drift detected in 1 file(s):
-  [changed] app/Data/PetData.php
+  [changed] app/Data/Pet/PetData.php
      public readonly int $id,
     -public readonly string $name,
     +public readonly ?string $name,

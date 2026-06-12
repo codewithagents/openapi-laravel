@@ -36,8 +36,8 @@ After regenerating, every route whose operation requires `bearerAuth` carries th
 an operation with `security: []` stays public:
 
 ```php
-Route::get('/pets', [PetController::class, 'listPets'])->name('listPets')->middleware(['auth:sanctum']);
-Route::get('/health', [MetaController::class, 'getHealth'])->name('getHealth');
+Route::get('/health', [MetaController::class, 'index'])->name('index');
+Route::get('/pets', [PetController::class, 'index'])->name('index_2')->middleware(['auth:sanctum']);
 ```
 
 Operation-level `security` overrides the global one, AND requirements apply all mapped middleware,
@@ -67,7 +67,7 @@ After regenerating, the routes file itself carries the group:
 
 ```php
 Route::middleware(['auth:sanctum'])->group(function (): void {
-    Route::get('/pets', [PetController::class, 'listPets'])->name('listPets');
+    Route::get('/pets', [PetController::class, 'index'])->name('index');
     // ...
 });
 ```
@@ -97,7 +97,8 @@ you own. Pick one, not both.
 The generated routes file is overwritten on every run, so never hand-edit middleware onto a single
 `Route::` line. For a mixed public/protected API, put the middleware on your **concrete**
 controller, which the generator never touches. On Laravel 11+ that is the `HasMiddleware`
-interface, and the method names to target are exactly the spec's operationIds:
+interface, and the method names to target are the generated controller method names (the
+conventional Laravel name for a clean RESTful operation, otherwise the operationId-derived one):
 
 ```php
 use Illuminate\Routing\Controllers\HasMiddleware;
@@ -108,8 +109,8 @@ final class PetController extends AbstractPetController implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            // listPets and getPetById stay public, everything else needs auth.
-            new Middleware('auth:sanctum', except: ['listPets', 'getPetById']),
+            // index and show stay public, everything else needs auth.
+            new Middleware('auth:sanctum', except: ['index', 'show']),
         ];
     }
 
@@ -121,7 +122,7 @@ This survives every regenerate: the abstract controller and the routes file chan
 your concrete controller and its middleware do not.
 
 <Aside type="note" title="Route names work too">
-  Every generated route has a deterministic <code>-&gt;name()</code> derived from its operationId
+  Every generated route has a deterministic <code>-&gt;name()</code> following its method name
   (see [route names](/guides/server-scaffold#route-names)), so name-based tooling such as
   authorization gates or `route()` calls can target individual operations as well.
 </Aside>
@@ -196,11 +197,11 @@ inside a Laravel app: one JSON config file per version, committed to the repo.
 </Steps>
 
 <Aside type="caution" title="Route names collide across versions">
-  Route names are unique within one generator run, not across runs: `listPets` in the v1 spec and
-  `listPets` in the v2 spec produce the same `->name('listPets')`, and the later-registered one
-  wins for `route('listPets')`. That is what the `Route::name('v1.')` wrapper in step 3 fixes:
-  the names become `v1.listPets` and `v2.listPets`. There is no name-prefix config key, so apply
-  it at registration.
+  Route names are unique within one generator run, not across runs: the pets `index` in the v1
+  spec and the pets `index` in the v2 spec produce the same `->name('index')`, and the
+  later-registered one wins for `route('index')`. That is what the `Route::name('v1.')` wrapper
+  in step 3 fixes: the names become `v1.index` and `v2.index`. There is no name-prefix config
+  key, so apply it at registration.
 </Aside>
 
 <Aside type="note" title="Write paths are contained to the config directory">
@@ -307,13 +308,13 @@ The envelope classes (`PetPageData` with a `#[DataCollectionOf(PetData::class)]`
 typed `PageMetaData $meta`), and an abstract method pinned to the envelope:
 
 ```php
-abstract public function listPets(ListPetsQueryData $query): PetPageData;
+abstract public function index(ListPetsQueryData $query): PetPageData;
 ```
 
 Your implementation maps a standard Laravel paginator into the envelope:
 
 ```php
-public function listPets(ListPetsQueryData $query): PetPageData
+public function index(ListPetsQueryData $query): PetPageData
 {
     $page = Pet::query()->paginate(perPage: $query->perPage, page: $query->page);
 

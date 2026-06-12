@@ -76,8 +76,6 @@ Scaffold-related flags for the artisan command:
 | `--no-routes`                 | Skip the routes file                                           |
 | `--controllers`               | Generate abstract controllers even when disabled in config     |
 | `--routes`                    | Generate the routes file even when disabled in config          |
-| `--laravel-conventions`       | Name clean RESTful methods `index`/`show`/`store`/`update`/`destroy` (default: off, [details](#laravel-convention-method-names-opt-in)) |
-| `--no-laravel-conventions`    | Keep operationId-derived method names even when the config enables the conventions |
 | `--spec=<path>`               | OpenAPI document to read (overrides config)                    |
 | `--output=<path>`             | Directory for Data classes (overrides config)                  |
 | `--prune`                     | Delete stale `*.php` files in the Data output directory        |
@@ -101,8 +99,6 @@ vendor/bin/openapi-laravel \
 | `--no-routes`               | Skip the routes file                                           |
 | `--controllers`             | Generate abstract controllers even when disabled in config     |
 | `--routes`                  | Generate the routes file even when disabled in config          |
-| `--laravel-conventions`     | Name clean RESTful methods `index`/`show`/`store`/`update`/`destroy` (default: off) |
-| `--no-laravel-conventions`  | Keep operationId-derived method names even when the config enables the conventions |
 | `--controller-namespace`    | PHP namespace for the generated abstract controllers           |
 | `--controller-output`       | Directory for the abstract controllers (default: `<output>/Controllers`) |
 | `--routes-output`           | Path the routes file is written to (default: `<output>/routes.php`) |
@@ -129,7 +125,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
-use App\Data\PetData;
+use App\Data\Pet\PetData;
 use LogicException;
 
 /**
@@ -139,9 +135,9 @@ use LogicException;
  */
 final class PetController extends AbstractPetController
 {
-    public function getPetById(int $petId): PetData
+    public function show(int $petId): PetData
     {
-        throw new LogicException('Not implemented: getPetById.');
+        throw new LogicException('Not implemented: show.');
     }
 
     // ... one placeholder per operation
@@ -187,11 +183,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
-use App\Data\ApiResponseData;
-use App\Data\FindPetsByStatusQueryData;
-use App\Data\FindPetsByTagsQueryData;
-use App\Data\PetData;
-use App\Data\UpdatePetWithFormQueryData;
+use App\Data\Pet\ApiResponseData;
+use App\Data\Pet\FindPetsByStatusQueryData;
+use App\Data\Pet\FindPetsByTagsQueryData;
+use App\Data\Pet\PetData;
+use App\Data\Pet\UpdatePetWithFormQueryData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Spatie\LaravelData\DataCollection;
@@ -235,7 +231,7 @@ abstract class AbstractPetController
      *
      * Find pet by ID.
      */
-    abstract public function getPetById(int $petId): PetData;
+    abstract public function show(int $petId): PetData;
 
     /**
      * POST /pet/{petId}
@@ -249,7 +245,7 @@ abstract class AbstractPetController
      *
      * Deletes a pet.
      */
-    abstract public function deletePet(int $petId): JsonResponse;
+    abstract public function destroy(int $petId): JsonResponse;
 
     /**
      * POST /pet/{petId}/uploadImage
@@ -257,7 +253,7 @@ abstract class AbstractPetController
      * Uploads an image.
      *
      * Query parameters: validate and hydrate them with
-     * \App\Data\UploadFileQueryData::fromQuery($request).
+     * \App\Data\Pet\UploadFileQueryData::fromQuery($request).
      */
     abstract public function uploadFile(Request $request, int $petId): ApiResponseData;
 }
@@ -331,12 +327,12 @@ final class PetController extends AbstractPetController
         return $this->petService->create($pet);
     }
 
-    public function getPetById(int $petId): PetData
+    public function show(int $petId): PetData
     {
         return $this->petService->findOrFail($petId);
     }
 
-    public function deletePet(int $petId): JsonResponse
+    public function destroy(int $petId): JsonResponse
     {
         $this->petService->delete($petId);
         return response()->json(null, 204);
@@ -367,32 +363,31 @@ Route::post('/pet', [PetController::class, 'addPet'])->name('addPet');
 Route::put('/pet', [PetController::class, 'updatePet'])->name('updatePet');
 Route::get('/pet/findByStatus', [PetController::class, 'findPetsByStatus'])->name('findPetsByStatus');
 Route::get('/pet/findByTags', [PetController::class, 'findPetsByTags'])->name('findPetsByTags');
-Route::get('/pet/{petId}', [PetController::class, 'getPetById'])->name('getPetById');
+Route::get('/pet/{petId}', [PetController::class, 'show'])->name('show');
 Route::post('/pet/{petId}', [PetController::class, 'updatePetWithForm'])->name('updatePetWithForm');
-Route::delete('/pet/{petId}', [PetController::class, 'deletePet'])->name('deletePet');
+Route::delete('/pet/{petId}', [PetController::class, 'destroy'])->name('destroy');
 Route::post('/pet/{petId}/uploadImage', [PetController::class, 'uploadFile'])->name('uploadFile');
-Route::get('/store/inventory', [StoreController::class, 'getInventory'])->name('getInventory');
-Route::post('/store/order', [StoreController::class, 'placeOrder'])->name('placeOrder');
-Route::get('/store/order/{orderId}', [StoreController::class, 'getOrderById'])->name('getOrderById');
-Route::delete('/store/order/{orderId}', [StoreController::class, 'deleteOrder'])->name('deleteOrder');
+Route::get('/store/inventory', [StoreController::class, 'index'])->name('index');
+Route::post('/store/order', [StoreController::class, 'store'])->name('store');
+Route::get('/store/order/{orderId}', [StoreController::class, 'show'])->name('show_2');
+Route::delete('/store/order/{orderId}', [StoreController::class, 'destroy'])->name('destroy_2');
 // ... user routes follow
 ```
 
 ### Route names
 
 Every generated route carries a `->name()` that follows the controller method name: the
-operationId-derived identifier by default (an operation without an `operationId` gets a
-deterministic name synthesized from the HTTP method and path, e.g. `getHealth` for `GET /health`),
-or the conventional `index`/`show`/`store`/`update`/`destroy` under the opt-in
-[`--laravel-conventions`](#laravel-convention-method-names-opt-in). Names are unique across the
+conventional `index`/`show`/`store`/`update`/`destroy` for a clean RESTful operation, otherwise
+the operationId-derived identifier (an operation without an `operationId` gets a deterministic
+name synthesized from the HTTP method and path); see
+[Laravel-convention method names](#laravel-convention-method-names). Names are unique across the
 whole route table: if two operations in different controllers resolve to the same identifier, the
-later one (in path-then-method order) gets a numeric suffix (`listThings`, `listThings_2`; with
-the conventions on, the second controller's `index` route becomes `index_2`). That means the
-`route()` helper, URL generation, and route-based authorization can target any generated
-operation:
+later one (in path-then-method order) gets a numeric suffix (a second controller's `index` route
+becomes `index_2`). That means the `route()` helper, URL generation, and route-based authorization
+can target any generated operation:
 
 ```php
-route('getPetById', ['petId' => 7]);   // => /pet/7
+route('show', ['petId' => 7]);   // => /pet/7
 ```
 
 ### Middleware and prefix groups
@@ -443,7 +438,7 @@ own string, never comma-split):
 Every generated route whose operation requires a mapped scheme carries the mapped middleware:
 
 ```php
-Route::get('/pets', [PetController::class, 'listPets'])->name('listPets')->middleware(['auth:sanctum']);
+Route::get('/pets', [PetController::class, 'index'])->name('index')->middleware(['auth:sanctum']);
 ```
 
 The resolution follows the OpenAPI security semantics exactly:
@@ -507,7 +502,7 @@ body.
  *
  * Responds with HTTP 204: return nothing, the generated route sets the status.
  */
-abstract public function deletePet(int $petId): void;
+abstract public function destroy(int $petId): void;
 ```
 
 Only the **selected** success response drives this. An operation that declares several 2xx
@@ -541,14 +536,12 @@ Or from `bootstrap/app.php` in Laravel 11+:
   you would review any code change.
 </Aside>
 
-## Laravel-convention method names (opt-in)
+## Laravel-convention method names
 
-By default, controller method names derive from the spec's `operationId`, which is unambiguous
-but often reads like `apiV1AppointmentStoreAppointmentPOST` in real-world specs. Laravel
-developers expect `store`, `index`, `show`, `update`, `destroy`. Opt in with the
-`--laravel-conventions` flag (or `controllers.laravel_conventions: true` in the config) and every
-clean RESTful operation gets the conventional name, in the abstract controller AND in the route
-name:
+An `operationId` is unambiguous but often reads like `apiV1AppointmentStoreAppointmentPOST` in
+real-world specs, and Laravel developers expect `store`, `index`, `show`, `update`, `destroy`. So
+every clean RESTful operation gets the conventional name, in the abstract controller AND in the
+route name:
 
 | HTTP method   | Path shape                     | Method name |
 | ------------- | ------------------------------ | ----------- |
@@ -575,7 +568,7 @@ deterministically:
 - **Residual collisions** (an operationId literally named `index` next to a conventional `index`)
   go through the same per-controller unique-name machinery as before and get a numeric suffix.
 
-With the conventions on, the Petstore routes above become:
+For the Petstore, that produces:
 
 ```php
 Route::get('/pet/findByStatus', [PetController::class, 'findPetsByStatus'])->name('findPetsByStatus');
@@ -591,18 +584,16 @@ The two `findPetsBy*` collection GETs are ambiguous, so both fall back; `POST /p
 non-CRUD, so it falls back too. Route names follow the chosen method names and stay globally
 unique, so a second controller's `show` becomes `show_2`.
 
-Three things deliberately do **not** change under the flag:
+Two things deliberately stay operationId-derived:
 
-- **The default output.** The flag is strictly opt-in; without it the output is byte-identical to
-  previous releases.
 - **The Data layer.** Generated Data classes, including the per-operation
   [query classes](#query-parameters) (`FindPetsByStatusQueryData`) and
   [inline request-body classes](#inline-request-bodies) (`CreatePetRequestData`), keep their
-  operationId-derived names in both modes: they live in the shared Data namespace, where an
-  `IndexQueryData` or `StoreRequestData` would collide across controllers.
-- **The drift gate.** `openapi:check` honors the same flag and config key, so generate and check
-  stay in lockstep; checking with a different setting than you generated with reports drift, as
-  it should.
+  operationId-derived names: they live in the shared Data namespace, where an `IndexQueryData` or
+  `StoreRequestData` would collide across controllers.
+- **Everything the fallback rules catch.** Non-CRUD and ambiguous operations keep their
+  operationId-derived names, so nothing is ever forced into a conventional name that does not
+  fit. The drift gate (`openapi:check`) verifies the same naming through the shared planner.
 
 ## Method signatures in detail
 

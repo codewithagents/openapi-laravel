@@ -31,12 +31,12 @@ This guide takes you from a spec file to a working, typed Laravel slice: models,
    For the classic Petstore spec, this is what appears on disk:
 
    ```
-   app/Data/PetData.php                                  laravel-data class + spec-derived rules()
-   app/Data/CategoryData.php
-   app/Data/TagData.php
-   app/Data/OrderData.php
-   app/Data/UserData.php
-   app/Data/ApiResponseData.php
+   app/Data/Pet/PetData.php                              laravel-data class + spec-derived rules()
+   app/Data/Pet/CategoryData.php                         per-tag directories mirror the controllers
+   app/Data/Pet/TagData.php
+   app/Data/Pet/ApiResponseData.php
+   app/Data/Store/OrderData.php
+   app/Data/User/UserData.php
    app/Http/Controllers/Api/AbstractPetController.php    one abstract controller per tag
    app/Http/Controllers/Api/AbstractStoreController.php
    app/Http/Controllers/Api/AbstractUserController.php
@@ -70,7 +70,7 @@ This guide takes you from a spec file to a working, typed Laravel slice: models,
    ```php
    final class PetController extends AbstractPetController
    {
-       public function getPetById(int $petId): PetData
+       public function show(int $petId): PetData
        {
            return PetData::from(Pet::findOrFail($petId));
        }
