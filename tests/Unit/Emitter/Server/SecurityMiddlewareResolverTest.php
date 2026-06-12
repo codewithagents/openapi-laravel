@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\spec\SecurityRequirement;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\SecurityMiddlewareResolver;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\SecurityRequirementNode;
 
 /**
  * Issue #77: the pure resolution logic from spec security declarations to
@@ -15,12 +15,12 @@ use CodeWithAgents\OpenApiLaravel\Emitter\Server\SecurityMiddlewareResolver;
 
 /**
  * @param  list<array<string, list<string>>>  $requirements
- * @return list<SecurityRequirement>
+ * @return list<SecurityRequirementNode>
  */
 function securityRequirements(array $requirements): array
 {
     return array_map(
-        static fn (array $requirement): SecurityRequirement => new SecurityRequirement($requirement),
+        static fn (array $requirement): SecurityRequirementNode => new SecurityRequirementNode($requirement),
         $requirements,
     );
 }

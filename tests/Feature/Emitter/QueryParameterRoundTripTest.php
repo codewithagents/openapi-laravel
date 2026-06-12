@@ -37,12 +37,11 @@ beforeEach(function () {
     foreach (['query-parameters.yaml', 'petstore.yaml'] as $fixture) {
         $parser104 = new SpecParser;
         $document = $parser104->parseFileToDocument(__DIR__.'/../../Fixtures/server/'.$fixture);
-        $documentCebe = $parser104->buildCebeModel($document, __DIR__.'/../../Fixtures/server/'.$fixture);
         $generator = new ModelGenerator;
         $files = $generator->generate($document);
         // The collector emits the query classes as a side effect, exactly like
         // the planner wiring.
-        (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($documentCebe);
+        (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($document);
 
         // loadGeneratedFiles skips classes another suite already loaded (the
         // status-code round-trip loads the same petstore Data set; the

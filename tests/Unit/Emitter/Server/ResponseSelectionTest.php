@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationDescriptor;
@@ -39,12 +37,11 @@ function collectSingleOperation(array $responses): OperationDescriptor
     ];
 
     $spec = (new OpenApiReader)->read($document);
-    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
     expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $generator->generate($spec);
-    $descriptors = (new OperationCollector(new ServerOptions, $generator->registry()))->collect($specCebe);
+    $descriptors = (new OperationCollector(new ServerOptions, $generator->registry()))->collect($spec);
 
     return $descriptors[0];
 }

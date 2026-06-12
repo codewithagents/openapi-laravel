@@ -28,14 +28,13 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 it('generates Pint-idempotent output (pint --test reports no reformats)', function (string $path) {
     $parser104 = new SpecParser;
     $document = $parser104->parseFileToDocument($path);
-    $documentCebe = $parser104->buildCebeModel($document, $path);
     $generator = new ModelGenerator;
     $files = $generator->generate($document);
     // The per-operation query (issue #63) and inline request-body (issue #76)
     // Data classes are part of the generated output too: run the collector
     // with the generator wired in, exactly like the planner, so they are
     // gated for Pint-idempotency.
-    (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($documentCebe);
+    (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($document);
     $queryFiles = $generator->queryFiles();
     $bodyFiles = $generator->bodyFiles();
     // The inlined runtime support classes (issue #40) are owned, drift-checked

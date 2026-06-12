@@ -179,40 +179,6 @@ final class SpecParser
     }
 
     /**
-     * Build the cebe object model FROM an already-parsed typed document (issue
-     * #104, Task 4 -> Task 5 bridge): the planner now parses once through
-     * {@see parseFileToDocument} and filters the typed graph, but the server
-     * scaffold (OperationCollector) still consumes cebe until Task 5 migrates
-     * it. Round-tripping the FILTERED document through {@see SpecArraySerializer}
-     * guarantees the two views can never disagree about which operations exist,
-     * and the round trip itself is the byte-identity-proven Task 3 path.
-     * Deleted with the cebe path in Task 5/7.
-     *
-     * @throws ParseException when the path cannot be resolved or cebe rejects the data
-     */
-    public function buildCebeModel(OpenApiDocument $document, string $path): OpenApi
-    {
-        $absolute = realpath($path);
-
-        if ($absolute === false) {
-            throw new ParseException("Unable to resolve real path for spec: {$path}");
-        }
-
-        try {
-            $raw = SpecArraySerializer::toArray($document);
-
-            $cebe = new OpenApi($raw);
-            $context = new ReferenceContext($cebe, $absolute);
-            $cebe->setReferenceContext($context);
-            $cebe->setDocumentContext($cebe, new JsonPointer(''));
-        } catch (Throwable $e) {
-            throw new ParseException("Failed to parse OpenAPI spec ({$path}): {$e->getMessage()}", 0, $e);
-        }
-
-        return $cebe;
-    }
-
-    /**
      * Decode the raw spec, normalise it, then hand it to the cebe object model.
      *
      * This mirrors cebe's own `Reader::readFrom{Yaml,Json}File` (decode the file,

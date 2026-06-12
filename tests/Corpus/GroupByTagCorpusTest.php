@@ -60,7 +60,6 @@ it('generates valid, namespace-resolvable PHP with the grouped layout', function
     $path = __DIR__.'/../Fixtures/specs/'.$spec;
     $parser104 = new SpecParser;
     $document = $parser104->parseFileToDocument($path);
-    $documentCebe = $parser104->buildCebeModel($document, $path);
 
     // The default construction: the generator computes the tag attribution
     // from the document itself, exactly like the planner-wired production run.
@@ -68,7 +67,7 @@ it('generates valid, namespace-resolvable PHP with the grouped layout', function
     $modelFiles = $generator->generate($document);
 
     $serverOptions = new ServerOptions;
-    $descriptors = (new OperationCollector($serverOptions, $generator->registry(), null, $generator))->collect($documentCebe);
+    $descriptors = (new OperationCollector($serverOptions, $generator->registry(), null, $generator))->collect($document);
     $controllers = (new ControllerGenerator($serverOptions))->generate($descriptors);
     $routes = (new RouteGenerator($serverOptions))->generate($descriptors);
 
@@ -133,7 +132,6 @@ it('generates valid, namespace-resolvable PHP with the grouped layout', function
 it('actually groups real-world specs: at least one corpus spec emits a per-tag directory', function () {
     $parser104 = new SpecParser;
     $document = $parser104->parseFileToDocument(__DIR__.'/../Fixtures/specs/petstore-3.0.yaml');
-    $documentCebe = $parser104->buildCebeModel($document, __DIR__.'/../Fixtures/specs/petstore-3.0.yaml');
 
     $generator = new ModelGenerator;
     $files = $generator->generate($document);

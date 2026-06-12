@@ -4,24 +4,19 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Emitter\Server;
 
-use cebe\openapi\spec\MediaType;
-use cebe\openapi\spec\OpenApi;
-use cebe\openapi\spec\Operation;
-use cebe\openapi\spec\Parameter;
-use cebe\openapi\spec\PathItem;
-use cebe\openapi\spec\Reference;
-use cebe\openapi\spec\RequestBody;
-use cebe\openapi\spec\Response;
-use cebe\openapi\spec\Responses;
-use cebe\openapi\spec\Schema;
-use cebe\openapi\spec\SecurityRequirement;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\ResolvedClosure;
 use CodeWithAgents\OpenApiLaravel\Naming\PhpIdentifier;
 use CodeWithAgents\OpenApiLaravel\Naming\UniqueNames;
-use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\MediaTypeNode;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\OperationNode;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\ParameterNode;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\PathItemNode;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\ReferenceNode;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\RequestBodyNode;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\ResponseNode;
+use CodeWithAgents\OpenApiLaravel\Parser\Spec\ResponsesNode;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\SchemaNode;
 
 /**
@@ -47,6 +42,16 @@ use CodeWithAgents\OpenApiLaravel\Parser\Spec\SchemaNode;
 final class OperationCollector
 {
     private const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'trace'];
+
+    /**
+     * The valid Responses Object keys per the OpenAPI spec: `default`, a
+     * concrete status code, or an uppercase range wildcard (`2XX`). The old
+     * cebe object model enforced exactly this pattern at hydration time
+     * (dropping invalid keys with a validation note); the typed graph keeps
+     * every key, so the collector applies the same filter itself to stay
+     * byte-identical, see {@see successResponse()}.
+     */
+    private const RESPONSE_KEY_PATTERN = '~^(?:default|[1-5](?:[0-9][0-9]|XX))$~';
 
     private const REQUEST_FQCN = 'Illuminate\\Http\\Request';
 
@@ -99,13 +104,6 @@ final class OperationCollector
     private array $warnings = [];
 
     /**
-     * Lazily created by {@see reader()}: backs the Task 4 -> Task 5 bridge
-     * seams that convert cebe nodes into the typed spec graph at the model
-     * pipeline boundary (issue #104).
-     */
-    private ?OpenApiReader $reader = null;
-
-    /**
      * @return list<string>
      */
     public function warnings(): array
@@ -119,7 +117,7 @@ final class OperationCollector
     /**
      * @return list<OperationDescriptor>
      */
-    public function collect(OpenApi $document): array
+    public function collect(OpenApiDocument $document): array
     {
         $this->warnings = [];
         $componentParameters = $this->componentParameters($document);
@@ -128,19 +126,25 @@ final class OperationCollector
         // seeded with the configured map and the document-level security so
         // every operation resolves against the same state. The typo check
         // (a mapped scheme the spec never declares) runs once, up front.
+        // Document-level null (no `security` key) and the explicit empty list
+        // both seed an empty global state, exactly as before.
         $security = new SecurityMiddlewareResolver(
             $this->options->securityMiddlewareMap,
-            $this->securityRequirements($document->security) ?? [],
+            $document->security ?? [],
         );
         $security->warnUndeclaredMappings($this->declaredSchemeNames($document));
 
         $rows = [];
 
-        foreach ($this->pathItems($document) as $path => $pathItem) {
+        foreach ($document->paths as $path => $pathItem) {
+            // PHP canonicalizes a numeric-string array key to int; the path
+            // must stay a string for the descriptor and the sort below.
+            $path = (string) $path;
+
             foreach (self::HTTP_METHODS as $method) {
                 $operation = $pathItem->{$method} ?? null;
 
-                if (! $operation instanceof Operation) {
+                if (! $operation instanceof OperationNode) {
                     continue;
                 }
 
@@ -214,7 +218,7 @@ final class OperationCollector
      * `index`, so both keep their operationId-derived name instead). The same
      * conventional name in different controllers is fine.
      *
-     * @param  list<array{path: string, method: string, operation: Operation, parameters: list<Parameter>}>  $rows
+     * @param  list<array{path: string, method: string, operation: OperationNode, parameters: list<ParameterNode>}>  $rows
      * @return array<int, ?string> aligned with $rows by index
      */
     private function conventionalNames(array $rows): array
@@ -251,16 +255,16 @@ final class OperationCollector
      * conventional-name resolution, so the two can never disagree about which
      * controller an operation lands in.
      */
-    private function controllerClass(Operation $operation): string
+    private function controllerClass(OperationNode $operation): string
     {
         return PhpIdentifier::toClassName($this->firstTag($operation)).$this->options->controllerSuffix;
     }
 
     /**
-     * @param  list<Parameter>  $parameters
+     * @param  list<ParameterNode>  $parameters
      * @param  array<string, UniqueNames>  $methodNames
      */
-    private function describe(string $path, string $method, Operation $operation, array $parameters, array &$methodNames, UniqueNames $routeNames, SecurityMiddlewareResolver $security, ?string $conventionalName): OperationDescriptor
+    private function describe(string $path, string $method, OperationNode $operation, array $parameters, array &$methodNames, UniqueNames $routeNames, SecurityMiddlewareResolver $security, ?string $conventionalName): OperationDescriptor
     {
         $controllerClass = $this->controllerClass($operation);
         $abstractClass = $this->options->abstractPrefix.$controllerClass;
@@ -333,33 +337,8 @@ final class OperationCollector
             imports: $imports,
             queryParam: $queryParam,
             successStatus: $successStatus,
-            securityMiddleware: $security->middlewareFor($label, $this->securityRequirements($operation->security)),
+            securityMiddleware: $security->middlewareFor($label, $operation->security),
         );
-    }
-
-    /**
-     * Normalize a spec-level `security` value into a clean requirement list,
-     * preserving the three-way distinction the resolver needs: null (not
-     * declared), [] (explicitly public), or the requirement objects. Anything
-     * that is not a SecurityRequirement (a malformed entry in a hostile spec)
-     * is dropped.
-     *
-     * @return list<SecurityRequirement>|null
-     */
-    private function securityRequirements(mixed $security): ?array
-    {
-        if (! is_array($security)) {
-            return null;
-        }
-
-        $requirements = [];
-        foreach ($security as $requirement) {
-            if ($requirement instanceof SecurityRequirement) {
-                $requirements[] = $requirement;
-            }
-        }
-
-        return $requirements;
     }
 
     /**
@@ -369,7 +348,7 @@ final class OperationCollector
      *
      * @return list<string>
      */
-    private function declaredSchemeNames(OpenApi $document): array
+    private function declaredSchemeNames(OpenApiDocument $document): array
     {
         $components = $document->components;
 
@@ -378,7 +357,7 @@ final class OperationCollector
         }
 
         $names = [];
-        foreach (array_keys($this->asArray($components->securitySchemes)) as $name) {
+        foreach (array_keys($components->securitySchemes) as $name) {
             $names[] = (string) $name;
         }
 
@@ -401,13 +380,13 @@ final class OperationCollector
      * instead, and the class import is only added when it appears in the
      * signature, so no `use` goes unused.
      *
-     * @param  list<Parameter>  $parameters
+     * @param  list<ParameterNode>  $parameters
      * @param  array{name: string, type: string}|null  $bodyParam
      * @param  list<array{name: string, phpType: string}>  $pathParams
      * @param  list<string>  $imports
      * @return array{name: string, type: string, injected: bool, fqcn: string}|null
      */
-    private function queryParam(string $method, string $path, Operation $operation, array $parameters, ?array $bodyParam, bool $bodyRequiresRequest, array $pathParams, array &$imports): ?array
+    private function queryParam(string $method, string $path, OperationNode $operation, array $parameters, ?array $bodyParam, bool $bodyRequiresRequest, array $pathParams, array &$imports): ?array
     {
         if ($this->models === null) {
             return null;
@@ -434,10 +413,9 @@ final class OperationCollector
 
         // The operation's first tag rides along so the grouped data layout
         // (issue #93) can place the query class in its operation's tag group;
-        // the flat layout ignores it. The model pipeline speaks the typed spec
-        // graph since issue #104 Task 4, so the cebe parameters are converted
-        // at this boundary (Task 5 removes the conversion with the cebe walk).
-        $class = $this->models->generateQueryData($baseName, $label, $this->parameterNodes($queryParameters), $this->firstTag($operation));
+        // the flat layout ignores it. Since issue #104 the whole pipeline
+        // speaks the typed spec graph, so the parameters pass through as-is.
+        $class = $this->models->generateQueryData($baseName, $label, $queryParameters, $this->firstTag($operation));
         if ($class === null) {
             return null;
         }
@@ -473,14 +451,14 @@ final class OperationCollector
      * the parameter names listed, so a spec-wide trace header does not flood
      * the channel.
      *
-     * @param  list<Parameter>  $parameters
+     * @param  list<ParameterNode>  $parameters
      */
     private function warnUnsupportedParameterLocations(string $method, string $path, array $parameters): void
     {
         foreach (['header', 'cookie'] as $kind) {
             $names = [];
             foreach ($parameters as $parameter) {
-                if ($parameter->in === $kind && is_string($parameter->name) && $parameter->name !== '') {
+                if ($parameter->in === $kind && $parameter->name !== '') {
                     $names[] = '"'.$parameter->name.'"';
                 }
             }
@@ -498,15 +476,11 @@ final class OperationCollector
         }
     }
 
-    private function firstTag(Operation $operation): string
+    private function firstTag(OperationNode $operation): string
     {
-        $tags = $operation->tags;
-
-        if (is_array($tags)) {
-            foreach ($tags as $tag) {
-                if (is_string($tag) && trim($tag) !== '') {
-                    return $tag;
-                }
+        foreach ($operation->tags as $tag) {
+            if (trim($tag) !== '') {
+                return $tag;
             }
         }
 
@@ -515,11 +489,11 @@ final class OperationCollector
         return 'Untagged';
     }
 
-    private function methodName(Operation $operation, string $method, string $path): string
+    private function methodName(OperationNode $operation, string $method, string $path): string
     {
         $operationId = $operation->operationId;
 
-        if (is_string($operationId) && trim($operationId) !== '') {
+        if ($operationId !== null && trim($operationId) !== '') {
             return PhpIdentifier::toPropertyName($operationId);
         }
 
@@ -543,7 +517,7 @@ final class OperationCollector
     }
 
     /**
-     * @param  list<Parameter>  $parameters
+     * @param  list<ParameterNode>  $parameters
      * @return list<array{name: string, phpType: string}>
      */
     private function pathParams(string $path, array $parameters): array
@@ -570,7 +544,7 @@ final class OperationCollector
     /**
      * Spec parameter name => declared scalar type, for `in: path` parameters.
      *
-     * @param  list<Parameter>  $parameters
+     * @param  list<ParameterNode>  $parameters
      * @return array<string, string>
      */
     private function pathParamTypes(array $parameters): array
@@ -582,16 +556,15 @@ final class OperationCollector
                 continue;
             }
 
-            $name = $parameter->name;
-            if (! is_string($name) || $name === '') {
+            if ($parameter->name === '') {
                 continue;
             }
 
             $schema = $parameter->schema;
-            if ($schema instanceof Schema) {
+            if ($schema instanceof SchemaNode) {
                 $type = $this->scalarType($schema);
                 if ($type !== null) {
-                    $types[$name] = $type;
+                    $types[$parameter->name] = $type;
                 }
             }
         }
@@ -605,24 +578,23 @@ final class OperationCollector
      * operation-level parameter overrides a path-level one with the same
      * (name, in) pair. `$ref`s into `components.parameters` are resolved
      * before the merge. An unresolvable or external `$ref` entry is skipped
-     * with a warning naming the pointer (issue #67); a malformed (non-object)
-     * entry is still skipped silently, there is nothing to name.
+     * with a warning naming the pointer (issue #67).
      *
      * This is the single collection point for parameters of every `in` kind,
-     * so the upcoming query-parameter support (#63) can reuse it as-is.
+     * so the query-parameter support (#63) reuses it as-is.
      *
-     * @param  array<string, Parameter>  $componentParameters
+     * @param  array<string, ParameterNode>  $componentParameters
      * @param  string  $label  "GET /pets", for warning messages
-     * @return list<Parameter>
+     * @return list<ParameterNode>
      */
-    private function mergedParameters(PathItem $pathItem, Operation $operation, array $componentParameters, string $label): array
+    private function mergedParameters(PathItemNode $pathItem, OperationNode $operation, array $componentParameters, string $label): array
     {
         $byKey = [];
 
         // Path level first, operation level second: a later write to the same
         // (in, name) key replaces the earlier one, which is exactly the
         // override the OpenAPI spec mandates.
-        foreach ([$this->asArray($pathItem->parameters), $this->asArray($operation->parameters)] as $level) {
+        foreach ([$pathItem->parameters, $operation->parameters] as $level) {
             foreach ($level as $candidate) {
                 $parameter = $this->resolveParameter($candidate, $componentParameters, $label);
 
@@ -630,13 +602,11 @@ final class OperationCollector
                     continue;
                 }
 
-                $name = $parameter->name;
-                $in = $parameter->in;
-                if (! is_string($name) || $name === '' || ! is_string($in) || $in === '') {
+                if ($parameter->name === '' || $parameter->in === '') {
                     continue;
                 }
 
-                $byKey[$in.' '.$name] = $parameter;
+                $byKey[$parameter->in.' '.$parameter->name] = $parameter;
             }
         }
 
@@ -649,43 +619,39 @@ final class OperationCollector
      * does not exist (or is itself an unresolved ref-to-ref chain), drops the
      * parameter from the operation, which would otherwise be silent.
      *
-     * @param  array<string, Parameter>  $componentParameters
+     * @param  array<string, ParameterNode>  $componentParameters
      * @param  string  $label  "GET /pets", for warning messages
      */
-    private function resolveParameter(mixed $candidate, array $componentParameters, string $label): ?Parameter
+    private function resolveParameter(ParameterNode|ReferenceNode $candidate, array $componentParameters, string $label): ?ParameterNode
     {
-        if ($candidate instanceof Parameter) {
+        if ($candidate instanceof ParameterNode) {
             return $candidate;
         }
 
-        if ($candidate instanceof Reference) {
-            $pointer = $candidate->getReference();
-            $name = $this->componentName($pointer, 'parameters');
+        $pointer = $candidate->pointer();
+        $name = $this->componentName($pointer, 'parameters');
 
-            if ($name === null) {
-                $this->warnings[sprintf(
-                    'Operation %s: parameter $ref "%s" is external or not a #/components/parameters pointer; the parameter is ignored.',
-                    $label,
-                    $pointer,
-                )] = true;
+        if ($name === null) {
+            $this->warnings[sprintf(
+                'Operation %s: parameter $ref "%s" is external or not a #/components/parameters pointer; the parameter is ignored.',
+                $label,
+                $pointer,
+            )] = true;
 
-                return null;
-            }
-
-            $parameter = $componentParameters[$name] ?? null;
-
-            if ($parameter === null) {
-                $this->warnings[sprintf(
-                    'Operation %s: parameter $ref "%s" does not resolve to a component parameter; the parameter is ignored.',
-                    $label,
-                    $pointer,
-                )] = true;
-            }
-
-            return $parameter;
+            return null;
         }
 
-        return null;
+        $parameter = $componentParameters[$name] ?? null;
+
+        if ($parameter === null) {
+            $this->warnings[sprintf(
+                'Operation %s: parameter $ref "%s" does not resolve to a component parameter; the parameter is ignored.',
+                $label,
+                $pointer,
+            )] = true;
+        }
+
+        return $parameter;
     }
 
     /**
@@ -694,9 +660,9 @@ final class OperationCollector
      * components is left unresolved and degrades like any other unresolvable
      * ref.
      *
-     * @return array<string, Parameter>
+     * @return array<string, ParameterNode>
      */
-    private function componentParameters(OpenApi $document): array
+    private function componentParameters(OpenApiDocument $document): array
     {
         $components = $document->components;
 
@@ -705,8 +671,8 @@ final class OperationCollector
         }
 
         $result = [];
-        foreach ($this->asArray($components->parameters) as $name => $parameter) {
-            if (is_string($name) && $name !== '' && $parameter instanceof Parameter) {
+        foreach ($components->parameters as $name => $parameter) {
+            if (is_string($name) && $name !== '' && $parameter instanceof ParameterNode) {
                 $result[$name] = $parameter;
             }
         }
@@ -736,21 +702,21 @@ final class OperationCollector
      * @param  list<array{name: string, phpType: string}>  $pathParams
      * @return array{0: array{name: string, type: string}|null, 1: bool}
      */
-    private function requestBody(Operation $operation, array &$imports, string $label, string $bodyBaseName, array $pathParams): array
+    private function requestBody(OperationNode $operation, array &$imports, string $label, string $bodyBaseName, array $pathParams): array
     {
         $body = $operation->requestBody;
 
-        if (! $body instanceof RequestBody) {
+        if (! $body instanceof RequestBodyNode) {
             // No body, or an unresolved $ref body we cannot inspect: a Reference
             // here means a component requestBody, which we treat as untyped and
             // therefore inject Request. The import must be pushed too, exactly
             // like the other requiresRequest paths below, or the generated
             // controller references Request without a matching use statement.
-            if ($body instanceof Reference) {
+            if ($body instanceof ReferenceNode) {
                 $this->warnings[sprintf(
                     'Operation %s: the request body is a $ref ("%s") and component request bodies are not resolved yet; the controller method falls back to Illuminate\Http\Request.',
                     $label,
-                    $body->getReference(),
+                    $body->pointer(),
                 )] = true;
                 $imports[] = self::REQUEST_FQCN;
 
@@ -760,7 +726,7 @@ final class OperationCollector
             return [null, false];
         }
 
-        $schema = $this->jsonSchema($this->asArray($body->content));
+        $schema = $this->jsonSchema($body->content);
 
         if ($schema === null) {
             // No JSON content: a multipart/form-data object body (issue #75)
@@ -769,7 +735,7 @@ final class OperationCollector
             // operation declaring BOTH keeps the JSON typing (documented
             // precedence: the scaffold validates one body shape, and JSON is
             // the established, richer mapping).
-            $multipart = $this->multipartSchema($this->asArray($body->content));
+            $multipart = $this->multipartSchema($body->content);
 
             if ($multipart !== null) {
                 if ($this->models !== null) {
@@ -777,7 +743,7 @@ final class OperationCollector
                     // data layout (issue #93) can place the multipart body
                     // class in its operation's tag group; the flat layout
                     // ignores it.
-                    $class = $this->models->generateMultipartBodyData($bodyBaseName, $label, $this->schemaNode($multipart), $this->firstTag($operation));
+                    $class = $this->models->generateMultipartBodyData($bodyBaseName, $label, $multipart, $this->firstTag($operation));
 
                     if ($class !== null) {
                         $imports[] = $this->dataFqcn($class);
@@ -802,7 +768,7 @@ final class OperationCollector
 
             // Body exists but no schema this generator types (octet-stream,
             // form-urlencoded, etc.): fall back to injecting Request.
-            if ($this->bodyContentPresent($body)) {
+            if ($body->content !== []) {
                 $this->warnings[sprintf(
                     'Operation %s: the request body declares no application/json or multipart/form-data schema; no body validation is generated and the controller method falls back to Illuminate\Http\Request.',
                     $label,
@@ -815,8 +781,8 @@ final class OperationCollector
             return [null, false];
         }
 
-        if ($schema instanceof Reference) {
-            $pointer = $schema->getReference();
+        if ($schema instanceof ReferenceNode) {
+            $pointer = $schema->pointer();
             $name = $this->refName($pointer);
             if ($name !== null && isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'data') {
                 $entry = $this->registry[$name];
@@ -848,7 +814,7 @@ final class OperationCollector
             // layout (issue #93) can place the body class (and its nested
             // classes) in its operation's tag group; the flat layout
             // ignores it.
-            $class = $this->models->generateBodyData($bodyBaseName, $label, $this->bodySchemaNode($schema), $this->firstTag($operation));
+            $class = $this->models->generateBodyData($bodyBaseName, $label, $schema, $this->firstTag($operation));
 
             if ($class !== null) {
                 $imports[] = $this->dataFqcn($class);
@@ -888,11 +854,6 @@ final class OperationCollector
         return $taken->reserve('body');
     }
 
-    private function bodyContentPresent(RequestBody $body): bool
-    {
-        return $this->asArray($body->content) !== [];
-    }
-
     /**
      * The selected success response, resolved into the abstract method's
      * return type plus the spec-declared status code (issue #64). A selected
@@ -904,7 +865,7 @@ final class OperationCollector
      * @param  string  $label  "GET /pets", for warning messages
      * @return array{0: string, 1: ?string, 2: ?int} returnType, returnDoc, successStatus
      */
-    private function responseType(Operation $operation, array &$imports, string $label): array
+    private function responseType(OperationNode $operation, array &$imports, string $label): array
     {
         [$response, $status] = $this->successResponse($operation->responses, $label);
 
@@ -912,16 +873,16 @@ final class OperationCollector
             return ['void', null, 204];
         }
 
-        if (! $response instanceof Response) {
+        if (! $response instanceof ResponseNode) {
             $imports[] = self::JSON_RESPONSE_FQCN;
 
             return [self::JSON_RESPONSE_SHORT, null, $status];
         }
 
-        $schema = $this->jsonSchema($this->asArray($response->content));
+        $schema = $this->jsonSchema($response->content);
 
-        if ($schema instanceof Reference) {
-            $pointer = $schema->getReference();
+        if ($schema instanceof ReferenceNode) {
+            $pointer = $schema->pointer();
             $name = $this->refName($pointer);
             if ($name !== null && isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'data') {
                 $type = $this->registry[$name]['dataClass'];
@@ -943,7 +904,7 @@ final class OperationCollector
             }
         }
 
-        if ($schema instanceof Schema) {
+        if ($schema instanceof SchemaNode) {
             $collectionOf = $this->arrayItemDataClass($schema);
             if ($collectionOf !== null) {
                 $imports[] = self::DATA_COLLECTION_FQCN;
@@ -986,7 +947,7 @@ final class OperationCollector
      *
      * @return list<string>|null
      */
-    private function responseUnionDataClasses(Schema $schema): ?array
+    private function responseUnionDataClasses(SchemaNode $schema): ?array
     {
         $members = [];
         foreach ([$schema->oneOf, $schema->anyOf] as $set) {
@@ -1004,15 +965,15 @@ final class OperationCollector
         $classes = [];
         foreach ($members as $member) {
             // Ignore a bare `{type: null}` member; it carries no Data class.
-            if ($member instanceof Schema && $member->type === 'null') {
+            if ($member instanceof SchemaNode && $member->type === 'null') {
                 continue;
             }
 
-            if (! $member instanceof Reference) {
+            if (! $member instanceof ReferenceNode) {
                 return null;
             }
 
-            $name = $this->refName($member->getReference());
+            $name = $this->refName($member->pointer());
             if ($name === null || ! isset($this->registry[$name]) || $this->registry[$name]['kind'] !== 'data') {
                 return null;
             }
@@ -1026,18 +987,18 @@ final class OperationCollector
         return $classes === [] ? null : $classes;
     }
 
-    private function arrayItemDataClass(Schema $schema): ?string
+    private function arrayItemDataClass(SchemaNode $schema): ?string
     {
         if (! $this->isArrayType($schema)) {
             return null;
         }
 
         $items = $schema->items;
-        if (! $items instanceof Reference) {
+        if (! $items instanceof ReferenceNode) {
             return null;
         }
 
-        $name = $this->refName($items->getReference());
+        $name = $this->refName($items->pointer());
         if ($name !== null && isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'data') {
             return $this->registry[$name]['dataClass'];
         }
@@ -1053,25 +1014,32 @@ final class OperationCollector
      * #64). The `default`/first-response fallbacks carry no declared success
      * status, so they report null.
      *
+     * Only spec-valid status code keys participate (see
+     * {@see RESPONSE_KEY_PATTERN}): the cebe object model dropped invalid
+     * keys at hydration time, and the selection (in particular the
+     * first-response fallback) must keep seeing the same map.
+     *
      * A selected response that is an unresolved `$ref` (a pointer into
      * `components.responses`, which this generator does not resolve) is
-     * demoted to null exactly as before, but the demotion now warns with the
+     * demoted to null exactly as before, but the demotion warns with the
      * pointer (issue #67) instead of silently typing JsonResponse. A `$ref`
      * selected for a 204 stays silent: the method is `void` either way, so
      * nothing degrades.
      *
      * @param  string  $label  "GET /pets", for warning messages
-     * @return array{0: ?Response, 1: ?int}
+     * @return array{0: ?ResponseNode, 1: ?int}
      */
-    private function successResponse(mixed $responses, string $label): array
+    private function successResponse(?ResponsesNode $responses, string $label): array
     {
-        if (! $responses instanceof Responses) {
+        if ($responses === null) {
             return [null, null];
         }
 
         $all = [];
-        foreach ($responses->getResponses() as $status => $response) {
-            $all[(string) $status] = $response;
+        foreach ($responses->responses as $status => $response) {
+            if (preg_match(self::RESPONSE_KEY_PATTERN, (string) $status) === 1) {
+                $all[(string) $status] = $response;
+            }
         }
 
         if ($all === []) {
@@ -1083,7 +1051,9 @@ final class OperationCollector
         $bestCode = null;
         foreach ($all as $status => $response) {
             $status = (string) $status;
-            if ($status !== '' && strspn($status, '0123456789') === strlen($status)) {
+            // The key filter above guarantees a non-empty key, so all-digits
+            // is the only check left for the concrete-status form.
+            if (strspn($status, '0123456789') === strlen($status)) {
                 $code = (int) $status;
                 if ($code >= 200 && $code < 300 && ($bestCode === null || $code < $bestCode)) {
                     $bestCode = $code;
@@ -1093,27 +1063,27 @@ final class OperationCollector
         }
 
         if ($bestCode !== null) {
-            if ($best instanceof Reference && $bestCode !== 204) {
+            if ($best instanceof ReferenceNode && $bestCode !== 204) {
                 $this->warnRefResponse($label, (string) $bestCode, $best);
             }
 
-            return [$best instanceof Response ? $best : null, $bestCode];
+            return [$best instanceof ResponseNode ? $best : null, $bestCode];
         }
 
         $default = $all['default'] ?? null;
-        if ($default instanceof Response) {
+        if ($default instanceof ResponseNode) {
             return [$default, null];
         }
-        if ($default instanceof Reference) {
+        if ($default instanceof ReferenceNode) {
             $this->warnRefResponse($label, 'default', $default);
         }
 
         $first = reset($all);
-        if ($first instanceof Reference && $first !== $default) {
+        if ($first instanceof ReferenceNode && $first !== $default) {
             $this->warnRefResponse($label, (string) array_key_first($all), $first);
         }
 
-        return [$first instanceof Response ? $first : null, null];
+        return [$first instanceof ResponseNode ? $first : null, null];
     }
 
     /**
@@ -1121,30 +1091,30 @@ final class OperationCollector
      * (issue #67): component responses are not resolved, so the operation
      * cannot derive a typed return from them and falls back to JsonResponse.
      */
-    private function warnRefResponse(string $label, string $status, Reference $response): void
+    private function warnRefResponse(string $label, string $status, ReferenceNode $response): void
     {
         $this->warnings[sprintf(
             'Operation %s: the "%s" response is a $ref ("%s") and component responses are not resolved yet; the return type falls back to JsonResponse.',
             $label,
             $status,
-            $response->getReference(),
+            $response->pointer(),
         )] = true;
     }
 
     /**
      * Find the application/json schema in a content map.
      *
-     * @param  array<array-key, mixed>  $content
+     * @param  array<array-key, MediaTypeNode>  $content
      */
-    private function jsonSchema(array $content): Schema|Reference|null
+    private function jsonSchema(array $content): SchemaNode|ReferenceNode|null
     {
         foreach ($content as $mediaType => $media) {
-            if (! is_string($mediaType) || ! $this->isJsonMediaType($mediaType) || ! $media instanceof MediaType) {
+            if (! is_string($mediaType) || ! $this->isJsonMediaType($mediaType)) {
                 continue;
             }
 
             $schema = $media->schema;
-            if ($schema instanceof Schema || $schema instanceof Reference) {
+            if ($schema !== null) {
                 return $schema;
             }
         }
@@ -1164,17 +1134,17 @@ final class OperationCollector
      * consulted after {@see jsonSchema()} found nothing, so JSON wins when an
      * operation declares both media types.
      *
-     * @param  array<array-key, mixed>  $content
+     * @param  array<array-key, MediaTypeNode>  $content
      */
-    private function multipartSchema(array $content): Schema|Reference|null
+    private function multipartSchema(array $content): SchemaNode|ReferenceNode|null
     {
         foreach ($content as $mediaType => $media) {
-            if (! is_string($mediaType) || ! $this->isMultipartFormData($mediaType) || ! $media instanceof MediaType) {
+            if (! is_string($mediaType) || ! $this->isMultipartFormData($mediaType)) {
                 continue;
             }
 
             $schema = $media->schema;
-            if ($schema instanceof Schema || $schema instanceof Reference) {
+            if ($schema !== null) {
                 return $schema;
             }
         }
@@ -1187,7 +1157,7 @@ final class OperationCollector
         return strtolower(trim(explode(';', $mediaType)[0])) === 'multipart/form-data';
     }
 
-    private function scalarType(Schema $schema): ?string
+    private function scalarType(SchemaNode $schema): ?string
     {
         $raw = $schema->type;
         $types = [];
@@ -1207,7 +1177,7 @@ final class OperationCollector
         return null;
     }
 
-    private function isArrayType(Schema $schema): bool
+    private function isArrayType(SchemaNode $schema): bool
     {
         return $this->scalarType($schema) === 'array';
     }
@@ -1225,11 +1195,11 @@ final class OperationCollector
         return $this->options->dataNamespace.'\\'.$shortName;
     }
 
-    private function summary(Operation $operation): ?string
+    private function summary(OperationNode $operation): ?string
     {
         $summary = $operation->summary;
 
-        return is_string($summary) && trim($summary) !== '' ? trim($summary) : null;
+        return $summary !== null && trim($summary) !== '' ? trim($summary) : null;
     }
 
     /**
@@ -1254,28 +1224,6 @@ final class OperationCollector
         return $rank === false ? count(self::HTTP_METHODS) : $rank;
     }
 
-    /**
-     * @return array<string, PathItem>
-     */
-    private function pathItems(OpenApi $document): array
-    {
-        $paths = $document->paths;
-
-        if ($paths === null) {
-            return [];
-        }
-
-        $result = [];
-        foreach ($paths->getPaths() as $path => $pathItem) {
-            // Unresolved $ref path items are skipped: nothing to route from them.
-            if ($pathItem instanceof PathItem) {
-                $result[(string) $path] = $pathItem;
-            }
-        }
-
-        return $result;
-    }
-
     private function refName(string $pointer): ?string
     {
         return $this->componentName($pointer, 'schemas');
@@ -1295,84 +1243,5 @@ final class OperationCollector
         $last = end($parts);
 
         return $last === '' ? null : $last;
-    }
-
-    /**
-     * @return array<array-key, mixed>
-     */
-    private function asArray(mixed $value): array
-    {
-        return is_array($value) ? $value : [];
-    }
-
-    /**
-     * Convert the operation's cebe query parameters into typed parameter
-     * nodes for the model pipeline (issue #104, Task 4 -> Task 5 bridge
-     * seam): the per-operation Data class generators speak the typed spec
-     * graph, but this collector still walks the cebe object model until
-     * Task 5 migrates it, so the conversion happens at this boundary. The
-     * cebe model was built from the byte-identity-proven serializer round
-     * trip, so re-hydrating its serialized data is lossless. Deleted with
-     * the cebe walk in Task 5.
-     *
-     * @param  list<Parameter>  $parameters
-     * @return list<ParameterNode>
-     */
-    private function parameterNodes(array $parameters): array
-    {
-        $nodes = [];
-        foreach ($parameters as $parameter) {
-            $nodes[] = $this->reader()->hydrateParameter($this->rawSpecData($parameter));
-        }
-
-        return $nodes;
-    }
-
-    /**
-     * Convert a cebe schema-or-reference into its typed node (issue #104,
-     * Task 4 -> Task 5 bridge seam, see {@see parameterNodes}). The empty
-     * fallback node is unreachable in practice (a cebe Schema or Reference
-     * always serializes to an array) and only satisfies the type.
-     */
-    private function schemaNode(Schema|Reference $schema): SchemaNode|ReferenceNode
-    {
-        return $this->reader()->hydrateSchema($this->rawSpecData($schema)) ?? new SchemaNode;
-    }
-
-    /**
-     * Convert an inline (non-$ref) cebe body schema into its typed node
-     * (issue #104, Task 4 -> Task 5 bridge seam, see {@see parameterNodes}).
-     * The caller has already branched on Reference, so the hydrated node is
-     * a SchemaNode; the empty fallback only satisfies the type.
-     */
-    private function bodySchemaNode(Schema $schema): SchemaNode
-    {
-        $node = $this->reader()->hydrateSchema($this->rawSpecData($schema));
-
-        return $node instanceof SchemaNode ? $node : new SchemaNode;
-    }
-
-    /**
-     * The serialized raw data of a cebe node, as the plain array shape the
-     * reader hydrates from. getSerializableData() returns nested stdClass
-     * objects for maps, so a JSON round trip flattens them; the data already
-     * passed the document-level decode, so the round trip cannot fail.
-     *
-     * @return array<array-key, mixed>
-     */
-    private function rawSpecData(Schema|Reference|Parameter $node): array
-    {
-        $decoded = json_decode((string) json_encode($node->getSerializableData()), true);
-
-        return is_array($decoded) ? $decoded : [];
-    }
-
-    /**
-     * The reader instance backing the bridge seams above, created on first
-     * use (collect() is not always reached, and the seams are throwaway).
-     */
-    private function reader(): OpenApiReader
-    {
-        return $this->reader ??= new OpenApiReader;
     }
 }

@@ -16,12 +16,11 @@ function generateStubs(): array
 {
     $parser104 = new SpecParser;
     $doc = $parser104->parseFileToDocument(__DIR__.'/../../../Fixtures/server/petstore.yaml');
-    $docCebe = $parser104->buildCebeModel($doc, __DIR__.'/../../../Fixtures/server/petstore.yaml');
     $generator = new ModelGenerator;
     $generator->generate($doc);
     $options = new ServerOptions;
 
-    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($docCebe);
+    $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($doc);
 
     return (new StubGenerator($options))->generate($descriptors);
 }

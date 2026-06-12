@@ -86,12 +86,11 @@ function generateHostileFiles(): array
 
     $parser104 = new SpecParser;
     $document = $parser104->parseFileToDocument($path);
-    $documentCebe = $parser104->buildCebeModel($document, $path);
     $generator = new ModelGenerator;
     $modelFiles = $generator->generate($document);
 
     $options = new ServerOptions;
-    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($documentCebe);
+    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($document);
     $controllerFiles = (new ControllerGenerator($options))->generate($descriptors);
     $routeFile = (new RouteGenerator($options))->generate($descriptors);
 

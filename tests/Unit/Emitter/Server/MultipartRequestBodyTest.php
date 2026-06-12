@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ControllerGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
@@ -35,13 +33,12 @@ function collectMultipartBody(array $paths, array $schemas = []): array
     }
 
     $spec = (new OpenApiReader)->read($document);
-    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
     expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $generator->generate($spec);
     $collector = new OperationCollector(new ServerOptions, $generator->registry(), null, $generator);
-    $descriptors = $collector->collect($specCebe);
+    $descriptors = $collector->collect($spec);
 
     return [$descriptors, $generator, $collector];
 }
@@ -317,13 +314,12 @@ it('does not type a multipart body when no model generator is wired in (legacy c
     ];
 
     $spec = (new OpenApiReader)->read($document);
-    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
     expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $generator->generate($spec);
     $collector = new OperationCollector(new ServerOptions, $generator->registry());
-    $descriptors = $collector->collect($specCebe);
+    $descriptors = $collector->collect($spec);
 
     expect($descriptors[0]->bodyParam)->toBeNull()
         ->and($descriptors[0]->bodyRequiresRequest)->toBeTrue()

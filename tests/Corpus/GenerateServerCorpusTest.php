@@ -22,7 +22,6 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 it('generates valid controllers and routes for every corpus spec', function (string $path) {
     $parser104 = new SpecParser;
     $document = $parser104->parseFileToDocument($path);
-    $documentCebe = $parser104->buildCebeModel($document, $path);
 
     $generator = new ModelGenerator;
     $modelFiles = $generator->generate($document);
@@ -32,7 +31,7 @@ it('generates valid controllers and routes for every corpus spec', function (str
     // Collect once, share with both generators (mirrors the command/standalone
     // wiring), with the model generator wired in so the per-operation query
     // Data classes are emitted and gated too.
-    $descriptors = (new OperationCollector($options, $registry, null, $generator))->collect($documentCebe);
+    $descriptors = (new OperationCollector($options, $registry, null, $generator))->collect($document);
     $controllers = (new ControllerGenerator($options))->generate($descriptors);
     $routes = (new RouteGenerator($options))->generate($descriptors);
     $queryFiles = array_values($generator->queryFiles());

@@ -187,31 +187,6 @@ final class OpenApiReader
     }
 
     /**
-     * Hydrate one value in schema position into the typed graph (issue #104,
-     * Task 4 -> Task 5 bridge seam). The operation collector still walks the
-     * cebe object model until Task 5 migrates it, but the model generator's
-     * per-operation entry points already speak SchemaNode, so the collector
-     * converts at the boundary through this seam. Deleted with the cebe path
-     * in Task 5/7.
-     */
-    public function hydrateSchema(mixed $value): SchemaNode|ReferenceNode|null
-    {
-        return $this->subschema($value, 0);
-    }
-
-    /**
-     * Hydrate one Parameter Object into the typed graph (issue #104, Task 4 ->
-     * Task 5 bridge seam, see {@see hydrateSchema}). Deleted with the cebe
-     * path in Task 5/7.
-     *
-     * @param  array<array-key, mixed>  $raw
-     */
-    public function hydrateParameter(array $raw): ParameterNode
-    {
-        return $this->parameter($raw);
-    }
-
-    /**
      * @param  array<array-key, mixed>  $raw
      */
     private function info(array $raw): InfoNode

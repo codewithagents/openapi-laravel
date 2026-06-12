@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-use cebe\openapi\Reader;
-use cebe\openapi\spec\OpenApi;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ControllerGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
@@ -34,13 +32,12 @@ function collectInlineBody(array $paths, array $schemas = []): array
     }
 
     $spec = (new OpenApiReader)->read($document);
-    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
     expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $generator->generate($spec);
     $collector = new OperationCollector(new ServerOptions, $generator->registry(), null, $generator);
-    $descriptors = $collector->collect($specCebe);
+    $descriptors = $collector->collect($spec);
 
     return [$descriptors, $generator, $collector];
 }
@@ -270,12 +267,11 @@ it('does not type an inline body when no model generator is wired in (legacy cal
     ];
 
     $spec = (new OpenApiReader)->read($document);
-    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
     expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
     $generator->generate($spec);
-    $descriptors = (new OperationCollector(new ServerOptions, $generator->registry()))->collect($specCebe);
+    $descriptors = (new OperationCollector(new ServerOptions, $generator->registry()))->collect($spec);
 
     expect($descriptors[0]->bodyParam)->toBeNull()
         ->and($descriptors[0]->bodyRequiresRequest)->toBeTrue()
@@ -290,7 +286,6 @@ it('keeps the operationId-derived body class name under the conventional method 
     ];
 
     $spec = (new OpenApiReader)->read($document);
-    $specCebe = Reader::readFromJson((string) json_encode($document), OpenApi::class);
     expect($spec)->toBeInstanceOf(OpenApiDocument::class);
 
     $generator = new ModelGenerator;
@@ -300,7 +295,7 @@ it('keeps the operationId-derived body class name under the conventional method 
         $generator->registry(),
         null,
         $generator,
-    ))->collect($specCebe);
+    ))->collect($spec);
 
     // The controller method takes the conventional name (POST on a collection
     // path is `store`), but the Data layer stays operationId-derived exactly

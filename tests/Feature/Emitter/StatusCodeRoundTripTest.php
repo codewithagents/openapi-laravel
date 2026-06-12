@@ -32,11 +32,10 @@ beforeEach(function () {
 
         $parser104 = new SpecParser;
         $document = $parser104->parseFileToDocument(__DIR__.'/../../Fixtures/server/petstore.yaml');
-        $documentCebe = $parser104->buildCebeModel($document, __DIR__.'/../../Fixtures/server/petstore.yaml');
         $generator = new ModelGenerator;
         $modelFiles = $generator->generate($document);
         $options = new ServerOptions;
-        $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($documentCebe);
+        $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($document);
         $controllers = (new ControllerGenerator($options))->generate($descriptors);
         $routes = (new RouteGenerator($options))->generate($descriptors);
 
