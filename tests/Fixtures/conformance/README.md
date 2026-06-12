@@ -192,7 +192,8 @@ lives in `src/` (out of scope for the test layer).
 | `getGizmo` (`GET /gizmos/{gizmoId}`) | 200 response $ref to a component response wrapping a schema $ref (reuses the existing Data class) | #116 |
 | `deleteGizmo` (`DELETE /gizmos/{gizmoId}`) | 204 response $ref to a body-less component response (stays void) | #116 |
 | `getGizmoSummary` (`GET /gizmos/summary`) | 200 response $ref to a component response with an inline object schema (synthesizes the shared `GizmoSummaryResponseData`) | #116 |
-| `downloadWidgetBlob` (`GET /widgets/{widgetId}/blob`) | non-JSON response (application/octet-stream binary) | |
+| `downloadWidgetBlob` (`GET /widgets/{widgetId}/blob`) | non-JSON binary response (application/octet-stream), typed as the base Symfony Response with a warning | #118 |
+| `getReport` (`GET /report`) | non-JSON text response (text/html), typed as the base Symfony Response with a warning | #117 |
 | `uploadStuff` (`POST /uploads`) | multipart/form-data body, application/x-www-form-urlencoded body | |
 | (no id) (`GET /pingless`) | operation with no operationId, multiple tags | |
 | `duplicateOp` (`GET /collide/first`) | operationId collision part 1 | |

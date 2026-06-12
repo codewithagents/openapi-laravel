@@ -311,7 +311,7 @@ it('prefers the JSON media type when the component response declares several', f
         ->and(array_keys($generator->responseFiles()))->toBe(['PetPageResponseData']);
 });
 
-it('keeps a resolved component response without JSON content a silent JsonResponse fallback', function () {
+it('types a resolved component response without JSON content as the base Response with a warning (#117/#118)', function () {
     [$descriptors, , $collector] = collectComponentResponse(sharedComponentResponsePaths(), [
         'PetPage' => [
             'description' => 'Raw bytes only',
@@ -319,10 +319,17 @@ it('keeps a resolved component response without JSON content a silent JsonRespon
         ],
     ]);
 
-    // Same silent behavior as an inline non-JSON response: nothing to type,
-    // nothing to warn about.
-    expect($descriptors[0]->returnType)->toBe('JsonResponse')
-        ->and($collector->warnings())->toBe([]);
+    // Same behavior as an inline non-JSON response: the resolved component
+    // content routes through the identical typing, so the method returns the
+    // base Symfony Response and the degradation warns per operation.
+    expect($descriptors[0]->returnType)->toBe('Response')
+        ->and($descriptors[1]->returnType)->toBe('Response')
+        ->and($descriptors[0]->imports)->toContain('Symfony\\Component\\HttpFoundation\\Response')
+        ->and($collector->warnings())->toContain(
+            'Operation GET /pets: the response declares no JSON media type (application/octet-stream); the method returns the base Response type and no typed Data return is generated.',
+        )->toContain(
+            'Operation GET /shelter-pets: the response declares no JSON media type (application/octet-stream); the method returns the base Response type and no typed Data return is generated.',
+        );
 });
 
 it('stays void with no resolution attempt for a 204 component response $ref', function () {

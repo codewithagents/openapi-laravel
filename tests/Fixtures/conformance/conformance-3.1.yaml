@@ -196,7 +196,23 @@ paths:
         '200':                    # $ref into components.responses (inline-object form)
           $ref: '#/components/responses/GizmoSummary'
 
-  # Non-JSON response (application/octet-stream binary download).
+  # Non-JSON text response (#117): typed as the base Symfony Response with a
+  # degradation warning, never JsonResponse.
+  /report:
+    get:
+      operationId: getReport
+      summary: text/html-only response typed as the base Response
+      tags: [reports]
+      responses:
+        '200':
+          description: An HTML report page
+          content:
+            text/html:              # non-JSON text response (#117)
+              schema:
+                type: string
+
+  # Non-JSON response (application/octet-stream binary download, #118: typed
+  # as the base Symfony Response with a degradation warning).
   /widgets/{widgetId}/blob:
     get:
       operationId: downloadWidgetBlob

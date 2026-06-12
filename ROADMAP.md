@@ -185,8 +185,11 @@ collisions failing loudly.
   shared constraint mapping, plus a `max:` length cap for the closed `items: false` form) but the
   TYPING still degrades to `array<int, mixed>`; a post-prefix `items` schema stays unenforced (a
   `field.*` rule would false-reject the prefix positions).
-- int64/bignum literal bounds, non-JSON responses, and `$ref`-valued map values degrade gracefully
-  (typed in the docblock, not auto-hydrated).
+- int64/bignum literal bounds and `$ref`-valued map values degrade gracefully (typed in the
+  docblock, not auto-hydrated). A non-JSON-only success response (text/html, binary downloads) is
+  typed as the base Symfony `Response` with a warning (#117/#118): honest typing (any Response
+  subclass satisfies it), but no schema-derived validation or Data return exists for it. A response
+  with NO declared content keeps the JsonResponse default (the spec says nothing about the body).
 - A spec `pattern` is copied verbatim into the generated `regex:` rule with no complexity analysis
   (#107), so a catastrophic-backtracking pattern in the spec becomes a potential ReDoS at runtime in
   the generated app. PHP's `pcre.backtrack_limit` is the only backstop, turning a hang into a failed
