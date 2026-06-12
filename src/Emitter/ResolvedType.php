@@ -34,6 +34,7 @@ final readonly class ResolvedType
 {
     /**
      * @param  list<string>  $imports
+     * @param  list<string>  $classRefs  short names of GENERATED classes (Data classes and enums) this type mentions anywhere (declaration, docType, dataCollectionOf), so the tag-grouped layout (issue #93) can import a cross-group reference even when the type was resolved earlier and cached (map aliases, non-object aliases)
      */
     public function __construct(
         public string $declaration,
@@ -44,6 +45,7 @@ final readonly class ResolvedType
         public bool $isUnion = false,
         public bool $isMap = false,
         public bool $isEnum = false,
+        public array $classRefs = [],
     ) {}
 
     public function declaration(): string

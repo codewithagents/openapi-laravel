@@ -256,7 +256,7 @@ it('does not inject the query class when an inline body occupies the payload (hy
     // The typed inline body counts as a request body, so the query class is
     // reachable via ::fromQuery($request) only, never container-injected.
     expect($descriptors[0]->bodyParam)->not->toBeNull()
-        ->and($descriptors[0]->queryParam)->toBe(['name' => 'query', 'type' => 'CreatePetQueryData', 'injected' => false]);
+        ->and($descriptors[0]->queryParam)->toBe(['name' => 'query', 'type' => 'CreatePetQueryData', 'injected' => false, 'fqcn' => 'App\\Data\\CreatePetQueryData']);
 });
 
 it('does not type an inline body when no model generator is wired in (legacy call sites)', function () {

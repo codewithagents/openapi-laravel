@@ -144,9 +144,11 @@ final readonly class ControllerGenerator
             // class against the merged body + query input. Point the
             // implementer at the explicit query-only factory instead. The FQCN
             // is spelled out as prose, not imported, so no `use` goes unused.
+            // The collector resolved it, because under the grouped data layout
+            // (issue #93) the class may live in a tag subnamespace.
             $doc[] = '     *';
             $doc[] = '     * Query parameters: validate and hydrate them with';
-            $doc[] = '     * \\'.$this->options->dataNamespace.'\\'.$operation->queryParam['type'].'::fromQuery($request).';
+            $doc[] = '     * \\'.$operation->queryParam['fqcn'].'::fromQuery($request).';
         }
         if ($operation->needsStatusMiddleware()) {
             // The spec declares a non-200 success status; the generated route

@@ -212,6 +212,33 @@ final class ModelGenerator
      */
     private array $usedSupportClasses = [];
 
+    /**
+     * Emitted class name => its tag group under the grouped data layout
+     * (issue #93), or null for the flat root. Holds EVERY generated class
+     * (components, write variants, nested inline classes, synthesized union
+     * variants, per-operation query and body classes); in the flat default
+     * every value is null. Drives the per-file namespace, the subdirectory,
+     * and the cross-group import decisions. Rebuilt per generate() call.
+     *
+     * @var array<string, ?string>
+     */
+    private array $fileGroups = [];
+
+    /**
+     * Reference scopes for the class currently being emitted (issue #93): a
+     * stack because emission is reentrant (an inline object property spawns a
+     * nested class mid-emit). Each entry records the tag group the emission
+     * runs under (so a spawned nested class inherits it) and the generated
+     * classes the rendered code references (property types, DataCollectionOf
+     * targets, Rule::enum classes, morph arms, the variant base), so the
+     * renderer can import exactly the cross-group references. The alias and
+     * map classification passes push a group-only scope, so a nested class
+     * spawned from inside an alias/map component follows THAT component.
+     *
+     * @var list<array{group: ?string, refs: array<string, true>}>
+     */
+    private array $refScopes = [];
+
     public function __construct(
         private readonly GeneratorOptions $options = new GeneratorOptions,
     ) {
@@ -237,6 +264,8 @@ final class ModelGenerator
         $this->warningContext = 'Document';
         $this->multipartBody = false;
         $this->usedSupportClasses = [];
+        $this->fileGroups = [];
+        $this->refScopes = [];
 
         $schemas = $this->componentSchemas($document);
         ksort($schemas);
@@ -273,6 +302,7 @@ final class ModelGenerator
             if ($this->discriminators->isBase($name)) {
                 $class = $this->names->reserve($this->withSuffix(PhpIdentifier::toClassName($name)));
                 $this->registry[$name] = ['class' => $class, 'kind' => 'data', 'schema' => $schema];
+                $this->fileGroups[$class] = $this->groupForSchema($name);
 
                 continue;
             }
@@ -299,6 +329,7 @@ final class ModelGenerator
             $class = $this->names->reserve($class);
 
             $this->registry[$name] = ['class' => $class, 'kind' => $kind, 'schema' => $schema];
+            $this->fileGroups[$class] = $this->groupForSchema($name);
         }
 
         // Second classification pass: resolve each pure-map component to its
@@ -308,7 +339,12 @@ final class ModelGenerator
             if ($this->isPureMap($schema)) {
                 $this->warningContext = sprintf('Schema "%s"', $name);
                 $this->mapSchemas[$name] = $schema;
+                // A nested class spawned from the map's value schema follows
+                // the map component's own tag group (issue #93); the recorded
+                // refs are discarded (use sites replay the cached classRefs).
+                $this->pushGroupScope($this->groupForSchema($name));
                 $this->mapAliases[$name] = $this->mapType($schema, PhpIdentifier::toClassName($name), 0, 'all');
+                $this->popRefScope();
             }
         }
 
@@ -365,6 +401,9 @@ final class ModelGenerator
                 $this->emitData($entry['class'], $entry['schema'], 0, 'read');
                 $writeClass = $this->names->reserve($this->withSuffix($this->stripSuffix($entry['class']).'Writable'));
                 $this->writeClasses[$name] = $writeClass;
+                // The write variant is the same component, so it follows the
+                // component's tag group (issue #93).
+                $this->fileGroups[$writeClass] = $this->fileGroups[$entry['class']] ?? null;
                 $this->emitData($writeClass, $entry['schema'], 0, 'write');
             } else {
                 $this->emitData($entry['class'], $entry['schema'], 0);
@@ -449,9 +488,10 @@ final class ModelGenerator
      * @param  string  $baseName  StudlyCaps operation context (operationId or the method+path fallback), without suffix
      * @param  string  $operationLabel  "GET /pets", for warning messages
      * @param  list<Parameter>  $parameters  the operation's `in: query` parameters, in spec order
+     * @param  ?string  $tag  the operation's first tag (or the 'Untagged' fallback), so the grouped layout (issue #93) can place the class in its operation's tag group; ignored in the flat layout
      * @return string|null the reserved query class name, or null when every parameter was skipped
      */
-    public function generateQueryData(string $baseName, string $operationLabel, array $parameters): ?string
+    public function generateQueryData(string $baseName, string $operationLabel, array $parameters, ?string $tag = null): ?string
     {
         // Degradation warnings inside the query pipeline name the operation,
         // not a schema: the parameters being resolved are operation-owned.
@@ -481,6 +521,12 @@ final class ModelGenerator
         }
 
         $className = $this->names->reserve($this->withSuffix($baseName.'Query'));
+
+        // A per-operation class belongs unambiguously to its operation's tag
+        // group (issue #93); in the flat layout the group is null.
+        $this->fileGroups[$className] = $this->groupForTag($tag);
+        $this->pushRefScope($className);
+
         $base = $this->stripSuffix($className);
         $propertyNames = new UniqueNames;
 
@@ -502,6 +548,7 @@ final class ModelGenerator
             // (first_name + firstName); suffix collisions like emitData does.
             $propertyName = $propertyNames->reserve(PhpIdentifier::toPropertyName($wireName));
             $type = $this->resolveType($schema, $base.PhpIdentifier::toClassName($wireName), 1);
+            $this->noteClassRef(...$type->classRefs);
 
             // The form style serializes a boolean as ?flag=true / ?flag=false,
             // but Laravel's `boolean` rule only understands 1/0 (and PHP's
@@ -544,6 +591,8 @@ final class ModelGenerator
         if ($params === []) {
             // Every surviving parameter lacked a usable schema (defensive; the
             // skip check above already filtered these). No useful class to emit.
+            $this->popRefScope();
+
             return null;
         }
 
@@ -553,6 +602,10 @@ final class ModelGenerator
         $imports = array_values(array_unique($imports));
         sort($imports);
 
+        // A referenced enum or Data class may live in another tag group
+        // (issue #93); import those from their real namespaces.
+        $imports = $this->withCrossGroupImports($className, $imports, $this->popRefScope());
+
         $classDoc = [
             'Query parameters of '.$this->docblockSafe($operationLabel).'.',
         ];
@@ -560,6 +613,7 @@ final class ModelGenerator
         $this->queryFiles[$className] = new GeneratedFile(
             $className,
             $this->renderDataClass($className, $params, $imports, $rules, $classDoc, fromQueryBooleans: $booleanNames),
+            $this->fileGroups[$className] ?? null,
         );
 
         return $className;
@@ -608,9 +662,10 @@ final class ModelGenerator
      *
      * @param  string  $baseName  StudlyCaps operation context (operationId or the method+path fallback), without suffix
      * @param  string  $operationLabel  "POST /pets", for warning messages
+     * @param  ?string  $tag  the operation's first tag (or the 'Untagged' fallback), so the grouped layout (issue #93) can place the class (and its nested classes) in its operation's tag group; ignored in the flat layout
      * @return string|null the reserved body class name, or null when the schema cannot type a body
      */
-    public function generateBodyData(string $baseName, string $operationLabel, Schema $schema): ?string
+    public function generateBodyData(string $baseName, string $operationLabel, Schema $schema, ?string $tag = null): ?string
     {
         // Degradation warnings inside the body pipeline name the operation,
         // not a schema: an inline body schema is operation-owned.
@@ -628,6 +683,11 @@ final class ModelGenerator
         }
 
         $className = $this->names->reserve($this->withSuffix($baseName.'Request'));
+
+        // A per-operation class belongs unambiguously to its operation's tag
+        // group (issue #93); nested classes it spawns follow it through the
+        // emission scope. Null in the flat layout.
+        $this->fileGroups[$className] = $this->groupForTag($tag);
 
         // emitData() writes the class (and every nested class it spawns) into
         // $files, which generate() already returned to its caller. Emit into a
@@ -685,9 +745,10 @@ final class ModelGenerator
      *
      * @param  string  $baseName  StudlyCaps operation context (operationId or the method+path fallback), without suffix
      * @param  string  $operationLabel  "POST /pets", for warning messages
+     * @param  ?string  $tag  the operation's first tag (or the 'Untagged' fallback), so the grouped layout (issue #93) can place the class (and its nested classes) in its operation's tag group; ignored in the flat layout
      * @return string|null the reserved body class name, or null when the schema cannot type a body
      */
-    public function generateMultipartBodyData(string $baseName, string $operationLabel, Schema|Reference $schema): ?string
+    public function generateMultipartBodyData(string $baseName, string $operationLabel, Schema|Reference $schema, ?string $tag = null): ?string
     {
         $this->warningContext = sprintf('Multipart request body of operation %s', $operationLabel);
 
@@ -718,6 +779,11 @@ final class ModelGenerator
         }
 
         $className = $this->names->reserve($this->withSuffix($baseName.'Request'));
+
+        // A per-operation class belongs unambiguously to its operation's tag
+        // group (issue #93), exactly like generateBodyData(); nested classes
+        // it spawns follow it through the emission scope. Null when flat.
+        $this->fileGroups[$className] = $this->groupForTag($tag);
 
         // Same bucket discipline as generateBodyData(): emit into a clean
         // bucket and collect into $bodyFiles for the planner.
@@ -1120,6 +1186,8 @@ final class ModelGenerator
      */
     private function emitData(string $className, Schema $schema, int $depth, string $variant = 'all', array $docIntro = []): void
     {
+        $this->pushRefScope($className);
+
         $properties = $this->objectProperties($schema);
         $required = $this->requiredNames($schema);
 
@@ -1185,6 +1253,7 @@ final class ModelGenerator
             $type = $filePart !== null
                 ? $this->multipartFileType($filePart)
                 : $this->resolveType($propertySchema, $base.PhpIdentifier::toClassName($wireName), $depth + 1, $variant);
+            $this->noteClassRef(...$type->classRefs);
 
             // A scalar `default` makes the property optional on input even when
             // the spec lists it as required: an omitted value is filled by the
@@ -1281,9 +1350,15 @@ final class ModelGenerator
             $classDoc[] = 'This schema also declares additionalProperties: dynamic keys beyond the named properties above are not captured by this class.';
         }
 
+        // Close this class's reference scope and import every cross-group
+        // reference (issue #93); a flat-layout run records groups of null
+        // everywhere, so the imports come back unchanged.
+        $imports = $this->withCrossGroupImports($className, $imports, $this->popRefScope());
+
         $this->files[$className] = new GeneratedFile(
             $className,
             $this->renderDataClass($className, $params, $imports, $rules, $classDoc),
+            $this->fileGroups[$className] ?? null,
         );
     }
 
@@ -1297,6 +1372,8 @@ final class ModelGenerator
      */
     private function emitDiscriminatorBase(string $baseName, string $className): void
     {
+        $this->pushRefScope($className);
+
         $wireName = (string) $this->discriminators->propertyName($baseName);
         $propertyName = PhpIdentifier::toPropertyName($wireName);
 
@@ -1349,6 +1426,7 @@ final class ModelGenerator
             if ($variantClass === null) {
                 continue;
             }
+            $this->noteClassRef($variantClass);
             $arms[] = '            '.$this->discriminatorValueLiteral((string) $value, $type).' => '.$variantClass.'::class,';
         }
         $arms[] = '            default => null,';
@@ -1357,9 +1435,14 @@ final class ModelGenerator
         $baseSchema = $this->registry[$baseName]['schema'] ?? null;
         $deprecationTag = $baseSchema instanceof Schema ? $this->deprecationTag($baseSchema) : null;
 
+        // A variant may live in another tag group (issue #93): the morph()
+        // arms reference it by short name, so import it from its real group.
+        $imports = $this->withCrossGroupImports($className, $imports, $this->popRefScope());
+
         $this->files[$className] = new GeneratedFile(
             $className,
             $this->renderDiscriminatorBase($className, $imports, $mapName, $propertyName, $type, $validationAttributes, $arms, $deprecationTag),
+            $this->fileGroups[$className] ?? null,
         );
     }
 
@@ -1404,8 +1487,15 @@ final class ModelGenerator
      */
     private function emitVariant(string $variantName, string $className, Schema $schema): void
     {
+        $this->pushRefScope($className);
+
         $baseName = (string) $this->discriminators->baseOf($variantName);
         $baseClass = $this->registry[$baseName]['class'] ?? 'Data';
+        // The `extends` references the base by short name; under the grouped
+        // layout (issue #93) the base may live in another group, so record the
+        // reference (the defensive 'Data' fallback is never a generated class
+        // and is filtered by withCrossGroupImports).
+        $this->noteClassRef($baseClass);
         $discriminatorWire = (string) $this->discriminators->propertyName($baseName);
         $discriminatorProperty = PhpIdentifier::toPropertyName($discriminatorWire);
 
@@ -1468,6 +1558,7 @@ final class ModelGenerator
             $propertyName = $propertyNames->reserve(PhpIdentifier::toPropertyName($wireName));
             $listedRequired = in_array($wireName, $required, true);
             $type = $this->resolveType($propertySchema, $base.PhpIdentifier::toClassName($wireName), 1);
+            $this->noteClassRef(...$type->classRefs);
 
             $default = $this->defaultValue($propertySchema, $type);
             $isRequired = $listedRequired && $default === null;
@@ -1506,9 +1597,14 @@ final class ModelGenerator
         $imports = array_values(array_filter($imports, static fn (string $i): bool => $i !== 'Spatie\\LaravelData\\Data'));
         sort($imports);
 
+        // Under the grouped layout (issue #93) the base or a referenced class
+        // may live in another group; import those from their real namespaces.
+        $imports = $this->withCrossGroupImports($className, $imports, $this->popRefScope());
+
         $this->files[$className] = new GeneratedFile(
             $className,
             $this->renderVariantClass($className, $baseClass, $discriminatorProperty, $discriminatorDeclaration, $params, $imports, $rules, $this->deprecationTag($schema)),
+            $this->fileGroups[$className] ?? null,
         );
     }
 
@@ -1678,6 +1774,172 @@ final class ModelGenerator
         ksort($files);
 
         return $files;
+    }
+
+    /**
+     * The tag group a component schema's classes belong to under the grouped
+     * layout (issue #93), or null for the flat root. Attribution comes from
+     * the precomputed map. A SYNTHESIZED inline-union variant (issue #38) is
+     * not a component, so the map can never name it: it follows its base. A
+     * named-component variant is attributed like every other component (the
+     * closure walk links it to its base, so it lands with the base unless
+     * another tag group also reaches it). Always null when the grouped layout
+     * is off.
+     */
+    private function groupForSchema(string $schemaName): ?string
+    {
+        $groups = $this->options->schemaGroups;
+        if ($groups === null) {
+            return null;
+        }
+
+        if (isset($groups[$schemaName])) {
+            return $groups[$schemaName];
+        }
+
+        if (array_key_exists($schemaName, $this->discriminators->syntheticVariants())) {
+            $base = $this->discriminators->baseOf($schemaName);
+            if ($base !== null && isset($groups[$base])) {
+                return $groups[$base];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The tag group a per-operation class (query, issue #63; body, issue #76)
+     * belongs to: its operation's tag group, which is unambiguous because an
+     * operation has exactly one controller tag. Null in the flat layout, for a
+     * tagless caller, or for the reserved 'Support' group.
+     */
+    private function groupForTag(?string $tag): ?string
+    {
+        if ($this->options->schemaGroups === null || $tag === null) {
+            return null;
+        }
+
+        return TagGroups::forTag($tag);
+    }
+
+    /**
+     * The namespace a generated class is emitted into: the configured Data
+     * namespace, extended by the class's tag group under the grouped layout
+     * (issue #93). Public so the server scaffold imports Data classes from
+     * the namespace they actually land in.
+     */
+    public function namespaceFor(string $className): string
+    {
+        $group = $this->fileGroups[$className] ?? null;
+
+        return $group === null ? $this->options->namespace : $this->options->namespace.'\\'.$group;
+    }
+
+    /**
+     * Open a reference scope for a class being emitted (issue #93). Scopes
+     * stack because emission is reentrant: an inline object property spawns a
+     * nested class in the middle of its holder's emission. The class's group
+     * must already be assigned in $fileGroups when the scope opens.
+     */
+    private function pushRefScope(string $className): void
+    {
+        $this->pushGroupScope($this->fileGroups[$className] ?? null);
+    }
+
+    /**
+     * Open a scope that only establishes the tag group spawned nested classes
+     * inherit (issue #93). Used by the alias and map classification passes,
+     * which resolve types (and may spawn inline classes) before any class
+     * emission runs; the refs recorded here are discarded on pop, because use
+     * sites replay them from the cached {@see ResolvedType::$classRefs}.
+     */
+    private function pushGroupScope(?string $group): void
+    {
+        $this->refScopes[] = ['group' => $group, 'refs' => []];
+    }
+
+    /**
+     * Close the current reference scope and return the generated classes it
+     * recorded, sorted for deterministic import order.
+     *
+     * @return list<string>
+     */
+    private function popRefScope(): array
+    {
+        $scope = array_pop($this->refScopes);
+        $refs = $scope === null ? [] : array_keys($scope['refs']);
+        sort($refs);
+
+        return $refs;
+    }
+
+    /**
+     * Record generated classes the class currently being emitted references.
+     * A no-op outside an emission scope (alias and map types resolved during
+     * the classification passes are replayed at their use sites through
+     * {@see ResolvedType::$classRefs} instead).
+     */
+    private function noteClassRef(string ...$classes): void
+    {
+        if ($this->refScopes === [] || $classes === []) {
+            return;
+        }
+
+        $top = array_key_last($this->refScopes);
+        foreach ($classes as $class) {
+            $this->refScopes[$top]['refs'][$class] = true;
+        }
+    }
+
+    /**
+     * The tag group of the scope currently emitting, or null at the flat root
+     * (and always null outside any scope). A nested inline class follows the
+     * class (or alias/map component) that spawned it, so a holder's group
+     * propagates to its whole inline subtree.
+     */
+    private function currentScopeGroup(): ?string
+    {
+        if ($this->refScopes === []) {
+            return null;
+        }
+
+        return $this->refScopes[array_key_last($this->refScopes)]['group'];
+    }
+
+    /**
+     * Merge the imports a class needs for its cross-group references (issue
+     * #93): every recorded generated class that lives in a DIFFERENT group
+     * gets a `use` of its real namespace. Same-group (and self) references
+     * stay short-name-only, exactly like the flat layout, and a recorded name
+     * that is not a generated class (the defensive `Data` fallback of a
+     * variant whose base vanished) is never imported. In the flat layout every
+     * group is null, so this returns the imports unchanged (re-sorting a list
+     * that is already unique and sorted).
+     *
+     * @param  list<string>  $imports
+     * @param  list<string>  $refs
+     * @return list<string>
+     */
+    private function withCrossGroupImports(string $className, array $imports, array $refs): array
+    {
+        $group = $this->fileGroups[$className] ?? null;
+
+        foreach ($refs as $ref) {
+            if ($ref === $className || ! array_key_exists($ref, $this->fileGroups)) {
+                continue;
+            }
+
+            if (($this->fileGroups[$ref] ?? null) === $group) {
+                continue;
+            }
+
+            $imports[] = $this->namespaceFor($ref).'\\'.$ref;
+        }
+
+        $imports = array_values(array_unique($imports));
+        sort($imports);
+
+        return $imports;
     }
 
     /**
@@ -2882,6 +3144,12 @@ final class ModelGenerator
         $name = $this->refName($reference->getReference());
 
         if ($name !== null && isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'enum') {
+            // Every Rule::enum(X::class) expression flows through here, so
+            // recording the reference at this single chokepoint lets the
+            // grouped layout (issue #93) import an enum a rule references even
+            // when the property type itself does not mention it.
+            $this->noteClassRef($this->registry[$name]['class']);
+
             return $this->registry[$name]['class'];
         }
 
@@ -2947,7 +3215,10 @@ final class ModelGenerator
             }
         }
 
-        if ($traitNamespace !== ltrim($this->options->namespace, '\\') && ! in_array($fqcn, $imports, true)) {
+        // Compared against the class's EFFECTIVE namespace: under the grouped
+        // layout (issue #93) a class in a tag subnamespace must import a trait
+        // living at the flat Data root, and vice versa.
+        if ($traitNamespace !== ltrim($this->namespaceFor($className), '\\') && ! in_array($fqcn, $imports, true)) {
             $imports[] = $fqcn;
             sort($imports);
         }
@@ -2974,7 +3245,7 @@ final class ModelGenerator
             ? ''
             : "/**\n".implode("\n", array_map(static fn (string $line): string => ' * '.$line, $classDoc))."\n */\n";
 
-        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->options->namespace.";\n\n".$useBlock."\n\n".$docBlock.'final class '.$className.' extends Data';
+        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->namespaceFor($className).";\n\n".$useBlock."\n\n".$docBlock.'final class '.$className.' extends Data';
 
         if ($params === []) {
             // An object with no constructor properties is normally an empty class.
@@ -3100,7 +3371,7 @@ final class ModelGenerator
 
         $docBlock = $deprecationTag !== null ? '/**'."\n".' * '.$deprecationTag."\n".' */'."\n" : '';
 
-        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->options->namespace.";\n\n".$useBlock."\n\n".$docBlock
+        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->namespaceFor($className).";\n\n".$useBlock."\n\n".$docBlock
             .'abstract class '.$className.' extends Data implements PropertyMorphableData';
 
         $attributeLine = '        #[PropertyForMorph, '.implode(', ', $validationAttributes)."]\n";
@@ -3148,7 +3419,7 @@ final class ModelGenerator
 
         $docBlock = $deprecationTag !== null ? '/**'."\n".' * '.$deprecationTag."\n".' */'."\n" : '';
 
-        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->options->namespace.";\n\n".$useBlock.$docBlock
+        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->namespaceFor($className).";\n\n".$useBlock.$docBlock
             .'final class '.$className.' extends '.$baseClass;
 
         // The discriminator is a forwarded, non-promoted parameter so only the
@@ -3267,7 +3538,7 @@ final class ModelGenerator
         if ($aliasRef !== null) {
             $resolved = $this->resolveReference($aliasRef);
 
-            return $allOfNullable ? new ResolvedType($resolved->declaration, true, $resolved->docType, $resolved->imports, $resolved->dataCollectionOf, $resolved->isUnion, $resolved->isMap, $resolved->isEnum) : $resolved;
+            return $allOfNullable ? new ResolvedType($resolved->declaration, true, $resolved->docType, $resolved->imports, $resolved->dataCollectionOf, $resolved->isUnion, $resolved->isMap, $resolved->isEnum, $resolved->classRefs) : $resolved;
         }
 
         // An allOf member set merges to an object even when `type: object` is
@@ -3325,6 +3596,7 @@ final class ModelGenerator
 
         $declarations = [];
         $imports = [];
+        $classRefs = [];
         $hasObjectMember = false;
 
         foreach ($members as $member) {
@@ -3371,6 +3643,10 @@ final class ModelGenerator
             foreach ($resolved->imports as $import) {
                 $imports[] = $import;
             }
+
+            foreach ($resolved->classRefs as $classRef) {
+                $classRefs[] = $classRef;
+            }
         }
 
         // Every member was the null type: nothing to union over, stay mixed.
@@ -3379,6 +3655,7 @@ final class ModelGenerator
         }
 
         $imports = array_values(array_unique($imports));
+        $classRefs = array_values(array_unique($classRefs));
         $docType = implode('|', $nullable ? array_merge($declarations, ['null']) : $declarations);
 
         // An object union (`CatData|DogData`) is undiscriminated: this generator
@@ -3399,6 +3676,7 @@ final class ModelGenerator
                 $nullable,
                 $docType,
                 $imports,
+                classRefs: $classRefs,
             );
         }
 
@@ -3409,6 +3687,7 @@ final class ModelGenerator
             $imports,
             null,
             true,
+            classRefs: $classRefs,
         );
     }
 
@@ -3590,17 +3869,25 @@ final class ModelGenerator
         }
 
         // A reference to a pure-map component inlines the array type at the use
-        // site (the component itself has no Data class).
+        // site (the component itself has no Data class). The cached type was
+        // resolved during classification (outside any emission scope), so its
+        // recorded class references are replayed into the current scope here.
         if (isset($this->mapAliases[$name])) {
+            $this->noteClassRef(...$this->mapAliases[$name]->classRefs);
+
             return $this->mapAliases[$name];
         }
 
         // A reference to a non-object alias component (scalar/array/union)
         // resolves to its underlying type at the use site. Resolution is
         // transitive (alias -> alias) and cycle-guarded via $aliasSeen, so a
-        // chain reached mid-resolution still terminates.
+        // chain reached mid-resolution still terminates. Cached like the map
+        // aliases, so its class references are replayed too.
         if (isset($this->aliasSchemas[$name])) {
-            return $this->resolveAlias($name, $this->aliasSeen);
+            $resolved = $this->resolveAlias($name, $this->aliasSeen);
+            $this->noteClassRef(...$resolved->classRefs);
+
+            return $resolved;
         }
 
         if (isset($this->registry[$name]) && is_string($this->registry[$name]['class'])) {
@@ -3610,8 +3897,10 @@ final class ModelGenerator
             // class-string<BaseData>, failing PHPStan). spatie hydrates the backed
             // enum from the typed array via the array<int, SomeEnum> docblock.
             $isEnum = $this->registry[$name]['kind'] === 'enum';
+            $class = $this->registry[$name]['class'];
+            $this->noteClassRef($class);
 
-            return new ResolvedType($this->registry[$name]['class'], isEnum: $isEnum);
+            return new ResolvedType($class, isEnum: $isEnum, classRefs: [$class]);
         }
 
         $this->warnings[sprintf(
@@ -3664,6 +3953,7 @@ final class ModelGenerator
             'array<int, '.$itemDoc.'>',
             $itemType->imports,
             $dataCollectionOf,
+            classRefs: $itemType->classRefs,
         );
     }
 
@@ -3671,11 +3961,15 @@ final class ModelGenerator
     {
         $className = $this->names->reserve($this->withSuffix($nameHint));
 
+        // A nested inline class follows the class that spawned it (issue #93),
+        // so a holder's tag group propagates to its whole inline subtree.
+        $this->fileGroups[$className] = $this->currentScopeGroup();
+
         // Reserve the slot before recursing so nested cycles cannot reuse it.
         $this->files[$className] = new GeneratedFile($className, '');
         $this->emitData($className, $schema, $depth, $variant);
 
-        return new ResolvedType($className, $nullable);
+        return new ResolvedType($className, $nullable, classRefs: [$className]);
     }
 
     private function emitEnum(string $className, Schema $schema): void
@@ -3709,9 +4003,9 @@ final class ModelGenerator
         $deprecationTag = $this->deprecationTag($schema);
         $docBlock = $deprecationTag !== null ? '/**'."\n".' * '.$deprecationTag."\n".' */'."\n" : '';
 
-        $code = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->options->namespace.";\n\n".$docBlock.'enum '.$className.': '.$backing."\n{\n".$body."\n}\n";
+        $code = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->namespaceFor($className).";\n\n".$docBlock.'enum '.$className.': '.$backing."\n{\n".$body."\n}\n";
 
-        $this->files[$className] = new GeneratedFile($className, $code);
+        $this->files[$className] = new GeneratedFile($className, $code, $this->fileGroups[$className] ?? null);
     }
 
     /**
@@ -4330,9 +4624,16 @@ final class ModelGenerator
         $previousContext = $this->warningContext;
         $this->warningContext = sprintf('Schema "%s"', $name);
 
+        // A nested class spawned from inside the alias (an array-of-inline-
+        // object alias) follows the alias component's own tag group (issue
+        // #93); the refs recorded here are discarded, because use sites replay
+        // them from the cached classRefs.
+        $this->pushGroupScope($this->groupForSchema($name));
+
         try {
             $resolved = $this->resolveType($schema, PhpIdentifier::toClassName($name), 0);
         } finally {
+            $this->popRefScope();
             $this->warningContext = $previousContext;
             $this->aliasSeen = [];
         }
@@ -4380,6 +4681,7 @@ final class ModelGenerator
             null,
             false,
             true,
+            classRefs: $valueType->classRefs,
         );
     }
 

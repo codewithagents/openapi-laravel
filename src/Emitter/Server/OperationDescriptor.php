@@ -26,12 +26,15 @@ final readonly class OperationDescriptor
      * signature (body-less operations, where container injection is safe);
      * false when the implementer must call `::fromQuery($request)` explicitly
      * (operations with a request body, where auto-injection would validate
-     * the query class against the merged body + query input).
+     * the query class against the merged body + query input). `fqcn` is the
+     * class's fully-qualified name, which under the tag-grouped data layout
+     * (issue #93) may sit in a tag subnamespace; the non-injected docblock
+     * pointer spells it out from here.
      *
      * @param  list<array{name: string, phpType: string}>  $pathParams
      * @param  array{name: string, type: string}|null  $bodyParam
      * @param  list<string>  $imports  FQCNs the controller file must `use`
-     * @param  array{name: string, type: string, injected: bool}|null  $queryParam
+     * @param  array{name: string, type: string, injected: bool, fqcn: string}|null  $queryParam
      * @param  list<string>  $securityMiddleware
      */
     public function __construct(

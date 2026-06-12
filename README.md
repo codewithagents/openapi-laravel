@@ -143,8 +143,9 @@ vendor/bin/openapi-laravel check
 Exit codes: `0` the committed files match the spec, `1` drift detected (the build fails), `2` a
 config or spec error. Add `--diff` to print a bounded unified diff per changed file so you can see
 exactly what drifted. The check honors the same flags as `openapi:generate` (`--spec`, `--output`,
-`--namespace`, `--no-controllers`, `--no-routes`, `--laravel-conventions`) and only compares
-generator-owned files, so hand-written concrete controllers are never flagged as drift.
+`--namespace`, `--no-controllers`, `--no-routes`, `--laravel-conventions`, `--group-by-tag`) and
+only compares generator-owned files, so hand-written concrete controllers are never flagged as
+drift.
 
 ![openapi:check failing the build on contract drift](https://openapi-laravel.codewithagents.de/media/openapi-laravel-drift-check.gif)
 
@@ -235,7 +236,12 @@ What the generator handles today:
   (201, 202, 204, ...) produces that status out of the box: the generated route attaches an inlined
   `RespondsWithStatus` middleware, your controller keeps returning the plain Data object, and a 204
   operation is typed `void` and answers with an empty body
-- **Determinism** → same spec in, byte-identical files out
+- **Tag-grouped data layout** (opt-in, `--group-by-tag` / `output.group_by_tag`) → Data classes and
+  enums solely owned by one tag move into per-tag subdirectories with namespaces following the
+  directories (`data/Pet/PetData.php`, `App\Data\Pet`), mirroring the controller grouping; schemas
+  several tags share stay at the flat root, cross-group references are imported, and the
+  attribution is deterministic. The flat default stays byte-identical
+- **Determinism** → same spec in, byte-identical files out (in either layout)
 
 The same spec also produces a typed abstract controller per tag and a routes file. An operation you
 forget to implement is a PHP fatal at class-definition time, not a gap discovered in production:

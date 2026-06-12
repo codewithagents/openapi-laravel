@@ -7,7 +7,7 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
 /**
  * The settings a standalone-binary run can read from an openapi-laravel.json
  * config file. The keys mirror config/openapi-laravel.php one to one (spec,
- * output.path/namespace/suffix/prune/validation_trait,
+ * output.path/namespace/suffix/prune/validation_trait/group_by_tag,
  * controllers.enabled/path/namespace/base_class/laravel_conventions,
  * routes.enabled/path/middleware/prefix, security.middleware_map,
  * enforce_closed_objects, max_depth, max_bytes, only_tags, only_schemas,
@@ -42,6 +42,15 @@ final readonly class StandaloneConfig
          * empty string, and the planner validates the value as a legal FQCN.
          */
         public ?string $validationTrait = null,
+        /*
+         * Tag-grouped data layout (issue #93), mirroring the
+         * output.group_by_tag key of the PHP config: when true, Data classes
+         * solely owned by one tag group are emitted into per-tag
+         * subdirectories and subnamespaces, mirroring the controller
+         * grouping. Null means the key was not set, so the built-in default
+         * (disabled, strictly opt-in) applies.
+         */
+        public ?bool $groupByTag = null,
         public ?bool $controllersEnabled = null,
         public ?string $controllerPath = null,
         public ?string $controllerNamespace = null,

@@ -397,7 +397,7 @@ final class OperationCollector
      * @param  array{name: string, type: string}|null  $bodyParam
      * @param  list<array{name: string, phpType: string}>  $pathParams
      * @param  list<string>  $imports
-     * @return array{name: string, type: string, injected: bool}|null
+     * @return array{name: string, type: string, injected: bool, fqcn: string}|null
      */
     private function queryParam(string $method, string $path, Operation $operation, array $parameters, ?array $bodyParam, bool $bodyRequiresRequest, array $pathParams, array &$imports): ?array
     {
@@ -425,7 +425,10 @@ final class OperationCollector
         $baseName = PhpIdentifier::toClassName($this->methodName($operation, $method, $path));
         $label = strtoupper($method).' '.$path;
 
-        $class = $this->models->generateQueryData($baseName, $label, $queryParameters);
+        // The operation's first tag rides along so the grouped data layout
+        // (issue #93) can place the query class in its operation's tag group;
+        // the flat layout ignores it.
+        $class = $this->models->generateQueryData($baseName, $label, $queryParameters, $this->firstTag($operation));
         if ($class === null) {
             return null;
         }
@@ -447,7 +450,10 @@ final class OperationCollector
             $taken->reserve($pathParameter['name']);
         }
 
-        return ['name' => $taken->reserve('query'), 'type' => $class, 'injected' => $injected];
+        // The FQCN rides along for the non-injected docblock pointer: under
+        // the grouped layout (issue #93) the class may live in a tag
+        // subnamespace, and only the collector knows which.
+        return ['name' => $taken->reserve('query'), 'type' => $class, 'injected' => $injected, 'fqcn' => $this->dataFqcn($class)];
     }
 
     /**
@@ -758,7 +764,11 @@ final class OperationCollector
 
             if ($multipart !== null) {
                 if ($this->models !== null) {
-                    $class = $this->models->generateMultipartBodyData($bodyBaseName, $label, $multipart);
+                    // The operation's first tag rides along so the grouped
+                    // data layout (issue #93) can place the multipart body
+                    // class in its operation's tag group; the flat layout
+                    // ignores it.
+                    $class = $this->models->generateMultipartBodyData($bodyBaseName, $label, $multipart, $this->firstTag($operation));
 
                     if ($class !== null) {
                         $imports[] = $this->dataFqcn($class);
@@ -825,7 +835,11 @@ final class OperationCollector
             // types only generated Data classes); a non-object inline schema
             // returns null with a warning through the generator's channel and
             // keeps the Request fallback below.
-            $class = $this->models->generateBodyData($bodyBaseName, $label, $schema);
+            // The operation's first tag rides along so the grouped data
+            // layout (issue #93) can place the body class (and its nested
+            // classes) in its operation's tag group; the flat layout
+            // ignores it.
+            $class = $this->models->generateBodyData($bodyBaseName, $label, $schema, $this->firstTag($operation));
 
             if ($class !== null) {
                 $imports[] = $this->dataFqcn($class);
@@ -1191,6 +1205,14 @@ final class OperationCollector
 
     private function dataFqcn(string $shortName): string
     {
+        // Under the tag-grouped data layout (issue #93) a Data class may live
+        // in a tag subnamespace; the generator knows where each class landed.
+        // Without a wired generator (legacy call sites and tests) every class
+        // is at the flat root, the historical behavior.
+        if ($this->models !== null) {
+            return $this->models->namespaceFor($shortName).'\\'.$shortName;
+        }
+
         return $this->options->dataNamespace.'\\'.$shortName;
     }
 

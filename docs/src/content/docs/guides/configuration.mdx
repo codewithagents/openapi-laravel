@@ -43,6 +43,13 @@ return [
          * so a removed schema does not leave a stale class behind.
          */
         'prune' => false,
+
+        /*
+         * Opt-in: emit Data classes into per-tag subdirectories with
+         * namespaces following the directories (data/Pet/PetData.php under
+         * App\Data\Pet), mirroring the controller grouping.
+         */
+        'group_by_tag' => false,
     ],
 
     /*
@@ -143,6 +150,27 @@ name before anything is written (a malformed value is a configuration error, exi
 
 See [customizing validation messages and attributes](/guides/generated-output#customizing-validation-messages-and-attributes)
 for the worked example.
+
+### `output.group_by_tag`
+
+Opt-in tag-grouped data layout. When `true`, generated Data classes and enums that are solely owned
+by one tag are emitted into a per-tag subdirectory, with the namespace following the directory:
+`data/Pet/PetData.php` declares `App\Data\Pet\PetData`. The grouping mirrors the per-tag controller
+grouping, so a 176-path spec no longer piles 128 classes into one flat directory. Defaults to
+`false`: the flat layout, byte-identical to previous releases. Overridden per run by
+`--group-by-tag` / `--no-group-by-tag` on `openapi:generate`, `openapi:check`, `openapi:scaffold`,
+and the standalone binary (passing both together exits `2`).
+
+The schema-to-tag attribution rule is deterministic; see
+[the grouped data layout](/guides/generated-output#tag-grouped-data-layout-opt-in) for the full
+rule table. Cross-group references are imported, so the generated code compiles in either layout,
+and `openapi:check` verifies whichever layout the same flags and config select.
+
+<Aside type="caution">
+  Toggling the layout moves files. When switching an existing project, delete the previously
+  generated Data files first: `output.prune` only clears the top level of the output directory,
+  so files from the other layout would linger as stale duplicates.
+</Aside>
 
 ### `max_depth`
 
@@ -292,7 +320,7 @@ oversight ([issue #73](https://github.com/codewithagents/openapi-laravel/issues/
 
 **Shared by both surfaces** (the artisan commands and the standalone binary): `--spec`,
 `--output`, `--namespace`, `--controllers` / `--no-controllers`, `--routes` / `--no-routes`,
-`--laravel-conventions` / `--no-laravel-conventions`,
+`--laravel-conventions` / `--no-laravel-conventions`, `--group-by-tag` / `--no-group-by-tag`,
 `--enforce-closed-objects` / `--no-enforce-closed-objects`, `--only-tags`, `--only-schemas`,
 `--exclude-path-prefix` (repeatable), plus `--prune` (generate only) and `--diff` (check only).
 
@@ -328,7 +356,8 @@ one to one:
     "namespace": "Acme\\Dto",
     "suffix": "Data",
     "prune": false,
-    "validation_trait": "Acme\\Support\\ApiValidationMessages"
+    "validation_trait": "Acme\\Support\\ApiValidationMessages",
+    "group_by_tag": false
   },
   "controllers": {
     "enabled": true,

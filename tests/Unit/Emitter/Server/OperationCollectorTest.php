@@ -266,7 +266,7 @@ it('describes a body-less operation with an injected query Data param (issue #63
     [$descriptors] = collectQueryParameters();
     $get = descriptorFor($descriptors, 'get', '/widgets');
 
-    expect($get->queryParam)->toBe(['name' => 'query', 'type' => 'ListWidgetsQueryData', 'injected' => true])
+    expect($get->queryParam)->toBe(['name' => 'query', 'type' => 'ListWidgetsQueryData', 'injected' => true, 'fqcn' => 'App\\Data\\ListWidgetsQueryData'])
         ->and($get->imports)->toContain('App\\Data\\ListWidgetsQueryData');
 });
 
@@ -277,7 +277,7 @@ it('marks the query class non-injected when the operation has a typed body param
     // The body would bleed into query validation under container injection, so
     // the class is reachable only via ::fromQuery($request); no import either,
     // since the FQCN appears only as docblock prose.
-    expect($post->queryParam)->toBe(['name' => 'query', 'type' => 'CreateWidgetQueryData', 'injected' => false])
+    expect($post->queryParam)->toBe(['name' => 'query', 'type' => 'CreateWidgetQueryData', 'injected' => false, 'fqcn' => 'App\\Data\\CreateWidgetQueryData'])
         ->and($post->imports)->not->toContain('App\\Data\\CreateWidgetQueryData');
 });
 
@@ -286,7 +286,7 @@ it('marks the query class non-injected when the operation falls back to a Reques
     $post = descriptorFor($descriptors, 'post', '/untyped');
 
     expect($post->bodyRequiresRequest)->toBeTrue()
-        ->and($post->queryParam)->toBe(['name' => 'query', 'type' => 'UploadBlobQueryData', 'injected' => false]);
+        ->and($post->queryParam)->toBe(['name' => 'query', 'type' => 'UploadBlobQueryData', 'injected' => false, 'fqcn' => 'App\\Data\\UploadBlobQueryData']);
 });
 
 it('leaves queryParam null for an operation without query parameters', function () {
@@ -381,8 +381,8 @@ it('suffixes duplicate synthesized method names and pairs each with its own quer
 
     expect($first->methodName)->toBe('getPets')
         ->and($second->methodName)->toBe('getPets_2')
-        ->and($first->queryParam)->toBe(['name' => 'query', 'type' => 'GetPetsQueryData', 'injected' => true])
-        ->and($second->queryParam)->toBe(['name' => 'query', 'type' => 'GetPetsQueryData_2', 'injected' => true]);
+        ->and($first->queryParam)->toBe(['name' => 'query', 'type' => 'GetPetsQueryData', 'injected' => true, 'fqcn' => 'App\\Data\\GetPetsQueryData'])
+        ->and($second->queryParam)->toBe(['name' => 'query', 'type' => 'GetPetsQueryData_2', 'injected' => true, 'fqcn' => 'App\\Data\\GetPetsQueryData_2']);
 
     // The generated classes carry their own operation's parameter, not the sibling's.
     $files = $generator->queryFiles();

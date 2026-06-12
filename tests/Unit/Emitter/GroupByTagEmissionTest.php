@@ -1,0 +1,292 @@
+<?php
+
+declare(strict_types=1);
+
+use cebe\openapi\Reader;
+use cebe\openapi\spec\OpenApi;
+use cebe\openapi\spec\Parameter;
+use cebe\openapi\spec\Schema;
+use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
+use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
+
+/**
+ * Unit tests for the EMISSION side of the opt-in grouped data layout (issue
+ * #93): given a precomputed schema-to-group attribution, the model generator
+ * must place each class in its group's namespace and directory, and every
+ * cross-group reference (property types, DataCollectionOf targets, Rule::enum
+ * classes, morph arms, the variant base) must be imported from its real
+ * namespace. Attribution itself is covered by TagGroupAttributionTest.
+ *
+ * @param  array<string, mixed>  $schemas
+ */
+function groupedDocument(array $schemas): OpenApi
+{
+    $document = [
+        'openapi' => '3.0.3',
+        'info' => ['title' => 'Test', 'version' => '1.0.0'],
+        'paths' => new stdClass,
+        'components' => ['schemas' => $schemas],
+    ];
+
+    $spec = Reader::readFromJson((string) json_encode($document), OpenApi::class);
+    expect($spec)->toBeInstanceOf(OpenApi::class);
+
+    return $spec;
+}
+
+/**
+ * @param  array<string, mixed>  $schemas
+ * @param  array<string, string>  $groups  schema name => group
+ */
+function generateGrouped(array $schemas, array $groups): ModelGenerator
+{
+    $generator = new ModelGenerator(new GeneratorOptions(schemaGroups: $groups));
+    $generator->generate(groupedDocument($schemas));
+
+    return $generator;
+}
+
+it('emits an attributed class into its group namespace and directory, and a root class flat', function () {
+    $generator = generateGrouped([
+        'Pet' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string']]],
+        'Shared' => ['type' => 'object', 'properties' => ['id' => ['type' => 'integer']]],
+    ], ['Pet' => 'Pet']);
+
+    $files = $generator->generate(groupedDocument([
+        'Pet' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string']]],
+        'Shared' => ['type' => 'object', 'properties' => ['id' => ['type' => 'integer']]],
+    ]));
+
+    expect($files['PetData']->code)->toContain('namespace App\Data\Pet;')
+        ->and($files['PetData']->filename())->toBe('Pet/PetData.php')
+        ->and($files['SharedData']->code)->toContain('namespace App\Data;')
+        ->and($files['SharedData']->filename())->toBe('SharedData.php');
+});
+
+it('imports a cross-group Data class reference and keeps a same-group reference unimported', function () {
+    $schemas = [
+        'Order' => [
+            'type' => 'object',
+            'properties' => [
+                'item' => ['$ref' => '#/components/schemas/Item'],
+                'address' => ['$ref' => '#/components/schemas/Address'],
+            ],
+        ],
+        'Item' => ['type' => 'object', 'properties' => ['sku' => ['type' => 'string']]],
+        'Address' => ['type' => 'object', 'properties' => ['city' => ['type' => 'string']]],
+    ];
+
+    $generator = new ModelGenerator(new GeneratorOptions(schemaGroups: ['Order' => 'Order', 'Item' => 'Order']));
+    $files = $generator->generate(groupedDocument($schemas));
+
+    // Address stays at the root, so the grouped Order must import it; Item
+    // shares Order's group and namespace, so it stays short-name-only.
+    expect($files['OrderData']->code)->toContain('namespace App\Data\Order;')
+        ->and($files['OrderData']->code)->toContain('use App\Data\Address'.'Data;')
+        ->and($files['OrderData']->code)->not->toContain('use App\Data\Order\ItemData;')
+        ->and($files['OrderData']->code)->toContain('public readonly ?ItemData $item')
+        ->and($files['OrderData']->code)->toContain('public readonly ?AddressData $address');
+});
+
+it('imports a root class referencing INTO a group, the reverse direction', function () {
+    $files = (new ModelGenerator(new GeneratorOptions(schemaGroups: ['Item' => 'Order'])))
+        ->generate(groupedDocument([
+            'Wrapper' => ['type' => 'object', 'properties' => ['item' => ['$ref' => '#/components/schemas/Item']]],
+            'Item' => ['type' => 'object', 'properties' => ['sku' => ['type' => 'string']]],
+        ]));
+
+    expect($files['WrapperData']->code)->toContain('namespace App\Data;')
+        ->and($files['WrapperData']->code)->toContain('use App\Data\Order\ItemData;');
+});
+
+it('groups an enum like a Data class and imports it across groups, including its Rule::enum', function () {
+    $files = (new ModelGenerator(new GeneratorOptions(schemaGroups: ['Status' => 'Pet'])))
+        ->generate(groupedDocument([
+            'Holder' => ['type' => 'object', 'properties' => ['status' => ['$ref' => '#/components/schemas/Status']]],
+            'Status' => ['type' => 'string', 'enum' => ['on', 'off']],
+        ]));
+
+    expect($files['Status']->code)->toContain('namespace App\Data\Pet;')
+        ->and($files['Status']->filename())->toBe('Pet/Status.php')
+        ->and($files['HolderData']->code)->toContain('use App\Data\Pet\Status;')
+        ->and($files['HolderData']->code)->toContain('Rule::enum(Status::class)');
+});
+
+it('imports a cross-group DataCollectionOf element class', function () {
+    $files = (new ModelGenerator(new GeneratorOptions(schemaGroups: ['Tag' => 'Meta'])))
+        ->generate(groupedDocument([
+            'Post' => [
+                'type' => 'object',
+                'properties' => ['tags' => ['type' => 'array', 'items' => ['$ref' => '#/components/schemas/Tag']]],
+            ],
+            'Tag' => ['type' => 'object', 'properties' => ['label' => ['type' => 'string']]],
+        ]));
+
+    expect($files['PostData']->code)->toContain('use App\Data\Meta\TagData;')
+        ->and($files['PostData']->code)->toContain('#[DataCollectionOf(TagData::class)]')
+        ->and($files['PostData']->code)->toContain('/** @var array<int, TagData> */');
+});
+
+it('keeps nested inline classes and the Writable variant in their owner group', function () {
+    $files = (new ModelGenerator(new GeneratorOptions(schemaGroups: ['Pet' => 'Pet'])))
+        ->generate(groupedDocument([
+            'Pet' => [
+                'type' => 'object',
+                'properties' => [
+                    'id' => ['type' => 'integer', 'readOnly' => true],
+                    'home' => ['type' => 'object', 'properties' => ['city' => ['type' => 'string']]],
+                ],
+            ],
+        ]));
+
+    expect($files['PetHomeData']->code)->toContain('namespace App\Data\Pet;')
+        ->and($files['PetHomeData']->filename())->toBe('Pet/PetHomeData.php')
+        ->and($files['PetWritableData']->code)->toContain('namespace App\Data\Pet;')
+        ->and($files['PetWritableData']->filename())->toBe('Pet/PetWritableData.php');
+});
+
+it('wires a discriminated union across groups: extends and morph arms import correctly', function () {
+    $schemas = [
+        'Animal' => [
+            'oneOf' => [
+                ['$ref' => '#/components/schemas/Cat'],
+                ['$ref' => '#/components/schemas/Dog'],
+            ],
+            'discriminator' => ['propertyName' => 'kind'],
+        ],
+        'Cat' => [
+            'type' => 'object',
+            'required' => ['kind'],
+            'properties' => ['kind' => ['type' => 'string'], 'lives' => ['type' => 'integer']],
+        ],
+        'Dog' => [
+            'type' => 'object',
+            'required' => ['kind'],
+            'properties' => ['kind' => ['type' => 'string'], 'barks' => ['type' => 'boolean']],
+        ],
+    ];
+
+    // A deliberately split attribution (base + Cat grouped, Dog at the root)
+    // exercises both directions: the base imports the out-of-group variant for
+    // its morph() arm, and the root variant imports the base for its extends.
+    $files = (new ModelGenerator(new GeneratorOptions(schemaGroups: ['Animal' => 'Zoo', 'Cat' => 'Zoo'])))
+        ->generate(groupedDocument($schemas));
+
+    expect($files['AnimalData']->code)->toContain('namespace App\Data\Zoo;')
+        ->and($files['AnimalData']->code)->toContain('use App\Data\DogData;')
+        ->and($files['AnimalData']->code)->not->toContain('use App\Data\Zoo\CatData;')
+        ->and($files['DogData']->code)->toContain('namespace App\Data;')
+        ->and($files['DogData']->code)->toContain('use App\Data\Zoo\AnimalData;')
+        ->and($files['DogData']->code)->toContain('extends AnimalData')
+        ->and($files['CatData']->code)->toContain('namespace App\Data\Zoo;')
+        ->and($files['CatData']->code)->not->toContain('use App\Data\Zoo\AnimalData;');
+});
+
+it('places per-operation query and body classes in their operation tag group', function () {
+    $generator = new ModelGenerator(new GeneratorOptions(schemaGroups: []));
+    $generator->generate(groupedDocument([]));
+
+    $parameter = new Parameter([
+        'name' => 'limit',
+        'in' => 'query',
+        'schema' => ['type' => 'integer'],
+    ]);
+    $queryClass = $generator->generateQueryData('ListPets', 'GET /pets', [$parameter], 'pet');
+    $bodyClass = $generator->generateBodyData('CreatePet', 'POST /pets', new Schema([
+        'type' => 'object',
+        'properties' => ['name' => ['type' => 'string']],
+    ]), 'pet');
+
+    expect($queryClass)->toBe('ListPetsQueryData')
+        ->and($generator->queryFiles()['ListPetsQueryData']->filename())->toBe('Pet/ListPetsQueryData.php')
+        ->and($generator->queryFiles()['ListPetsQueryData']->code)->toContain('namespace App\Data\Pet;')
+        ->and($bodyClass)->toBe('CreatePetRequestData')
+        ->and($generator->bodyFiles()['CreatePetRequestData']->filename())->toBe('Pet/CreatePetRequestData.php')
+        ->and($generator->bodyFiles()['CreatePetRequestData']->code)->toContain('namespace App\Data\Pet;')
+        ->and($generator->namespaceFor('ListPetsQueryData'))->toBe('App\Data\Pet');
+});
+
+it('places a multipart body class (issue #75) in its operation tag group too', function () {
+    $generator = new ModelGenerator(new GeneratorOptions(schemaGroups: []));
+    $generator->generate(groupedDocument([]));
+
+    $class = $generator->generateMultipartBodyData('UploadAvatar', 'POST /avatars', new Schema([
+        'type' => 'object',
+        'properties' => ['avatar' => ['type' => 'string', 'format' => 'binary']],
+    ]), 'profile');
+
+    expect($class)->toBe('UploadAvatarRequestData')
+        ->and($generator->bodyFiles()['UploadAvatarRequestData']->filename())->toBe('Profile/UploadAvatarRequestData.php')
+        ->and($generator->bodyFiles()['UploadAvatarRequestData']->code)->toContain('namespace App\Data\Profile;');
+});
+
+it('keeps query and body classes flat for the reserved Support tag and in the flat layout', function () {
+    $flat = new ModelGenerator;
+    $flat->generate(groupedDocument([]));
+    $flatBody = $flat->generateBodyData('CreatePet', 'POST /pets', new Schema([
+        'type' => 'object',
+        'properties' => ['name' => ['type' => 'string']],
+    ]), 'pet');
+
+    $grouped = new ModelGenerator(new GeneratorOptions(schemaGroups: []));
+    $grouped->generate(groupedDocument([]));
+    $supportBody = $grouped->generateBodyData('OpenTicket', 'POST /tickets', new Schema([
+        'type' => 'object',
+        'properties' => ['subject' => ['type' => 'string']],
+    ]), 'support');
+
+    expect($flatBody)->toBe('CreatePetRequestData')
+        ->and($flat->bodyFiles()['CreatePetRequestData']->filename())->toBe('CreatePetRequestData.php')
+        ->and($flat->bodyFiles()['CreatePetRequestData']->code)->toContain("namespace App\Data;\n")
+        ->and($supportBody)->toBe('OpenTicketRequestData')
+        ->and($grouped->bodyFiles()['OpenTicketRequestData']->filename())->toBe('OpenTicketRequestData.php');
+});
+
+it('emits byte-identical output for a null attribution and the flat default', function () {
+    $schemas = [
+        'Customer' => [
+            'type' => 'object',
+            'required' => ['name'],
+            'properties' => [
+                'name' => ['type' => 'string'],
+                'status' => ['$ref' => '#/components/schemas/Status'],
+                'tags' => ['type' => 'array', 'items' => ['$ref' => '#/components/schemas/Tag']],
+            ],
+        ],
+        'Status' => ['type' => 'string', 'enum' => ['on', 'off']],
+        'Tag' => ['type' => 'object', 'properties' => ['label' => ['type' => 'string']]],
+    ];
+
+    $flat = (new ModelGenerator)->generate(groupedDocument($schemas));
+    $defaultOptions = (new ModelGenerator(new GeneratorOptions))->generate(groupedDocument($schemas));
+
+    expect(array_keys($flat))->toBe(array_keys($defaultOptions));
+    foreach ($flat as $name => $file) {
+        expect($file->code)->toBe($defaultOptions[$name]->code)
+            ->and($file->filename())->toBe($defaultOptions[$name]->filename());
+    }
+});
+
+it('generates deterministically in grouped mode: two runs are byte-identical', function () {
+    $schemas = [
+        'Order' => [
+            'type' => 'object',
+            'properties' => [
+                'item' => ['$ref' => '#/components/schemas/Item'],
+                'status' => ['$ref' => '#/components/schemas/Status'],
+            ],
+        ],
+        'Item' => ['type' => 'object', 'properties' => ['sku' => ['type' => 'string']]],
+        'Status' => ['type' => 'string', 'enum' => ['open', 'closed']],
+    ];
+    $groups = ['Order' => 'Order', 'Item' => 'Order'];
+
+    $first = (new ModelGenerator(new GeneratorOptions(schemaGroups: $groups)))->generate(groupedDocument($schemas));
+    $second = (new ModelGenerator(new GeneratorOptions(schemaGroups: $groups)))->generate(groupedDocument($schemas));
+
+    expect(array_keys($first))->toBe(array_keys($second));
+    foreach ($first as $name => $file) {
+        expect($file->code)->toBe($second[$name]->code)
+            ->and($file->filename())->toBe($second[$name]->filename());
+    }
+});

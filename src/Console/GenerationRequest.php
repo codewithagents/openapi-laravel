@@ -130,5 +130,17 @@ final readonly class GenerationRequest
          * legal FQCN by the planner before any file is planned.
          */
         public ?string $validationTrait = null,
+        /*
+         * Tag-grouped data layout (issue #93). When true, Data classes (and
+         * enums) solely owned by one tag group are emitted into a per-tag
+         * subdirectory and subnamespace (`data/Pet/`, `App\Data\Pet`),
+         * mirroring the controller grouping; multi-tag, unreferenced, and
+         * reserved schemas stay at the flat root. Default false (opt-in), so
+         * the default output stays byte-identical to a run without the flag.
+         * Resolved like the other toggles: --group-by-tag / --no-group-by-tag
+         * beat the output.group_by_tag config key, which beats this built-in
+         * default (disabled).
+         */
+        public bool $groupByTag = false,
     ) {}
 }

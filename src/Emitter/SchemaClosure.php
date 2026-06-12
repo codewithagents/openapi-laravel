@@ -151,6 +151,101 @@ final readonly class SchemaClosure
     }
 
     /**
+     * Tag-group attribution for the opt-in grouped data layout (issue #93):
+     * which component schemas are owned by exactly one tag group, and which
+     * group that is. The unit of ownership is the operation's tag GROUP (the
+     * StudlyCaps first tag, via {@see TagGroups}), the same rule that names
+     * its controller, so the data layout always mirrors the controller layout.
+     *
+     * A schema is attributed to a group when it is reachable from that group's
+     * operations through the SAME transitive walk the subset closure uses
+     * (properties, items, additionalProperties, allOf/oneOf/anyOf members,
+     * discriminator mappings, and the union base <-> variant linkage), and
+     * from NO other group's operations. A schema reachable from several
+     * groups, or from none (an unreferenced component), is absent from the
+     * returned map and stays at the flat root. A tag normalizing to the
+     * reserved 'Support' group still counts as a referencing group (so its
+     * schemas are not mis-attributed to another tag), but can never be the
+     * owner: its sole-owned schemas stay at the root too.
+     *
+     * Determinism: groups are walked in sorted order, membership comes from an
+     * order-independent visited-set walk, and the result is keyed by sorted
+     * schema name, so the same spec always yields the same map.
+     *
+     * @return array<string, string> schema name => owning group
+     */
+    public function attributeByTag(OpenApi $document): array
+    {
+        $schemas = $this->componentSchemas($document);
+        $discriminators = new DiscriminatorRegistry($schemas);
+
+        // Seed set per group. The empty-string key marks the reserved Support
+        // pseudo-owner: it participates in multi-group detection but never owns.
+        /** @var array<string, array<string, true>> $seedsByGroup */
+        $seedsByGroup = [];
+        foreach ($this->pathItems($document) as $pathItem) {
+            foreach (self::HTTP_METHODS as $method) {
+                $operation = $pathItem->{$method} ?? null;
+                if (! $operation instanceof Operation) {
+                    continue;
+                }
+
+                $group = TagGroups::forOperation($operation) ?? '';
+                foreach ($this->operationSchemaSeeds($operation) as $seed) {
+                    if (isset($schemas[$seed])) {
+                        $seedsByGroup[$group][$seed] = true;
+                    }
+                }
+            }
+        }
+        ksort($seedsByGroup);
+
+        // Walk each group's transitive closure and record which groups reach
+        // each schema.
+        /** @var array<string, array<string, true>> $owners */
+        $owners = [];
+        foreach ($seedsByGroup as $group => $seeds) {
+            $kept = [];
+            $stack = array_keys($seeds);
+            while ($stack !== []) {
+                $name = array_pop($stack);
+                if (isset($kept[$name]) || ! isset($schemas[$name])) {
+                    continue;
+                }
+                $kept[$name] = true;
+
+                foreach ($this->dependenciesOf($name, $schemas[$name], $discriminators) as $dependency) {
+                    if (! isset($kept[$dependency])) {
+                        $stack[] = $dependency;
+                    }
+                }
+            }
+
+            foreach (array_keys($kept) as $name) {
+                $owners[$name][(string) $group] = true;
+            }
+        }
+        ksort($owners);
+
+        $attribution = [];
+        foreach ($owners as $name => $groups) {
+            if (count($groups) !== 1) {
+                continue;
+            }
+
+            $group = (string) array_key_first($groups);
+            if ($group === '') {
+                // Sole owner is the reserved Support pseudo-group: root.
+                continue;
+            }
+
+            $attribution[$name] = $group;
+        }
+
+        return $attribution;
+    }
+
+    /**
      * The component-schema names a single schema depends on: every `$ref`
      * reachable through its structure, plus the discriminated-union base/variant
      * links. Returns bare component names (the closure walk dedupes/visits).

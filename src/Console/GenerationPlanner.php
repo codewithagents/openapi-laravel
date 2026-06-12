@@ -101,6 +101,16 @@ final readonly class GenerationPlanner
             $keepSchemas = $closure->schemaSet();
         }
 
+        // Tag-grouped data layout (issue #93): resolve the schema-to-group
+        // attribution once, here, AFTER the path-prefix filter (an excluded
+        // operation never claims a schema) and from the full remaining
+        // document (a subset run attributes against the same map a full run
+        // would, so the two layouts can never disagree about a schema's home).
+        // Null keeps the flat layout, byte-identical to before.
+        $schemaGroups = $request->groupByTag
+            ? (new SchemaClosure)->attributeByTag($document)
+            : null;
+
         $generator = new ModelGenerator(new GeneratorOptions(
             $request->namespace,
             $request->suffix,
@@ -108,6 +118,7 @@ final readonly class GenerationPlanner
             $request->enforceClosedObjects,
             $keepSchemas,
             $request->validationTrait,
+            $schemaGroups,
         ));
         $modelFiles = $generator->generate($document);
 

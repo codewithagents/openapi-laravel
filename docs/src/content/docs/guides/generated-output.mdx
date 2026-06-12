@@ -422,6 +422,72 @@ non-empty string). On both surfaces the value is validated as a legal fully-qual
 before anything is written; there is deliberately no CLI flag, because the trait is a standing
 project convention, not a per-run switch.
 
+## Tag-grouped data layout (opt-in)
+
+By default every Data class and enum lands flat in the output directory. For a large spec that
+gets unwieldy (a real 176-path spec produces 128 files in one `data/` directory), so
+`output.group_by_tag` (or `--group-by-tag`) opts into a per-tag layout that mirrors the controller
+grouping:
+
+```
+app/Data/
+├── Appointment/
+│   ├── AppointmentData.php          // namespace App\Data\Appointment
+│   └── CreateAppointmentRequestData.php
+├── Patient/
+│   ├── PatientData.php              // namespace App\Data\Patient
+│   └── ListPatientsQueryData.php
+├── Support/                         // inlined runtime support, always here
+│   └── Rfc3339DateTimeRule.php
+└── AddressData.php                  // shared by both tags: flat root, App\Data
+```
+
+Namespaces follow the directories, and every cross-group reference (a property type, a
+`#[DataCollectionOf(...)]` target, a `Rule::enum(...)` class, a discriminated union's `extends` or
+`morph()` arm) is imported with a `use` statement, so the generated code compiles in either layout.
+
+### The attribution rule
+
+Schema-to-tag ownership is computed deterministically, with the same transitive `$ref` walk the
+[subset closure](/guides/subset-generation) uses:
+
+| What                                                            | Where it goes |
+| --------------------------------------------------------------- | ------------- |
+| Schema referenced (transitively) by operations of exactly one tag | That tag's subdirectory, e.g. `data/Pet/` under `App\Data\Pet` |
+| Schema referenced by operations of several tags                  | Flat root (`App\Data`) |
+| Schema referenced by no operation                                | Flat root |
+| Enums                                                            | Same rule as Data classes |
+| Per-operation query and request-body classes                     | Their operation's tag group (unambiguous: one controller tag per operation) |
+| Nested inline classes and `...Writable` variants                 | The class that owns them |
+| Inlined runtime support classes                                  | Always `Support/` (`App\Data\Support`), unchanged |
+
+The details, all deterministic:
+
+- An operation belongs to its **first tag**, the same rule that names its controller, so the data
+  layout always mirrors the controller layout. Untagged operations count as the pseudo-tag
+  `Untagged` (matching `UntaggedController`).
+- Tag names become StudlyCaps directory segments (`pet store` and `PetStore` merge into `Pet
+  Store`'s `PetStore/`), exactly like controller names.
+- The transitive walk follows properties, array items, `additionalProperties` values,
+  `allOf`/`oneOf`/`anyOf` members, discriminator mappings, and the union base/variant linkage, so a
+  tag that uses `Pet` also claims everything `Pet` needs; a schema two tags can reach goes to the
+  root rather than to an arbitrary winner.
+- The group name `Support` is reserved for the inlined runtime classes: a tag normalizing to
+  `Support` keeps its schemas at the flat root.
+
+Multi-tag and unreferenced schemas go to the **flat root**, not a `shared/` subdirectory: the root
+already is the shared namespace, and keeping it avoids inventing a second special directory.
+
+The output stays deterministic (same spec in, byte-identical files out, in either layout), and
+`openapi:check` verifies whichever layout the flags and config select, through the same shared
+planner as generate.
+
+<Aside type="caution">
+  Toggling the layout moves files. Delete the previously generated Data files when switching an
+  existing project: `output.prune` only clears the top level of the output directory, so files
+  from the other layout would linger as stale duplicates.
+</Aside>
+
 ## Determinism
 
-The generator emits stable ordering everywhere: properties, rules, enum cases, and file output. The same spec in produces byte-identical files out, so re-running in CI yields either no diff or a diff that is entirely a consequence of the spec changing.
+The generator emits stable ordering everywhere: properties, rules, enum cases, and file output. The same spec in produces byte-identical files out, so re-running in CI yields either no diff or a diff that is entirely a consequence of the spec changing. The [tag-grouped layout](#tag-grouped-data-layout-opt-in) is equally deterministic; the flat default is byte-identical to previous releases.
