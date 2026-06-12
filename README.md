@@ -224,6 +224,9 @@ What the generator handles today:
   injection); operations with a request body call `<Operation>QueryData::fromQuery($request)`, which
   validates and hydrates from the query string only. Header/cookie and deepObject-style parameters
   are skipped with a generator warning, not silently dropped
+- **Inline request bodies** → an operation whose JSON request body is an inline object schema (not a
+  `$ref`) gets a synthesized per-operation Data class (`<Operation>RequestData`) with the full
+  `rules()` pipeline and a typed controller param, exactly like a `$ref` body
 - **Spec response status codes** → an operation whose success response declares a non-200 status
   (201, 202, 204, ...) produces that status out of the box: the generated route attaches an inlined
   `RespondsWithStatus` middleware, your controller keeps returning the plain Data object, and a 204
@@ -266,9 +269,10 @@ neither enforced nor auto-hydrated. Add a `discriminator` to the spec and the ge
 morphable base and variants, with full per-variant validation and hydration in all three
 discriminator forms: named-component, inline-union, and allOf-inheritance (issue #38). A
 `$ref`-valued `additionalProperties` map is typed in the docblock but not auto-hydrated into Data
-objects at runtime, a request body referencing a component `$ref` falls back to
-`Illuminate\Http\Request` instead of a typed Data param, and int64 literal bounds and non-JSON
-responses are represented loosely. A tuple (`prefixItems`) is validated per position (`field.0`,
+objects at runtime, a request body referencing a component request body
+(`$ref: '#/components/requestBodies/...'`) or an inline body that is not an object shape (an array
+or scalar body) falls back to `Illuminate\Http\Request` instead of a typed Data param, and int64
+literal bounds and non-JSON responses are represented loosely. A tuple (`prefixItems`) is validated per position (`field.0`,
 `field.1`, ... rules, plus a length cap for the closed `items: false` form) but typed loosely as
 `array<int, mixed>`. A non-standard per-property `required: true` key (a boolean set inside an
 individual property schema, which some generators emit) is ignored, because OpenAPI 3.x only honours

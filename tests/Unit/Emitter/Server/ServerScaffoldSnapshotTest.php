@@ -11,10 +11,11 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
 /**
  * Snapshots the full server scaffold (abstract controllers, per-operation
- * query Data classes, and the routes file) for the real petstore-3.0 spec, so
- * the generated API shape is diff-visible. The collector is wired with the
- * model generator exactly like the planner does, so the query classes
- * (issue #63) are part of the snapshot.
+ * query and inline request-body Data classes, and the routes file) for the
+ * real petstore-3.0 spec, so the generated API shape is diff-visible. The
+ * collector is wired with the model generator exactly like the planner does,
+ * so the query classes (issue #63) and inline-body classes (issue #76) are
+ * part of the snapshot.
  */
 it('matches the committed server-scaffold snapshot for petstore-3.0', function () {
     $doc = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/specs/petstore-3.0.yaml');
@@ -29,6 +30,7 @@ it('matches the committed server-scaffold snapshot for petstore-3.0', function (
 
     $combined = implode("\n", array_map(fn ($f) => $f->code, $controllers))
         ."\n".implode("\n", array_map(fn ($f) => $f->code, $generator->queryFiles()))
+        ."\n".implode("\n", array_map(fn ($f) => $f->code, $generator->bodyFiles()))
         ."\n".$routes->code;
 
     expect($combined)->toMatchSnapshot();

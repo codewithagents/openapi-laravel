@@ -9,7 +9,8 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  * generator would write, as an absolute path plus exact content. Generate walks
  * the list and writes each file; check compares each against disk.
  *
- * `noModelSchemas` records that the spec produced no component schemas, so the
+ * `noModelSchemas` records that the spec produced no data-layer files at all
+ * (no component schemas AND no per-operation query/body classes), so the
  * generate path can keep emitting its "nothing to generate" warning while still
  * planning any requested controllers/routes.
  *

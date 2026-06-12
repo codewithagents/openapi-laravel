@@ -29,18 +29,20 @@ it('generates Pint-idempotent output (pint --test reports no reformats)', functi
     $document = (new SpecParser)->parseFile($path);
     $generator = new ModelGenerator;
     $files = $generator->generate($document);
-    // The per-operation query Data classes (issue #63) are part of the
-    // generated output too: run the collector with the generator wired in,
-    // exactly like the planner, so they are gated for Pint-idempotency.
+    // The per-operation query (issue #63) and inline request-body (issue #76)
+    // Data classes are part of the generated output too: run the collector
+    // with the generator wired in, exactly like the planner, so they are
+    // gated for Pint-idempotency.
     (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($document);
     $queryFiles = $generator->queryFiles();
+    $bodyFiles = $generator->bodyFiles();
     // The inlined runtime support classes (issue #40) are owned, drift-checked
     // output too, so they must be born Pint-clean exactly like the Data classes.
-    // Collected AFTER the query classes so their rule references count.
+    // Collected AFTER the query and body classes so their rule references count.
     $supportFiles = $generator->supportFiles();
 
     expect(count($files))->toBeGreaterThan(0, "spec generated no files: {$path}");
-    $files = array_merge(array_values($files), array_values($queryFiles));
+    $files = array_merge(array_values($files), array_values($queryFiles), array_values($bodyFiles));
 
     $dir = sys_get_temp_dir().'/openapi-laravel-pint-'.bin2hex(random_bytes(6));
     expect(mkdir($dir, 0700, true) || is_dir($dir))->toBeTrue("could not create temp dir {$dir}");

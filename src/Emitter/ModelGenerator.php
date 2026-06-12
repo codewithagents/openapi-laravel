@@ -146,6 +146,19 @@ final class ModelGenerator
     private array $queryFiles = [];
 
     /**
+     * Per-operation request-body Data classes (issue #76), emitted on demand by
+     * {@see generateBodyData()} AFTER generate() ran, keyed by class name. The
+     * bucket also holds every nested class an inline body spawned (a nested
+     * object property becomes its own Data class, exactly like a component's).
+     * Kept apart from $files for the same reason as $queryFiles: generate()
+     * already returned its file set when the server scaffold asks for body
+     * classes; the planner collects these separately via {@see bodyFiles()}.
+     *
+     * @var array<string, GeneratedFile>
+     */
+    private array $bodyFiles = [];
+
+    /**
      * Non-fatal diagnostics gathered during a generate() run, keyed by the
      * warning text so the same finding (re-seen across the read/write variants of
      * one schema, or a recursive inline emit) is recorded only once. The CLI
@@ -198,6 +211,7 @@ final class ModelGenerator
         $this->aliasSchemas = [];
         $this->files = [];
         $this->queryFiles = [];
+        $this->bodyFiles = [];
         $this->warnings = [];
         $this->warningContext = 'Document';
         $this->usedSupportClasses = [];
@@ -546,6 +560,143 @@ final class ModelGenerator
     }
 
     /**
+     * Emit a per-operation request-body Data class (issue #76) for an inline
+     * JSON request-body schema, reusing the EXACT emission pipeline the
+     * component Data classes go through (emitData: properties, rules(), nested
+     * inline classes, closed-object enforcement, defaults), so an inline body
+     * is validated and hydrated with the same fidelity as a `$ref` body.
+     *
+     * Must be called AFTER generate(): the pipeline resolves `$ref` properties
+     * against the run's component registry and alias caches. The collected
+     * files (the body class plus any nested classes it spawned) are exposed via
+     * {@see bodyFiles()}; the class name is reserved in the run's allocator so
+     * a body class can never collide with a component class or a query class
+     * (a clash suffixes deterministically, e.g. `..._2`).
+     *
+     * Only an OBJECT schema synthesizes a class, mirroring the `$ref` path: a
+     * `$ref` body is typed only when it points at a generated Data class, and a
+     * non-object component (a scalar/array/union alias, a pure map, an enum)
+     * falls back to `Illuminate\Http\Request` there too. A non-object inline
+     * schema therefore returns null with a warning, and the caller keeps the
+     * established Request fallback.
+     *
+     * A schema that splits fields with readOnly/writeOnly emits the WRITE shape
+     * (readOnly properties dropped), the same variant a component `$ref` body
+     * is typed against.
+     *
+     * @param  string  $baseName  StudlyCaps operation context (operationId or the method+path fallback), without suffix
+     * @param  string  $operationLabel  "POST /pets", for warning messages
+     * @return string|null the reserved body class name, or null when the schema cannot type a body
+     */
+    public function generateBodyData(string $baseName, string $operationLabel, Schema $schema): ?string
+    {
+        // Degradation warnings inside the body pipeline name the operation,
+        // not a schema: an inline body schema is operation-owned.
+        $this->warningContext = sprintf('Request body of operation %s', $operationLabel);
+
+        $reason = $this->bodySkipReason($schema);
+        if ($reason !== null) {
+            $this->warnings[sprintf(
+                'Operation %s: the inline request body schema was not generated as a typed Data class (%s); the controller method falls back to Illuminate\Http\Request.',
+                $operationLabel,
+                $reason,
+            )] = true;
+
+            return null;
+        }
+
+        $className = $this->names->reserve($this->withSuffix($baseName.'Request'));
+
+        // emitData() writes the class (and every nested class it spawns) into
+        // $files, which generate() already returned to its caller. Emit into a
+        // clean bucket and collect the run's output into $bodyFiles, so the
+        // planner picks the body classes up via bodyFiles() exactly like the
+        // query classes.
+        $mainFiles = $this->files;
+        $this->files = [];
+
+        $variant = $this->hasReadWriteFlags($schema) ? 'write' : 'all';
+        $this->emitData($className, $schema, 0, $variant, ['Request body of '.$this->docblockSafe($operationLabel).'.']);
+
+        foreach ($this->files as $name => $file) {
+            $this->bodyFiles[$name] = $file;
+        }
+        $this->files = $mainFiles;
+
+        return $className;
+    }
+
+    /**
+     * The per-operation request-body Data classes emitted since the last
+     * generate() run (issue #76), keyed and ordered by class name. Exposed as
+     * a getter, mirroring queryFiles(): generate() already returned its file
+     * set when the server scaffold asks for these.
+     *
+     * @return array<string, GeneratedFile>
+     */
+    public function bodyFiles(): array
+    {
+        $files = $this->bodyFiles;
+        ksort($files);
+
+        return $files;
+    }
+
+    /**
+     * Why an inline request-body schema cannot become a typed Data class, or
+     * null when it can. The bar mirrors the component classification exactly:
+     * only the shapes that would have become a `kind: data` component (an
+     * object with named properties, an allOf merge, or a legitimately empty
+     * `type: object`) synthesize a class. A pure map resolves to a typed array
+     * (no class to type a param against), and a scalar, array, union, or enum
+     * shape is a non-object alias there too. An enum (including the float-enum
+     * form) is skipped deliberately: the component pipeline wraps a float enum
+     * in a single-`value` Data class, but for a request BODY that wrapper would
+     * change the wire format (the payload would have to nest under `value`),
+     * false-rejecting every spec-valid request.
+     */
+    private function bodySkipReason(Schema $schema): ?string
+    {
+        if ($this->isPureMap($schema)) {
+            return 'it is an object map with only additionalProperties, which resolves to a typed array, not a Data class';
+        }
+
+        if ($this->isEnum($schema) || $this->isScalarEnumComponent($schema)) {
+            return 'it is an enum, not an object shape';
+        }
+
+        if ($this->notEmptyArray($schema->oneOf) || $this->notEmptyArray($schema->anyOf)) {
+            return 'it is a oneOf/anyOf union, not a single object shape';
+        }
+
+        // A bare allOf-of-one-$ref is an alias of its target (the chained-alias
+        // shape, see promoteChainedAliases). When the target is a generated
+        // Data class the allOf merge below recovers its full property set, so
+        // synthesis stays correct. A target that is NOT an object Data class
+        // (a scalar/array/union alias, a map, an enum, or an unresolved
+        // pointer) would merge to an empty class that silently drops the
+        // payload, so it keeps the Request fallback instead.
+        $aliasRef = $this->bareAllOfRef($schema);
+        if ($aliasRef !== null) {
+            $name = $this->refName($aliasRef->getReference());
+            if ($name === null || ! isset($this->registry[$name]) || $this->registry[$name]['kind'] !== 'data') {
+                return 'it is an allOf alias of a non-object component, so no Data class can type it';
+            }
+        }
+
+        $primary = $this->normalizeTypes($schema)[0] ?? null;
+
+        if ($primary === 'object'
+            || $this->notEmptyArray($schema->properties)
+            || $this->notEmptyArray($schema->allOf)
+        ) {
+            return null;
+        }
+
+        return 'it is not an object schema';
+    }
+
+    /**
      * Why a query parameter cannot become a typed, validated property, or null
      * when it can. The bar: the value must arrive through Laravel's flat query
      * parsing (`key=value` scalars, `key[]=value` arrays) in a shape the
@@ -718,7 +869,12 @@ final class ModelGenerator
         return $result;
     }
 
-    private function emitData(string $className, Schema $schema, int $depth, string $variant = 'all'): void
+    /**
+     * @param  list<string>  $docIntro  class-level docblock lines emitted FIRST (the per-operation
+     *                                  body classes lead with their operation, issue #76); the
+     *                                  default empty list keeps every existing class byte-identical
+     */
+    private function emitData(string $className, Schema $schema, int $depth, string $variant = 'all', array $docIntro = []): void
     {
         $properties = $this->objectProperties($schema);
         $required = $this->requiredNames($schema);
@@ -859,7 +1015,7 @@ final class ModelGenerator
         // into a designated property without a custom cast, so the dynamic
         // overflow is documented, not silently dropped into a non-functional
         // field.
-        $classDoc = [];
+        $classDoc = $docIntro;
         $deprecationTag = $this->deprecationTag($schema);
         if ($deprecationTag !== null) {
             $classDoc[] = $deprecationTag;

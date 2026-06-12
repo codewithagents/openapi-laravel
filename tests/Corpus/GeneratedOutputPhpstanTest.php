@@ -77,17 +77,18 @@ it('generates PHPStan-max-clean output (phpstan analyse reports no errors)', fun
         $document = (new SpecParser)->parseFile($path);
         $generator = new ModelGenerator;
         $files = $generator->generate($document);
-        // The per-operation query Data classes (issue #63) are generated output
-        // too: run the collector with the generator wired in, exactly like the
-        // planner, so they are analysed alongside the model classes. Stripe in
-        // particular emits hundreds of them.
+        // The per-operation query (issue #63) and inline request-body (issue
+        // #76) Data classes are generated output too: run the collector with
+        // the generator wired in, exactly like the planner, so they are
+        // analysed alongside the model classes. Stripe in particular emits
+        // hundreds of them.
         (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($document);
-        $files = array_merge($files, $generator->queryFiles());
+        $files = array_merge($files, $generator->queryFiles(), $generator->bodyFiles());
         // The inlined runtime support classes (issue #40) are owned output and
         // the Data classes import them, so analyse them too: both to prove the
         // support code is itself PHPStan-max-clean in the consumer namespace, and
         // so the Data classes' `use App\Data\Support\...` imports resolve.
-        // Collected AFTER the query classes so their rule references count.
+        // Collected AFTER the query and body classes so their rule references count.
         $supportFiles = $generator->supportFiles();
         expect(count($files))->toBeGreaterThan(0, "spec generated no files: {$path}");
 

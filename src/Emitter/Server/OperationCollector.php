@@ -26,11 +26,12 @@ use CodeWithAgents\OpenApiLaravel\Naming\UniqueNames;
  * request bodies and responses against the already-generated Data classes.
  *
  * Robustness is a hard requirement: a missing operationId, absent tags, no
- * responses, inline/non-JSON bodies, weird path tokens, and unresolved $refs
- * must never fatal. When a type cannot be derived the collector falls back to
- * injecting Request / returning JsonResponse, and every such fallback is
- * surfaced through the warnings channel (issue #67) so the degradation is
- * visible at generation time.
+ * responses, non-JSON bodies, weird path tokens, and unresolved $refs must
+ * never fatal. An inline JSON object body synthesizes a per-operation Data
+ * class through the model generator (issue #76); when a type cannot be
+ * derived the collector falls back to injecting Request / returning
+ * JsonResponse, and every such fallback is surfaced through the warnings
+ * channel (issue #67) so the degradation is visible at generation time.
  *
  * Output is deterministic: descriptors are sorted by path, then by a fixed
  * HTTP-method order, and method names are made unique per controller.
@@ -65,12 +66,13 @@ final class OperationCollector
          */
         private readonly ?ResolvedClosure $closure = null,
         /*
-         * Query-parameter support (issue #63). When non-null, each operation's
-         * `in: query` parameters are turned into a per-operation query Data
-         * class through the model generator's rules pipeline (the generator
-         * must already have run generate() for this document). Null (the
-         * default) skips query emission, keeping legacy call sites and tests
-         * byte-identical.
+         * Query-parameter (issue #63) and inline-body (issue #76) support.
+         * When non-null, each operation's `in: query` parameters are turned
+         * into a per-operation query Data class, and an inline JSON object
+         * request body into a per-operation body Data class, both through the
+         * model generator's rules pipeline (the generator must already have
+         * run generate() for this document). Null (the default) skips both,
+         * keeping legacy call sites and tests byte-identical.
          */
         private readonly ?ModelGenerator $models = null,
     ) {}
@@ -80,8 +82,8 @@ final class OperationCollector
      * determinism: header/cookie parameters the scaffold does not generate
      * yet, plus every silent degradation the collection had to take (issue
      * #67): a body or response that fell back to Request/JsonResponse over an
-     * unresolved or unsupported $ref, an inline or non-JSON body, and a
-     * dropped parameter $ref. Keyed by message so a path-level parameter
+     * unresolved or unsupported $ref, a non-object inline or non-JSON body,
+     * and a dropped parameter $ref. Keyed by message so a path-level parameter
      * shared across the operations of one path is reported once per
      * operation, never duplicated across re-collections. Mirrors
      * ModelGenerator::warnings().
@@ -278,7 +280,16 @@ final class OperationCollector
         // "GET /pets", the operation label every degradation warning leads with.
         $label = strtoupper($method).' '.$path;
 
-        [$bodyParam, $bodyRequiresRequest] = $this->requestBody($operation, $imports, $label);
+        // The StudlyCaps operation context an inline body class is named from
+        // (issue #76), the same operationId-or-fallback the query class uses,
+        // so `addPet` yields AddPetRequestData next to AddPetQueryData.
+        // Deliberately NOT the conventional name under --laravel-conventions
+        // (issue #94), exactly like the query classes: Data classes share one
+        // global namespace, and a per-controller `StoreRequestData` would
+        // clash across controllers while CreatePetRequestData stays unique.
+        $bodyBaseName = PhpIdentifier::toClassName($this->methodName($operation, $method, $path));
+
+        [$bodyParam, $bodyRequiresRequest] = $this->requestBody($operation, $imports, $label, $bodyBaseName, $pathParams);
         [$returnType, $returnDoc, $successStatus] = $this->responseType($operation, $imports, $label);
 
         $this->warnUnsupportedParameterLocations($method, $path, $parameters);
@@ -693,11 +704,19 @@ final class OperationCollector
      * and runs, but it silently drops the spec-declared body validation,
      * which a user should learn at generation time.
      *
+     * A `$ref` body is typed against the registry; an INLINE object body
+     * (issue #76) synthesizes a per-operation Data class
+     * (`<Operation>RequestData`) through the model generator's emission
+     * pipeline, so the inline shape gets the same rules() and typed param a
+     * component schema would.
+     *
      * @param  list<string>  $imports
      * @param  string  $label  "GET /pets", for warning messages
+     * @param  string  $bodyBaseName  StudlyCaps operation context for the synthesized body class name
+     * @param  list<array{name: string, phpType: string}>  $pathParams
      * @return array{0: array{name: string, type: string}|null, 1: bool}
      */
-    private function requestBody(Operation $operation, array &$imports, string $label): array
+    private function requestBody(Operation $operation, array &$imports, string $label, string $bodyBaseName, array $pathParams): array
     {
         $body = $operation->requestBody;
 
@@ -761,17 +780,51 @@ final class OperationCollector
                     $label,
                     $pointer,
                 )] = true;
+        } elseif ($this->models !== null) {
+            // Inline JSON body (issue #76): synthesize a per-operation Data
+            // class through the model generator's emission pipeline. Only an
+            // object shape produces a class (mirroring the $ref path, which
+            // types only generated Data classes); a non-object inline schema
+            // returns null with a warning through the generator's channel and
+            // keeps the Request fallback below.
+            $class = $this->models->generateBodyData($bodyBaseName, $label, $schema);
+
+            if ($class !== null) {
+                $imports[] = $this->dataFqcn($class);
+
+                return [['name' => $this->bodyParamName($pathParams), 'type' => $class], false];
+            }
         } else {
+            // Legacy wiring without a model generator (internal call sites and
+            // tests only; the planner always wires one in): nothing can
+            // synthesize the class, so the degradation is reported here.
             $this->warnings[sprintf(
-                'Operation %s: the request body schema is inline (not a $ref to a component schema) and inline bodies are not generated yet; the controller method falls back to Illuminate\Http\Request.',
+                'Operation %s: the request body schema is inline (not a $ref to a component schema) and no model generator is wired in to synthesize a Data class; the controller method falls back to Illuminate\Http\Request.',
                 $label,
             )] = true;
         }
 
-        // Inline or unresolvable body schema: inject Request.
+        // Inline non-object or unresolvable body schema: inject Request.
         $imports[] = self::REQUEST_FQCN;
 
         return [null, true];
+    }
+
+    /**
+     * The parameter name a synthesized inline-body Data param takes: `$body`,
+     * suffixed deterministically when a path parameter already claimed the
+     * name (a `/things/{body}` path would otherwise collide in the signature).
+     *
+     * @param  list<array{name: string, phpType: string}>  $pathParams
+     */
+    private function bodyParamName(array $pathParams): string
+    {
+        $taken = new UniqueNames;
+        foreach ($pathParams as $pathParameter) {
+            $taken->reserve($pathParameter['name']);
+        }
+
+        return $taken->reserve('body');
     }
 
     private function bodyContentPresent(RequestBody $body): bool

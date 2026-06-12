@@ -12,11 +12,12 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 /**
  * The server-scaffold gate: for every real-world corpus spec, collecting
  * operations and emitting controllers, per-operation query Data classes
- * (issue #63), and routes must never throw, and every generated file must be
- * syntactically valid PHP. Robustness is the contract: missing operationIds,
- * absent tags, inline bodies, weird path tokens, un-serializable query
- * parameters, and unresolved $refs must degrade (Request / JsonResponse /
- * skip-with-warning), never fatal.
+ * (issue #63), inline request-body Data classes (issue #76), and routes must
+ * never throw, and every generated file must be syntactically valid PHP.
+ * Robustness is the contract: missing operationIds, absent tags, non-object
+ * inline bodies, weird path tokens, un-serializable query parameters, and
+ * unresolved $refs must degrade (Request / JsonResponse / skip-with-warning),
+ * never fatal.
  */
 it('generates valid controllers and routes for every corpus spec', function (string $path) {
     $document = (new SpecParser)->parseFile($path);
@@ -33,8 +34,9 @@ it('generates valid controllers and routes for every corpus spec', function (str
     $controllers = (new ControllerGenerator($options))->generate($descriptors);
     $routes = (new RouteGenerator($options))->generate($descriptors);
     $queryFiles = array_values($generator->queryFiles());
+    $bodyFiles = array_values($generator->bodyFiles());
 
-    $files = array_merge(array_values($controllers), $queryFiles);
+    $files = array_merge(array_values($controllers), $queryFiles, $bodyFiles);
     $files[] = $routes;
 
     foreach ($files as $file) {

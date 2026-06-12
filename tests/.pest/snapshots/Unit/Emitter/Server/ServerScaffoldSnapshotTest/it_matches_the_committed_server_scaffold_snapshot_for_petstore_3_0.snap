@@ -379,6 +379,7 @@ final class UploadFileQueryData extends Data
     }
 }
 
+
 <?php
 
 declare(strict_types=1);

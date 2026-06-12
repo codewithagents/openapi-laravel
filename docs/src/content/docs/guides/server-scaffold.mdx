@@ -562,9 +562,10 @@ Three things deliberately do **not** change under the flag:
 - **The default output.** The flag is strictly opt-in; without it the output is byte-identical to
   previous releases.
 - **The Data layer.** Generated Data classes, including the per-operation
-  [query classes](#query-parameters) (`FindPetsByStatusQueryData`), keep their operationId-derived
-  names in both modes: query classes live in the shared Data namespace, where an `IndexQueryData`
-  would collide across controllers.
+  [query classes](#query-parameters) (`FindPetsByStatusQueryData`) and
+  [inline request-body classes](#inline-request-bodies) (`CreatePetRequestData`), keep their
+  operationId-derived names in both modes: they live in the shared Data namespace, where an
+  `IndexQueryData` or `StoreRequestData` would collide across controllers.
 - **The drift gate.** `openapi:check` honors the same flag and config key, so generate and check
   stay in lockstep; checking with a different setting than you generated with reports drift, as
   it should.
@@ -577,7 +578,8 @@ The generator resolves the type of each parameter and return value from the spec
 | --------------------------------------------------------------------- | ------------------------------------------------------- |
 | Request body referencing a component `$ref` (non-readOnly schema)     | Typed Data param, e.g. `PetData $pet`                   |
 | Request body referencing a component `$ref` (schema with writeOnly fields) | Write-variant Data param, e.g. `PetWritableData $pet` |
-| Request body that is an array schema or non-JSON content type         | `Illuminate\Http\Request $request`                      |
+| Inline JSON object request body (no `$ref`)                           | Synthesized per-operation Data param, e.g. `CreatePetRequestData $body` |
+| Request body that is an inline array/scalar schema or non-JSON content type | `Illuminate\Http\Request $request`                 |
 | `in: query` parameters on a body-less operation                       | Per-operation query Data param, e.g. `FindPetsByStatusQueryData $query` |
 | `in: query` parameters on an operation with a request body            | No extra param; the docblock points at `<Operation>QueryData::fromQuery($request)` |
 | Response that is a single object `$ref`                               | Data class, e.g. `PetData`                              |
@@ -590,14 +592,61 @@ The generator resolves the type of each parameter and return value from the spec
   generated method uses the write variant (`...WritableData`). This is the same variant the model
   generator produces. See [generated output](/guides/generated-output) for how the split works.
 
-  Array bodies and non-JSON content types fall back to a plain `Illuminate\Http\Request` parameter,
-  because there is no single Data class to type them against.
+  An inline object body follows the same rule: when its properties carry `readOnly` flags, the
+  synthesized `<Operation>RequestData` class is emitted as the write shape (readOnly fields
+  dropped), because a request body is input by definition.
+
+  Array bodies, scalar bodies, and non-JSON content types fall back to a plain
+  `Illuminate\Http\Request` parameter, because there is no single Data class to type them against.
 
   Request bodies expressed as a component reference (`$ref: '#/components/requestBodies/...'`) are
   also left untyped today and fall back to `Illuminate\Http\Request`, because the parser does not
   resolve component request bodies. Reference the schema directly under `content` if you want a typed
   Data parameter.
 </Aside>
+
+## Inline request bodies
+
+An operation whose JSON request body is an **inline object schema** (declared directly under
+`content`, not a `$ref` to a component) gets a **synthesized per-operation Data class**, named from
+the `operationId` (or the method+path fallback) plus a `RequestData` suffix, mirroring the
+`<Operation>QueryData` naming. It lives next to the model Data classes, in the same namespace and
+output directory, and is drift-checked like every other generated file.
+
+The class goes through the exact pipeline a component schema uses: spec-derived `rules()` (enums,
+bounds, formats, array element rules, defaults), nested inline objects spawning their own classes
+(`CreatePetRequestHomeData` for a nested `home` object), `additionalProperties: false` enforcement,
+and the readOnly/writeOnly write shape. The controller method receives the typed param, so an
+inline body validates before your code runs, exactly like a `$ref` body:
+
+```yaml
+paths:
+  /pets:
+    post:
+      operationId: createPet
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 20 }
+```
+
+```php
+// generated: app/Http/Controllers/Api/AbstractPetController.php
+abstract public function createPet(CreatePetRequestData $body): JsonResponse;
+```
+
+Naming is deterministic and collision-safe: when a component schema already claimed the name
+(a component literally called `CreatePetRequest`), the synthesized class takes a numeric suffix
+(`CreatePetRequestData_2`) through the same allocator that deduplicates component names.
+
+Only an **object** schema synthesizes a class. An inline body that is an array, a scalar, a
+`oneOf`/`anyOf` union, an enum, or a free-form map (`additionalProperties` only) keeps the
+`Illuminate\Http\Request` fallback **with a generator warning**, because no single Data class can
+type it; see [limitations](/guides/limitations#request-bodies-that-fall-back-to-request-with-a-warning).
 
 ## Query parameters
 

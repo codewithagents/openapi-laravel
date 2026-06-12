@@ -506,14 +506,23 @@ Where the scaffold cannot derive a typed Data class it falls back to injecting
 compiles and runs, but the spec-declared body validation or return typing is absent there, so every
 fallback emits a build warning naming the operation. (Query parameters used to be listed here;
 since issue #63 they generate typed, validated per-operation query Data classes, with the residuals
-described under [Query parameters](#query-parameters) below. Spec-declared response status codes
-used to be listed here too; since issue #64 they are honored, with the residuals described under
+described under [Query parameters](#query-parameters) below. Inline JSON object bodies used to be
+listed here too; since issue #76 they synthesize typed per-operation body Data classes. Spec-declared
+response status codes used to be listed here as well; since issue #64 they are honored, with the
+residuals described under
 [Response status codes](#response-status-codes-only-the-selected-success-response) below.)
 
 ### Request bodies that fall back to Request, with a warning
 
-- A body that is a `$ref` into `components.requestBodies` (not resolved yet).
-- An inline (non-`$ref`) JSON body schema (not generated yet).
+An inline JSON **object** body no longer falls back: it synthesizes a per-operation
+`<Operation>RequestData` class with the full `rules()` pipeline and a typed controller param
+(issue #76, see the [server scaffold guide](/guides/server-scaffold#inline-request-bodies)). The
+remaining fallbacks:
+
+- A body that is a `$ref` into `components.requestBodies` (not resolved yet; this is a separate
+  residual from the inline case, reference the schema directly under `content` for a typed param).
+- An inline JSON body that is **not an object shape**: an array, a scalar, a `oneOf`/`anyOf` union,
+  an enum, or a free-form map (`additionalProperties` only). No single Data class can type these.
 - A body with no `application/json` content (multipart, form-urlencoded, octet-stream, ...): there
   is no JSON schema to type, so read and validate it from the `Request` yourself.
 - A body schema `$ref` that is external or does not resolve to a generated Data class.

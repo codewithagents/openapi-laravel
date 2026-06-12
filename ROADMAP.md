@@ -81,7 +81,12 @@ the config-only `routes.middleware` / `routes.prefix` keys wrap the routes in on
 PathItem-level parameters merge into every operation, and `$ref` parameters resolve through
 components (#66). Query parameters (#63) generate a per-operation query Data class
 (`<Operation>QueryData`) with spec-derived `rules()` through the exact body-class pipeline, plus a
-`fromQuery(Request)` factory that validates and hydrates from the query string only. Hybrid
+`fromQuery(Request)` factory that validates and hydrates from the query string only. An inline JSON
+object request body (#76) synthesizes a per-operation Data class (`<Operation>RequestData`, named
+from the operationId like the query class, collision-safe through the shared allocator) through the
+exact component-class pipeline (full `rules()`, nested objects, closed-object enforcement, the
+write shape when readOnly fields exist) and types the controller param, so inline bodies validate
+exactly like `$ref` bodies. Hybrid
 injection: body-less operations get the class type-hinted into the signature (laravel-data routes
 container injection through `fromQuery`); operations with a request body get a docblock pointer to
 `::fromQuery($request)` instead, so body and query inputs never bleed into each other. Boolean
@@ -111,7 +116,10 @@ scaffold; existing files are skipped (never overwritten) and the drift gate neve
 - Undiscriminated object unions (no `discriminator`) stay `mixed`, presence-only by design (#31).
 - An allOf-inheritance variant that does not pin its discriminator with a `const` is not rejected for
   a wrong value when validated STANDALONE (morph routing through the base is unaffected).
-- A component `$ref` request body falls back to `Illuminate\Http\Request` instead of a typed Data param.
+- A component `$ref` request body (`#/components/requestBodies/...`) falls back to
+  `Illuminate\Http\Request` instead of a typed Data param. Inline JSON OBJECT bodies are generated
+  (#76); an inline body that is NOT an object shape (an array, scalar, union, enum, or free-form
+  map body) keeps the Request fallback, warned per operation.
 - Tuple `prefixItems` validates per position (#82: `field.0`, `field.1`, ... rules through the
   shared constraint mapping, plus a `max:` length cap for the closed `items: false` form) but the
   TYPING still degrades to `array<int, mixed>`; a post-prefix `items` schema stays unenforced (a

@@ -115,18 +115,20 @@ final readonly class GenerationPlanner
         }
 
         // The server scaffold runs BEFORE the support files are collected: the
-        // per-operation query Data classes (issue #63) are emitted while the
-        // operations are collected, and their rules may reference support
-        // classes that must land in the inlined set below.
+        // per-operation query Data classes (issue #63) and inline request-body
+        // Data classes (issue #76) are emitted while the operations are
+        // collected, and their rules may reference support classes that must
+        // land in the inlined set below.
         [$serverFiles, $serverWarnings] = $this->planServer($request, $document, $generator, $closure);
 
-        // The per-operation query Data classes (issue #63) live next to the
-        // model Data classes: same namespace, same output directory, same
-        // drift-checked CATEGORY_DATA bucket.
-        foreach ($generator->queryFiles() as $queryFile) {
+        // The per-operation query Data classes (issue #63) and inline
+        // request-body Data classes (issue #76) live next to the model Data
+        // classes: same namespace, same output directory, same drift-checked
+        // CATEGORY_DATA bucket.
+        foreach ([...$generator->queryFiles(), ...$generator->bodyFiles()] as $operationFile) {
             $files[] = new PlannedFile(
-                $target.'/'.$queryFile->filename(),
-                $queryFile->code,
+                $target.'/'.$operationFile->filename(),
+                $operationFile->code,
                 PlannedFile::CATEGORY_DATA,
             );
         }
@@ -153,7 +155,21 @@ final readonly class GenerationPlanner
         $warnings = array_values(array_unique([...$generator->warnings(), ...$serverWarnings, ...$filterWarnings]));
         sort($warnings);
 
-        return new GenerationPlan($files, $modelFiles === [], $warnings);
+        // "Nothing to generate" only when the data layer is COMPLETELY empty:
+        // a spec without component schemas can still produce per-operation
+        // query (issue #63) and inline request-body (issue #76) Data classes,
+        // and those must be written (the flag gates the CATEGORY_DATA write
+        // in both command surfaces, and check plans them either way).
+        $hasDataFiles = false;
+        foreach ($files as $file) {
+            if ($file->category === PlannedFile::CATEGORY_DATA) {
+                $hasDataFiles = true;
+
+                break;
+            }
+        }
+
+        return new GenerationPlan($files, ! $hasDataFiles, $warnings);
     }
 
     /**
@@ -179,14 +195,15 @@ final readonly class GenerationPlanner
     /**
      * Plan the server scaffold (controllers + routes). The model generator is
      * handed through so the operation collector can emit the per-operation
-     * query Data classes (issue #63) with the exact rules pipeline the model
-     * classes used; the planner collects those files via queryFiles() after
-     * this returns.
+     * query Data classes (issue #63) and inline request-body Data classes
+     * (issue #76) with the exact rules pipeline the model classes used; the
+     * planner collects those files via queryFiles() / bodyFiles() after this
+     * returns.
      *
      * The collector runs even when controllers AND routes are both disabled:
-     * the query Data classes are data-layer output (CATEGORY_DATA, same
-     * namespace and directory as the model classes), so a model-only run must
-     * still produce them, and the check path must still see them. Only the
+     * the query and body Data classes are data-layer output (CATEGORY_DATA,
+     * same namespace and directory as the model classes), so a model-only run
+     * must still produce them, and the check path must still see them. Only the
      * controller/route FILE planning is gated on the scaffold flags. In that
      * scaffold-disabled case the collector's own warnings (header/cookie
      * parameters the scaffold would not type) are dropped, because they

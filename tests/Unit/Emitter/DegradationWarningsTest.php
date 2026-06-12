@@ -328,8 +328,8 @@ it('warns when the request body is a $ref into components.requestBodies', functi
     );
 });
 
-it('warns when the request body schema is inline', function () {
-    [$warnings] = degradationCollectorRun([
+it('stays silent for an inline object request body, which is now generated (issue #76)', function () {
+    [$collectorWarnings, $modelWarnings] = degradationCollectorRun([
         '/pets' => [
             'post' => [
                 'operationId' => 'createPet',
@@ -345,8 +345,88 @@ it('warns when the request body schema is inline', function () {
         ],
     ]);
 
-    expect($warnings)->toContain(
-        'Operation POST /pets: the request body schema is inline (not a $ref to a component schema) and inline bodies are not generated yet; the controller method falls back to Illuminate\Http\Request.',
+    // The inline object body synthesizes CreatePetRequestData and types the
+    // controller param, so nothing degrades and nothing may warn.
+    expect($collectorWarnings)->toBe([])
+        ->and($modelWarnings)->toBe([]);
+});
+
+it('warns when an inline request body is not an object shape (the Request fallback stays)', function () {
+    [$collectorWarnings, $modelWarnings] = degradationCollectorRun([
+        '/users' => [
+            'post' => [
+                'operationId' => 'bulkUsers',
+                'requestBody' => [
+                    'content' => [
+                        'application/json' => [
+                            'schema' => ['type' => 'array', 'items' => ['type' => 'string']],
+                        ],
+                    ],
+                ],
+                'responses' => ['200' => ['description' => 'ok']],
+            ],
+        ],
+    ]);
+
+    // The skip is reported through the model generator's channel (it owns the
+    // body pipeline, mirroring the query-parameter skips), not the collector's.
+    expect($modelWarnings)->toContain(
+        'Operation POST /users: the inline request body schema was not generated as a typed Data class (it is not an object schema); the controller method falls back to Illuminate\Http\Request.',
+    )->and($collectorWarnings)->toBe([]);
+});
+
+it('warns when an inline request body is a free-form object map', function () {
+    [, $modelWarnings] = degradationCollectorRun([
+        '/settings' => [
+            'put' => [
+                'operationId' => 'putSettings',
+                'requestBody' => [
+                    'content' => [
+                        'application/json' => [
+                            'schema' => ['type' => 'object', 'additionalProperties' => ['type' => 'string']],
+                        ],
+                    ],
+                ],
+                'responses' => ['200' => ['description' => 'ok']],
+            ],
+        ],
+    ]);
+
+    expect($modelWarnings)->toContain(
+        'Operation PUT /settings: the inline request body schema was not generated as a typed Data class (it is an object map with only additionalProperties, which resolves to a typed array, not a Data class); the controller method falls back to Illuminate\Http\Request.',
+    );
+});
+
+it('warns when the request body schema is inline and no model generator is wired in (legacy call sites)', function () {
+    $spec = degradationSpec([
+        'openapi' => '3.0.3',
+        'info' => ['title' => 'Test', 'version' => '1.0.0'],
+        'paths' => [
+            '/pets' => [
+                'post' => [
+                    'operationId' => 'createPet',
+                    'requestBody' => [
+                        'content' => [
+                            'application/json' => [
+                                'schema' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string']]],
+                            ],
+                        ],
+                    ],
+                    'responses' => ['201' => ['description' => 'ok']],
+                ],
+            ],
+        ],
+    ]);
+
+    $generator = new ModelGenerator;
+    $generator->generate($spec);
+    // No model generator wired in (the legacy, pre-#63 wiring): the collector
+    // cannot synthesize the body class, so the degradation is its own to report.
+    $collector = new OperationCollector(new ServerOptions, $generator->registry());
+    $collector->collect($spec);
+
+    expect($collector->warnings())->toContain(
+        'Operation POST /pets: the request body schema is inline (not a $ref to a component schema) and no model generator is wired in to synthesize a Data class; the controller method falls back to Illuminate\Http\Request.',
     );
 });
 
