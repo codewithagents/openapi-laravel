@@ -1,0 +1,394 @@
+---
+title: Cookbook
+description: Practical recipes for the questions that come up right after the first generate run, auth middleware on generated routes, versioned APIs, multiple specs in one app, pagination, and Eloquent-to-Data mapping.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components'
+
+The other guides document the generator surface. This page answers the integration questions that
+come up right after the first successful run: how do I put auth in front of the generated routes,
+how do I run a v1 and a v2 side by side, how do I paginate, how do I get an Eloquent model into a
+generated Data class. Every recipe below was run against the current generator; nothing here
+documents a flag or config key that does not exist.
+
+## Auth middleware on generated routes
+
+The generator does not read `securitySchemes` or operation-level `security` from the spec. There is
+no PHP file in the output that knows about authentication. Auth is wired in Laravel, and there are
+three places to do it, from coarsest to finest.
+
+### The whole API: `routes.middleware`
+
+The [config-only `routes.middleware` key](/guides/server-scaffold#middleware-and-prefix-groups)
+wraps every generated route in one `Route::group`:
+
+```php
+// config/openapi-laravel.php
+'routes' => [
+    'enabled'    => true,
+    'path'       => base_path('routes/api.generated.php'),
+    'middleware' => ['auth:sanctum'],
+    'prefix'     => '',
+],
+```
+
+After regenerating, the routes file itself carries the group:
+
+```php
+Route::middleware(['auth:sanctum'])->group(function (): void {
+    Route::get('/pets', [PetController::class, 'listPets'])->name('listPets');
+    // ...
+});
+```
+
+Each middleware entry is its own string and is never comma-split, so `'throttle:60,1'` stays
+intact. The standalone binary reads the same keys from
+[`openapi-laravel.json`](/guides/configuration#standalone-binary-openapi-laraveljson). There are
+deliberately no CLI flags for these two keys.
+
+### The whole API, without touching the generated file
+
+If you prefer to keep the generated file free of environment concerns, wrap the include instead.
+`Route::group()` accepts a file path, and routes registered inside the group inherit its
+attributes:
+
+```php
+// routes/api.php
+Route::middleware('auth:sanctum')->group(base_path('routes/api.generated.php'));
+```
+
+Both approaches produce the same routing table. The config key keeps the policy visible in the
+generated artifact (and in the [drift check](/guides/drift-check)); the wrapper keeps it in code
+you own. Pick one, not both.
+
+### Per operation: middleware on your concrete controller
+
+The generated routes file is overwritten on every run, so never hand-edit middleware onto a single
+`Route::` line. For a mixed public/protected API, put the middleware on your **concrete**
+controller, which the generator never touches. On Laravel 11+ that is the `HasMiddleware`
+interface, and the method names to target are exactly the spec's operationIds:
+
+```php
+use Illuminate\Routing\Controllers\HasMiddleware;
+use Illuminate\Routing\Controllers\Middleware;
+
+final class PetController extends AbstractPetController implements HasMiddleware
+{
+    public static function middleware(): array
+    {
+        return [
+            // listPets and getPetById stay public, everything else needs auth.
+            new Middleware('auth:sanctum', except: ['listPets', 'getPetById']),
+        ];
+    }
+
+    // ... the abstract method implementations
+}
+```
+
+This survives every regenerate: the abstract controller and the routes file change with the spec,
+your concrete controller and its middleware do not.
+
+<Aside type="note" title="Route names work too">
+  Every generated route has a deterministic <code>-&gt;name()</code> derived from its operationId
+  (see [route names](/guides/server-scaffold#route-names)), so name-based tooling such as
+  authorization gates or `route()` calls can target individual operations as well.
+</Aside>
+
+## Versioned APIs: v1 and v2 side by side
+
+One generator run reads one spec. A versioned API is therefore two runs, each with its own spec,
+output directory, namespace, and routes file. The two slices must not share paths or namespaces,
+otherwise the second run overwrites the first.
+
+The artisan command takes `--spec`, `--output`, and `--namespace` as flags, but the controller and
+routes paths are [config-file-only on the artisan
+surface](/guides/configuration#which-surface-has-which-flags-intentional-asymmetry), and one
+Laravel app has one `config/openapi-laravel.php`. So the recipe for two full slices uses the
+**standalone binary**, which ships with the package at `vendor/bin/openapi-laravel` and works fine
+inside a Laravel app: one JSON config file per version, committed to the repo.
+
+<Steps>
+
+1. **Create one config file per version** in the project root:
+
+   ```json
+   // openapi-laravel.v1.json
+   {
+     "spec": "specs/openapi.v1.yaml",
+     "output": {
+       "path": "app/Data/V1",
+       "namespace": "App\\Data\\V1"
+     },
+     "controllers": {
+       "path": "app/Http/Controllers/Api/V1",
+       "namespace": "App\\Http\\Controllers\\Api\\V1"
+     },
+     "routes": {
+       "path": "routes/api.v1.generated.php",
+       "prefix": "v1"
+     }
+   }
+   ```
+
+   `openapi-laravel.v2.json` is the same file with `V1`/`v1` replaced by `V2`/`v2`. Every key is
+   optional and unknown keys are rejected, see the
+   [config reference](/guides/configuration#standalone-binary-openapi-laraveljson).
+
+2. **Run the generator once per config**, from the project root:
+
+   ```bash
+   vendor/bin/openapi-laravel generate --config=openapi-laravel.v1.json
+   vendor/bin/openapi-laravel generate --config=openapi-laravel.v2.json
+   ```
+
+   Each run writes its own Data classes (plus its own inlined `Support/` classes under its own
+   namespace), its own abstract controllers, and its own routes file. Nothing is shared between
+   the slices, so they can never drift into each other.
+
+3. **Register both route files.** `routes/api.php` already carries the global `api` prefix and
+   middleware group, so the `"prefix": "v1"` from the config yields `/api/v1/...`:
+
+   ```php
+   // routes/api.php
+   Route::name('v1.')->group(base_path('routes/api.v1.generated.php'));
+   Route::name('v2.')->group(base_path('routes/api.v2.generated.php'));
+   ```
+
+4. **Run the drift gate once per config in CI:**
+
+   ```yaml
+   - run: vendor/bin/openapi-laravel check --config=openapi-laravel.v1.json
+   - run: vendor/bin/openapi-laravel check --config=openapi-laravel.v2.json
+   ```
+
+</Steps>
+
+<Aside type="caution" title="Route names collide across versions">
+  Route names are unique within one generator run, not across runs: `listPets` in the v1 spec and
+  `listPets` in the v2 spec produce the same `->name('listPets')`, and the later-registered one
+  wins for `route('listPets')`. That is what the `Route::name('v1.')` wrapper in step 3 fixes:
+  the names become `v1.listPets` and `v2.listPets`. There is no name-prefix config key, so apply
+  it at registration.
+</Aside>
+
+<Aside type="note" title="Write paths are contained to the config directory">
+  Paths set in a JSON config file must resolve inside the directory the config file lives in
+  ([why](/guides/configuration#config-file-write-paths-are-contained-to-the-project-directory)).
+  With the config files in the project root, everything under `app/` and `routes/` works; a path
+  that escapes the project fails closed with exit code 2.
+</Aside>
+
+## Multiple specs in one app
+
+The mechanics are exactly the [versioned-API recipe](#versioned-apis-v1-and-v2-side-by-side):
+one config file per spec, distinct output paths and namespaces per slice, one generate run and one
+CI check per config. Whether the second spec is `v2` of your own API, a partner API, or an
+internal admin surface changes nothing about the wiring.
+
+One common variant is simpler: consuming a **third-party spec for its models only**, no
+controllers, no routes. That needs no extra config file, because the artisan flags cover the whole
+model surface:
+
+```bash
+php artisan openapi:generate \
+  --spec=specs/partner.yaml \
+  --output=app/Data/Partner \
+  --namespace="App\Data\Partner" \
+  --no-controllers --no-routes
+```
+
+Your own API keeps using the committed `config/openapi-laravel.php` with a plain
+`php artisan openapi:generate`; the partner models live in their own namespace and never collide.
+
+Three rules keep multi-spec setups healthy:
+
+- **Never point two specs at the same output path or namespace.** Each run owns its directory and
+  overwrites it. The generated output is self-contained per slice (each gets its own `Support/`
+  classes), so separation costs nothing at runtime.
+- **`--prune` is per run and per directory.** It only deletes `*.php` files in the Data output
+  directory of that run, so pruning the partner slice cannot touch your own.
+- **Name-prefix the route groups** when more than one generated routes file is registered, as in
+  the versioned recipe above.
+
+## Pagination with generated Data classes
+
+The generator emits exactly what the spec declares. If the spec says an operation returns a bare
+array of pets, the abstract method is typed as a collection of `PetData` and the JSON is a bare
+array: there is no place for `total` or `current_page` to live. So the pagination recipe starts in
+the spec: **declare the page envelope as a schema**, and the rest follows.
+
+```yaml
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      tags: [pet]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+      responses:
+        '200':
+          description: One page of pets
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PetPage' }
+
+components:
+  schemas:
+    PetPage:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Pet' }
+        meta: { $ref: '#/components/schemas/PageMeta' }
+    PageMeta:
+      type: object
+      required: [current_page, per_page, total]
+      properties:
+        current_page: { type: integer, minimum: 1 }
+        per_page: { type: integer, minimum: 1 }
+        total: { type: integer, minimum: 0 }
+```
+
+From this the generator produces three things. A query class with the defaults and bounds from the
+spec (the snake_case wire names map to camelCase properties via `#[MapName]`):
+
+```php
+final class ListPetsQueryData extends Data
+{
+    public function __construct(
+        public readonly int $page = 1,
+        #[MapName('per_page')]
+        public readonly int $perPage = 25,
+    ) {}
+    // rules(): page => sometimes|integer|min:1, per_page => sometimes|integer|min:1|max:100
+}
+```
+
+The envelope classes (`PetPageData` with a `#[DataCollectionOf(PetData::class)]` items array and a
+typed `PageMetaData $meta`), and an abstract method pinned to the envelope:
+
+```php
+abstract public function listPets(ListPetsQueryData $query): PetPageData;
+```
+
+Your implementation maps a standard Laravel paginator into the envelope:
+
+```php
+public function listPets(ListPetsQueryData $query): PetPageData
+{
+    $page = Pet::query()->paginate(perPage: $query->perPage, page: $query->page);
+
+    return new PetPageData(
+        items: PetData::collect($page->items()),
+        meta: new PageMetaData(
+            currentPage: $page->currentPage(),
+            perPage: $page->perPage(),
+            total: $page->total(),
+        ),
+    );
+}
+```
+
+The query side is fully enforced before your code runs: `?per_page=500` is a 422, `?page=0` is a
+422, and an omitted parameter arrives as its spec default. The response side is shaped by the
+types: the method cannot return anything but the envelope.
+
+A few notes on the pattern:
+
+- **Why not return the paginator directly?** laravel-data can wrap one
+  (`PetData::collect(Pet::paginate())`), but its serialized shape is Laravel's paginator format,
+  which is not what your spec declared, and the abstract method's return type would reject it
+  anyway. The envelope-in-spec approach keeps the contract honest: clients generated from the same
+  spec (for example with openapi-zod-ts) see exactly the fields the spec promises.
+- **Cursor pagination** works the same way: declare a `next_cursor` (nullable string) in the meta
+  schema and map from `Pet::cursorPaginate(...)`, using `$page->nextCursor()?->encode()`.
+- **Reuse the envelope across resources** in the spec however you like (one `PageMeta` schema,
+  many `XxxPage` schemas). The generator emits one class per schema, so the meta class is shared
+  naturally.
+
+## Eloquent-to-Data mapping
+
+The generated classes are plain `spatie/laravel-data` classes, so everything laravel-data offers
+for [creating data from models](https://spatie.be/docs/laravel-data/v4/as-a-data-transfer-object/model-to-data-object)
+applies unchanged. The short version, with the generator-specific caveats spelled out:
+
+### The direct case: `from($model)`
+
+When the model's attribute names match the spec's wire names, `from()` just works. The generated
+`#[MapName('...')]` attributes map snake_case wire names onto the camelCase properties, and a
+model's snake_case attributes hit exactly those mapped names:
+
+```php
+$pet = Pet::query()->findOrFail($petId);
+
+return PetData::from($pet);   // id, name, microchip_id => microchipId, ...
+```
+
+Relations hydrate too, as long as they are loaded: a `tags` relation on the model fills a
+`#[DataCollectionOf(TagData::class)]` property, a `category` relation fills a nested
+`?CategoryData`. Eager-load them (`Pet::with('tags')`) to avoid an N+1 during mapping.
+
+<Aside type="caution" title="from() does not validate">
+  `from()` creates the object as long as PHP accepts the values; the spec-derived `rules()` only
+  run on validated input paths (request bodies, query classes, `validateAndCreate()`). A model
+  value that violates a `maxLength` or a format constraint serializes out without complaint. The
+  types still hold, but constraint conformance on responses is what
+  [contract testing](/guides/contract-testing) is for.
+</Aside>
+
+### The two friction points: dates and enums
+
+The generator types a `format: date-time` property as `string` (validated by the inlined RFC 3339
+rule on input), not as Carbon. And a spec enum becomes a **generated** backed enum class, which is
+not the enum class your model may already cast to. Both surface the moment a model attribute is a
+`Carbon` instance or an app-side enum instance: laravel-data cannot assign those to a `string`
+property or a foreign enum type.
+
+laravel-data's usual answer is a custom `fromModel()` magic creator on the Data class itself, but
+the generated class is overwritten on every run, so do not add one there. Put the mapping in your
+own layer instead: a small mapper class, a method on the model (`$pet->toPetData()`), or an
+explicit array at the call site:
+
+```php
+PetData::from([
+    ...$pet->only(['id', 'name', 'microchip_id']),
+    'status' => $pet->status->value,                       // app enum -> backing value
+    'created_at' => $pet->created_at?->toIso8601String(),  // Carbon -> RFC 3339 string
+]);
+```
+
+The generated enum hydrates from its backing value (`'available'`), so passing `->value` bridges
+an app-side enum cast; `toIso8601String()` produces an RFC 3339 string the generated rule accepts.
+
+### Collections
+
+The abstract methods for array responses are typed `DataCollection`, and the matching creation is
+one line:
+
+```php
+public function findPetsByStatus(FindPetsByStatusQueryData $query): DataCollection
+{
+    $pets = Pet::query()->where('status', $query->status)->get();
+
+    return PetData::collect($pets, DataCollection::class);
+}
+```
+
+`collect()` maps each model through the same creation pipeline as `from()`. If the models need the
+explicit mapping from the previous section, map first, then collect:
+`PetData::collect($pets->map($mapper), DataCollection::class)`.
+
+## Related pages
+
+- [Server scaffold](/guides/server-scaffold) for the full controller and routes reference.
+- [Configuration](/guides/configuration) for every flag and config key used above.
+- [Contract testing](/guides/contract-testing) for validating response conformance in tests.
+- [Drift check](/guides/drift-check) for keeping every slice in sync in CI.

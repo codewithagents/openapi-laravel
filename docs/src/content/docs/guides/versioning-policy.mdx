@@ -50,6 +50,19 @@ What is explicitly **not** breaking (a minor or patch, no major bump needed):
   A generator that promises byte-stable output forever can never fix an emitter bug, which is absurd: the whole point is to correct the code it writes. So the realistic promise is narrower than "output never changes". The policy is: **intentional output changes ship in a major release with a documented changelog entry and a regeneration note**, and the project does not change output shape in a patch except to fix a clearly broken result (non-compiling code, a dropped constraint that let invalid data through). Those correctness patches are called out explicitly in the changelog so a surprised drift check after `composer update` is expected, not mysterious. This is the same posture the 0.x correctness sweeps already took.
 </Aside>
 
+### What if laravel-data ships a v5
+
+The generated code extends `spatie/laravel-data`, and the package pins `^4.15`. A laravel-data v5
+release therefore does not reach you through this package: Composer keeps resolving 4.x until
+`openapi-laravel` itself widens or raises the constraint. When a v5 exists, it gets evaluated like
+any other floor change under the rules above. If supporting it changes the generated output or the
+behavior of the generated code in any way (different base-class semantics, changed validation or
+serialization), the bump ships as a **major release of this package**, with a changelog entry and a
+regeneration note, exactly like the floor-bump bullet. If v5 can be supported with byte-identical
+output, the constraint could instead be widened (`^4.15 || ^5.0`) in a minor, since nothing
+observable changes for existing consumers. Either way, nothing is silent: the
+[drift check](/guides/drift-check) and the upgrade flow below apply unchanged.
+
 ## The upgrade flow (regeneration is the contract)
 
 Because you own the generated code, an upgrade is not "install and trust". It is **install, regenerate, review, commit**:
