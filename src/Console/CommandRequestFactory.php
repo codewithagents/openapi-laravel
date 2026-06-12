@@ -11,18 +11,16 @@ use Illuminate\Console\Command;
  * resolution the generate command always used, lifted out so generate and check
  * read their inputs identically. Both commands accept the same options
  * (--spec, --output, --namespace, --controllers/--no-controllers,
- * --routes/--no-routes, --enforce-closed-objects/--no-enforce-closed-objects,
- * --laravel-conventions/--no-laravel-conventions), so neither can compute a
- * different plan than the other.
+ * --routes/--no-routes, --enforce-closed-objects/--no-enforce-closed-objects),
+ * so neither can compute a different plan than the other.
  *
  * Toggle precedence is strict: an explicit flag beats the config value, the
  * config value beats the built-in default (enabled). Passing both the enable
  * and the disable flag is a configuration error, not a silent pick.
  *
  * @throws OptionException when --controllers/--no-controllers,
- *                         --routes/--no-routes,
- *                         --enforce-closed-objects/--no-enforce-closed-objects,
- *                         or --laravel-conventions/--no-laravel-conventions
+ *                         --routes/--no-routes, or
+ *                         --enforce-closed-objects/--no-enforce-closed-objects
  *                         are combined
  *
  * @internal
@@ -61,13 +59,6 @@ final readonly class CommandRequestFactory
         // Passing both --enforce-closed-objects and --no-enforce-closed-objects
         // is a contradiction that fails loudly (exit 2).
         $enforceClosedObjects = $this->resolveToggle($command, 'enforce-closed-objects', 'openapi-laravel.enforce_closed_objects');
-
-        // Laravel-convention method names (issue #94): the same strict toggle
-        // precedence as the pairs above, but with a default-OFF built-in, so
-        // the conventional naming is strictly opt-in and the default output
-        // stays byte-identical. --laravel-conventions and
-        // --no-laravel-conventions together is the same loud contradiction.
-        $laravelConventions = $this->resolveToggle($command, 'laravel-conventions', 'openapi-laravel.controllers.laravel_conventions', false);
 
         $controllerPath = $this->configString('openapi-laravel.controllers.path');
         $controllerNamespace = $this->configString('openapi-laravel.controllers.namespace') ?? 'App\\Http\\Controllers\\Api';
@@ -124,7 +115,6 @@ final readonly class CommandRequestFactory
             $routesPrefix,
             $excludePathPrefixes,
             $securityMiddlewareMap,
-            $laravelConventions,
             $stubs,
             $controllerBaseClass,
             $validationTrait,
@@ -318,13 +308,12 @@ final readonly class CommandRequestFactory
 
     /**
      * Resolves an enable/disable flag pair against the config: flag beats
-     * config, config beats the built-in default ($default, enabled for every
-     * toggle except the opt-in --laravel-conventions). Both flags at once is
-     * a contradiction the operator must resolve, so it fails loudly.
+     * config, config beats the built-in default (enabled). Both flags at
+     * once is a contradiction the operator must resolve, so it fails loudly.
      *
      * @throws OptionException when both --{$flag} and --no-{$flag} are passed
      */
-    private function resolveToggle(Command $command, string $flag, string $configKey, bool $default = true): bool
+    private function resolveToggle(Command $command, string $flag, string $configKey): bool
     {
         $enable = (bool) $command->option($flag);
         $disable = (bool) $command->option('no-'.$flag);
@@ -343,7 +332,7 @@ final readonly class CommandRequestFactory
 
         $configured = config($configKey);
 
-        return $configured === null ? $default : (bool) $configured;
+        return $configured === null ? true : (bool) $configured;
     }
 
     private function stringOption(Command $command, string $name): ?string

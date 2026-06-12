@@ -8,7 +8,7 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  * The settings a standalone-binary run can read from an openapi-laravel.json
  * config file. The keys mirror config/openapi-laravel.php one to one (spec,
  * output.path/namespace/suffix/prune/validation_trait,
- * controllers.enabled/path/namespace/base_class/laravel_conventions,
+ * controllers.enabled/path/namespace/base_class,
  * routes.enabled/path/middleware/prefix, security.middleware_map,
  * enforce_closed_objects, max_depth, max_bytes, only_tags, only_schemas,
  * exclude_path_prefixes), so a team can keep one mental model across the
@@ -45,15 +45,6 @@ final readonly class StandaloneConfig
         public ?bool $controllersEnabled = null,
         public ?string $controllerPath = null,
         public ?string $controllerNamespace = null,
-        /*
-         * Laravel-convention method names (issue #94), mirroring the
-         * controllers.laravel_conventions key of the PHP config: when true, a
-         * clean RESTful operation gets the conventional controller method
-         * name (index/show/store/update/destroy) and the matching route name.
-         * Null means the key was not set, so the built-in default (disabled,
-         * strictly opt-in) applies.
-         */
-        public ?bool $laravelConventions = null,
         /*
          * Controller base class (issue #83): the FQCN every generated abstract
          * controller extends. Null means the key was not set (the abstracts

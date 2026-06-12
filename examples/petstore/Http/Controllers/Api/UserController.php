@@ -53,7 +53,7 @@ final class UserController extends AbstractUserController
         return new JsonResponse('logged out');
     }
 
-    public function getUserByName(string $username): UserData
+    public function show(string $username): UserData
     {
         $user = $this->store->findUser($username);
 
@@ -64,7 +64,7 @@ final class UserController extends AbstractUserController
         return $user;
     }
 
-    public function updateUser(UserData $user, string $username): JsonResponse
+    public function update(UserData $user, string $username): JsonResponse
     {
         if ($this->store->findUser($username) === null) {
             throw new NotFoundHttpException("User {$username} not found.");
@@ -75,7 +75,7 @@ final class UserController extends AbstractUserController
         return new JsonResponse(null, 204);
     }
 
-    public function deleteUser(string $username): JsonResponse
+    public function destroy(string $username): JsonResponse
     {
         $deleted = $this->store->deleteUser($username);
 

@@ -94,7 +94,7 @@ it('renders the typed body param into the abstract controller signature', functi
     $code = $controllers['AbstractPetController']->code;
 
     expect($code)->toContain('use App\Data\Pet\CreatePetRequestData;')
-        ->and($code)->toContain('abstract public function createPet(CreatePetRequestData $body): JsonResponse;');
+        ->and($code)->toContain('abstract public function store(CreatePetRequestData $body): JsonResponse;');
 });
 
 it('emits the nested classes an inline body spawns into the body bucket', function () {
@@ -278,7 +278,7 @@ it('does not type an inline body when no model generator is wired in (legacy cal
         ->and($generator->bodyFiles())->toBe([]);
 });
 
-it('keeps the operationId-derived body class name under laravel-conventions (issue #94)', function () {
+it('keeps the operationId-derived body class name under the conventional method naming (issue #94)', function () {
     $document = [
         'openapi' => '3.0.3',
         'info' => ['title' => 'Test', 'version' => '1.0.0'],
@@ -291,7 +291,7 @@ it('keeps the operationId-derived body class name under laravel-conventions (iss
     $generator = new ModelGenerator;
     $generator->generate($spec);
     $descriptors = (new OperationCollector(
-        new ServerOptions(laravelConventions: true),
+        new ServerOptions,
         $generator->registry(),
         null,
         $generator,

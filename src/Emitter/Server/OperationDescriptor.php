@@ -45,11 +45,11 @@ final readonly class OperationDescriptor
         public string $methodName,
         /*
          * The `->name()` every generated route carries (issue #71). It
-         * follows the CHOSEN method name (the operationId-derived identifier,
-         * or the conventional name under the opt-in --laravel-conventions,
-         * issue #94), but is made unique across the WHOLE route table rather
-         * than per controller, so the route() helper can target any operation
-         * unambiguously.
+         * follows the CHOSEN method name (the conventional Laravel name for a
+         * clean RESTful operation, otherwise the operationId-derived
+         * identifier, issue #94), but is made unique across the WHOLE route
+         * table rather than per controller, so the route() helper can target
+         * any operation unambiguously.
          */
         public string $routeName,
         public array $pathParams,

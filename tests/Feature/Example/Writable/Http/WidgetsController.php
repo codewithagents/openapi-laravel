@@ -32,7 +32,7 @@ final class WidgetsController extends AbstractWidgetsController
         self::$nextId = 1;
     }
 
-    public function createWidget(WidgetWritableData $widget): WidgetData
+    public function store(WidgetWritableData $widget): WidgetData
     {
         // $widget arrived hydrated and validated against WidgetWritableData::rules()
         // (a missing required name or secret would have 422'd before reaching here).
@@ -45,7 +45,7 @@ final class WidgetsController extends AbstractWidgetsController
         return $stored;
     }
 
-    public function getWidgetById(int $widgetId): WidgetData
+    public function show(int $widgetId): WidgetData
     {
         $widget = self::$widgets[$widgetId] ?? null;
 

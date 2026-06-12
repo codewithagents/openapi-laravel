@@ -55,7 +55,7 @@ it('writes the synthesized body class (and its nested class) next to the model D
     expect(is_file($out.'/Pet/CreatePetRequestData.php'))->toBeTrue()
         ->and(is_file($out.'/Pet/CreatePetRequestHomeData.php'))->toBeTrue()
         ->and((string) file_get_contents($out.'/Http/AbstractPetController.php'))
-        ->toContain('abstract public function createPet(CreatePetRequestData $body): JsonResponse;');
+        ->toContain('abstract public function store(CreatePetRequestData $body): JsonResponse;');
 });
 
 it('reports in sync right after generating (generate and check share the planner)', function () use ($inlineBodySpec, $tempOut) {

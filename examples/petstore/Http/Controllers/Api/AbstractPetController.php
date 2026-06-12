@@ -52,7 +52,7 @@ abstract class AbstractPetController
      *
      * Find pet by ID.
      */
-    abstract public function getPetById(int $petId): PetData;
+    abstract public function show(int $petId): PetData;
 
     /**
      * POST /pet/{petId}
@@ -66,7 +66,7 @@ abstract class AbstractPetController
      *
      * Deletes a pet.
      */
-    abstract public function deletePet(int $petId): JsonResponse;
+    abstract public function destroy(int $petId): JsonResponse;
 
     /**
      * POST /pet/{petId}/uploadImage

@@ -13,9 +13,9 @@ use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
  * from the spec, path-level spec/code drift is structurally impossible.
  *
  * Every route carries a `->name()` that follows the controller method name
- * (issue #71): the operationId-derived identifier by default, or the
- * conventional index/show/store/update/destroy under the opt-in
- * --laravel-conventions (issue #94). Names are unique across the table, so
+ * (issue #71): the conventional index/show/store/update/destroy for a clean
+ * RESTful operation, otherwise the operationId-derived identifier (issue
+ * #94). Names are unique across the table, so
  * the route() helper, URL generation, and route-based authorization can
  * target generated routes. When the config sets
  * routes.middleware and/or routes.prefix, the routes are wrapped in one

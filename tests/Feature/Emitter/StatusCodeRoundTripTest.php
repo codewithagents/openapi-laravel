@@ -67,22 +67,22 @@ beforeEach(function () {
 
         final class PetController extends AbstractPetController
         {
-            public function listPets(ListPetsQueryData $query): DataCollection
+            public function index(ListPetsQueryData $query): DataCollection
             {
                 return PetData::collect([['id' => 1, 'name' => 'Rex']], DataCollection::class);
             }
 
-            public function createPet(PetWritableData $pet): PetData
+            public function store(PetWritableData $pet): PetData
             {
                 return PetData::from(['id' => 7, 'name' => $pet->name]);
             }
 
-            public function getPetById(int $petId): PetData
+            public function show(int $petId): PetData
             {
                 return PetData::from(['id' => $petId, 'name' => 'Rex']);
             }
 
-            public function deletePet(int $petId): void
+            public function destroy(int $petId): void
             {
                 // Nothing to return: the generated route enforces the 204.
             }
@@ -90,7 +90,7 @@ beforeEach(function () {
 
         final class UntaggedController extends AbstractUntaggedController
         {
-            public function getHealth(): JsonResponse
+            public function index(): JsonResponse
             {
                 return new JsonResponse(['ok' => true]);
             }

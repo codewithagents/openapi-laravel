@@ -19,19 +19,19 @@ final class StoreController extends AbstractStoreController
         private readonly InMemoryStore $store,
     ) {}
 
-    public function getInventory(): JsonResponse
+    public function index(): JsonResponse
     {
         // The spec types this response as a free-form object (status => count),
         // so the generator returns JsonResponse and we shape the payload here.
         return new JsonResponse($this->store->inventory());
     }
 
-    public function placeOrder(OrderData $order): OrderData
+    public function store(OrderData $order): OrderData
     {
         return $this->store->putOrder($order);
     }
 
-    public function getOrderById(int $orderId): OrderData
+    public function show(int $orderId): OrderData
     {
         $order = $this->store->findOrder($orderId);
 
@@ -42,7 +42,7 @@ final class StoreController extends AbstractStoreController
         return $order;
     }
 
-    public function deleteOrder(int $orderId): JsonResponse
+    public function destroy(int $orderId): JsonResponse
     {
         $deleted = $this->store->deleteOrder($orderId);
 

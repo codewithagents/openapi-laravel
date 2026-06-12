@@ -41,17 +41,17 @@ it('implements every abstract method with the exact abstract signature', functio
 
     // These mirror the abstract signatures one-to-one (minus `abstract` and
     // with a body): a mismatch would be a PHP fatal at class load.
-    expect($code)->toContain('public function listPets(ListPetsQueryData $query): DataCollection')
-        ->and($code)->toContain('public function createPet(PetWritableData $pet): PetData')
-        ->and($code)->toContain('public function getPetById(int $petId): PetData')
-        ->and($code)->toContain('public function deletePet(int $petId): void');
+    expect($code)->toContain('public function index(ListPetsQueryData $query): DataCollection')
+        ->and($code)->toContain('public function store(PetWritableData $pet): PetData')
+        ->and($code)->toContain('public function show(int $petId): PetData')
+        ->and($code)->toContain('public function destroy(int $petId): void');
 });
 
 it('throws a LogicException naming the operation in every stub body', function () {
     $code = generateStubs()['PetController']->code;
 
-    expect($code)->toContain("throw new LogicException('Not implemented: listPets.');")
-        ->and($code)->toContain("throw new LogicException('Not implemented: deletePet.');")
+    expect($code)->toContain("throw new LogicException('Not implemented: index.');")
+        ->and($code)->toContain("throw new LogicException('Not implemented: destroy.');")
         ->and($code)->toContain('use LogicException;');
 });
 

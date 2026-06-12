@@ -100,12 +100,12 @@ it('regenerates the writable routes file byte-identical to the committed example
     expect(file_get_contents($committed))->toBe($routeFile->code);
 });
 
-it('types the createWidget body param as the writable variant', function () {
+it('types the create body param as the writable variant', function () {
     $controllers = regenerateWritable()['controllers'];
     $code = $controllers['AbstractWidgetsController']->code;
 
     // The headline guarantee: the write body uses the writable variant, the
     // response uses the read variant.
-    expect($code)->toContain('abstract public function createWidget(WidgetWritableData $widget): WidgetData;')
-        ->and($code)->toContain('abstract public function getWidgetById(int $widgetId): WidgetData;');
+    expect($code)->toContain('abstract public function store(WidgetWritableData $widget): WidgetData;')
+        ->and($code)->toContain('abstract public function show(int $widgetId): WidgetData;');
 });

@@ -11,16 +11,16 @@ use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
 /**
- * The opt-in Laravel-convention method naming (issue #94) at the collector
- * level: the conventional names land in the descriptors (method name AND
- * route name), the per-controller ambiguity rule makes ALL claimants of one
- * conventional name fall back, and the default (option off) stays
- * byte-identical.
+ * The Laravel-convention method naming (issue #94, the only naming) at the
+ * collector level: the conventional names land in the descriptors (method
+ * name AND route name), the per-controller ambiguity rule makes ALL claimants
+ * of one conventional name fall back, and non-CRUD operations always fall
+ * back to the operationId-derived name.
  *
  * @param  array<string, mixed>  $paths
  * @return list<OperationDescriptor>
  */
-function collectWithConventions(array $paths, bool $laravelConventions = true): array
+function collectWithConventions(array $paths): array
 {
     $document = [
         'openapi' => '3.0.3',
@@ -40,9 +40,7 @@ function collectWithConventions(array $paths, bool $laravelConventions = true): 
     $generator = new ModelGenerator;
     $generator->generate($spec);
 
-    $options = new ServerOptions(laravelConventions: $laravelConventions);
-
-    return (new OperationCollector($options, $generator->registry(), null, $generator))->collect($spec);
+    return (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($spec);
 }
 
 /**
@@ -104,33 +102,15 @@ it('maps a clean CRUD slice to the conventional method names, with route names f
     }
 });
 
-it('keeps operationId-derived names by default (option off, byte-identical descriptors)', function () {
-    $paths = [
-        '/pets' => conventionOps([
-            'get' => ['operationId' => 'listPets'],
-            'post' => ['operationId' => 'createPet'],
-        ]),
-        '/pets/{petId}' => conventionOps([
-            'get' => ['operationId' => 'getPetById'],
-            'delete' => ['operationId' => 'deletePet'],
-        ]),
-    ];
-
-    $off = collectWithConventions($paths, laravelConventions: false);
-
-    expect(conventionDescriptor($off, 'get', '/pets')->methodName)->toBe('listPets')
-        ->and(conventionDescriptor($off, 'post', '/pets')->methodName)->toBe('createPet')
-        ->and(conventionDescriptor($off, 'get', '/pets/{petId}')->methodName)->toBe('getPetById')
-        ->and(conventionDescriptor($off, 'delete', '/pets/{petId}')->methodName)->toBe('deletePet');
-
-    // And the off run is identical to a default-constructed ServerOptions run.
+it('collects deterministically: two runs over one spec yield equal descriptors', function () {
     $document = (new SpecParser)->parseFile(__DIR__.'/../../../Fixtures/server/petstore.yaml');
     $generator = new ModelGenerator;
     $generator->generate($document);
-    $default = (new OperationCollector(new ServerOptions, $generator->registry()))->collect($document);
-    $explicitOff = (new OperationCollector(new ServerOptions(laravelConventions: false), $generator->registry()))->collect($document);
 
-    expect($explicitOff)->toEqual($default);
+    $first = (new OperationCollector(new ServerOptions, $generator->registry()))->collect($document);
+    $second = (new OperationCollector(new ServerOptions, $generator->registry()))->collect($document);
+
+    expect($second)->toEqual($first);
 });
 
 it('makes BOTH claimants fall back when two operations in one controller map to the same conventional name', function () {
@@ -231,7 +211,7 @@ it('derives the fallback name from method + path when the ambiguous operation ha
         ->and(conventionDescriptor($descriptors, 'get', '/strays')->methodName)->toBe('getStrays');
 });
 
-it('keeps the query Data class name operationId-derived in both modes', function () {
+it('keeps the query Data class name operationId-derived', function () {
     $paths = [
         '/pets' => conventionOps([
             'get' => [
@@ -243,14 +223,12 @@ it('keeps the query Data class name operationId-derived in both modes', function
         ]),
     ];
 
-    $on = conventionDescriptor(collectWithConventions($paths), 'get', '/pets');
-    $off = conventionDescriptor(collectWithConventions($paths, laravelConventions: false), 'get', '/pets');
+    $descriptor = conventionDescriptor(collectWithConventions($paths), 'get', '/pets');
 
-    // The method name changes, the Data layer does not: a conventional
+    // The method name is conventional, the Data layer is not: a conventional
     // `IndexQueryData` would clash across controllers in the shared Data
     // namespace, so the query class keeps the operationId-derived name.
-    expect($on->methodName)->toBe('index')
-        ->and($on->queryParam)->not->toBeNull()
-        ->and($on->queryParam['type'] ?? null)->toBe('ListPetsQueryData')
-        ->and($off->queryParam['type'] ?? null)->toBe('ListPetsQueryData');
+    expect($descriptor->methodName)->toBe('index')
+        ->and($descriptor->queryParam)->not->toBeNull()
+        ->and($descriptor->queryParam['type'] ?? null)->toBe('ListPetsQueryData');
 });

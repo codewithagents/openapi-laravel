@@ -16,12 +16,12 @@ abstract class AbstractWidgetsController
      *
      * Responds with HTTP 201 (set by the generated route).
      */
-    abstract public function createWidget(WidgetWritableData $widget): WidgetData;
+    abstract public function store(WidgetWritableData $widget): WidgetData;
 
     /**
      * GET /widgets/{widgetId}
      *
      * Get a widget by id.
      */
-    abstract public function getWidgetById(int $widgetId): WidgetData;
+    abstract public function show(int $widgetId): WidgetData;
 }

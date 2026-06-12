@@ -64,21 +64,11 @@ it('defaults routes.middleware and routes.prefix to null when absent (#71)', fun
         ->and($config->routesPrefix)->toBeNull();
 });
 
-it('reads controllers.laravel_conventions as a nullable boolean (#94)', function () use ($writeFile) {
-    $unset = (new StandaloneConfigLoader)->load($writeFile((string) json_encode(['controllers' => ['enabled' => true]])), '/tmp');
-    $on = (new StandaloneConfigLoader)->load($writeFile((string) json_encode(['controllers' => ['laravel_conventions' => true]])), '/tmp');
-    $off = (new StandaloneConfigLoader)->load($writeFile((string) json_encode(['controllers' => ['laravel_conventions' => false]])), '/tmp');
-
-    expect($unset->laravelConventions)->toBeNull()
-        ->and($on->laravelConventions)->toBeTrue()
-        ->and($off->laravelConventions)->toBeFalse();
-});
-
-it('rejects a non-boolean controllers.laravel_conventions (#94)', function () use ($writeFile) {
-    $path = $writeFile((string) json_encode(['controllers' => ['laravel_conventions' => 'yes']]));
+it('rejects the retired controllers.laravel_conventions key as unknown (#94, the conventional naming is the only naming)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['controllers' => ['laravel_conventions' => true]]));
 
     (new StandaloneConfigLoader)->load($path, '/tmp');
-})->throws(OptionException::class, "Invalid 'controllers.laravel_conventions'");
+})->throws(OptionException::class, "Unknown key 'controllers.laravel_conventions'");
 
 it('rejects the retired output.group_by_tag key as unknown (#93, the grouped layout is the only layout)', function () use ($writeFile) {
     $path = $writeFile((string) json_encode(['output' => ['group_by_tag' => true]]));

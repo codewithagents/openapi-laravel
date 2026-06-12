@@ -56,36 +56,30 @@ return [
      * Enabled by default; opt out here or pass --no-controllers to the command
      * (--controllers force-enables it again). Only the Abstract* files are ever
      * written, so your concrete controllers are never touched or pruned.
+     *
+     * Method names follow the Laravel conventions (issue #94): a clean
+     * RESTful operation gets the conventional controller method name (and the
+     * matching route name) instead of the operationId-derived one:
+     *
+     *   GET        collection path (/pets)         -> index
+     *   POST       collection path (/pets)         -> store
+     *   GET        item path (/pets/{petId})       -> show
+     *   PUT/PATCH  item path (/pets/{petId})       -> update
+     *   DELETE     item path (/pets/{petId})       -> destroy
+     *
+     * An item path is one whose last segment is a path parameter; every other
+     * path is a collection path. Anything ambiguous falls back to the
+     * operationId-derived name deterministically: when two operations in the
+     * SAME controller map to the same conventional name (say, two collection
+     * GETs under one tag), BOTH keep their operationId-derived name. Non-CRUD
+     * operations (POST on an item path, HEAD, OPTIONS, ...) always keep
+     * theirs, and the Data layer (including query classes) stays
+     * operationId-derived.
      */
     'controllers' => [
         'enabled' => true,
         'path' => app_path('Http/Controllers/Api'),
         'namespace' => 'App\\Http\\Controllers\\Api',
-
-        /*
-         * Laravel-convention method names (issue #94, opt-in). When true, a
-         * clean RESTful operation gets the conventional controller method
-         * name instead of the operationId-derived one, and the route name
-         * follows along:
-         *
-         *   GET        collection path (/pets)         -> index
-         *   POST       collection path (/pets)         -> store
-         *   GET        item path (/pets/{petId})       -> show
-         *   PUT/PATCH  item path (/pets/{petId})       -> update
-         *   DELETE     item path (/pets/{petId})       -> destroy
-         *
-         * An item path is one whose last segment is a path parameter; every
-         * other path is a collection path. Anything ambiguous falls back to
-         * the operationId-derived name deterministically: when two operations
-         * in the SAME controller map to the same conventional name (say, two
-         * collection GETs under one tag), BOTH keep their operationId-derived
-         * name. Non-CRUD operations (POST on an item path, HEAD, OPTIONS, ...)
-         * always keep theirs. Default false: the generated output is
-         * byte-identical to previous releases unless you opt in here or via
-         * --laravel-conventions (--no-laravel-conventions overrides a true
-         * here for one run).
-         */
-        'laravel_conventions' => false,
 
         /*
          * Base class every generated abstract controller extends (issue #83).

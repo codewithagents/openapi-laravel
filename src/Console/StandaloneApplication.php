@@ -275,13 +275,6 @@ final class StandaloneApplication
         // is a contradiction that fails loudly (exit 2).
         $enforceClosedObjects = $this->resolveToggle($options, 'enforce-closed-objects', $config->enforceClosedObjectsEnabled);
 
-        // Laravel-convention method names (issue #94): the same strict toggle
-        // precedence as the pairs above, but with a default-OFF built-in, so
-        // the conventional naming is strictly opt-in and the default output
-        // stays byte-identical. --laravel-conventions and
-        // --no-laravel-conventions together is the same loud contradiction.
-        $laravelConventions = $this->resolveToggle($options, 'laravel-conventions', $config->laravelConventions, false);
-
         $outputDir = rtrim($output, '/');
         $controllerOutput = $options['controller-output'] ?? $config->controllerPath ?? $outputDir.'/Controllers';
         $routesOutput = $options['routes-output'] ?? $config->routesPath ?? $outputDir.'/routes.php';
@@ -342,7 +335,6 @@ final class StandaloneApplication
             $routesPrefix,
             $excludePathPrefixes,
             $securityMiddlewareMap,
-            $laravelConventions,
             $stubs,
             $controllerBaseClass,
             $validationTrait,
@@ -420,15 +412,14 @@ final class StandaloneApplication
 
     /**
      * Resolves an enable/disable flag pair against the config file: flag beats
-     * config, config beats the built-in default ($default, enabled for every
-     * toggle except the opt-in --laravel-conventions). Both flags at once is
-     * a contradiction the operator must resolve, so it fails loudly.
+     * config, config beats the built-in default (enabled). Both flags at
+     * once is a contradiction the operator must resolve, so it fails loudly.
      *
      * @param  array<string, string>  $options
      *
      * @throws OptionException when both --{$name} and --no-{$name} are passed
      */
-    private function resolveToggle(array $options, string $name, ?bool $configured, bool $default = true): bool
+    private function resolveToggle(array $options, string $name, ?bool $configured): bool
     {
         $enable = isset($options[$name]);
         $disable = isset($options['no-'.$name]);
@@ -445,7 +436,7 @@ final class StandaloneApplication
             return false;
         }
 
-        return $configured ?? $default;
+        return $configured ?? true;
     }
 
     /**
@@ -519,7 +510,7 @@ final class StandaloneApplication
         openapi-laravel.json in the working directory (if present), or the
         path given via --config. Its keys mirror config/openapi-laravel.php:
         spec, output.{path,namespace,suffix,prune,validation_trait},
-        controllers.{enabled,path,namespace,base_class,laravel_conventions},
+        controllers.{enabled,path,namespace,base_class},
         routes.{enabled,path,middleware,prefix}, security.middleware_map,
         enforce_closed_objects, max_depth, max_bytes, only_tags, only_schemas (the
         only_* keys each a comma-separated string or a JSON list of names),
@@ -556,8 +547,6 @@ final class StandaloneApplication
           --controller-namespace=<ns>    Controller namespace (default: App\Http\Controllers\Api)
           --controller-base-class=<fqcn> Base class the abstract controllers extend (default: none)
           --routes-output=<file>         Where the routes file lives (default: <output>/routes.php)
-          --laravel-conventions          Name clean RESTful controller methods index/show/store/update/destroy (default: off)
-          --no-laravel-conventions       Keep operationId-derived method names even when the config enables the conventions
 
         Exit codes:
           0  success / in sync

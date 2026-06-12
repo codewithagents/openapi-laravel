@@ -34,7 +34,7 @@ it('creates one concrete stub per controller the routes file references', functi
         ->and(is_file($paths['controllers'].'/UntaggedController.php'))->toBeTrue()
         ->and(file_get_contents($stub))->toContain('namespace App\Http\Controllers\Api;')
         ->and(file_get_contents($stub))->toContain('final class PetController extends AbstractPetController')
-        ->and(file_get_contents($stub))->toContain("throw new LogicException('Not implemented: listPets.');");
+        ->and(file_get_contents($stub))->toContain("throw new LogicException('Not implemented: index.');");
 
     // Every concrete controller class the generated routes file imports now
     // exists as a file, which is the whole point of the command (issue #78).
@@ -159,10 +159,11 @@ it('boots: generate + scaffold yields a route table whose dispatch reaches the s
     $this->artisan('openapi:generate', ['--spec' => $petstoreSpec(), '--output' => $out])->assertSuccessful();
     $this->artisan('openapi:scaffold', ['--spec' => $petstoreSpec(), '--output' => $out])->assertSuccessful();
 
-    // Load everything the way an app's autoloader would: Data classes, the
-    // inlined support classes, then controllers (sorted, so each Abstract*
-    // parent is defined before the concrete stub that extends it).
-    foreach ([$out, $out.'/Support', $controllerOut] as $dir) {
+    // Load everything the way an app's autoloader would: Data classes (the
+    // grouped per-tag directory included), the inlined support classes, then
+    // controllers (sorted, so each Abstract* parent is defined before the
+    // concrete stub that extends it).
+    foreach ([$out, $out.'/Pet', $out.'/Support', $controllerOut] as $dir) {
         $files = glob($dir.'/*.php') ?: [];
         sort($files);
         foreach ($files as $file) {
@@ -182,21 +183,19 @@ it('boots: generate + scaffold yields a route table whose dispatch reaches the s
     // Dispatch a real request through the booted table: it reaches the stub
     // and surfaces the explicit placeholder, not a missing-class fatal.
     expect(fn () => $this->get('/pets/7'))
-        ->toThrow(LogicException::class, 'Not implemented: getPetById.');
+        ->toThrow(LogicException::class, 'Not implemented: show.');
 });
 
-it('follows --laravel-conventions so stub signatures match the abstracts (#94 lockstep)', function () use ($petstoreSpec, $tempOut, $configure) {
+it('stubs the conventional method names the abstracts declare (#94 lockstep)', function () use ($petstoreSpec, $tempOut, $configure) {
     $paths = $configure($tempOut());
 
     $this->artisan('openapi:generate', [
         '--spec' => $petstoreSpec(),
         '--output' => $paths['out'],
-        '--laravel-conventions' => true,
     ])->assertSuccessful();
     $this->artisan('openapi:scaffold', [
         '--spec' => $petstoreSpec(),
         '--output' => $paths['out'],
-        '--laravel-conventions' => true,
     ])->assertSuccessful();
 
     $stub = (string) file_get_contents($paths['controllers'].'/PetController.php');

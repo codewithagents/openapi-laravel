@@ -140,10 +140,12 @@ it('drops excluded operations from controllers and routes', function () {
         }
     }
 
+    // With the swagger mirror excluded, /pets is the only collection GET in
+    // its controller, so it takes the conventional `index` (issue #94).
     expect($routes)->toContain('/pets')
         ->and($routes)->toContain('/internal/metrics')
         ->and($routes)->not->toContain('/api/v1/swagger')
-        ->and($controllers)->toContain('listPets')
+        ->and($controllers)->toContain('function index(')
         ->and($controllers)->not->toContain('listSwaggerPets');
 });
 

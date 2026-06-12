@@ -53,7 +53,7 @@ final class PetController extends AbstractPetController
         return PetData::collect($this->store->petsByTags($query->tags), DataCollection::class);
     }
 
-    public function getPetById(int $petId): PetData
+    public function show(int $petId): PetData
     {
         $pet = $this->store->findPet($petId);
 
@@ -86,7 +86,7 @@ final class PetController extends AbstractPetController
         return $this->store->putPet($updated);
     }
 
-    public function deletePet(int $petId): JsonResponse
+    public function destroy(int $petId): JsonResponse
     {
         $deleted = $this->store->deletePet($petId);
 

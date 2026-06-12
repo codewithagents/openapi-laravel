@@ -367,7 +367,7 @@ it('wraps the routes per routes.middleware and routes.prefix from the config fil
     $routes = file_get_contents($out.'/routes.php');
     expect($exit)->toBe(0)
         ->and($routes)->toContain("Route::middleware(['api', 'throttle:60,1'])->prefix('api/v1')->group(function (): void {")
-        ->and($routes)->toContain("    Route::get('/pets', [PetController::class, 'listPets'])->name('listPets');");
+        ->and($routes)->toContain("    Route::get('/pets', [PetController::class, 'index'])->name('index_2');");
 });
 
 it('maps security schemes to route middleware per security.middleware_map from the config file (#77)', function () use ($tempOut, $writeConfig) {
@@ -383,10 +383,10 @@ it('maps security schemes to route middleware per security.middleware_map from t
 
     $routes = file_get_contents($out.'/routes.php');
     expect($exit)->toBe(0)
-        ->and($routes)->toContain("Route::get('/pets', [PetController::class, 'listPets'])->name('listPets')->middleware(['auth:sanctum']);")
-        ->and($routes)->toContain("Route::post('/pets', [PetController::class, 'createPet'])->name('createPet')->middleware(['auth.apikey', RespondsWithStatus::class.':201']);")
+        ->and($routes)->toContain("Route::get('/pets', [PetController::class, 'index'])->name('index_2')->middleware(['auth:sanctum']);")
+        ->and($routes)->toContain("Route::post('/pets', [PetController::class, 'store'])->name('store')->middleware(['auth.apikey', RespondsWithStatus::class.':201']);")
         // security: [] keeps the health probe public.
-        ->and($routes)->toContain("Route::get('/health', [MetaController::class, 'getHealth'])->name('getHealth');");
+        ->and($routes)->toContain("Route::get('/health', [MetaController::class, 'index'])->name('index');");
 });
 
 it('keeps the routes flat with names when neither routes.middleware nor routes.prefix is set (#71)', function () use ($tempOut, $writeConfig) {
@@ -401,7 +401,7 @@ it('keeps the routes flat with names when neither routes.middleware nor routes.p
 
     $routes = file_get_contents($out.'/routes.php');
     expect($exit)->toBe(0)
-        ->and($routes)->toContain("Route::get('/pets', [PetController::class, 'listPets'])->name('listPets');")
+        ->and($routes)->toContain("Route::get('/pets', [PetController::class, 'index'])->name('index_2');")
         ->and($routes)->not->toContain('->group(');
 });
 

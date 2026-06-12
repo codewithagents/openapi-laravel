@@ -56,7 +56,7 @@ it('writes the synthesized multipart body class with UploadedFile typing and fil
         ->and($code)->toContain('public readonly UploadedFile $image')
         ->and($code)->toContain("'image' => ['required', 'file', 'mimetypes:image/png']")
         ->and((string) file_get_contents($out.'/Http/AbstractPetController.php'))
-        ->toContain('abstract public function uploadPetImage(UploadPetImageRequestData $body): JsonResponse;');
+        ->toContain('abstract public function store(UploadPetImageRequestData $body): JsonResponse;');
 });
 
 it('reports in sync right after generating (generate and check share the planner)', function () use ($multipartSpec, $tempOut) {

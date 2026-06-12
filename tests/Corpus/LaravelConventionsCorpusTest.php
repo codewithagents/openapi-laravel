@@ -10,20 +10,21 @@ use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
 /**
- * The --laravel-conventions gate (issue #94) over a deliberate corpus subset:
- * real-world specs full of overlapping collection GETs, parameterized item
- * paths, and missing operationIds must still collect, name, and emit valid
- * PHP with the conventions on. A full second corpus pass would roughly double
- * the slowest gate for a naming-only option, so this targets a handful of
- * structurally diverse specs (REST-heavy, RPC-ish, large tag fan-out) instead.
+ * The Laravel-convention naming gate (issue #94, the only naming) over a
+ * deliberate corpus subset: real-world specs full of overlapping collection
+ * GETs, parameterized item paths, and missing operationIds must still
+ * collect, name, and emit valid PHP under the conventional naming. The full
+ * corpus gates exercise the same naming; this subset pins the route-name
+ * uniqueness invariant on structurally diverse specs (REST-heavy, RPC-ish,
+ * large tag fan-out).
  */
-it('generates valid controllers and routes with Laravel conventions enabled', function (string $spec) {
+it('generates valid controllers and routes under the Laravel-convention naming', function (string $spec) {
     $path = __DIR__.'/../Fixtures/specs/'.$spec;
     $document = (new SpecParser)->parseFile($path);
 
     $generator = new ModelGenerator;
     $generator->generate($document);
-    $options = new ServerOptions(laravelConventions: true);
+    $options = new ServerOptions;
 
     $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($document);
     $controllers = (new ControllerGenerator($options))->generate($descriptors);
@@ -36,7 +37,7 @@ it('generates valid controllers and routes with Laravel conventions enabled', fu
         try {
             token_get_all($file->code, TOKEN_PARSE);
         } catch (Throwable $e) {
-            $this->fail("Invalid PHP in {$file->filename()} (from {$spec}, --laravel-conventions): {$e->getMessage()}\n\n".$file->code);
+            $this->fail("Invalid PHP in {$file->filename()} (from {$spec}, conventional naming): {$e->getMessage()}\n\n".$file->code);
         }
     }
 

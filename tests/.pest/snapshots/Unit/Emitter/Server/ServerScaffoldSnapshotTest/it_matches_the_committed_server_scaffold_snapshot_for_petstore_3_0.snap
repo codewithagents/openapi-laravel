@@ -52,7 +52,7 @@ abstract class AbstractPetController
      *
      * Find pet by ID.
      */
-    abstract public function getPetById(int $petId): PetData;
+    abstract public function show(int $petId): PetData;
 
     /**
      * POST /pet/{petId}
@@ -66,7 +66,7 @@ abstract class AbstractPetController
      *
      * Deletes a pet.
      */
-    abstract public function deletePet(int $petId): JsonResponse;
+    abstract public function destroy(int $petId): JsonResponse;
 
     /**
      * POST /pet/{petId}/uploadImage
@@ -95,28 +95,28 @@ abstract class AbstractStoreController
      *
      * Returns pet inventories by status.
      */
-    abstract public function getInventory(): JsonResponse;
+    abstract public function index(): JsonResponse;
 
     /**
      * POST /store/order
      *
      * Place an order for a pet.
      */
-    abstract public function placeOrder(OrderData $order): OrderData;
+    abstract public function store(OrderData $order): OrderData;
 
     /**
      * GET /store/order/{orderId}
      *
      * Find purchase order by ID.
      */
-    abstract public function getOrderById(int $orderId): OrderData;
+    abstract public function show(int $orderId): OrderData;
 
     /**
      * DELETE /store/order/{orderId}
      *
      * Delete purchase order by identifier.
      */
-    abstract public function deleteOrder(int $orderId): JsonResponse;
+    abstract public function destroy(int $orderId): JsonResponse;
 }
 
 <?php
@@ -165,21 +165,21 @@ abstract class AbstractUserController
      *
      * Get user by user name.
      */
-    abstract public function getUserByName(string $username): UserData;
+    abstract public function show(string $username): UserData;
 
     /**
      * PUT /user/{username}
      *
      * Update user resource.
      */
-    abstract public function updateUser(UserData $user, string $username): JsonResponse;
+    abstract public function update(UserData $user, string $username): JsonResponse;
 
     /**
      * DELETE /user/{username}
      *
      * Delete user resource.
      */
-    abstract public function deleteUser(string $username): JsonResponse;
+    abstract public function destroy(string $username): JsonResponse;
 }
 
 <?php
@@ -398,18 +398,18 @@ Route::post('/pet', [PetController::class, 'addPet'])->name('addPet');
 Route::put('/pet', [PetController::class, 'updatePet'])->name('updatePet');
 Route::get('/pet/findByStatus', [PetController::class, 'findPetsByStatus'])->name('findPetsByStatus');
 Route::get('/pet/findByTags', [PetController::class, 'findPetsByTags'])->name('findPetsByTags');
-Route::get('/pet/{petId}', [PetController::class, 'getPetById'])->name('getPetById');
+Route::get('/pet/{petId}', [PetController::class, 'show'])->name('show');
 Route::post('/pet/{petId}', [PetController::class, 'updatePetWithForm'])->name('updatePetWithForm');
-Route::delete('/pet/{petId}', [PetController::class, 'deletePet'])->name('deletePet');
+Route::delete('/pet/{petId}', [PetController::class, 'destroy'])->name('destroy');
 Route::post('/pet/{petId}/uploadImage', [PetController::class, 'uploadFile'])->name('uploadFile');
-Route::get('/store/inventory', [StoreController::class, 'getInventory'])->name('getInventory');
-Route::post('/store/order', [StoreController::class, 'placeOrder'])->name('placeOrder');
-Route::get('/store/order/{orderId}', [StoreController::class, 'getOrderById'])->name('getOrderById');
-Route::delete('/store/order/{orderId}', [StoreController::class, 'deleteOrder'])->name('deleteOrder');
+Route::get('/store/inventory', [StoreController::class, 'index'])->name('index');
+Route::post('/store/order', [StoreController::class, 'store'])->name('store');
+Route::get('/store/order/{orderId}', [StoreController::class, 'show'])->name('show_2');
+Route::delete('/store/order/{orderId}', [StoreController::class, 'destroy'])->name('destroy_2');
 Route::post('/user', [UserController::class, 'createUser'])->name('createUser');
 Route::post('/user/createWithList', [UserController::class, 'createUsersWithListInput'])->name('createUsersWithListInput');
 Route::get('/user/login', [UserController::class, 'loginUser'])->name('loginUser');
 Route::get('/user/logout', [UserController::class, 'logoutUser'])->name('logoutUser');
-Route::get('/user/{username}', [UserController::class, 'getUserByName'])->name('getUserByName');
-Route::put('/user/{username}', [UserController::class, 'updateUser'])->name('updateUser');
-Route::delete('/user/{username}', [UserController::class, 'deleteUser'])->name('deleteUser');
+Route::get('/user/{username}', [UserController::class, 'show'])->name('show_3');
+Route::put('/user/{username}', [UserController::class, 'update'])->name('update');
+Route::delete('/user/{username}', [UserController::class, 'destroy'])->name('destroy_3');

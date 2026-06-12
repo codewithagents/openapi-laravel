@@ -126,9 +126,10 @@ it('generates abstract controllers and a routes file by default', function () us
     expect(is_file($controllerOut.'/AbstractPetController.php'))->toBeTrue()
         ->and(is_file($routesOut))->toBeTrue()
         ->and(file_get_contents($routesOut))->toContain("Route::get('/pets'")
-        // Every route carries a deterministic ->name() from its operationId (#71),
-        // and with no middleware/prefix configured the file stays flat (no group).
-        ->and(file_get_contents($routesOut))->toContain("->name('listPets');")
+        // Every route carries a deterministic ->name() following the chosen
+        // method name (#71, #94), and with no middleware/prefix configured
+        // the file stays flat (no group).
+        ->and(file_get_contents($routesOut))->toContain("->name('index_2');")
         ->and(file_get_contents($routesOut))->not->toContain('->group(');
 });
 
@@ -149,7 +150,7 @@ it('wraps the routes in a Route::group when routes.middleware and routes.prefix 
 
     $routes = file_get_contents($routesOut);
     expect($routes)->toContain("Route::middleware(['api', 'throttle:60,1'])->prefix('api/v1')->group(function (): void {")
-        ->and($routes)->toContain("    Route::get('/pets', [PetController::class, 'listPets'])->name('listPets');");
+        ->and($routes)->toContain("    Route::get('/pets', [PetController::class, 'index'])->name('index_2');");
 });
 
 it('maps security schemes to route middleware via security.middleware_map (#77)', function () use ($tempOut) {
@@ -172,12 +173,12 @@ it('maps security schemes to route middleware via security.middleware_map (#77)'
     ])->assertSuccessful();
 
     $routes = file_get_contents($routesOut);
-    // listPets inherits the global bearerAuth; createPet overrides with
-    // apiKey (plus the 201 status middleware in the same array); getHealth
-    // declares security: [] and stays public.
-    expect($routes)->toContain("Route::get('/pets', [PetController::class, 'listPets'])->name('listPets')->middleware(['auth:sanctum']);")
-        ->and($routes)->toContain("Route::post('/pets', [PetController::class, 'createPet'])->name('createPet')->middleware(['auth.apikey', RespondsWithStatus::class.':201']);")
-        ->and($routes)->toContain("Route::get('/health', [MetaController::class, 'getHealth'])->name('getHealth');");
+    // The pet index inherits the global bearerAuth; the store overrides
+    // with apiKey (plus the 201 status middleware in the same array); the
+    // health probe declares security: [] and stays public.
+    expect($routes)->toContain("Route::get('/pets', [PetController::class, 'index'])->name('index_2')->middleware(['auth:sanctum']);")
+        ->and($routes)->toContain("Route::post('/pets', [PetController::class, 'store'])->name('store')->middleware(['auth.apikey', RespondsWithStatus::class.':201']);")
+        ->and($routes)->toContain("Route::get('/health', [MetaController::class, 'index'])->name('index');");
 });
 
 it('skips controllers and routes with --no-controllers and --no-routes', function () use ($tempOut) {

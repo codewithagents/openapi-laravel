@@ -40,12 +40,12 @@ it('declares the controller namespace and an abstract class', function () {
 it('emits abstract methods with typed body, path params, and return types', function () {
     $code = generateControllers()['AbstractPetController']->code;
 
-    expect($code)->toContain('abstract public function createPet(PetWritableData $pet): PetData;')
-        ->and($code)->toContain('abstract public function getPetById(int $petId): PetData;')
-        ->and($code)->toContain('abstract public function listPets(): DataCollection;')
+    expect($code)->toContain('abstract public function store(PetWritableData $pet): PetData;')
+        ->and($code)->toContain('abstract public function show(int $petId): PetData;')
+        ->and($code)->toContain('abstract public function index(): DataCollection;')
         // The selected success response is a 204 (issue #64): the method is
         // void, the generated route middleware sets the status.
-        ->and($code)->toContain('abstract public function deletePet(int $petId): void;');
+        ->and($code)->toContain('abstract public function destroy(int $petId): void;');
 });
 
 it('documents a non-200 success status on the method (issue #64)', function () {
@@ -58,7 +58,7 @@ it('documents a non-200 success status on the method (issue #64)', function () {
 it('puts the body param before path params in the signature', function () {
     $code = generateControllers()['AbstractPetController']->code;
 
-    expect($code)->toContain('createPet(PetWritableData $pet)');
+    expect($code)->toContain('store(PetWritableData $pet)');
 });
 
 it('imports the Data classes it references, sorted', function () {
@@ -175,9 +175,10 @@ it('orders an injected query param after the body slot and before path params', 
     $descriptors = (new OperationCollector($options, $generator->registry(), null, $generator))->collect($doc);
     $code = (new ControllerGenerator($options))->generate($descriptors)['AbstractPetController']->code;
 
-    expect($code)->toContain('abstract public function listPets(ListPetsQueryData $query): DataCollection;')
-        ->and($code)->toContain('abstract public function getPetById(int $petId): PetData;')
-        // createPet carries a body, so its dryRun query class is fromQuery-only.
-        ->and($code)->toContain('abstract public function createPet(PetWritableData $pet): PetData;')
+    expect($code)->toContain('abstract public function index(ListPetsQueryData $query): DataCollection;')
+        ->and($code)->toContain('abstract public function show(int $petId): PetData;')
+        // The create operation carries a body, so its dryRun query class is
+        // fromQuery-only (the class name stays operationId-derived, #94).
+        ->and($code)->toContain('abstract public function store(PetWritableData $pet): PetData;')
         ->and($code)->toContain('* \App\Data\Pet\CreatePetQueryData::fromQuery($request).');
 });

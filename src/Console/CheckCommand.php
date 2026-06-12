@@ -36,8 +36,6 @@ final class CheckCommand extends Command
         {--no-controllers : Skip the abstract controllers}
         {--routes : Check the routes file even when disabled in config (default: on)}
         {--no-routes : Skip the routes file}
-        {--laravel-conventions : Check against Laravel-convention method names index/show/store/update/destroy (default: off)}
-        {--no-laravel-conventions : Check against operationId-derived method names even when the config enables the conventions}
         {--enforce-closed-objects : Reject unknown keys for schemas with additionalProperties: false (default: on)}
         {--no-enforce-closed-objects : Accept unknown keys even for additionalProperties: false schemas}
         {--only-tags= : Check only operations carrying these comma-separated tags, plus their schema closure}

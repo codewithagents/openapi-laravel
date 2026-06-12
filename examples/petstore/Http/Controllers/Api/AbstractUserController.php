@@ -44,19 +44,19 @@ abstract class AbstractUserController
      *
      * Get user by user name.
      */
-    abstract public function getUserByName(string $username): UserData;
+    abstract public function show(string $username): UserData;
 
     /**
      * PUT /user/{username}
      *
      * Update user resource.
      */
-    abstract public function updateUser(UserData $user, string $username): JsonResponse;
+    abstract public function update(UserData $user, string $username): JsonResponse;
 
     /**
      * DELETE /user/{username}
      *
      * Delete user resource.
      */
-    abstract public function deleteUser(string $username): JsonResponse;
+    abstract public function destroy(string $username): JsonResponse;
 }

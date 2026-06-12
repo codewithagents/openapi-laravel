@@ -249,7 +249,6 @@ final readonly class GenerationPlanner
             routeMiddleware: $request->routesMiddleware,
             routePrefix: $request->routesPrefix,
             securityMiddlewareMap: $request->securityMiddlewareMap,
-            laravelConventions: $request->laravelConventions,
             controllerBaseClass: $request->controllerBaseClass,
         );
 

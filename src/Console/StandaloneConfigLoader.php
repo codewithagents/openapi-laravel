@@ -44,7 +44,7 @@ final readonly class StandaloneConfigLoader
     private const SCHEMA = [
         'spec' => null,
         'output' => ['path', 'namespace', 'suffix', 'prune', 'validation_trait'],
-        'controllers' => ['enabled', 'path', 'namespace', 'base_class', 'laravel_conventions'],
+        'controllers' => ['enabled', 'path', 'namespace', 'base_class'],
         'routes' => ['enabled', 'path', 'middleware', 'prefix'],
         'security' => ['middleware_map'],
         'enforce_closed_objects' => null,
@@ -108,7 +108,6 @@ final readonly class StandaloneConfigLoader
             controllersEnabled: $this->bool($decoded['controllers'] ?? [], 'enabled', $path, 'controllers.'),
             controllerPath: $containment->contain($this->string($decoded['controllers'] ?? [], 'path', $path, 'controllers.'), 'controllers.path', $path),
             controllerNamespace: $this->string($decoded['controllers'] ?? [], 'namespace', $path, 'controllers.'),
-            laravelConventions: $this->bool($decoded['controllers'] ?? [], 'laravel_conventions', $path, 'controllers.'),
             controllerBaseClass: $this->nonEmptyString($decoded['controllers'] ?? [], 'base_class', $path, 'controllers.'),
             routesEnabled: $this->bool($decoded['routes'] ?? [], 'enabled', $path, 'routes.'),
             routesPath: $containment->contain($this->string($decoded['routes'] ?? [], 'path', $path, 'routes.'), 'routes.path', $path),

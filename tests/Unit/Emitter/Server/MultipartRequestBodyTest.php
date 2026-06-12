@@ -94,7 +94,7 @@ it('renders the typed multipart param into the abstract controller signature', f
     $code = $controllers['AbstractPetController']->code;
 
     expect($code)->toContain('use App\Data\Pet\UploadPetImageRequestData;')
-        ->and($code)->toContain('abstract public function uploadPetImage(UploadPetImageRequestData $body): JsonResponse;');
+        ->and($code)->toContain('abstract public function store(UploadPetImageRequestData $body): JsonResponse;');
 });
 
 it('derives a mimetypes rule from the contentMediaType of a binary part', function () {

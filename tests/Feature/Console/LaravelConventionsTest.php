@@ -1,13 +1,14 @@
 <?php
 
 declare(strict_types=1);
+use Symfony\Component\Console\Exception\InvalidOptionException;
 
 /*
- * The opt-in Laravel-convention method naming (issue #94) through the artisan
- * surface: the --laravel-conventions flag, the mirrored
- * controllers.laravel_conventions config key, the strict flag-over-config
- * precedence, the conflicting-flags error, the default-unchanged guarantee,
- * and generate/check lockstep through the shared planner.
+ * The Laravel-convention method naming (issue #94) is the generator's only
+ * naming: clean RESTful operations come out as index/show/store/update/destroy
+ * (method AND route name) from a plain `openapi:generate` with no flag and no
+ * config key. These tests pin the conventional naming as the default, the
+ * fallback rules, and generate/check lockstep through the shared planner.
  */
 
 $serverSpec = fn (): string => __DIR__.'/../../Fixtures/server/petstore.yaml';
@@ -22,14 +23,13 @@ $configurePaths = function (string $out): array {
     return [$controllerOut, $routesOut];
 };
 
-it('names clean CRUD methods conventionally with --laravel-conventions, route names following', function () use ($serverSpec, $tempOut, $configurePaths) {
+it('names clean CRUD methods conventionally by default, route names following', function () use ($serverSpec, $tempOut, $configurePaths) {
     $out = $tempOut();
     [$controllerOut, $routesOut] = $configurePaths($out);
 
     $this->artisan('openapi:generate', [
         '--spec' => $serverSpec(),
         '--output' => $out,
-        '--laravel-conventions' => true,
     ])->assertSuccessful();
 
     $controller = file_get_contents($controllerOut.'/AbstractPetController.php');
@@ -53,111 +53,65 @@ it('names clean CRUD methods conventionally with --laravel-conventions, route na
         ->and($routes)->not->toContain('listPets');
 });
 
-it('keeps the default output unchanged when the flag is absent', function () use ($serverSpec, $tempOut, $configurePaths) {
+it('makes ambiguous claimants fall back to the operationId-derived names', function () use ($tempOut, $configurePaths) {
+    // Two collection GETs in one controller both claim `index`, so BOTH keep
+    // their operationId-derived name; the query-parameters fixture has
+    // exactly that shape (/search and /widgets under the widget tag).
     $out = $tempOut();
-    [$controllerOut, $routesOut] = $configurePaths($out);
+    [$controllerOut] = $configurePaths($out);
 
     $this->artisan('openapi:generate', [
-        '--spec' => $serverSpec(),
+        '--spec' => __DIR__.'/../../Fixtures/server/query-parameters.yaml',
         '--output' => $out,
     ])->assertSuccessful();
 
-    $controller = file_get_contents($controllerOut.'/AbstractPetController.php');
-    $routes = file_get_contents($routesOut);
+    $controller = file_get_contents($controllerOut.'/AbstractWidgetController.php');
 
-    expect($controller)->toContain('abstract public function listPets(')
+    expect($controller)->toContain('abstract public function listWidgets(')
+        ->and($controller)->toContain('abstract public function searchWidgets(')
         ->and($controller)->not->toContain('function index(')
-        ->and($routes)->toContain("->name('listPets');")
-        ->and($routes)->not->toContain("'index'");
+        // The unambiguous item GET still takes the conventional name.
+        ->and($controller)->toContain('abstract public function show(');
 });
 
-it('produces byte-identical output for a default run and an explicit --no-laravel-conventions run', function () use ($serverSpec, $tempOut, $configurePaths) {
-    $defaultOut = $tempOut();
-    [$defaultControllers, $defaultRoutes] = $configurePaths($defaultOut);
-    $this->artisan('openapi:generate', ['--spec' => $serverSpec(), '--output' => $defaultOut])->assertSuccessful();
+it('produces byte-identical output across two runs (determinism)', function () use ($serverSpec, $tempOut, $configurePaths) {
+    $firstOut = $tempOut();
+    [$firstControllers, $firstRoutes] = $configurePaths($firstOut);
+    $this->artisan('openapi:generate', ['--spec' => $serverSpec(), '--output' => $firstOut])->assertSuccessful();
 
-    $offOut = $tempOut();
-    [$offControllers, $offRoutes] = $configurePaths($offOut);
-    $this->artisan('openapi:generate', [
-        '--spec' => $serverSpec(),
-        '--output' => $offOut,
-        '--no-laravel-conventions' => true,
-    ])->assertSuccessful();
+    $secondOut = $tempOut();
+    [$secondControllers, $secondRoutes] = $configurePaths($secondOut);
+    $this->artisan('openapi:generate', ['--spec' => $serverSpec(), '--output' => $secondOut])->assertSuccessful();
 
-    expect(file_get_contents($offControllers.'/AbstractPetController.php'))
-        ->toBe(file_get_contents($defaultControllers.'/AbstractPetController.php'))
-        ->and(file_get_contents($offRoutes))->toBe(file_get_contents($defaultRoutes));
+    expect(file_get_contents($secondControllers.'/AbstractPetController.php'))
+        ->toBe(file_get_contents($firstControllers.'/AbstractPetController.php'))
+        ->and(file_get_contents($secondRoutes))->toBe(file_get_contents($firstRoutes));
 });
 
-it('lets the controllers.laravel_conventions config key enable the conventions without a flag', function () use ($serverSpec, $tempOut, $configurePaths) {
-    $out = $tempOut();
-    [$controllerOut] = $configurePaths($out);
-    config()->set('openapi-laravel.controllers.laravel_conventions', true);
-
-    $this->artisan('openapi:generate', [
-        '--spec' => $serverSpec(),
-        '--output' => $out,
-    ])->assertSuccessful();
-
-    expect(file_get_contents($controllerOut.'/AbstractPetController.php'))
-        ->toContain('abstract public function index(');
-});
-
-it('lets --no-laravel-conventions override a config that enables the conventions', function () use ($serverSpec, $tempOut, $configurePaths) {
-    $out = $tempOut();
-    [$controllerOut] = $configurePaths($out);
-    config()->set('openapi-laravel.controllers.laravel_conventions', true);
-
-    $this->artisan('openapi:generate', [
-        '--spec' => $serverSpec(),
-        '--output' => $out,
-        '--no-laravel-conventions' => true,
-    ])->assertSuccessful();
-
-    expect(file_get_contents($controllerOut.'/AbstractPetController.php'))
-        ->toContain('abstract public function listPets(')
-        ->and(file_get_contents($controllerOut.'/AbstractPetController.php'))->not->toContain('function index(');
-});
-
-it('rejects --laravel-conventions combined with --no-laravel-conventions with exit 2 and writes nothing', function () use ($serverSpec, $tempOut) {
+it('rejects the removed --laravel-conventions flag instead of silently accepting it', function () use ($serverSpec, $tempOut) {
     $out = $tempOut();
 
-    $this->artisan('openapi:generate', [
+    expect(fn () => $this->artisan('openapi:generate', [
         '--spec' => $serverSpec(),
         '--output' => $out,
         '--laravel-conventions' => true,
-        '--no-laravel-conventions' => true,
-    ])->assertExitCode(2);
-
-    expect(is_dir($out))->toBeFalse();
+    ]))->toThrow(InvalidOptionException::class);
 });
 
-it('keeps generate and check in lockstep: check needs the same flag to be in sync', function () use ($serverSpec, $tempOut, $configurePaths) {
+it('keeps generate and check in lockstep over the conventional names', function () use ($serverSpec, $tempOut, $configurePaths) {
     $out = $tempOut();
-    $configurePaths($out);
+    [$controllerOut] = $configurePaths($out);
     config()->set('openapi-laravel.spec', $serverSpec());
     config()->set('openapi-laravel.output.path', $out);
 
-    $this->artisan('openapi:generate', ['--laravel-conventions' => true])->assertSuccessful();
+    $this->artisan('openapi:generate')->assertSuccessful();
 
-    // Same flag: byte-for-byte in sync.
-    $this->artisan('openapi:check', ['--laravel-conventions' => true])
+    $this->artisan('openapi:check')
         ->expectsOutputToContain('Generated code is in sync with the spec.')
         ->assertExitCode(0);
 
-    // Without the flag the planner computes operationId-derived names, so the
-    // conventional files on disk register as drift.
+    // A tampered controller registers as drift like any other owned file.
+    $controller = $controllerOut.'/AbstractPetController.php';
+    file_put_contents($controller, file_get_contents($controller).' ');
     $this->artisan('openapi:check')->assertExitCode(1);
-});
-
-it('rejects the conflicting flag pair on openapi:check with exit 2', function () use ($serverSpec, $tempOut, $configurePaths) {
-    $out = $tempOut();
-    $configurePaths($out);
-    config()->set('openapi-laravel.spec', $serverSpec());
-    config()->set('openapi-laravel.output.path', $out);
-
-    $this->artisan('openapi:check', [
-        '--laravel-conventions' => true,
-        '--no-laravel-conventions' => true,
-    ])->assertExitCode(2);
 });

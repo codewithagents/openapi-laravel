@@ -18,7 +18,6 @@ final readonly class ServerOptions
      * @param  list<string>  $routeMiddleware  middleware names the generated routes are grouped under (issue #71); empty means no group
      * @param  ?string  $routePrefix  URI prefix the generated routes are grouped under (issue #71); null or '' means no prefix
      * @param  array<string, list<string>>  $securityMiddlewareMap  security scheme name => middleware names (issue #77); empty means no mapping
-     * @param  bool  $laravelConventions  opt-in Laravel-convention method names (issue #94); false (the default) keeps operationId-derived names
      * @param  ?string  $controllerBaseClass  FQCN every generated abstract controller extends (issue #83); null (the default) keeps the abstracts base-class-free
      */
     public function __construct(
@@ -29,7 +28,6 @@ final readonly class ServerOptions
         public array $routeMiddleware = [],
         public ?string $routePrefix = null,
         public array $securityMiddlewareMap = [],
-        public bool $laravelConventions = false,
         public ?string $controllerBaseClass = null,
     ) {}
 }

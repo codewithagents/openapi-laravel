@@ -44,11 +44,14 @@ it('emits a generated-do-not-edit header and the Route facade import', function 
 it('emits one named Route line per operation pointing at the concrete controller', function () {
     $code = generateRoutes();
 
-    expect($code)->toContain("Route::get('/pets', [PetController::class, 'listPets'])->name('listPets');")
-        ->and($code)->toContain("Route::post('/pets', [PetController::class, 'createPet'])->name('createPet')->middleware(RespondsWithStatus::class.':201');")
-        ->and($code)->toContain("Route::get('/pets/{petId}', [PetController::class, 'getPetById'])->name('getPetById');")
-        ->and($code)->toContain("Route::delete('/pets/{petId}', [PetController::class, 'deletePet'])->name('deletePet')->middleware(RespondsWithStatus::class.':204');")
-        ->and($code)->toContain("Route::get('/health', [UntaggedController::class, 'getHealth'])->name('getHealth');");
+    // Method names follow the Laravel conventions (issue #94): the two
+    // controllers each own an index, and the global route-name allocator
+    // suffixes the later one (/health sorts before /pets).
+    expect($code)->toContain("Route::get('/pets', [PetController::class, 'index'])->name('index_2');")
+        ->and($code)->toContain("Route::post('/pets', [PetController::class, 'store'])->name('store')->middleware(RespondsWithStatus::class.':201');")
+        ->and($code)->toContain("Route::get('/pets/{petId}', [PetController::class, 'show'])->name('show');")
+        ->and($code)->toContain("Route::delete('/pets/{petId}', [PetController::class, 'destroy'])->name('destroy')->middleware(RespondsWithStatus::class.':204');")
+        ->and($code)->toContain("Route::get('/health', [UntaggedController::class, 'index'])->name('index');");
 });
 
 it('enforces a non-200 success status with the RespondsWithStatus middleware and imports it once (issue #64)', function () {
@@ -57,9 +60,9 @@ it('enforces a non-200 success status with the RespondsWithStatus middleware and
     expect($code)->toContain('use App\Data\Support\RespondsWithStatus;')
         ->and(substr_count($code, 'use App\Data\Support\RespondsWithStatus;'))->toBe(1)
         // 200 routes stay untouched: no middleware on the plain reads.
-        ->and($code)->not->toContain("'listPets')->middleware")
-        ->and($code)->not->toContain("'getPetById')->middleware")
-        ->and($code)->not->toContain("'getHealth')->middleware");
+        ->and($code)->not->toContain("'index')->middleware")
+        ->and($code)->not->toContain("'index_2')->middleware")
+        ->and($code)->not->toContain("'show')->middleware");
 });
 
 it('imports the concrete controllers (not the abstracts), sorted and unique', function () {
@@ -92,7 +95,7 @@ it('wraps the routes in a middleware group when routes.middleware is configured 
     $code = generateRoutes(new ServerOptions(routeMiddleware: ['api', 'throttle:60,1']));
 
     expect($code)->toContain("Route::middleware(['api', 'throttle:60,1'])->group(function (): void {")
-        ->and($code)->toContain("    Route::get('/pets', [PetController::class, 'listPets'])->name('listPets');")
+        ->and($code)->toContain("    Route::get('/pets', [PetController::class, 'index'])->name('index_2');")
         ->and($code)->toContain("});\n")
         ->and(fn () => token_get_all($code, TOKEN_PARSE))->not->toThrow(Throwable::class);
 });
@@ -101,7 +104,7 @@ it('wraps the routes in a prefix group when routes.prefix is configured (#71)', 
     $code = generateRoutes(new ServerOptions(routePrefix: 'api/v1'));
 
     expect($code)->toContain("Route::prefix('api/v1')->group(function (): void {")
-        ->and($code)->toContain("    Route::get('/health', [UntaggedController::class, 'getHealth'])->name('getHealth');");
+        ->and($code)->toContain("    Route::get('/health', [UntaggedController::class, 'index'])->name('index');");
 });
 
 it('chains middleware then prefix in one group when both are configured (#71)', function () {
@@ -157,8 +160,10 @@ it('suffixes route names to stay unique when method names collide across control
     $descriptors = (new OperationCollector($options, $generator->registry()))->collect($spec);
     $code = (new RouteGenerator($options))->generate($descriptors)->code;
 
-    // Both operations declare only a 204, so each line also carries the
+    // Both collection GETs get the conventional `index` in their own
+    // controller (issue #94); the global route-name allocator suffixes the
+    // second one. Both declare only a 204, so each line also carries the
     // status-enforcing middleware (issue #64).
-    expect($code)->toContain("Route::get('/a', [AlphaController::class, 'listThings'])->name('listThings')->middleware(RespondsWithStatus::class.':204');")
-        ->and($code)->toContain("Route::get('/b', [BetaController::class, 'listThings'])->name('listThings_2')->middleware(RespondsWithStatus::class.':204');");
+    expect($code)->toContain("Route::get('/a', [AlphaController::class, 'index'])->name('index')->middleware(RespondsWithStatus::class.':204');")
+        ->and($code)->toContain("Route::get('/b', [BetaController::class, 'index'])->name('index_2')->middleware(RespondsWithStatus::class.':204');");
 });

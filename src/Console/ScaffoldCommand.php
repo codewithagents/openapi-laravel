@@ -41,8 +41,6 @@ final class ScaffoldCommand extends Command
         {--no-routes : Plan with the routes file disabled}
         {--enforce-closed-objects : Reject unknown keys for schemas with additionalProperties: false (default: on)}
         {--no-enforce-closed-objects : Accept unknown keys even for additionalProperties: false schemas}
-        {--laravel-conventions : Stub against Laravel-convention method names index/show/store/update/destroy (default: off)}
-        {--no-laravel-conventions : Stub against operationId-derived method names even when the config enables the conventions}
         {--only-tags= : Scaffold only operations carrying these comma-separated tags, plus their schema closure}
         {--only-schemas= : Scaffold only these comma-separated component schemas, plus their dependency closure}
         {--exclude-path-prefix=* : Drop every operation whose path starts with this prefix (repeatable, never comma-split)}';

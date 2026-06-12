@@ -161,7 +161,7 @@ it('honors security.middleware_map in the planned routes file and surfaces the u
 
     // The mapped global scheme lands on the inheriting route; the unmapped
     // apiKey override warns through the plan's merged diagnostics channel.
-    expect($routes)->toContain("->name('listPets')->middleware(['auth:sanctum']);")
+    expect($routes)->toContain("->name('index_2')->middleware(['auth:sanctum']);")
         ->and(implode("\n", $plan->warnings))->toContain('Security scheme "apiKey" is required by the spec but has no entry in security.middleware_map');
 });
 

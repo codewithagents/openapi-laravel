@@ -64,16 +64,18 @@ it('falls back to an Untagged controller when an operation has no tag', function
         ->and($health->abstractClass)->toBe('AbstractUntaggedController');
 });
 
-it('uses the operationId for the method name when present', function () {
+it('gives a clean RESTful operation the conventional Laravel method name (issue #94)', function () {
     $get = descriptorFor(collectPetstore(), 'get', '/pets/{petId}');
 
-    expect($get->methodName)->toBe('getPetById');
+    expect($get->methodName)->toBe('show');
 });
 
-it('derives a deterministic method name when operationId is absent', function () {
+it('derives a deterministic conventional name when operationId is absent', function () {
+    // GET /health is a collection GET, so the untagged controller's method
+    // is the conventional `index` even without an operationId.
     $health = descriptorFor(collectPetstore(), 'get', '/health');
 
-    expect($health->methodName)->toBe('getHealth');
+    expect($health->methodName)->toBe('index');
 });
 
 it('types integer path params as int and others as string', function () {

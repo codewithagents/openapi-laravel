@@ -87,11 +87,11 @@ it('puts the mapped middleware on inherited-global and overriding operations, an
         'apiKey' => ['auth.apikey'],
     ]);
 
-    expect($code)->toContain("Route::get('/pets', [PetController::class, 'listPets'])->name('listPets')->middleware(['auth:sanctum']);")
+    expect($code)->toContain("Route::get('/pets', [PetController::class, 'index'])->name('index_2')->middleware(['auth:sanctum']);")
         // The 201 status middleware (issue #64) folds into the same array.
-        ->and($code)->toContain("Route::post('/pets', [PetController::class, 'createPet'])->name('createPet')->middleware(['auth.apikey', RespondsWithStatus::class.':201']);")
+        ->and($code)->toContain("Route::post('/pets', [PetController::class, 'store'])->name('store')->middleware(['auth.apikey', RespondsWithStatus::class.':201']);")
         // security: [] means public: no middleware at all.
-        ->and($code)->toContain("Route::get('/health', [MetaController::class, 'getHealth'])->name('getHealth');")
+        ->and($code)->toContain("Route::get('/health', [MetaController::class, 'index'])->name('index');")
         ->and($warnings)->toBe([])
         ->and(fn () => token_get_all($code, TOKEN_PARSE))->not->toThrow(Throwable::class);
 });
@@ -105,7 +105,7 @@ it('applies all mapped middleware of an AND requirement to one route, deduplicat
         'apiKey' => ['auth.apikey', 'throttle:60,1'],
     ]);
 
-    expect($code)->toContain("'listPets'])->name('listPets')->middleware(['auth:sanctum', 'throttle:60,1', 'auth.apikey']);");
+    expect($code)->toContain("'index'])->name('index_2')->middleware(['auth:sanctum', 'throttle:60,1', 'auth.apikey']);");
 });
 
 it('emits no middleware and no warning when nothing is mapped to a public spec, byte-identical to before', function () {
@@ -140,7 +140,7 @@ it('enforces the first OR alternative on the route and warns per operation about
         'apiKey' => ['auth.apikey'],
     ]);
 
-    expect($code)->toContain("'listPets'])->name('listPets')->middleware(['auth:sanctum']);")
+    expect($code)->toContain("'index'])->name('index_2')->middleware(['auth:sanctum']);")
         ->and($warnings)->toContain(
             'Operation GET /pets: security declares 2 alternative requirements (OR), which middleware cannot express; only the first alternative (bearerAuth) is enforced, ignored: (apiKey).',
         );
@@ -183,7 +183,7 @@ it('combines security middleware on the routes with a configured route group (#7
     $code = (new RouteGenerator($options))->generate($descriptors)->code;
 
     expect($code)->toContain("Route::middleware(['api'])->prefix('v1')->group(function (): void {")
-        ->and($code)->toContain("    Route::get('/pets', [PetController::class, 'listPets'])->name('listPets')->middleware(['auth:sanctum']);")
+        ->and($code)->toContain("    Route::get('/pets', [PetController::class, 'index'])->name('index_2')->middleware(['auth:sanctum']);")
         ->and(fn () => token_get_all($code, TOKEN_PARSE))->not->toThrow(Throwable::class);
 });
 
