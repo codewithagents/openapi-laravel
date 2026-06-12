@@ -744,6 +744,10 @@ final class ModelGenerator
         // rule when `additionalProperties: false` enforcement is opted in.
         $declaredWireNames = [];
 
+        // Wire name => nullable, for the properties THIS class declares (after
+        // the read/write split). Drives the dependentRequired rule choice (#81).
+        $declaredNullable = [];
+
         foreach ($properties as $rawName => $propertySchema) {
             // Numeric property names ("200") are coerced to int array keys by PHP.
             $wireName = (string) $rawName;
@@ -799,7 +803,12 @@ final class ModelGenerator
             }
             $usesRule = $usesRule || $uses;
             $declaredWireNames[] = $wireName;
+            $declaredNullable[$wireName] = $type->nullable;
         }
+
+        // dependentRequired (issue #81): a property listed as a dependent of a
+        // present trigger becomes conditionally required via required_with.
+        $this->applyDependentRequired($base, $schema, $required, $properties, $declaredNullable, $rules);
 
         // Closed-object enforcement (issue #30). When enforceClosedObjects is on
         // (the default) and the schema declares additionalProperties: false,
@@ -1015,6 +1024,10 @@ final class ModelGenerator
         $rules = [];
         $usesRule = false;
 
+        // Wire name => nullable, for the properties THIS variant declares
+        // (the discriminator stays on the base). Drives dependentRequired (#81).
+        $declaredNullable = [];
+
         foreach ($properties as $rawName => $propertySchema) {
             $wireName = (string) $rawName;
 
@@ -1061,7 +1074,13 @@ final class ModelGenerator
                 }
             }
             $usesRule = $usesRule || $uses;
+            $declaredNullable[$wireName] = $type->nullable;
         }
+
+        // dependentRequired (issue #81), merged across the variant's allOf
+        // members. A dependent that is the discriminator itself is skipped via
+        // the declared map (the base owns and already requires that property).
+        $this->applyDependentRequired($base, $schema, $required, $properties, $declaredNullable, $rules);
 
         $params = array_merge($paramsRequired, $paramsOptional);
 
@@ -1708,6 +1727,172 @@ final class ModelGenerator
         }
 
         return ["'sometimes'"];
+    }
+
+    /**
+     * Apply `dependentRequired` (issue #81) to the rules map: a property listed
+     * as a dependent of a trigger becomes conditionally required via Laravel's
+     * `required_with:<triggers>`, or `present_with:` when the dependent is
+     * nullable, mirroring the required/present split of presenceRules() so a
+     * spec-valid present null is not falsely rejected. A dependent required by
+     * several triggers merges them into ONE rule, which matches JSON Schema
+     * semantics: each trigger independently requires the dependent, and
+     * required_with fires when ANY listed field is present.
+     *
+     * The dependency rule replaces a leading `sometimes`: `sometimes` skips the
+     * whole rule list when the key is absent, which would silence the
+     * conditional requirement exactly when it must fire (required_with is an
+     * implicit rule that has to run against the absent key).
+     *
+     * @param  list<string>  $required  spec-required wire names (allOf-merged)
+     * @param  array<string, Schema|Reference>  $properties  the full merged property map
+     * @param  array<string, bool>  $declaredNullable  wire name => nullable, for the properties THIS class declares
+     * @param  array<string, list<string>>  $rules
+     */
+    private function applyDependentRequired(string $base, Schema $schema, array $required, array $properties, array $declaredNullable, array &$rules): void
+    {
+        $triggersByDependent = [];
+        foreach ($this->mergedDependentRequired($schema) as $trigger => $dependents) {
+            foreach ($dependents as $dependent) {
+                $triggersByDependent[$dependent][] = $trigger;
+            }
+        }
+
+        foreach ($triggersByDependent as $dependent => $triggers) {
+            // PHP coerces a numeric array key ("200") to int; rules are keyed
+            // by the wire (string) name.
+            $dependent = (string) $dependent;
+
+            // Already unconditionally required: required_with adds nothing.
+            if (in_array($dependent, $required, true)) {
+                continue;
+            }
+
+            // Declared by the schema but not by THIS class (dropped by the
+            // read/write split, or the discriminator owned by the morph base):
+            // conditionally requiring a field the class cannot carry would
+            // reject every trigger-bearing payload.
+            if (array_key_exists($dependent, $properties) && ! array_key_exists($dependent, $declaredNullable)) {
+                continue;
+            }
+
+            $usable = [];
+            foreach ($this->dedupe($triggers) as $trigger) {
+                // A self-dependency is a tautology in JSON Schema (a present
+                // field is present); required_with on the field itself would
+                // instead reject present-but-empty values, so it is dropped.
+                if ($trigger === $dependent) {
+                    continue;
+                }
+
+                // Laravel rule-string parameters are comma-separated, so a
+                // trigger name containing a comma cannot be expressed; skip it
+                // loudly instead of emitting a rule that watches wrong fields.
+                if (str_contains($trigger, ',')) {
+                    $this->warnings[sprintf(
+                        'Schema "%s": dependentRequired trigger "%s" contains a comma, which cannot be expressed in a Laravel required_with parameter list; the dependency of "%s" on it is not enforced.',
+                        $base,
+                        $trigger,
+                        $dependent,
+                    )] = true;
+
+                    continue;
+                }
+
+                $usable[] = $trigger;
+            }
+
+            if ($usable === []) {
+                continue;
+            }
+
+            $name = ($declaredNullable[$dependent] ?? false) ? 'present_with:' : 'required_with:';
+            $expression = "'".$this->escapeSingleQuoted($name.implode(',', $usable))."'";
+
+            $existing = $rules[$dependent] ?? [];
+            if (($existing[0] ?? null) === "'sometimes'") {
+                $existing[0] = $expression;
+            } else {
+                array_unshift($existing, $expression);
+            }
+            $rules[$dependent] = $existing;
+        }
+    }
+
+    /**
+     * The `dependentRequired` map of a schema with any `allOf` members merged
+     * in. allOf composition ANDs every member, so the merge is a union: the
+     * same trigger from several sources unions its dependent lists. Keys are
+     * trigger property names, values the properties the trigger requires, in
+     * spec order (own entries first, then members in source order).
+     *
+     * @param  array<string, true>  $seen  component names already visited (keyed for O(1) cycle checks)
+     * @return array<string, list<string>>
+     */
+    private function mergedDependentRequired(Schema $schema, array $seen = []): array
+    {
+        $map = $this->localDependentRequired($schema);
+
+        $members = $schema->allOf;
+        if (! is_array($members)) {
+            return $map;
+        }
+
+        foreach ($members as $member) {
+            $resolved = $this->resolveMemberSchema($member, $seen);
+            if ($resolved === null) {
+                continue;
+            }
+
+            [$memberSchema, $memberSeen] = $resolved;
+            foreach ($this->mergedDependentRequired($memberSchema, $memberSeen) as $trigger => $dependents) {
+                $map[$trigger] = $this->dedupe(array_merge($map[$trigger] ?? [], $dependents));
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * The schema's own `dependentRequired` map. cebe has no typed attribute for
+     * `dependentRequired` (a JSON Schema keyword OpenAPI 3.1 admits), so it is
+     * read from the serialized data, where cebe keeps unknown keys verbatim.
+     * The spec is untrusted input: only the well-formed shape (a non-empty
+     * trigger name mapping to an array of non-empty string names) is accepted,
+     * anything else is ignored.
+     *
+     * @return array<string, list<string>>
+     */
+    private function localDependentRequired(Schema $schema): array
+    {
+        $serialized = (array) $schema->getSerializableData();
+        $raw = $serialized['dependentRequired'] ?? null;
+        if (is_object($raw)) {
+            $raw = (array) $raw;
+        }
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        $map = [];
+        foreach ($raw as $trigger => $dependents) {
+            $trigger = (string) $trigger;
+            if ($trigger === '' || ! is_array($dependents)) {
+                continue;
+            }
+
+            $names = [];
+            foreach ($dependents as $dependent) {
+                if (is_string($dependent) && $dependent !== '') {
+                    $names[] = $dependent;
+                }
+            }
+            if ($names !== []) {
+                $map[$trigger] = $this->dedupe($names);
+            }
+        }
+
+        return $map;
     }
 
     /**

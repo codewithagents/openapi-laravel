@@ -481,6 +481,25 @@ components:
         note:
           type: string
 
+    # dependentRequired (issue #81): each trigger -> dependents entry becomes a
+    # required_with:<triggers> rule on the DEPENDENT (present_with for a
+    # nullable dependent), with several triggers of one dependent merged.
+    DependentRequiredObject:
+      type: object
+      description: dependentRequired mapped to required_with / present_with (issue #81)
+      properties:
+        creditCard:
+          type: string
+        paypal:
+          type: string
+        billingAddress:
+          type: string
+        cvv:
+          type: [string, 'null']  # nullable dependent -> present_with
+      dependentRequired:          # dependentRequired (issue #81)
+        creditCard: [billingAddress, cvv]
+        paypal: [billingAddress]
+
     # additionalProperties: false (closed object).
     AdditionalPropsFalse:
       type: object

@@ -341,6 +341,18 @@ it('emits required vs optional properties for an object with required (ObjectWit
         ->and($code)->toContain("'note' => ['sometimes', 'string'],");
 });
 
+it('emits required_with and present_with rules from dependentRequired (#81, DependentRequiredObject)', function () {
+    $code = conformanceCode('DependentRequiredObjectData');
+
+    // Both triggers of billingAddress merge into one any-of rule; the nullable
+    // dependent gets present_with so a spec-valid present null is accepted.
+    expect($code)->toContain("'billingAddress' => ['required_with:creditCard,paypal', 'string'],")
+        ->and($code)->toContain("'cvv' => ['present_with:creditCard', 'nullable', 'string'],")
+        // The triggers themselves stay plain optional properties.
+        ->and($code)->toContain("'creditCard' => ['sometimes', 'string'],")
+        ->and($code)->toContain("'paypal' => ['sometimes', 'string'],");
+});
+
 it('documents the uncaptured overflow for a mixed object with additionalProperties (MixedObject)', function () {
     $code = conformanceCode('MixedObjectData');
 

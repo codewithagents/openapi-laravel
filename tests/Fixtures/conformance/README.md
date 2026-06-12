@@ -74,6 +74,7 @@ Both files parse cleanly through `SpecParser` (and pass cebe's optional
 | Schema | Constructs | Issues |
 |--------|-----------|--------|
 | `ObjectWithRequired` | properties, required, minProperties, maxProperties | |
+| `DependentRequiredObject` | dependentRequired (required_with on the dependent, present_with when nullable, merged triggers) | #81 |
 | `AdditionalPropsFalse` | additionalProperties false | |
 | `AdditionalPropsTrue` | additionalProperties true | |
 | `AdditionalPropsScalar` | additionalProperties scalar-value schema (map of string) | |

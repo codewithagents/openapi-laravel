@@ -165,7 +165,8 @@ What the generator handles today:
   `max`/`min`/`pattern`/`format` (email, uuid, url, ip, hostname, time, duration), numeric
   `min`/`max`, **exclusive bounds** (`gt`/`lt` for `exclusiveMinimum`/`exclusiveMaximum`, both the
   3.0 boolean and 3.1 numeric forms), **`multipleOf`**, array `min`/`max` items and
-  **`uniqueItems`** (`distinct`), and `Rule::enum` / `Rule::in`
+  **`uniqueItems`** (`distinct`), **`dependentRequired`** (`required_with` on the dependent,
+  `present_with` when nullable), and `Rule::enum` / `Rule::in`
 - **Dates** → strict RFC3339 for `format: date-time` (accepts Z/offset/fractional, rejects a bare
   date) and `date_format:Y-m-d` for `format: date`, the two kept distinct
 - **Defaults** → a scalar `default` seeds the constructor parameter and makes the property optional

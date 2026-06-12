@@ -713,6 +713,101 @@ final class ConstraintCatalog
                     ['label' => 'key matching neither names nor patterns must be rejected', 'payload' => ['known' => 'x', 'extra' => 'y'], 'violates' => 'additionalProperties:false'],
                 ],
             ),
+            // dependentRequired (#81): when the trigger is present, the listed
+            // dependent must be present too; without the trigger the dependent
+            // stays optional. Emitted as required_with on the DEPENDENT.
+            new ConstraintCase(
+                'ObjDependentRequired', 'object',
+                [
+                    'type' => 'object',
+                    'properties' => [
+                        'creditCard' => ['type' => 'string'],
+                        'billingAddress' => ['type' => 'string'],
+                    ],
+                    'dependentRequired' => ['creditCard' => ['billingAddress']],
+                ],
+                [
+                    ['label' => 'trigger absent, dependent absent', 'payload' => []],
+                    ['label' => 'trigger absent, dependent alone is allowed', 'payload' => ['billingAddress' => 'Main St 1']],
+                    ['label' => 'trigger present with its dependent', 'payload' => ['creditCard' => '4111', 'billingAddress' => 'Main St 1']],
+                ],
+                [
+                    ['label' => 'trigger present, dependent missing', 'payload' => ['creditCard' => '4111'], 'violates' => 'dependentRequired'],
+                ],
+            ),
+            // One dependent required by SEVERAL triggers: each entry is an
+            // independent implication, so ANY present trigger requires the
+            // dependent (merged into one required_with:a,b rule).
+            new ConstraintCase(
+                'ObjDependentRequiredMultiTrigger', 'object',
+                [
+                    'type' => 'object',
+                    'properties' => [
+                        'creditCard' => ['type' => 'string'],
+                        'paypal' => ['type' => 'string'],
+                        'billingAddress' => ['type' => 'string'],
+                    ],
+                    'dependentRequired' => [
+                        'creditCard' => ['billingAddress'],
+                        'paypal' => ['billingAddress'],
+                    ],
+                ],
+                [
+                    ['label' => 'no trigger present', 'payload' => []],
+                    ['label' => 'first trigger with the dependent', 'payload' => ['creditCard' => '4111', 'billingAddress' => 'Main St 1']],
+                    ['label' => 'second trigger with the dependent', 'payload' => ['paypal' => 'a@b.com', 'billingAddress' => 'Main St 1']],
+                ],
+                [
+                    ['label' => 'first trigger present, dependent missing', 'payload' => ['creditCard' => '4111'], 'violates' => 'dependentRequired'],
+                    ['label' => 'second trigger present, dependent missing', 'payload' => ['paypal' => 'a@b.com'], 'violates' => 'dependentRequired'],
+                    ['label' => 'both triggers present, dependent missing', 'payload' => ['creditCard' => '4111', 'paypal' => 'a@b.com'], 'violates' => 'dependentRequired'],
+                ],
+            ),
+            // One trigger requiring SEVERAL dependents: every listed dependent
+            // must be present once the trigger is.
+            new ConstraintCase(
+                'ObjDependentRequiredMultiDependent', 'object',
+                [
+                    'type' => 'object',
+                    'properties' => [
+                        'creditCard' => ['type' => 'string'],
+                        'billingAddress' => ['type' => 'string'],
+                        'cvv' => ['type' => 'string'],
+                    ],
+                    'dependentRequired' => ['creditCard' => ['billingAddress', 'cvv']],
+                ],
+                [
+                    ['label' => 'trigger absent', 'payload' => []],
+                    ['label' => 'trigger with both dependents', 'payload' => ['creditCard' => '4111', 'billingAddress' => 'Main St 1', 'cvv' => '123']],
+                ],
+                [
+                    ['label' => 'trigger present, first dependent missing', 'payload' => ['creditCard' => '4111', 'cvv' => '123'], 'violates' => 'dependentRequired'],
+                    ['label' => 'trigger present, second dependent missing', 'payload' => ['creditCard' => '4111', 'billingAddress' => 'Main St 1'], 'violates' => 'dependentRequired'],
+                ],
+            ),
+            // A NULLABLE dependent satisfies dependentRequired by mere presence
+            // (JSON Schema checks presence, not non-emptiness), so a present
+            // null must be accepted: the generator emits present_with, not
+            // required_with, mirroring the required/present presence split.
+            new ConstraintCase(
+                'ObjDependentRequiredNullable', 'object',
+                [
+                    'type' => 'object',
+                    'properties' => [
+                        'creditCard' => ['type' => 'string'],
+                        'billingAddress' => ['type' => 'string', 'nullable' => true],
+                    ],
+                    'dependentRequired' => ['creditCard' => ['billingAddress']],
+                ],
+                [
+                    ['label' => 'trigger absent', 'payload' => []],
+                    ['label' => 'trigger present, nullable dependent present as null', 'payload' => ['creditCard' => '4111', 'billingAddress' => null]],
+                    ['label' => 'trigger present, dependent present with a value', 'payload' => ['creditCard' => '4111', 'billingAddress' => 'Main St 1']],
+                ],
+                [
+                    ['label' => 'trigger present, nullable dependent missing', 'payload' => ['creditCard' => '4111'], 'violates' => 'dependentRequired'],
+                ],
+            ),
         ];
     }
 

@@ -66,6 +66,10 @@ The JSON Schema multi-type form `type: ["string", "integer"]` (two or more real 
 
 `const` (the JSON Schema single-value form) is a 3.1 construct. It is treated as a one-value enum: the property keeps its concrete type and gains a single-value `Rule::in([...])` constraint. See [const is a single-value enum](/guides/limitations#const-is-a-single-value-enum).
 
+### `dependentRequired` (3.1 only)
+
+`dependentRequired` (the JSON Schema conditional-presence form) is a 3.1 construct. Each entry `trigger: [dependent, ...]` is translated into a `required_with:trigger` rule on the **dependent** property, so the dependent is required exactly when the trigger key is present. A dependent listed under several triggers merges them into one `required_with:a,b` rule (any present trigger requires it, matching JSON Schema's per-entry implication), and a nullable dependent gets `present_with:` instead so a present `null` is not falsely rejected. The richer `dependentSchemas` applicator remains out of scope (see below).
+
 ### String-typed scalar keywords (both versions, lenient)
 
 Some generators (across both versions) emit numeric keywords or the `nullable` flag as JSON strings, for example `"minimum": "8"` or `"nullable": "true"`. The normalizer coerces the unambiguous cases (a strictly-numeric string, the literals `"true"` / `"false"`) to their proper types so the constraint is not silently dropped. Anything ambiguous is left untouched. This is a robustness affordance, not a spec requirement.
@@ -76,7 +80,7 @@ Some generators (across both versions) emit numeric keywords or the `nullable` f
 
 - **`webhooks`** (the 3.1 top-level `webhooks` object). The generator does not emit controllers, routes, or Data classes from `webhooks`. Only `paths` drives the server scaffold. A spec with `webhooks` still generates cleanly from its `components` and `paths`; the `webhooks` entries are simply not a generation source.
 - **Tuple `prefixItems`**. A positional tuple degrades to `array<int, mixed>` rather than a per-position typed structure. See the [roadmap](/roadmap) and [limitations](/guides/limitations).
-- **Advanced JSON Schema applicators** beyond `allOf` / `oneOf` / `anyOf`: `if` / `then` / `else`, `not`, `dependentSchemas`, `patternProperties`, and `unevaluatedProperties` are not translated into rules. A schema using them still generates a class from its plain `properties`; the conditional or pattern constraints are not enforced. One carve-out: under `additionalProperties: false`, `patternProperties` patterns do widen the closed-object rule's key allow-list so spec-legal keys are not falsely rejected (key admission only, the value schemas stay unenforced). See [patternProperties under a closed object](/guides/limitations#patternproperties-under-a-closed-object).
+- **Advanced JSON Schema applicators** beyond `allOf` / `oneOf` / `anyOf`: `if` / `then` / `else`, `not`, `dependentSchemas`, `patternProperties`, and `unevaluatedProperties` are not translated into rules (`dependentRequired`, the simpler presence-only sibling of `dependentSchemas`, IS translated, see above). A schema using them still generates a class from its plain `properties`; the conditional or pattern constraints are not enforced. One carve-out: under `additionalProperties: false`, `patternProperties` patterns do widen the closed-object rule's key allow-list so spec-legal keys are not falsely rejected (key admission only, the value schemas stay unenforced). See [patternProperties under a closed object](/guides/limitations#patternproperties-under-a-closed-object).
 - **`additionalProperties: false`** is enforced by default: undeclared keys are rejected because the spec is the source of truth. The `--no-enforce-closed-objects` flag opts out for lenient, forward-compatible output during contract evolution. See [additionalProperties: false](/guides/limitations#additionalproperties-false-enforced-by-default).
 
 These are completeness gaps, not crashes. Even a schema that leans on an unsupported feature produces code that parses and compiles; the unsupported part is simply not represented in the generated rules.
@@ -89,5 +93,5 @@ The parser is invoked with full OpenAPI validation **off** by default. It applie
 
 - **OpenAPI 3.0.x and 3.1.0 are supported.** Both are pinned by a conformance fixture and exercised by the 130-spec corpus.
 - **Swagger 2.0 and any non-3.x document are rejected** with a clear, named error.
-- **The 3.0 and 3.1 spellings** of nullability and exclusive bounds are normalized to one code path; boolean `items`, multi-type arrays, and `const` are 3.1-only constructs that are handled.
+- **The 3.0 and 3.1 spellings** of nullability and exclusive bounds are normalized to one code path; boolean `items`, multi-type arrays, `const`, and `dependentRequired` are 3.1-only constructs that are handled.
 - **`webhooks`, tuple `prefixItems`, and advanced JSON Schema applicators** are the declared 3.1 boundaries: not generated from or not enforced, by design. **`additionalProperties: false`** is enforced by default, with `--no-enforce-closed-objects` as the lenient opt-out. All documented here and in [Limitations](/guides/limitations).
