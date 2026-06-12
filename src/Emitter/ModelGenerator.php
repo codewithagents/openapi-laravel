@@ -780,6 +780,29 @@ final class ModelGenerator
         $params = array_merge($paramsRequired, $paramsOptional);
         $imports = $this->collectImports($params, $usesRule, $rules);
 
+        // An empty class body (no properties, no rules) compiles fine but
+        // silently drops every payload field (issue #95). The rendered body
+        // carries a marker comment (see EMPTY_BODY_MARKER); this surfaces the
+        // same finding through the diagnostics channel, once per empty class,
+        // naming the schema. Free-form maps and aliases never reach here (they
+        // are inlined at use sites, not emitted as classes), and a closed empty
+        // object carries the closed-object rule, so only a truly property-less
+        // object schema (or a read/write variant whose every property was
+        // dropped by the split) is flagged.
+        if ($params === [] && $rules === []) {
+            $detail = match ($variant) {
+                'read' => 'no readable (non-writeOnly) properties',
+                'write' => 'no writable (non-readOnly) properties',
+                default => 'no properties',
+            };
+            $this->warnings[sprintf(
+                'Schema "%s" has %s: the generated class "%s" has an empty body, so every payload field for this shape is dropped on hydration.',
+                $base,
+                $detail,
+                $className,
+            )] = true;
+        }
+
         // Class-level docblock lines, in a stable order: a `@deprecated` tag for
         // a deprecated component first, then the additionalProperties overflow
         // note. A mixed object (named properties AND additionalProperties) emits
@@ -1120,6 +1143,15 @@ final class ModelGenerator
      * practice, and even if one did, the implicit rule keyed here is harmless).
      */
     private const CLOSED_OBJECT_SENTINEL = '__openapi_laravel_no_unknown_properties';
+
+    /**
+     * The comment rendered inside an empty Data class body (issue #95). An empty
+     * class compiles fine but silently drops every payload field, so the gap is
+     * made visible in the generated code itself (a build warning naming the
+     * schema accompanies it). The comment also keeps the body non-empty, which
+     * keeps Pint's `single_line_empty_body` fixer away from it.
+     */
+    private const EMPTY_BODY_MARKER = '// The spec defines no properties for this schema.';
 
     /**
      * The import FQCN for a runtime support class, resolved against the
@@ -2099,11 +2131,13 @@ final class ModelGenerator
             // (additionalProperties: false, empty properties): it carries the
             // closed-object rule but no params, so emit just the rules() method.
             if ($rules === []) {
-                // A genuinely empty body renders as `{}` on the SAME line as the
-                // class declaration, matching the Laravel Pint `braces_position`
-                // and `single_line_empty_body` fixers so the output stays
-                // formatter-idempotent.
-                return $header." {}\n";
+                // An empty body carries a marker comment (issue #95) so the gap
+                // is visible in the generated code: without it the class would
+                // compile fine while silently dropping every payload field. The
+                // comment makes the body non-empty, so Pint's
+                // `single_line_empty_body` fixer leaves it alone and the output
+                // stays formatter-idempotent.
+                return $header."\n{\n    ".self::EMPTY_BODY_MARKER."\n}\n";
             }
 
             // renderRules() prefixes a blank line so it separates cleanly from a

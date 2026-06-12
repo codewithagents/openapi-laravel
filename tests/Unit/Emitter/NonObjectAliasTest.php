@@ -207,10 +207,12 @@ it('still emits an empty Data class for a genuinely empty object component', fun
     expect(array_keys($files))->toContain('BlankData')
         ->and(array_keys($files))->toContain('BlankExplicitData');
 
-    // The empty object class really is empty (extends Data {}), and the property
-    // resolves to that Data class, not to mixed/array.
+    // The empty object class has no members, only the empty-body marker comment
+    // (issue #95), and the property resolves to that Data class, not to
+    // mixed/array.
     expect($files['BlankData']->code)->toContain('final class BlankData extends Data')
-        ->and($files['BlankData']->code)->toMatch('/extends Data\s*\{\s*\}\s*$/');
+        ->and($files['BlankData']->code)->toContain('// The spec defines no properties for this schema.')
+        ->and($files['BlankData']->code)->not->toContain('__construct');
 
     $holder = $files['HolderData']->code;
     expect($holder)->toContain('public readonly ?BlankData $a = null')

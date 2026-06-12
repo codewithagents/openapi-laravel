@@ -142,6 +142,15 @@ A `type: object` component with no properties (or `properties: {}`) is a genuine
 an alias, and **still** emits an (empty) Data class. The distinction is deliberate: only non-object
 (scalar/array/composition) components are aliased.
 
+An empty Data class compiles fine but **silently drops every payload field** on hydration, which is
+invisible until data goes missing at runtime. The generator therefore makes the gap explicit: the
+empty class body carries a marker comment (`// The spec defines no properties for this schema.`) and
+generation emits one build warning per empty class, naming the schema. The same applies to a
+read/write variant whose every property was dropped by the split (for example a write variant of a
+schema whose properties are all `readOnly`). A **closed** empty object (`additionalProperties: false`
+under the default enforcement) is not flagged: it carries the closed-object rule, so unknown fields
+are rejected rather than dropped.
+
 ### Mixed objects (named properties + additionalProperties)
 
 When a schema declares both named `properties` and `additionalProperties`, the named properties are
