@@ -73,6 +73,7 @@ export default defineConfig({
             { label: 'Server scaffold', slug: 'guides/server-scaffold' },
             { label: 'Subset generation', slug: 'guides/subset-generation' },
             { label: 'Drift check', slug: 'guides/drift-check' },
+            { label: 'Contract testing', slug: 'guides/contract-testing' },
             { label: 'Supported OpenAPI versions', slug: 'guides/openapi-versions' },
             { label: 'End-to-end demo', slug: 'guides/end-to-end-demo' },
             { label: 'Limitations', slug: 'guides/limitations' },

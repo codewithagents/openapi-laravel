@@ -1,0 +1,206 @@
+---
+title: Contract testing with Spectator
+description: The generated scaffold validates requests against the spec. Responses are whatever your code returns. Wire hotmeteor/spectator against the same spec to assert response conformance in your test suite.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components'
+
+The generated scaffold enforces the **request half** of the contract at runtime: every body and
+query payload is validated against the spec-derived `rules()` before your code runs, so a
+spec-violating request never reaches your controller. The **response half** is typed, not
+validated: the abstract method's return type pins the PHP shape, but nothing checks the serialized
+JSON against the spec on the way out.
+
+[Spectator](https://github.com/hotmeteor/spectator) closes that gap in tests. It reads the **same
+OpenAPI document** the generator reads and asserts, per test request, that the response your
+application actually produced conforms to the spec. This guide wires it up against a generated
+scaffold.
+
+## The two halves of the contract
+
+```
+request  ──► spec-derived rules()    enforced at runtime by the generated Data classes
+response ──► return type hints       PHP shape constrained; the JSON is never checked against the spec
+```
+
+The return types get you further than nothing: an operation typed `PetData` cannot return an
+`OrderData`. But four things slip through the type system:
+
+- **Constraint rules are validation-time only.** `rules()` run when input is validated.
+  `PetData::from($model)` does not validate, so a string that violates `maxLength`, a value outside
+  an `enum`-as-`Rule::in` constraint, or a malformed `date-time` serializes out without complaint.
+- **`JsonResponse` fallbacks carry no schema.** Operations whose response the generator cannot type
+  (non-JSON content, alias components, see
+  [limitations](/guides/limitations#responses-that-fall-back-to-jsonresponse)) return whatever you
+  build by hand.
+- **Error responses are never typed.** The scaffold types only the selected success response. The
+  404 and 422 bodies your spec declares are entirely your code's responsibility.
+- **Non-selected success statuses.** An operation declaring a 200 and a 202 is typed against the
+  200; the 202 you produce yourself is unchecked.
+
+Spectator validates the actual serialized response, status code and body, against the schema the
+spec declares for exactly that operation and status. Together with the generated request validation
+and the [drift check](/guides/drift-check), all three corners agree: the spec matches the committed
+code, requests are rejected unless they match the spec, and tests fail unless responses match the
+spec.
+
+## Install and configure
+
+<Steps>
+
+1. **Install Spectator as a dev dependency.**
+
+   ```bash
+   composer require hotmeteor/spectator --dev
+   ```
+
+   The current release requires PHP 8.3+ and Laravel 12+. On Laravel 11, pin an earlier 2.x
+   release of Spectator; the assertions below are the same.
+
+2. **Publish the config.**
+
+   ```bash
+   php artisan vendor:publish --provider="Spectator\SpectatorServiceProvider"
+   ```
+
+3. **Point it at the same spec the generator reads.**
+
+   `SPEC_PATH` names a **directory**; `Spectator::using()` later names a file inside it. Point it
+   at the directory holding the spec you pass to `openapi:generate`, here the project root:
+
+   ```php
+   // config/spectator.php
+   'sources' => [
+       'local' => [
+           'source' => 'local',
+           'base_path' => env('SPEC_PATH', base_path()),
+       ],
+       // ...
+   ],
+   ```
+
+   One file is now the source of truth for both halves: the generator derives the request
+   validation from it, Spectator asserts the responses against it, and `openapi:check` proves the
+   committed generated code still matches it.
+
+</Steps>
+
+<Aside type="caution" title="Route prefixes need a matching path prefix">
+  If your generated routes are wrapped in a prefix group (the `routes.prefix` config key, see
+  [server scaffold](/guides/server-scaffold#middleware-and-prefix-groups)), the spec declares
+  `/pet` but the request goes to `/api/v1/pet`. Tell Spectator to strip the prefix before matching
+  paths: set `SPECTATOR_PATH_PREFIX=api/v1` in your test environment, or call
+  `Spectator::withPathPrefix('api/v1')` in the test setup.
+</Aside>
+
+## A worked example
+
+Take the Petstore scaffold from the [server scaffold guide](/guides/server-scaffold#a-worked-example-petstore):
+the generator emitted `AbstractPetController`, you wrote a concrete `PetController` against it, and
+the generated routes file maps `GET /pet/{petId}` and `POST /pet` to it. A Pest contract suite over
+those operations:
+
+```php
+<?php
+
+// tests/Contract/PetContractTest.php
+
+declare(strict_types=1);
+
+use Spectator\Spectator;
+
+beforeEach(function (): void {
+    Spectator::using('openapi.yaml');   // the same file openapi:generate reads
+});
+
+it('returns a spec-conformant pet', function (): void {
+    // Arrange a pet however your app stores them, e.g. a factory.
+    $pet = Pet::factory()->create();
+
+    $this->getJson("/pet/{$pet->id}")
+        ->assertValidRequest()
+        ->assertValidResponse(200);
+});
+
+it('creates a pet and answers with a spec-conformant body', function (): void {
+    $this->postJson('/pet', [
+        'name' => 'Loki',
+        'photoUrls' => ['https://example.test/loki.jpg'],
+    ])
+        ->assertValidRequest()
+        ->assertValidResponse(200);
+});
+
+it('only produces the 404 the spec declares', function (): void {
+    $this->getJson('/pet/999999')
+        ->assertValidResponse(404);
+});
+```
+
+`assertValidResponse(int $status)` asserts two things: the response carries exactly that status,
+and its body matches the schema the spec declares for that status on that operation. A response
+whose status the spec does not declare at all fails the assertion, so an accidental 500 (or a 404
+where the spec only declares a 200) fails the test even before any schema comparison.
+
+When the body does not conform, the failure names the violation. Return a `PetData` whose `name`
+the spec requires but your code left empty and the test fails with the offending property and JSON
+pointer; `dumpSpecErrors()` on the response prints the full validation errors without failing, for
+debugging.
+
+<Aside type="note" title="assertValidRequest is a differential check here">
+  The generated `rules()` already reject spec-violating requests before your controller runs, so
+  `assertValidRequest()` should rarely fail on a generated scaffold. Keeping it in the chain is
+  still useful: it cross-checks two independent readings of the same spec (the generator's emitted
+  rules and Spectator's own validator) and catches the places where the generator deliberately
+  under-validates, the residuals listed on the [limitations page](/guides/limitations).
+</Aside>
+
+### Cover the error responses
+
+The scaffold never types error bodies, so this is where Spectator adds the most. For every error
+status your spec declares with a schema, add one test that provokes it and asserts conformance:
+
+```php
+it('answers validation failures with the declared 422 body', function (): void {
+    $this->postJson('/pet', ['photoUrls' => 'not-an-array'])
+        ->assertValidResponse(422);
+});
+```
+
+If the spec declares the status but no content schema (the classic Petstore 404 has no body), the
+assertion only checks that the status is declared; an undeclared status still fails.
+
+## CI integration
+
+The contract tests are plain Pest tests, so they run wherever your suite runs. Pair them with the
+drift check: `openapi:check` proves the committed generated code matches the spec, the Spectator
+suite proves the running responses match it.
+
+```yaml
+# .github/workflows/ci.yml (excerpt)
+      - name: Verify generated code is in sync with the spec
+        run: php artisan openapi:check
+
+      - name: Contract tests (requests and responses against the spec)
+        run: vendor/bin/pest tests/Contract
+```
+
+Set `SPECTATOR_ERROR_FORMAT=json` in CI if you want the spec violations as machine-readable output
+in the logs.
+
+## Caveats
+
+- **Coverage equals test coverage.** Spectator validates only the responses your tests actually
+  produce. Aim for one test per operation, plus one per declared error status with a schema. It is
+  an assertion library, not a generator; nothing fails when an operation has no test at all.
+- **Keep contract tests separate.** Spectator registers a middleware that intercepts every test
+  request made while a spec is loaded. A dedicated `tests/Contract` directory keeps the concern out
+  of your functional tests and gives CI a separate, unambiguous signal.
+- **Spectator parses the spec independently.** It does not reuse the generator's parser, so the two
+  can disagree at the edges. In particular, bundle multi-file specs into a single document first
+  (the generator requires this anyway, see
+  [limitations](/guides/limitations#multi-file-specs-and-unresolvable-refs)), and expect constructs
+  the generator degrades gracefully on (tuple `prefixItems`, exotic parameter styles) to be judged
+  by Spectator's own reading of the spec.
+- **Schemaless responses validate trivially.** A declared status without a content schema asserts
+  only the status. If response conformance matters for a status, give it a schema in the spec.
