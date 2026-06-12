@@ -58,8 +58,14 @@ final readonly class GenerationPlanner
         // planned, so a stray space or quote fails fast (C-3).
         OptionValidator::namespace('output.namespace', $request->namespace);
         OptionValidator::identifier('output.suffix', $request->suffix);
+        if ($request->validationTrait !== null) {
+            OptionValidator::className('output.validation_trait', $request->validationTrait);
+        }
         if ($request->controllers) {
             OptionValidator::namespace('controllers.namespace', $request->controllerNamespace);
+            if ($request->controllerBaseClass !== null) {
+                OptionValidator::className('controllers.base_class', $request->controllerBaseClass);
+            }
         }
 
         $document = (new SpecParser($request->maxBytes))->parseFile($request->spec);
@@ -101,6 +107,7 @@ final readonly class GenerationPlanner
             $request->maxDepth,
             $request->enforceClosedObjects,
             $keepSchemas,
+            $request->validationTrait,
         ));
         $modelFiles = $generator->generate($document);
 
@@ -237,6 +244,7 @@ final readonly class GenerationPlanner
             routePrefix: $request->routesPrefix,
             securityMiddlewareMap: $request->securityMiddlewareMap,
             laravelConventions: $request->laravelConventions,
+            controllerBaseClass: $request->controllerBaseClass,
         );
 
         // Collect descriptors once and feed the same list to both generators so

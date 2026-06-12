@@ -40,6 +40,17 @@ final readonly class GeneratorOptions
          * @var array<string, true>|null
          */
         public ?array $keepSchemas = null,
+        /*
+         * Validation extension trait (issue #83). When set to the FQCN of a
+         * user-owned trait, every generated Data class (models, discriminated
+         * union bases and variants, per-operation query classes) carries a
+         * `use <Trait>;` line. laravel-data discovers validation hooks through
+         * method_exists(), so static messages() / attributes() methods on the
+         * trait customize validation messages and attribute names WITHOUT
+         * editing the generated classes, which regeneration overwrites. Null
+         * (the default) keeps the output byte-identical to before.
+         */
+        public ?string $validationTrait = null,
     ) {}
 
     /**

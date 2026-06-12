@@ -326,6 +326,102 @@ The readOnly/writeOnly flags split the schema into two classes because the read 
 
 This exact schema is exercised by the Playwright e2e suite over real HTTP: the `#[MapName]` field round-trips in both directions, the writeOnly secret never appears in a response, `null` stays `null`, the map round-trips intact, and the scalar union arrives uncoerced. See the [end-to-end demo](/guides/end-to-end-demo).
 
+## Customizing validation messages and attributes
+
+Generated Data classes are overwritten on every regenerate, so never edit them to rephrase or
+localize a validation error. The sanctioned extension point is a trait **you own**: set
+`output.validation_trait` to its fully-qualified name and every generated Data class (models,
+discriminated union bases and variants, per-operation query classes) pulls it in with a `use`
+line.
+
+```php
+// config/openapi-laravel.php
+'output' => [
+    // ...
+    'validation_trait' => 'App\\Support\\ApiValidationMessages',
+],
+```
+
+The trait is the documented laravel-data hook surface: the package discovers static `messages()`
+and `attributes()` methods on the Data class (see
+[working with the validator](https://spatie.be/docs/laravel-data/v4/validation/working-with-the-validator)),
+and methods supplied by a trait are found exactly like methods declared inline. Both methods
+support dependency injection, so a translator or repository can be type-hinted as a parameter.
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Support;
+
+trait ApiValidationMessages
+{
+    /**
+     * @return array<string, string>
+     */
+    public static function messages(): array
+    {
+        return [
+            'name.required' => 'Every customer needs a name.',
+            'email' => 'That does not look like a valid value.',
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function attributes(): array
+    {
+        return ['email' => 'e-mail address'];
+    }
+}
+```
+
+Each generated class then carries the trait:
+
+```php
+use App\Support\ApiValidationMessages;
+use Spatie\LaravelData\Data;
+
+final class CustomerData extends Data
+{
+    use ApiValidationMessages;
+
+    public function __construct(
+        public readonly string $name,
+        public readonly ?string $email = null,
+    ) {}
+
+    // rules() ...
+}
+```
+
+When `CustomerData::validate(...)` (or controller injection) runs, the real Laravel Validator
+reports `Every customer needs a name.` for a missing `name`, and built-in messages for `email`
+name the field `e-mail address`. A `field.rule` key targets one rule; a bare `field` key applies
+to every rule on that field, at any nesting depth.
+
+This survives regeneration by construction: the trait file is yours, it is never part of the
+generated file set (not even under `output.prune`, which only clears the output directory before
+rewriting the planned files), and the generated classes reproduce the same one-line `use` on every
+run. The behavioral guarantee is pinned by a feature test that boots the generated classes, fails
+validation through the real validator, asserts the customized message and attribute label
+surface, regenerates, and asserts the output is byte-identical with the customization intact.
+
+<Aside type="note">
+  The trait applies to every generated Data class, so keys in `messages()` / `attributes()` apply
+  wherever the named field appears. For per-class behavior, branch on `static::class` inside the
+  trait. If the trait's short name would collide with a generated class name or one of its imports
+  (for example a trait literally named `Data`), generation fails loudly instead of emitting broken
+  PHP.
+</Aside>
+
+For the standalone binary the key lives in `openapi-laravel.json` as `output.validation_trait` (a
+non-empty string). On both surfaces the value is validated as a legal fully-qualified PHP name
+before anything is written; there is deliberately no CLI flag, because the trait is a standing
+project convention, not a per-run switch.
+
 ## Determinism
 
 The generator emits stable ordering everywhere: properties, rules, enum cases, and file output. The same spec in produces byte-identical files out, so re-running in CI yields either no diff or a diff that is entirely a consequence of the spec changing.

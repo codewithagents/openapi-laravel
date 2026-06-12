@@ -263,6 +263,40 @@ abstract class AbstractPetController
 }
 ```
 
+### Custom base class
+
+By default the generated abstracts extend nothing: framework-light by design, so the scaffold
+never fights your project's own controller hierarchy. If you want the generated controllers rooted
+in a base class (Laravel's `App\Http\Controllers\Controller`, or your own with shared helpers,
+authorization traits, and so on), set `controllers.base_class`:
+
+```php
+// config/openapi-laravel.php
+'controllers' => [
+    // ...
+    'base_class' => 'App\\Http\\Controllers\\Controller',
+],
+```
+
+Every generated abstract then imports and extends it:
+
+```php
+use App\Http\Controllers\Controller;
+
+abstract class AbstractPetController extends Controller
+{
+    // ...
+}
+```
+
+The value is validated as a legal fully-qualified class name before any file is written (a
+malformed value is a configuration error, exit code `2`), and a base class whose short name would
+collide with the abstract class or one of its imports fails loudly instead of emitting broken PHP.
+On the standalone binary the same key lives in `openapi-laravel.json`
+(`controllers.base_class`, a non-empty string) and the `--controller-base-class=<fqcn>` flag
+overrides it per run; a bare `--controller-base-class=` clears a configured base. `openapi:check`
+shares the planner with generate, so changing the base class flags drift until you regenerate.
+
 ### What you write: the concrete controller
 
 You extend the abstract class and implement every method ([`openapi:scaffold`](#concrete-controller-stubs-openapiscaffold) writes the initial version of this file for you). PHP will refuse to instantiate the class if any abstract method is missing, so there is no way to silently leave an operation unhandled.

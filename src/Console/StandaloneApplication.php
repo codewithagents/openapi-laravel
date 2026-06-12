@@ -287,6 +287,17 @@ final class StandaloneApplication
         $routesOutput = $options['routes-output'] ?? $config->routesPath ?? $outputDir.'/routes.php';
         $controllerNamespace = $options['controller-namespace'] ?? $config->controllerNamespace ?? 'App\\Http\\Controllers\\Api';
 
+        // Controller base class (issue #83): the flag wins over the config
+        // key, mirroring --controller-namespace; the built-in default is null
+        // (base-class-free abstracts). A blank flag value normalizes to null,
+        // so `--controller-base-class=` explicitly clears a configured base.
+        // The validation extension trait (issue #83) is config-only, like
+        // routes.middleware / routes.prefix: it is a standing project
+        // convention, not a per-run switch. The planner validates both as
+        // legal FQCNs.
+        $controllerBaseClass = $this->normalizeFqcn($options['controller-base-class'] ?? $config->controllerBaseClass);
+        $validationTrait = $config->validationTrait;
+
         // Subset generation (issue #44): the comma-separated flag wins over the
         // config key, which may itself be a comma string or a list. Empty means
         // "full spec". The closure is resolved later in the planner.
@@ -333,7 +344,25 @@ final class StandaloneApplication
             $securityMiddlewareMap,
             $laravelConventions,
             $stubs,
+            $controllerBaseClass,
+            $validationTrait,
         );
+    }
+
+    /**
+     * An empty or whitespace-only FQCN value means "not set" (or, from a
+     * flag, "explicitly cleared"), so it normalizes to null; anything else is
+     * trimmed and validated later by the planner.
+     */
+    private function normalizeFqcn(?string $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $value = trim($value);
+
+        return $value === '' ? null : $value;
     }
 
     /**
@@ -489,9 +518,9 @@ final class StandaloneApplication
         the config file beats the built-in defaults. The config file is
         openapi-laravel.json in the working directory (if present), or the
         path given via --config. Its keys mirror config/openapi-laravel.php:
-        spec, output.{path,namespace,suffix,prune}, controllers.{enabled,path,
-        namespace,laravel_conventions}, routes.{enabled,path,middleware,prefix},
-        security.middleware_map,
+        spec, output.{path,namespace,suffix,prune,validation_trait},
+        controllers.{enabled,path,namespace,base_class,laravel_conventions},
+        routes.{enabled,path,middleware,prefix}, security.middleware_map,
         enforce_closed_objects, max_depth, max_bytes, only_tags, only_schemas (the
         only_* keys each a comma-separated string or a JSON list of names),
         exclude_path_prefixes (a JSON list of literal path prefixes, never
@@ -499,7 +528,9 @@ final class StandaloneApplication
         and routes.prefix wrap the generated routes in one Route::group block.
         security.middleware_map (a JSON object: scheme name => middleware name or
         list of names) puts mapped middleware on each route the spec secures.
-        These three are config-only, with no CLI flags.
+        These three are config-only, with no CLI flags, and so is
+        output.validation_trait (the user-owned trait every generated Data
+        class pulls in for custom validation messages/attributes).
 
         Options:
           --config=<path>      Path to a JSON config file (default: ./openapi-laravel.json)
@@ -523,6 +554,7 @@ final class StandaloneApplication
           --routes                       Force the routes file on (overrides a config that disables it)
           --controller-output=<dir>      Where the abstract controllers live (default: <output>/Controllers)
           --controller-namespace=<ns>    Controller namespace (default: App\Http\Controllers\Api)
+          --controller-base-class=<fqcn> Base class the abstract controllers extend (default: none)
           --routes-output=<file>         Where the routes file lives (default: <output>/routes.php)
           --laravel-conventions          Name clean RESTful controller methods index/show/store/update/destroy (default: off)
           --no-laravel-conventions       Keep operationId-derived method names even when the config enables the conventions

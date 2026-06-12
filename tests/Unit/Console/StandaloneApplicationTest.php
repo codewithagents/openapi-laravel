@@ -618,3 +618,102 @@ it('keeps standalone generate and check in lockstep under --exclude-path-prefix 
     ]);
     expect($drift)->toBe(1);
 });
+
+// Issue #83: the controller base class on the standalone surface. The flag
+// mirrors --controller-namespace (flag beats config file beats the built-in
+// default of "no base class"), and output.validation_trait is config-only.
+
+it('extends the base class given via --controller-base-class (#83)', function () use ($tempOut) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+
+    $exit = (new StandaloneApplication)->run([
+        'bin', '--spec='.$serverSpec, '--output='.$out,
+        '--controller-base-class=App\\Http\\Controllers\\Controller',
+    ]);
+
+    $code = file_get_contents($out.'/Controllers/AbstractPetController.php');
+    expect($exit)->toBe(0)
+        ->and($code)->toContain('use App\Http\Controllers\Controller;')
+        ->and($code)->toContain('abstract class AbstractPetController extends Controller');
+});
+
+it('lets the --controller-base-class flag beat the config file key (#83)', function () use ($tempOut) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+    $configPath = $out.'.json';
+    file_put_contents($configPath, (string) json_encode([
+        'controllers' => ['base_class' => 'App\\Http\\Controllers\\ConfigBase'],
+    ]));
+
+    $exit = (new StandaloneApplication)->run([
+        'bin', '--spec='.$serverSpec, '--output='.$out, '--config='.$configPath,
+        '--controller-base-class=App\\Http\\Controllers\\FlagBase',
+    ]);
+
+    expect($exit)->toBe(0)
+        ->and(file_get_contents($out.'/Controllers/AbstractPetController.php'))->toContain('extends FlagBase')
+        ->and(file_get_contents($out.'/Controllers/AbstractPetController.php'))->not->toContain('ConfigBase');
+});
+
+it('clears a configured base class with a blank --controller-base-class= (#83)', function () use ($tempOut) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+    $configPath = $out.'.json';
+    file_put_contents($configPath, (string) json_encode([
+        'controllers' => ['base_class' => 'App\\Http\\Controllers\\ConfigBase'],
+    ]));
+
+    $exit = (new StandaloneApplication)->run([
+        'bin', '--spec='.$serverSpec, '--output='.$out, '--config='.$configPath,
+        '--controller-base-class=',
+    ]);
+
+    expect($exit)->toBe(0)
+        ->and(file_get_contents($out.'/Controllers/AbstractPetController.php'))->not->toContain('extends');
+});
+
+it('rejects an illegal --controller-base-class and writes nothing (#83)', function () use ($tempOut) {
+    $serverSpec = __DIR__.'/../../Fixtures/server/petstore.yaml';
+    $out = $tempOut();
+
+    $exit = (new StandaloneApplication)->run([
+        'bin', '--spec='.$serverSpec, '--output='.$out,
+        "--controller-base-class=App\\Evil'); system('x'); //",
+    ]);
+
+    expect($exit)->toBe(2)
+        ->and(is_dir($out))->toBeFalse();
+});
+
+it('applies output.validation_trait from the config file to generated Data classes (#83)', function () use ($spec, $tempOut) {
+    $out = $tempOut();
+    $configPath = $out.'.json';
+    file_put_contents($configPath, (string) json_encode([
+        'output' => ['validation_trait' => 'App\\Support\\ApiMessages'],
+    ]));
+
+    $exit = (new StandaloneApplication)->run([
+        'bin', '--spec='.$spec(), '--output='.$out, '--config='.$configPath,
+    ]);
+
+    $code = file_get_contents($out.'/CustomerData.php');
+    expect($exit)->toBe(0)
+        ->and($code)->toContain('use App\Support\ApiMessages;')
+        ->and($code)->toContain('    use ApiMessages;');
+});
+
+it('rejects an illegal output.validation_trait from the config file and writes nothing (#83)', function () use ($spec, $tempOut) {
+    $out = $tempOut();
+    $configPath = $out.'.json';
+    file_put_contents($configPath, (string) json_encode([
+        'output' => ['validation_trait' => 'App\\Support\\Api Messages'],
+    ]));
+
+    $exit = (new StandaloneApplication)->run([
+        'bin', '--spec='.$spec(), '--output='.$out, '--config='.$configPath,
+    ]);
+
+    expect($exit)->toBe(2)
+        ->and(is_dir($out))->toBeFalse();
+});

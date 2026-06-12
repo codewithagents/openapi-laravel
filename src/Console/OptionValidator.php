@@ -41,6 +41,25 @@ final class OptionValidator
     }
 
     /**
+     * A fully-qualified class (or trait) name. Structurally identical to a
+     * namespace path (identifier segments joined by backslashes, optional
+     * leading backslash), so it reuses the namespace pattern; the message
+     * names the actual expectation. Used for controllers.base_class and
+     * output.validation_trait (issue #83), which are interpolated into
+     * `extends ...` / `use ...;` in generated PHP.
+     *
+     * @throws OptionException when the value is not a legal fully-qualified class name
+     */
+    public static function className(string $option, string $value): string
+    {
+        if (preg_match(self::NAMESPACE_PATTERN, $value) !== 1) {
+            throw new OptionException("Invalid {$option}: '{$value}' is not a legal fully-qualified PHP class name.");
+        }
+
+        return $value;
+    }
+
+    /**
      * A class-name suffix or prefix. Empty is allowed only when $allowEmpty.
      *
      * @throws OptionException when the value is not a legal PHP identifier

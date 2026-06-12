@@ -27,6 +27,18 @@ return [
          * so a removed schema does not leave a stale class behind.
          */
         'prune' => false,
+
+        /*
+         * Validation extension trait (issue #83). Generated Data classes are
+         * overwritten on every regenerate, so never edit them. To customize
+         * validation messages or attribute names, set this to the
+         * fully-qualified name of a trait YOU own (it is never generated or
+         * touched), e.g. 'App\\Support\\ApiValidationMessages'. Every
+         * generated Data class then carries `use ApiValidationMessages;`, and
+         * laravel-data picks up the trait's static messages() / attributes()
+         * methods when validating. Null (the default) emits no trait line.
+         */
+        'validation_trait' => null,
     ],
 
     /*
@@ -65,6 +77,15 @@ return [
          * here for one run).
          */
         'laravel_conventions' => false,
+
+        /*
+         * Base class every generated abstract controller extends (issue #83).
+         * Null (the default) keeps the abstracts framework-light, with no base
+         * class at all. Set a fully-qualified class name, e.g.
+         * 'App\\Http\\Controllers\\Controller', to root the generated scaffold
+         * in your project's own controller hierarchy.
+         */
+        'base_class' => null,
     ],
 
     /*

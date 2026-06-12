@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CodeWithAgents\OpenApiLaravel\Emitter\Server;
 
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
+use CodeWithAgents\OpenApiLaravel\Emitter\GenerationException;
 
 /**
  * Emits one abstract controller per tag from the collected operation
@@ -13,9 +14,12 @@ use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
  * out). The user extends the abstract with a concrete controller; an
  * unimplemented method is a PHP fatal, so path-level drift is structural.
  *
- * The abstract deliberately does NOT extend Laravel's base Controller: keeping
- * it framework-light means the generated scaffold stays portable and never
- * fights a project's own base class.
+ * The abstract deliberately does NOT extend Laravel's base Controller by
+ * default: keeping it framework-light means the generated scaffold stays
+ * portable and never fights a project's own base class. A project that wants
+ * its controllers rooted in a base class (Laravel's
+ * App\Http\Controllers\Controller, or its own) sets controllers.base_class
+ * (issue #83) and every generated abstract extends it.
  *
  * Output is deterministic: controllers keyed and ordered by abstract class
  * name, methods ordered by path then HTTP method, imports sorted.
@@ -62,6 +66,9 @@ final readonly class ControllerGenerator
             }
         }
         $imports = array_values(array_unique($imports));
+
+        $extends = $this->extendsClause($abstractClass, $imports);
+
         sort($imports);
 
         $useBlock = $imports === []
@@ -71,7 +78,56 @@ final readonly class ControllerGenerator
         $methods = implode("\n\n", array_map(fn (OperationDescriptor $operation): string => $this->renderMethod($operation), $operations));
 
         return "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->options->controllerNamespace.";\n\n".$useBlock
-            .'abstract class '.$abstractClass."\n{\n".$methods."\n}\n";
+            .'abstract class '.$abstractClass.$extends."\n{\n".$methods."\n}\n";
+    }
+
+    /**
+     * The ` extends Base` clause for the configured controllers.base_class
+     * (issue #83), or '' when none is configured (the default, byte-identical
+     * to the historical base-class-free output).
+     *
+     * The base is referenced by its short name with a `use` import added when
+     * it lives outside the controller namespace, the form Laravel Pint's
+     * `fully_qualified_strict_types` fixer produces, so a consumer's own Pint
+     * run never rewrites the file and trips the drift gate. A short name that
+     * collides with the abstract class itself or with a differently-rooted
+     * existing import would emit a PHP fatal, so it fails loudly here instead
+     * of writing a broken file.
+     *
+     * @param  list<string>  $imports  the controller's imports; the base FQCN is appended when needed
+     */
+    private function extendsClause(string $abstractClass, array &$imports): string
+    {
+        $base = $this->options->controllerBaseClass;
+        if ($base === null) {
+            return '';
+        }
+
+        $fqcn = ltrim($base, '\\');
+        $separator = strrpos($fqcn, '\\');
+        $shortName = $separator === false ? $fqcn : substr($fqcn, $separator + 1);
+        $baseNamespace = $separator === false ? '' : substr($fqcn, 0, $separator);
+
+        if ($shortName === $abstractClass) {
+            throw new GenerationException(
+                "controllers.base_class '{$base}' has the same short name as the generated abstract controller {$abstractClass}; rename the base class or the colliding tag."
+            );
+        }
+
+        foreach ($imports as $import) {
+            $importShort = ($pos = strrpos($import, '\\')) === false ? $import : substr($import, $pos + 1);
+            if ($importShort === $shortName && $import !== $fqcn) {
+                throw new GenerationException(
+                    "controllers.base_class '{$base}' short name collides with the import {$import} in {$abstractClass}; use a base class whose short name does not clash."
+                );
+            }
+        }
+
+        if ($baseNamespace !== ltrim($this->options->controllerNamespace, '\\') && ! in_array($fqcn, $imports, true)) {
+            $imports[] = $fqcn;
+        }
+
+        return ' extends '.$shortName;
     }
 
     private function renderMethod(OperationDescriptor $operation): string

@@ -43,8 +43,8 @@ final readonly class StandaloneConfigLoader
      */
     private const SCHEMA = [
         'spec' => null,
-        'output' => ['path', 'namespace', 'suffix', 'prune'],
-        'controllers' => ['enabled', 'path', 'namespace', 'laravel_conventions'],
+        'output' => ['path', 'namespace', 'suffix', 'prune', 'validation_trait'],
+        'controllers' => ['enabled', 'path', 'namespace', 'base_class', 'laravel_conventions'],
         'routes' => ['enabled', 'path', 'middleware', 'prefix'],
         'security' => ['middleware_map'],
         'enforce_closed_objects' => null,
@@ -104,10 +104,12 @@ final readonly class StandaloneConfigLoader
             namespace: $this->string($decoded['output'] ?? [], 'namespace', $path, 'output.'),
             suffix: $this->string($decoded['output'] ?? [], 'suffix', $path, 'output.'),
             prune: $this->bool($decoded['output'] ?? [], 'prune', $path, 'output.'),
+            validationTrait: $this->nonEmptyString($decoded['output'] ?? [], 'validation_trait', $path, 'output.'),
             controllersEnabled: $this->bool($decoded['controllers'] ?? [], 'enabled', $path, 'controllers.'),
             controllerPath: $containment->contain($this->string($decoded['controllers'] ?? [], 'path', $path, 'controllers.'), 'controllers.path', $path),
             controllerNamespace: $this->string($decoded['controllers'] ?? [], 'namespace', $path, 'controllers.'),
             laravelConventions: $this->bool($decoded['controllers'] ?? [], 'laravel_conventions', $path, 'controllers.'),
+            controllerBaseClass: $this->nonEmptyString($decoded['controllers'] ?? [], 'base_class', $path, 'controllers.'),
             routesEnabled: $this->bool($decoded['routes'] ?? [], 'enabled', $path, 'routes.'),
             routesPath: $containment->contain($this->string($decoded['routes'] ?? [], 'path', $path, 'routes.'), 'routes.path', $path),
             routesMiddleware: $this->middlewareList($decoded['routes'] ?? [], $path),
@@ -348,6 +350,31 @@ final readonly class StandaloneConfigLoader
 
         if (! is_string($value)) {
             throw new OptionException("Invalid '{$prefix}{$key}' in config file {$path}: expected a string.");
+        }
+
+        return $value;
+    }
+
+    /**
+     * Read a key that must be a NON-EMPTY string when present (issue #83:
+     * controllers.base_class, output.validation_trait). These values name a
+     * class or trait the generated code references; an empty or
+     * whitespace-only value is garbage, not "disable the feature", so it is
+     * rejected with a clear message. Omit the key to disable the feature. The
+     * planner additionally validates the value as a legal FQCN.
+     *
+     * @throws OptionException when the key is present but not a non-empty string
+     */
+    private function nonEmptyString(mixed $section, string $key, string $path, string $prefix = ''): ?string
+    {
+        $value = $this->string($section, $key, $path, $prefix);
+        if ($value === null) {
+            return null;
+        }
+
+        $value = trim($value);
+        if ($value === '') {
+            throw new OptionException("Invalid '{$prefix}{$key}' in config file {$path}: expected a non-empty string (omit the key to disable it).");
         }
 
         return $value;

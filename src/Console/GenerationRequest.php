@@ -113,5 +113,22 @@ final readonly class GenerationRequest
          * and check never do, so the drift gate never sees a stub.
          */
         public bool $stubs = false,
+        /*
+         * Controller base class (issue #83). When non-null, every generated
+         * abstract controller extends this fully-qualified class instead of
+         * standing alone. Null (the default) keeps the historical
+         * base-class-free output. Validated as a legal FQCN by the planner
+         * before any file is planned.
+         */
+        public ?string $controllerBaseClass = null,
+        /*
+         * Validation extension trait (issue #83). When non-null, every
+         * generated Data class carries `use <Trait>;` so the user-owned
+         * trait's static messages() / attributes() methods customize
+         * validation errors without editing generated (and regenerated)
+         * files. Null (the default) emits no trait line. Validated as a
+         * legal FQCN by the planner before any file is planned.
+         */
+        public ?string $validationTrait = null,
     ) {}
 }

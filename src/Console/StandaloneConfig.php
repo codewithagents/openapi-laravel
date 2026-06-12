@@ -7,8 +7,8 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
 /**
  * The settings a standalone-binary run can read from an openapi-laravel.json
  * config file. The keys mirror config/openapi-laravel.php one to one (spec,
- * output.path/namespace/suffix/prune,
- * controllers.enabled/path/namespace/laravel_conventions,
+ * output.path/namespace/suffix/prune/validation_trait,
+ * controllers.enabled/path/namespace/base_class/laravel_conventions,
  * routes.enabled/path/middleware/prefix, security.middleware_map,
  * enforce_closed_objects, max_depth, max_bytes, only_tags, only_schemas,
  * exclude_path_prefixes), so a team can keep one mental model across the
@@ -34,6 +34,14 @@ final readonly class StandaloneConfig
         public ?string $namespace = null,
         public ?string $suffix = null,
         public ?bool $prune = null,
+        /*
+         * Validation extension trait (issue #83): the FQCN of a user-owned
+         * trait every generated Data class pulls in via `use <Trait>;`, the
+         * sanctioned home for static messages() / attributes() methods. Null
+         * means the key was not set (no trait line). The loader rejects an
+         * empty string, and the planner validates the value as a legal FQCN.
+         */
+        public ?string $validationTrait = null,
         public ?bool $controllersEnabled = null,
         public ?string $controllerPath = null,
         public ?string $controllerNamespace = null,
@@ -46,6 +54,13 @@ final readonly class StandaloneConfig
          * strictly opt-in) applies.
          */
         public ?bool $laravelConventions = null,
+        /*
+         * Controller base class (issue #83): the FQCN every generated abstract
+         * controller extends. Null means the key was not set (the abstracts
+         * stay base-class-free). The loader rejects an empty string, and the
+         * planner validates the value as a legal FQCN.
+         */
+        public ?string $controllerBaseClass = null,
         public ?bool $routesEnabled = null,
         public ?string $routesPath = null,
         /*

@@ -130,6 +130,20 @@ When `true`, deletes existing `*.php` files in the output directory before writi
   output, and rely on version control to review what was removed.
 </Aside>
 
+### `output.validation_trait`
+
+The fully-qualified name of a trait **you own** that every generated Data class pulls in via a
+`use` statement, for example `'App\\Support\\ApiValidationMessages'`. Defaults to `null` (no trait
+line, output unchanged). This is the sanctioned hook for customizing validation messages and
+attribute names: laravel-data discovers static `messages()` / `attributes()` methods on the Data
+class, and a trait provides them without editing the generated files, which every regenerate
+overwrites. Config-only on both surfaces, no CLI flag: like `routes.middleware`, it is a standing
+project convention, not a per-run switch. The value is validated as a legal fully-qualified PHP
+name before anything is written (a malformed value is a configuration error, exit code `2`).
+
+See [customizing validation messages and attributes](/guides/generated-output#customizing-validation-messages-and-attributes)
+for the worked example.
+
 ### `max_depth`
 
 Maximum schema nesting depth the parser follows before it bails out. Defaults to `64`. This guards against pathological or maliciously deep specs that would otherwise recurse without bound. Raise it only if you have a legitimately deeply nested spec and trust its source.
@@ -140,16 +154,17 @@ Maximum raw spec file size, in bytes, accepted before parsing. Defaults to `25_1
 
 ### `controllers`
 
-Controls the server scaffold: abstract controller generation. All four sub-keys are optional.
+Controls the server scaffold: abstract controller generation. All sub-keys are optional.
 
 | Key                   | Default                            | Description                                                                 |
 | --------------------- | ---------------------------------- | --------------------------------------------------------------------------- |
 | `enabled`             | `true`                             | Generate abstract controllers. Overridden by `--controllers` / `--no-controllers`. |
 | `path`                | `app_path('Http/Controllers/Api')` | Directory the abstract controller files are written to.                     |
 | `namespace`           | `'App\\Http\\Controllers\\Api'`   | PHP namespace for the generated abstract controllers.                       |
+| `base_class`          | `null`                             | Fully-qualified class every generated abstract controller `extends`, e.g. `'App\\Http\\Controllers\\Controller'`. `null` keeps the abstracts base-class-free. Validated as a legal FQCN (a malformed value exits `2`). On the standalone binary the `--controller-base-class` flag overrides it. |
 | `laravel_conventions` | `false`                            | Opt in to conventional `index`/`show`/`store`/`update`/`destroy` method and route names for clean RESTful operations. Overridden by `--laravel-conventions` / `--no-laravel-conventions`. See the [server scaffold guide](/guides/server-scaffold#laravel-convention-method-names-opt-in) for the mapping table and the fallback rule. |
 
-When enabled, the generator writes one `Abstract{Tag}Controller` file per OpenAPI tag into `path`. Each file is overwritten on every run. Your concrete controllers (which extend the abstract classes) are never touched.
+When enabled, the generator writes one `Abstract{Tag}Controller` file per OpenAPI tag into `path`. Each file is overwritten on every run. Your concrete controllers (which extend the abstract classes) are never touched. See [custom base class](/guides/server-scaffold#custom-base-class) for what `base_class` emits.
 
 <Aside type="note">
   `--no-controllers` skips controller generation for one run regardless of the config;
@@ -282,15 +297,18 @@ oversight ([issue #73](https://github.com/codewithagents/openapi-laravel/issues/
 `--exclude-path-prefix` (repeatable), plus `--prune` (generate only) and `--diff` (check only).
 
 **Standalone binary only:** `--config`, `--suffix`, `--max-depth`, `--max-bytes`,
-`--controller-output`, `--controller-namespace`, `--routes-output`.
+`--controller-output`, `--controller-namespace`, `--controller-base-class`, `--routes-output`.
 
 The rationale: the artisan command is **config-file-first**, because the publishable
 `config/openapi-laravel.php` is the Laravel-idiomatic place for settings you commit. Every
 standalone-only flag corresponds one to one to a config key an artisan user sets there instead:
-`output.suffix`, `max_depth`, `max_bytes`, `controllers.path`, `controllers.namespace`, and
-`routes.path` (and `--config` exists only to locate the JSON file the binary uses in place of the
-Laravel config). The standalone binary carries these as flags because it has no framework config
-to fall back on, only the optional `openapi-laravel.json` described below.
+`output.suffix`, `max_depth`, `max_bytes`, `controllers.path`, `controllers.namespace`,
+`controllers.base_class`, and `routes.path` (and `--config` exists only to locate the JSON file
+the binary uses in place of the Laravel config). The standalone binary carries these as flags
+because it has no framework config to fall back on, only the optional `openapi-laravel.json`
+described below. `routes.middleware`, `routes.prefix`, `security.middleware_map`, and
+`output.validation_trait` are config-only on **both** surfaces: they are standing project
+conventions, not per-run switches.
 
 This split is part of the frozen 1.0 surface. Giving the artisan command any of these flags later
 would be a purely **additive, non-breaking** change (a new flag whose absence preserves today's
@@ -309,12 +327,14 @@ one to one:
     "path": "src/Data",
     "namespace": "Acme\\Dto",
     "suffix": "Data",
-    "prune": false
+    "prune": false,
+    "validation_trait": "Acme\\Support\\ApiValidationMessages"
   },
   "controllers": {
     "enabled": true,
     "path": "src/Http/Controllers",
     "namespace": "Acme\\Http\\Controllers",
+    "base_class": "Acme\\Http\\Controllers\\Controller",
     "laravel_conventions": false
   },
   "routes": {

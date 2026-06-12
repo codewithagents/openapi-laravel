@@ -2650,6 +2650,55 @@ final class ModelGenerator
     }
 
     /**
+     * The validation extension trait (issue #83): when output.validation_trait
+     * names a user-owned trait, every generated Data class carries a
+     * `use <Trait>;` body line so laravel-data's method_exists() discovery
+     * finds the trait's static messages() / attributes() methods. The trait is
+     * imported by short name (skipped when it already lives in the Data
+     * namespace), the exact form Laravel Pint's `fully_qualified_strict_types`
+     * fixer produces, so the output stays formatter-idempotent. A short name
+     * that collides with the class itself or a differently-rooted import would
+     * emit a PHP fatal, so it fails loudly instead of writing a broken file.
+     *
+     * @param  list<string>  $imports  the class's imports, already collected
+     * @return array{0: list<string>, 1: string} imports (trait FQCN merged in, re-sorted) and the indented trait-use body line, '' when no trait is configured
+     */
+    private function applyValidationTrait(string $className, array $imports): array
+    {
+        $trait = $this->options->validationTrait;
+        if ($trait === null) {
+            return [$imports, ''];
+        }
+
+        $fqcn = ltrim($trait, '\\');
+        $separator = strrpos($fqcn, '\\');
+        $shortName = $separator === false ? $fqcn : substr($fqcn, $separator + 1);
+        $traitNamespace = $separator === false ? '' : substr($fqcn, 0, $separator);
+
+        if ($shortName === $className) {
+            throw new GenerationException(
+                "output.validation_trait '{$trait}' has the same short name as the generated class {$className}; rename the trait or the colliding schema."
+            );
+        }
+
+        foreach ($imports as $import) {
+            $importShort = ($pos = strrpos($import, '\\')) === false ? $import : substr($import, $pos + 1);
+            if ($importShort === $shortName && $import !== $fqcn) {
+                throw new GenerationException(
+                    "output.validation_trait '{$trait}' short name collides with the import {$import} in {$className}; use a trait whose short name does not clash."
+                );
+            }
+        }
+
+        if ($traitNamespace !== ltrim($this->options->namespace, '\\') && ! in_array($fqcn, $imports, true)) {
+            $imports[] = $fqcn;
+            sort($imports);
+        }
+
+        return [$imports, '    use '.$shortName.';'];
+    }
+
+    /**
      * @param  list<array{code: string, imports: list<string>}>  $params
      * @param  list<string>  $imports
      * @param  array<string, list<string>>  $rules
@@ -2658,6 +2707,8 @@ final class ModelGenerator
      */
     private function renderDataClass(string $className, array $params, array $imports, array $rules, array $classDoc = [], ?array $fromQueryBooleans = null): string
     {
+        [$imports, $traitUse] = $this->applyValidationTrait($className, $imports);
+
         $useBlock = implode("\n", array_map(static fn (string $fqcn): string => 'use '.$fqcn.';', $imports));
 
         // One doc line renders the established single-`*`-line block (so existing
@@ -2680,7 +2731,17 @@ final class ModelGenerator
                 // comment makes the body non-empty, so Pint's
                 // `single_line_empty_body` fixer leaves it alone and the output
                 // stays formatter-idempotent.
+                if ($traitUse !== '') {
+                    return $header."\n{\n".$traitUse."\n\n    ".self::EMPTY_BODY_MARKER."\n}\n";
+                }
+
                 return $header."\n{\n    ".self::EMPTY_BODY_MARKER."\n}\n";
+            }
+
+            // With the validation trait the rules() method follows the trait-use
+            // line, separated by renderRules()'s own leading blank line.
+            if ($traitUse !== '') {
+                return $header."\n{\n".$traitUse.$this->renderRules($rules)."\n}\n";
             }
 
             // renderRules() prefixes a blank line so it separates cleanly from a
@@ -2699,7 +2760,9 @@ final class ModelGenerator
 
         $factory = $fromQueryBooleans !== null ? "\n\n".$this->renderFromQuery($fromQueryBooleans) : '';
 
-        return $header."\n{\n".$constructor.$factory.$this->renderRules($rules)."\n}\n";
+        $traitBlock = $traitUse !== '' ? $traitUse."\n\n" : '';
+
+        return $header."\n{\n".$traitBlock.$constructor.$factory.$this->renderRules($rules)."\n}\n";
     }
 
     /**
@@ -2774,6 +2837,8 @@ final class ModelGenerator
      */
     private function renderDiscriminatorBase(string $className, array $imports, string $mapName, string $propertyName, ResolvedType $type, array $validationAttributes, array $arms, ?string $deprecationTag = null): string
     {
+        [$imports, $traitUse] = $this->applyValidationTrait($className, $imports);
+
         $useBlock = implode("\n", array_map(static fn (string $fqcn): string => 'use '.$fqcn.';', $imports));
 
         $docBlock = $deprecationTag !== null ? '/**'."\n".' * '.$deprecationTag."\n".' */'."\n" : '';
@@ -2799,7 +2864,9 @@ final class ModelGenerator
             .implode("\n", $arms)."\n"
             ."        };\n    }";
 
-        return $header."\n{\n".$constructor.$morph."\n}\n";
+        $traitBlock = $traitUse !== '' ? $traitUse."\n\n" : '';
+
+        return $header."\n{\n".$traitBlock.$constructor.$morph."\n}\n";
     }
 
     /**
@@ -2814,6 +2881,8 @@ final class ModelGenerator
      */
     private function renderVariantClass(string $className, string $baseClass, string $discriminatorProperty, string $discriminatorDeclaration, array $params, array $imports, array $rules, ?string $deprecationTag = null): string
     {
+        [$imports, $traitUse] = $this->applyValidationTrait($className, $imports);
+
         // The base lives in the same namespace, so a variant can have zero
         // imports; emit no `use` block then (avoid stray blank lines).
         $useBlock = $imports === []
@@ -2836,7 +2905,9 @@ final class ModelGenerator
             .$forwarded.$body."\n"
             ."    ) {\n        parent::__construct(\$".$discriminatorProperty.");\n    }";
 
-        return $header."\n{\n".$constructor.$this->renderRules($rules)."\n}\n";
+        $traitBlock = $traitUse !== '' ? $traitUse."\n\n" : '';
+
+        return $header."\n{\n".$traitBlock.$constructor.$this->renderRules($rules)."\n}\n";
     }
 
     /**

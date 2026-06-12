@@ -342,3 +342,48 @@ it('rejects a non-integer max_depth', function () use ($writeFile) {
 
     (new StandaloneConfigLoader)->load($path, '/tmp');
 })->throws(OptionException::class, "Invalid 'max_depth'");
+
+it('maps controllers.base_class and output.validation_trait onto the config (#83)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode([
+        'output' => ['validation_trait' => 'App\\Support\\ApiMessages'],
+        'controllers' => ['base_class' => 'App\\Http\\Controllers\\Controller'],
+    ]));
+
+    $config = (new StandaloneConfigLoader)->load($path, '/tmp');
+
+    expect($config->validationTrait)->toBe('App\\Support\\ApiMessages')
+        ->and($config->controllerBaseClass)->toBe('App\\Http\\Controllers\\Controller');
+});
+
+it('defaults controllers.base_class and output.validation_trait to null when absent (#83)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['controllers' => ['enabled' => true]]));
+
+    $config = (new StandaloneConfigLoader)->load($path, '/tmp');
+
+    expect($config->controllerBaseClass)->toBeNull()
+        ->and($config->validationTrait)->toBeNull();
+});
+
+it('rejects an empty controllers.base_class (#83)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['controllers' => ['base_class' => '']]));
+
+    (new StandaloneConfigLoader)->load($path, '/tmp');
+})->throws(OptionException::class, "Invalid 'controllers.base_class'");
+
+it('rejects a whitespace-only output.validation_trait (#83)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['output' => ['validation_trait' => '   ']]));
+
+    (new StandaloneConfigLoader)->load($path, '/tmp');
+})->throws(OptionException::class, "Invalid 'output.validation_trait'");
+
+it('rejects a non-string controllers.base_class (#83)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['controllers' => ['base_class' => 42]]));
+
+    (new StandaloneConfigLoader)->load($path, '/tmp');
+})->throws(OptionException::class, "Invalid 'controllers.base_class'");
+
+it('rejects a non-string output.validation_trait (#83)', function () use ($writeFile) {
+    $path = $writeFile((string) json_encode(['output' => ['validation_trait' => ['a']]]));
+
+    (new StandaloneConfigLoader)->load($path, '/tmp');
+})->throws(OptionException::class, "Invalid 'output.validation_trait'");

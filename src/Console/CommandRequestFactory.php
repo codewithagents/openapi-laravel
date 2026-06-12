@@ -73,6 +73,13 @@ final readonly class CommandRequestFactory
         $controllerNamespace = $this->configString('openapi-laravel.controllers.namespace') ?? 'App\\Http\\Controllers\\Api';
         $routesPath = $this->configString('openapi-laravel.routes.path');
 
+        // Controller base class and validation extension trait (issue #83).
+        // Config-only on the artisan surface, like controllers.namespace: a
+        // null or blank value keeps the defaults (base-class-free abstracts,
+        // no trait line). The planner validates a set value as a legal FQCN.
+        $controllerBaseClass = $this->normalizeFqcn($this->configString('openapi-laravel.controllers.base_class'));
+        $validationTrait = $this->normalizeFqcn($this->configString('openapi-laravel.output.validation_trait'));
+
         // Route group settings (issue #71). Config-only, no CLI flags: a list
         // of middleware names and/or a URI prefix wrap the generated routes in
         // a Route::group block. Middleware names are NEVER comma-split, because
@@ -119,6 +126,8 @@ final readonly class CommandRequestFactory
             $securityMiddlewareMap,
             $laravelConventions,
             $stubs,
+            $controllerBaseClass,
+            $validationTrait,
         );
     }
 
@@ -168,6 +177,23 @@ final readonly class CommandRequestFactory
         }
 
         return $map;
+    }
+
+    /**
+     * An empty or whitespace-only FQCN config value means "not set", so it
+     * normalizes to null; anything else is trimmed and validated later by the
+     * planner. Mirrors normalizePrefix(): a blank key can never half-enable
+     * the feature.
+     */
+    private function normalizeFqcn(?string $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $value = trim($value);
+
+        return $value === '' ? null : $value;
     }
 
     /**
