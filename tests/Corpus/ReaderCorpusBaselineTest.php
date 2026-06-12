@@ -38,11 +38,41 @@ use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
  * stays as the frozen-baseline proof that the reader pipeline emits exactly
  * what the v0.11.0 cebe pipeline emitted.
  *
- * Regenerating the baseline is only legitimate from v0.11.0 itself:
+ * Regenerating the baseline wholesale is only legitimate from v0.11.0 itself:
  *   git worktree add /tmp/openapi-laravel-v0110 v0.11.0
  * then run this exact pipeline + recipe there (cebe parseFile instead of
  * parseFileToDocument, everything else identical).
+ *
+ * INTENTIONAL post-freeze rebaseline (#108): exactly four specs carry a
+ * post-#108 hash instead of the pristine v0.11.0 one, because v0.11.0 emitted
+ * two `.php` files whose names differed only by letter case (e.g.
+ * `HttpHealthCheckData.php` / `HTTPHealthCheckData.php`). On a case-insensitive
+ * filesystem (macOS APFS default, Windows NTFS) the second write silently
+ * clobbered the first, so the v0.11.0 output for these specs was actually
+ * broken. The #108 fix dedupes class names case-insensitively, suffixing the
+ * second of each colliding pair (`...Data_2.php`), which is the ONLY change to
+ * these specs (the case-insensitive allocator diverges from the case-sensitive
+ * one solely on a case-fold collision). The four are listed in
+ * READER_BASELINE_REBASELINED_108 with the colliding pair, so the rebaseline is
+ * auditable and not a silent baseline drift; every other spec stays the frozen
+ * v0.11.0 freeze, byte for byte.
  */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-#108 output
+ * (case-insensitive class-name dedup), keyed by spec basename, with the
+ * case-only-colliding class-name pair v0.11.0 emitted as one clobbered file.
+ * Documentation only: the per-spec test below still compares against the JSON
+ * baseline, which now holds these specs' post-#108 hashes.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_108 = [
+    'docusign.json' => 'BccEmailArchive / BCCEmailArchive',
+    'flickr.json' => 'PhotoUrls / PhotoURLs',
+    'google_compute.json' => 'HttpHealthCheck / HTTPHealthCheck, HttpsHealthCheck / HTTPSHealthCheck',
+    'zoom.json' => 'AccountSettingsTsp / AccountSettingsTSP, UserSettingsTsp / UserSettingsTSP',
+];
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -100,6 +130,16 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
     expect(array_intersect_key(READER_BASELINE_POST_FREEZE_SPECS, array_flip($specs)))
         ->toHaveCount(count(READER_BASELINE_POST_FREEZE_SPECS))
         ->and(array_keys(readerBaselineHashes()))->toBe($frozen);
+
+    // Every spec rebaselined for #108 must still exist on disk and carry a hash
+    // in the baseline, so the documented rebaseline list cannot rot into a
+    // stale reference to a removed or post-freeze-exempt spec.
+    $baseline = readerBaselineHashes();
+    foreach (array_keys(READER_BASELINE_REBASELINED_108) as $rebaselined) {
+        expect($specs)->toContain($rebaselined)
+            ->and($baseline)->toHaveKey($rebaselined)
+            ->and(READER_BASELINE_POST_FREEZE_SPECS)->not->toHaveKey($rebaselined);
+    }
 });
 
 /**

@@ -68,6 +68,15 @@ final class ModelGenerator
     // Deepest array nesting a query parameter may have: bracket query strings beyond a few levels are not a real wire format.
     private const QUERY_MAX_ARRAY_DEPTH = 4;
 
+    /**
+     * Allocates the generated CLASS short-names (Data classes, enums, writable
+     * variants, query/request classes, discriminator variants). Case-insensitive
+     * (issue #108): two schemas whose class names differ only by case (e.g.
+     * `HttpHealthCheck` / `HTTPHealthCheck`) would otherwise emit two `.php`
+     * files that collide on a case-insensitive filesystem, the second silently
+     * clobbering the first. The property/parameter/enum-case allocators stay
+     * case-sensitive (PHP identifiers are case-sensitive there).
+     */
     private UniqueNames $names;
 
     /**
@@ -250,7 +259,7 @@ final class ModelGenerator
     public function __construct(
         private readonly GeneratorOptions $options = new GeneratorOptions,
     ) {
-        $this->names = new UniqueNames(self::RESERVED_CLASS_NAMES);
+        $this->names = new UniqueNames(self::RESERVED_CLASS_NAMES, caseInsensitive: true);
     }
 
     /**
@@ -258,7 +267,7 @@ final class ModelGenerator
      */
     public function generate(OpenApiDocument $document): array
     {
-        $this->names = new UniqueNames(self::RESERVED_CLASS_NAMES);
+        $this->names = new UniqueNames(self::RESERVED_CLASS_NAMES, caseInsensitive: true);
         $this->registry = [];
         $this->writeClasses = [];
         $this->mapAliases = [];
