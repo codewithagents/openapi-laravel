@@ -17,6 +17,7 @@ use CodeWithAgents\OpenApiLaravel\Parser\ParseException;
  * Subcommands:
  *   openapi-laravel [generate] --spec=... --output=...   write the generated files
  *   openapi-laravel check --spec=... --output=...        verify disk matches the spec
+ *   openapi-laravel scaffold --spec=... --output=...     write one-time concrete controller stubs
  *
  * `generate` is the default when no subcommand is given, preserving the
  * historical `openapi-laravel --spec=... --output=...` invocation.
@@ -44,7 +45,11 @@ final class StandaloneApplication
     {
         [$subcommand, $argv] = $this->splitSubcommand($argv);
 
-        return $subcommand === 'check' ? $this->runCheck($argv) : $this->runGenerate($argv);
+        return match ($subcommand) {
+            'check' => $this->runCheck($argv),
+            'scaffold' => $this->runScaffold($argv),
+            default => $this->runGenerate($argv),
+        };
     }
 
     /**
@@ -119,6 +124,60 @@ final class StandaloneApplication
     }
 
     /**
+     * One-time concrete controller stub scaffolding (issue #78): plans the
+     * same file set generate would (same flags, same config, same planner),
+     * then writes only the CATEGORY_STUB files that do not exist yet. A stub
+     * whose file already exists belongs to the user and is reported as
+     * skipped, never overwritten.
+     *
+     * @param  list<string>  $argv
+     */
+    private function runScaffold(array $argv): int
+    {
+        $options = $this->parse($argv);
+
+        try {
+            $config = $this->loadConfig($options);
+            $request = $this->buildRequest($options, $config, $this->repeatedOption($argv, 'exclude-path-prefix'), stubs: true);
+            $plan = (new GenerationPlanner)->plan($request);
+        } catch (OptionException $e) {
+            fwrite(STDERR, $e->getMessage()."\n");
+
+            return self::EXIT_ERROR;
+        } catch (PlanException|ParseException|GenerationException $e) {
+            fwrite(STDERR, $e->getMessage()."\n");
+
+            return 1;
+        }
+
+        [$created, $skipped] = (new PlanWriter)->writeMissing($plan, PlannedFile::CATEGORY_STUB);
+
+        if ($created === [] && $skipped === []) {
+            fwrite(STDOUT, "No controller stubs to scaffold: no operations were planned (the spec declares none, or every one was filtered out).\n");
+
+            return self::EXIT_OK;
+        }
+
+        fwrite(STDOUT, sprintf(
+            "Scaffolded %d controller %s into %s\n",
+            count($created),
+            count($created) === 1 ? 'stub' : 'stubs',
+            $request->controllerPath,
+        ));
+
+        if ($skipped !== []) {
+            fwrite(STDOUT, sprintf(
+                "Skipped %d existing %s (stubs are generated once and never overwritten): %s\n",
+                count($skipped),
+                count($skipped) === 1 ? 'file' : 'files',
+                implode(', ', array_map(static fn (string $path): string => basename($path), $skipped)),
+            ));
+        }
+
+        return self::EXIT_OK;
+    }
+
+    /**
      * @param  list<string>  $argv
      */
     private function runCheck(array $argv): int
@@ -185,10 +244,14 @@ final class StandaloneApplication
      * (`<output>/Controllers` and `<output>/routes.php`) so the full-output
      * default needs no extra flags.
      *
+     * `$stubs` marks the request as a stub-scaffolding run (issue #78): only
+     * the scaffold subcommand passes true, so generate and check keep planning
+     * exactly the generator-owned file set they always did.
+     *
      * @param  array<string, string>  $options
      * @param  list<string>  $excludePathPrefixFlags  every --exclude-path-prefix occurrence, in order
      */
-    private function buildRequest(array $options, StandaloneConfig $config, array $excludePathPrefixFlags = []): GenerationRequest
+    private function buildRequest(array $options, StandaloneConfig $config, array $excludePathPrefixFlags = [], bool $stubs = false): GenerationRequest
     {
         $spec = $options['spec'] ?? $config->spec;
         $output = $options['output'] ?? $config->outputPath;
@@ -269,6 +332,7 @@ final class StandaloneApplication
             $excludePathPrefixes,
             $securityMiddlewareMap,
             $laravelConventions,
+            $stubs,
         );
     }
 
@@ -368,7 +432,7 @@ final class StandaloneApplication
         $program = $argv[0] ?? 'openapi-laravel';
         $rest = array_slice($argv, 1);
 
-        if (isset($rest[0]) && ($rest[0] === 'check' || $rest[0] === 'generate')) {
+        if (isset($rest[0]) && in_array($rest[0], ['check', 'generate', 'scaffold'], true)) {
             $subcommand = $rest[0];
             $rest = array_slice($rest, 1);
 
@@ -412,10 +476,14 @@ final class StandaloneApplication
         Usage:
           openapi-laravel [generate] --spec=<path> --output=<dir> [options]
           openapi-laravel check --spec=<path> --output=<dir> [options]
+          openapi-laravel scaffold --spec=<path> --output=<dir> [options]
 
         Commands:
           generate             Write the generated files (default)
           check                Verify the files on disk match the spec (CI drift gate)
+          scaffold             Write one-time concrete controller stubs extending the
+                               generated abstract controllers; existing files are
+                               skipped, never overwritten, and never drift-checked
 
         Settings resolve with strict precedence: flags beat the config file,
         the config file beats the built-in defaults. The config file is

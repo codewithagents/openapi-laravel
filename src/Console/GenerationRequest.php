@@ -105,5 +105,13 @@ final readonly class GenerationRequest
          * built-in default (disabled).
          */
         public bool $laravelConventions = false,
+        /*
+         * Concrete controller stub scaffolding (issue #78). When true, the
+         * plan additionally contains one CATEGORY_STUB file per concrete
+         * controller the routes file references, each extending its generated
+         * abstract controller. Only the scaffold surfaces set this; generate
+         * and check never do, so the drift gate never sees a stub.
+         */
+        public bool $stubs = false,
     ) {}
 }

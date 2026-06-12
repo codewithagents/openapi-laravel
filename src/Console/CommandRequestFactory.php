@@ -29,7 +29,12 @@ use Illuminate\Console\Command;
  */
 final readonly class CommandRequestFactory
 {
-    public function fromCommand(Command $command): GenerationRequest
+    /**
+     * `$stubs` marks the request as a stub-scaffolding run (issue #78): only
+     * `openapi:scaffold` passes true, so generate and check keep planning
+     * exactly the generator-owned file set they always did.
+     */
+    public function fromCommand(Command $command, bool $stubs = false): GenerationRequest
     {
         $spec = $this->stringOption($command, 'spec') ?? $this->configString('openapi-laravel.spec');
         $output = $this->stringOption($command, 'output') ?? $this->configString('openapi-laravel.output.path');
@@ -113,6 +118,7 @@ final readonly class CommandRequestFactory
             $excludePathPrefixes,
             $securityMiddlewareMap,
             $laravelConventions,
+            $stubs,
         );
     }
 

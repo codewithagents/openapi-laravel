@@ -90,7 +90,17 @@ php artisan openapi:generate --spec=openapi.yaml --output=app/Data
 
 One command emits the full output: Data classes with `rules()`, native enums, one abstract
 controller per tag (`app/Http/Controllers/Api` by default), and a `routes/api.generated.php`
-file, all typed against each other. Models only? Opt out per run:
+file, all typed against each other. Then scaffold the concrete controllers the routes file
+references, one time, so the app boots immediately:
+
+```bash
+php artisan openapi:scaffold
+```
+
+Each stub extends its generated abstract controller and implements every operation as an explicit
+`throw new LogicException('Not implemented: ...')` placeholder. Existing files are skipped, never
+overwritten: the stubs are your code from the moment they are written, and `openapi:check` never
+inspects them. Models only? Opt out per run:
 
 ```bash
 php artisan openapi:generate --no-controllers --no-routes
@@ -243,7 +253,9 @@ Route::get('/pet/{petId}', [PetController::class, 'getPetById'])->name('getPetBy
 Route::delete('/pet/{petId}', [PetController::class, 'deletePet'])->name('deletePet')->middleware(RespondsWithStatus::class.':204');
 ```
 
-You write only the concrete `PetController extends AbstractPetController`. See the
+You write only the concrete `PetController extends AbstractPetController`, and
+`php artisan openapi:scaffold` (or `vendor/bin/openapi-laravel scaffold`) writes its initial,
+one-time stub for you. See the
 [server scaffold guide](https://openapi-laravel.codewithagents.de/guides/server-scaffold) for the
 full walkthrough.
 

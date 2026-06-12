@@ -172,3 +172,54 @@ it('throws a PlanException when the spec is missing', function () use ($tempOut,
 it('throws a PlanException when controllers are requested without a path', function () use ($serverSpec, $tempOut, $request) {
     (new GenerationPlanner)->plan($request($serverSpec(), $tempOut(), true, null, null));
 })->throws(PlanException::class);
+
+it('plans no stub files unless the request asks for them (generate and check never do)', function () use ($serverSpec, $tempOut, $request) {
+    $out = $tempOut();
+    $plan = (new GenerationPlanner)->plan($request($serverSpec(), $out, true, $out.'/Http', $out.'/routes/api.generated.php'));
+
+    expect($plan->filesByCategory(PlannedFile::CATEGORY_STUB))->toBe([]);
+});
+
+it('plans one concrete stub per controller when the request asks for stubs (issue #78)', function () use ($serverSpec, $tempOut) {
+    $out = $tempOut();
+    $plan = (new GenerationPlanner)->plan(new GenerationRequest(
+        spec: $serverSpec(),
+        output: $out,
+        namespace: 'App\\Data',
+        suffix: 'Data',
+        maxDepth: 64,
+        maxBytes: null,
+        controllers: true,
+        controllerPath: $out.'/Http',
+        controllerNamespace: 'App\\Http\\Controllers\\Api',
+        routes: true,
+        routesPath: $out.'/routes/api.generated.php',
+        stubs: true,
+    ));
+
+    $stubPaths = array_map(static fn (PlannedFile $f): string => $f->path, $plan->filesByCategory(PlannedFile::CATEGORY_STUB));
+
+    // One stub per concrete controller, in the abstracts' directory, and the
+    // generator-owned categories are still planned alongside (same planner,
+    // same descriptors, so the stub list can never drift from the routes).
+    expect($stubPaths)->toBe([$out.'/Http/PetController.php', $out.'/Http/UntaggedController.php'])
+        ->and($plan->filesByCategory(PlannedFile::CATEGORY_CONTROLLER))->not->toBe([]);
+});
+
+it('throws a PlanException when stubs are requested with controllers disabled (issue #78)', function () use ($serverSpec, $tempOut) {
+    $out = $tempOut();
+    (new GenerationPlanner)->plan(new GenerationRequest(
+        spec: $serverSpec(),
+        output: $out,
+        namespace: 'App\\Data',
+        suffix: 'Data',
+        maxDepth: 64,
+        maxBytes: null,
+        controllers: false,
+        controllerPath: $out.'/Http',
+        controllerNamespace: 'App\\Http\\Controllers\\Api',
+        routes: true,
+        routesPath: $out.'/routes/api.generated.php',
+        stubs: true,
+    ));
+})->throws(PlanException::class, 'Controller stubs extend the generated abstract controllers');

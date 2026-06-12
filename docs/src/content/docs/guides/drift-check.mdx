@@ -32,7 +32,7 @@ Because generation is deterministic, the comparison is an exact match. There is 
 - the abstract controllers (`Abstract*Controller.php`), on by default, skipped with `--no-controllers`,
 - the generated routes file, on by default, skipped with `--no-routes`.
 
-It never inspects your hand-written concrete controllers or any unrelated file. A file is reported as drifted when it is either:
+It never inspects your concrete controllers (hand-written or scaffolded once with [`openapi:scaffold`](/guides/server-scaffold#concrete-controller-stubs-openapiscaffold)) or any unrelated file. A file is reported as drifted when it is either:
 
 - **missing**, no file exists at the path the generator would write, or
 - **changed**, a file exists but its content differs from the freshly generated content.

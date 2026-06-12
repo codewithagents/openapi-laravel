@@ -15,6 +15,7 @@ use CodeWithAgents\OpenApiLaravel\Emitter\Server\ControllerGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\RouteGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
+use CodeWithAgents\OpenApiLaravel\Emitter\Server\StubGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\SubsetSelection;
 use CodeWithAgents\OpenApiLaravel\Parser\ParseException;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
@@ -204,6 +205,14 @@ final readonly class GenerationPlanner
             throw new PlanException('No routes path configured. Set openapi-laravel.routes.path.');
         }
 
+        // Concrete stubs (issue #78) extend the generated abstract controllers
+        // and live in the same directory and namespace, so scaffolding them
+        // while controllers are disabled would emit subclasses of classes that
+        // are never generated. Fail loudly instead of writing broken stubs.
+        if ($request->stubs && ! $request->controllers) {
+            throw new PlanException('Controller stubs extend the generated abstract controllers, but controllers are disabled. Enable them (openapi-laravel.controllers.enabled or --controllers) to scaffold stubs.');
+        }
+
         $serverOptions = new ServerOptions(
             controllerNamespace: $request->controllerNamespace,
             dataNamespace: $request->namespace,
@@ -235,6 +244,22 @@ final readonly class GenerationPlanner
                     $file->code,
                     PlannedFile::CATEGORY_CONTROLLER,
                 );
+            }
+
+            // Concrete controller stubs (issue #78): one per concrete class
+            // the routes file references, planned from the SAME descriptors
+            // as the abstracts and routes, so the stub list can never drift
+            // from what generate and check compute. Only the scaffold command
+            // requests them; it writes a stub only when the file is absent.
+            if ($request->stubs) {
+                $stubFiles = (new StubGenerator($serverOptions))->generate($descriptors);
+                foreach ($stubFiles as $file) {
+                    $files[] = new PlannedFile(
+                        $controllerTarget.'/'.$file->filename(),
+                        $file->code,
+                        PlannedFile::CATEGORY_STUB,
+                    );
+                }
             }
         }
 

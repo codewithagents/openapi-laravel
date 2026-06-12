@@ -11,9 +11,11 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  * what is already on disk.
  *
  * The category names which generator produced the file (Data class, inlined
- * runtime support class, abstract controller, or routes file). Only
- * generator-owned files appear here, so a drift check never flags a user's
- * hand-written concrete controllers.
+ * runtime support class, abstract controller, routes file, or a one-time
+ * concrete controller stub). Drift checks only ever see generator-owned
+ * categories: stubs (issue #78) are planned solely for the scaffold command,
+ * which never overwrites an existing file, so a user's concrete controllers
+ * are never flagged or touched.
  *
  * @internal
  */
@@ -26,6 +28,8 @@ final readonly class PlannedFile
     public const CATEGORY_CONTROLLER = 'controller';
 
     public const CATEGORY_ROUTES = 'routes';
+
+    public const CATEGORY_STUB = 'stub';
 
     /**
      * @param  self::CATEGORY_*  $category

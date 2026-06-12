@@ -18,12 +18,12 @@ openapi.yaml
         ├── app/Http/Controllers/Api/AbstractStoreController.php
         └── routes/api.generated.php                             (generated, overwritten each run)
 
-You write:
+You write (or scaffold once with openapi:scaffold):
         ├── app/Http/Controllers/Api/PetController.php           (extends AbstractPetController)
         └── app/Http/Controllers/Api/StoreController.php         (extends AbstractStoreController)
 ```
 
-The abstract files are overwritten on every generator run. Your concrete controllers are never touched.
+The abstract files are overwritten on every generator run. Your concrete controllers are never touched. [`openapi:scaffold`](#concrete-controller-stubs-openapiscaffold) writes the initial concrete stubs for you, one time.
 
 ## Default-on, with opt-outs
 
@@ -106,6 +106,73 @@ vendor/bin/openapi-laravel \
 | `--controller-namespace`    | PHP namespace for the generated abstract controllers           |
 | `--controller-output`       | Directory for the abstract controllers (default: `<output>/Controllers`) |
 | `--routes-output`           | Path the routes file is written to (default: `<output>/routes.php`) |
+
+## Concrete controller stubs: openapi:scaffold
+
+Right after a first `openapi:generate`, the routes file references concrete controller classes
+that do not exist yet, so the very first request would fatal. Instead of hand-writing every
+controller before the app boots, scaffold them:
+
+```bash
+php artisan openapi:generate     # models, abstract controllers, routes
+php artisan openapi:scaffold     # one-time concrete stubs
+```
+
+`openapi:scaffold` writes one concrete stub per generated abstract controller, into the same
+directory and namespace, exactly where the routes file expects them. Every abstract method is
+implemented as an explicit placeholder:
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Controllers\Api;
+
+use App\Data\PetData;
+use LogicException;
+
+/**
+ * Scaffolded once by openapi-laravel (issue #78). This file is yours: it is
+ * never overwritten, never regenerated, and never drift-checked. Replace
+ * each placeholder body with your implementation.
+ */
+final class PetController extends AbstractPetController
+{
+    public function getPetById(int $petId): PetData
+    {
+        throw new LogicException('Not implemented: getPetById.');
+    }
+
+    // ... one placeholder per operation
+}
+```
+
+The app boots immediately: an unimplemented operation answers with a clear `LogicException`
+instead of a missing-class fatal, and you replace the placeholders at your own pace.
+
+Three properties define the command:
+
+- **One-time.** A stub whose file already exists is skipped and reported, never overwritten. The
+  moment a stub is written it is your code; re-running `openapi:scaffold` after a spec change only
+  creates stubs for controllers that are new.
+- **Always in lockstep with generate.** The stub list comes from the same planner that generate
+  and check use, with the same flags and config (including `--only-tags` / `--only-schemas` /
+  `--exclude-path-prefix`), so a stub is created exactly for the controllers the routes file
+  references.
+- **Invisible to the drift gate.** `openapi:check` never inspects the concrete controllers, so
+  scaffolded (and then edited) stubs never flag drift.
+
+The standalone binary has the same subcommand:
+
+```bash
+vendor/bin/openapi-laravel scaffold --spec=openapi.yaml --output=app/Data
+```
+
+Because the stubs extend the abstracts, scaffolding with controllers disabled
+(`controllers.enabled: false` or `--no-controllers`) is a hard error rather than a pile of
+subclasses of classes that are never generated; pass `--controllers` to force the plan on over a
+disabling config.
 
 ## A worked example: Petstore
 
@@ -198,7 +265,7 @@ abstract class AbstractPetController
 
 ### What you write: the concrete controller
 
-You extend the abstract class and implement every method. PHP will refuse to instantiate the class if any abstract method is missing, so there is no way to silently leave an operation unhandled.
+You extend the abstract class and implement every method ([`openapi:scaffold`](#concrete-controller-stubs-openapiscaffold) writes the initial version of this file for you). PHP will refuse to instantiate the class if any abstract method is missing, so there is no way to silently leave an operation unhandled.
 
 ```php
 <?php

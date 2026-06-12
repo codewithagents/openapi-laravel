@@ -51,6 +51,9 @@ mapped-undeclared schemes warn. Opt-in `--laravel-conventions` / `controllers.la
 route name (item path = last segment is a path parameter); ambiguous claimants in one controller
 ALL fall back to the operationId-derived name, non-CRUD always falls back, and the Data layer
 (incl. query classes) stays operationId-derived in both modes.
+`openapi:scaffold` / `vendor/bin/openapi-laravel scaffold` (#78) writes one-time concrete
+controller stubs extending the abstracts (each method throws LogicException); existing files are
+skipped, never overwritten, and the drift gate never sees them.
 
 **Drift gate:** `openapi:check` (and `vendor/bin/openapi-laravel check`) regenerates the file set
 in memory and compares byte-for-byte against disk; exit 0 in sync, 1 drift, 2 config/spec error;

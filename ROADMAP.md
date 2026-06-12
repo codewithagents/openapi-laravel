@@ -102,7 +102,10 @@ index/show/store/update/destroy as its method AND route name (item path = last s
 parameter); a conventional name claimed twice in one controller makes ALL claimants fall back to
 the operationId-derived name (order-independent), non-CRUD operations always fall back, residual
 clashes go through UniqueNames, and the Data layer (incl. query classes) stays operationId-derived
-in both modes.
+in both modes. `openapi:scaffold` (and `vendor/bin/openapi-laravel scaffold`, issue #78) writes
+one-time concrete controller stubs extending the abstracts, every method an explicit
+`throw new LogicException(...)` placeholder, so a fresh project boots right after generate +
+scaffold; existing files are skipped (never overwritten) and the drift gate never sees a stub.
 
 ### Honest residuals (documented, not hidden)
 - Undiscriminated object unions (no `discriminator`) stay `mixed`, presence-only by design (#31).

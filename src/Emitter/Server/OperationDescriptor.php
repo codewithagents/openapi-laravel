@@ -85,4 +85,36 @@ final readonly class OperationDescriptor
     {
         return $this->successStatus !== null && $this->successStatus !== 200;
     }
+
+    /**
+     * The method's parameter declarations ("Type $name"), in signature order:
+     * the request body (or its Request fallback), then the injected query Data
+     * class (issue #63, body-less operations only), then the path parameters.
+     *
+     * Shared by the abstract controller emitter and the concrete stub emitter
+     * (issue #78), so a scaffolded stub can never disagree with the abstract
+     * signature it overrides.
+     *
+     * @return list<string>
+     */
+    public function parameterDeclarations(): array
+    {
+        $params = [];
+
+        if ($this->bodyParam !== null) {
+            $params[] = $this->bodyParam['type'].' $'.$this->bodyParam['name'];
+        } elseif ($this->bodyRequiresRequest) {
+            $params[] = 'Request $request';
+        }
+
+        if ($this->queryParam !== null && $this->queryParam['injected']) {
+            $params[] = $this->queryParam['type'].' $'.$this->queryParam['name'];
+        }
+
+        foreach ($this->pathParams as $pathParam) {
+            $params[] = $pathParam['phpType'].' $'.$pathParam['name'];
+        }
+
+        return $params;
+    }
 }

@@ -110,7 +110,7 @@ final readonly class ControllerGenerator
         $doc[] = '     */';
 
         $signature = '    abstract public function '.$operation->methodName.'('
-            .implode(', ', $this->parameters($operation)).'): '.$operation->returnType.';';
+            .implode(', ', $operation->parameterDeclarations()).'): '.$operation->returnType.';';
 
         return implode("\n", $doc)."\n".$signature;
     }
@@ -130,34 +130,5 @@ final readonly class ControllerGenerator
         $value = (string) preg_replace('/[\x00-\x1f\x7f]+/', ' ', $value);
 
         return trim($value);
-    }
-
-    /**
-     * @return list<string>
-     */
-    private function parameters(OperationDescriptor $operation): array
-    {
-        $params = [];
-
-        if ($operation->bodyParam !== null) {
-            $params[] = $operation->bodyParam['type'].' $'.$operation->bodyParam['name'];
-        } elseif ($operation->bodyRequiresRequest) {
-            $params[] = 'Request $request';
-        }
-
-        // The generated query Data class (issue #63), type-hinted only for
-        // body-less operations: laravel-data resolves it from the container
-        // and the class's fromQuery magic creation method hydrates it from
-        // the query string only. With a body present the class is reachable
-        // via ::fromQuery($request) instead (see the method docblock).
-        if ($operation->queryParam !== null && $operation->queryParam['injected']) {
-            $params[] = $operation->queryParam['type'].' $'.$operation->queryParam['name'];
-        }
-
-        foreach ($operation->pathParams as $pathParam) {
-            $params[] = $pathParam['phpType'].' $'.$pathParam['name'];
-        }
-
-        return $params;
     }
 }
