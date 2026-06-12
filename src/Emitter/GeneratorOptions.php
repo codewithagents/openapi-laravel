@@ -82,4 +82,29 @@ final readonly class GeneratorOptions
     {
         return $this->namespace.'\\Support';
     }
+
+    /**
+     * Append the configured Data suffix to a base class name, unless the name
+     * already ends with it (or no suffix is configured).
+     */
+    public function withSuffix(string $base): string
+    {
+        if ($this->dataSuffix === '' || str_ends_with($base, $this->dataSuffix)) {
+            return $base;
+        }
+
+        return $base.$this->dataSuffix;
+    }
+
+    /**
+     * Strip the configured Data suffix from a class name, when present.
+     */
+    public function stripSuffix(string $className): string
+    {
+        if ($this->dataSuffix !== '' && str_ends_with($className, $this->dataSuffix)) {
+            return substr($className, 0, -strlen($this->dataSuffix));
+        }
+
+        return $className;
+    }
 }

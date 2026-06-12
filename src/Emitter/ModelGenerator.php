@@ -27,13 +27,6 @@ use CodeWithAgents\OpenApiLaravel\Parser\Spec\SchemaNode;
  */
 final class ModelGenerator
 {
-    private const SCALARS = [
-        'string' => 'string',
-        'integer' => 'int',
-        'number' => 'float',
-        'boolean' => 'bool',
-    ];
-
     /**
      * Short-names the emitter imports into every (or many) generated Data files.
      * A component schema must never take one as its class name: `Data` is the
@@ -69,197 +62,17 @@ final class ModelGenerator
     private const QUERY_MAX_ARRAY_DEPTH = 4;
 
     /**
-     * Allocates the generated CLASS short-names (Data classes, enums, writable
-     * variants, query/request classes, discriminator variants). Case-insensitive
-     * (issue #108): two schemas whose class names differ only by case (e.g.
-     * `HttpHealthCheck` / `HTTPHealthCheck`) would otherwise emit two `.php`
-     * files that collide on a case-insensitive filesystem, the second silently
-     * clobbering the first. The property/parameter/enum-case allocators stay
-     * case-sensitive (PHP identifiers are case-sensitive there).
+     * The per-run mutable context (issue #109): the component registry, the
+     * alias caches, the emitted file buckets, the diagnostics channel, and
+     * the grouped-layout bookkeeping. Replaced wholesale at the start of
+     * every generate() run, which retires the old field-by-field reset.
      */
-    private UniqueNames $names;
-
-    /**
-     * Discriminated-union registry for the current generate() run: which
-     * component schemas are union bases (oneOf/anyOf + discriminator over object
-     * members) and which are their variants. Drives the abstract base + variant
-     * emission and the `$ref`-to-base typing. Rebuilt per generate() call.
-     */
-    private DiscriminatorRegistry $discriminators;
-
-    /**
-     * Component schema name => [className, kind, schema].
-     *
-     * @var array<string, array{class: string, kind: 'data'|'enum', schema: SchemaNode}>
-     */
-    private array $registry = [];
-
-    /**
-     * Component schema name => writable variant class name, for schemas that
-     * split into read/write variants. Used by the public registry() accessor.
-     *
-     * @var array<string, string>
-     */
-    private array $writeClasses = [];
-
-    /**
-     * Component schema name => resolved array type, for pure-map components
-     * (`type: object` with only `additionalProperties`, no named properties).
-     * Such a component is not emitted as its own Data class: a `$ref` to it
-     * inlines the typed array (`array<string, int>`) at the use site instead of
-     * pointing at an empty class. See resolveReference().
-     *
-     * @var array<string, ResolvedType>
-     */
-    private array $mapAliases = [];
-
-    /**
-     * Component schema name => the original SchemaNode, for pure-map components.
-     * Kept separately from $registry (which holds emitted Data/enum classes)
-     * so a $ref to a pure-map component can recover its value schema for rules.
-     *
-     * @var array<string, SchemaNode>
-     */
-    private array $mapSchemas = [];
-
-    /**
-     * Component schema name => resolved underlying type, for non-object alias
-     * components: a top-level component that is itself a scalar (`{type: string,
-     * format: date-time}`), an array, or a oneOf/anyOf union, with no object
-     * `properties`. Such a component is a TYPE ALIAS, not a Data class: a `$ref`
-     * to it resolves to the underlying type at the use site instead of pointing
-     * at an empty class (which would silently fail to hydrate). Mirrors
-     * $mapAliases. See resolveReference() and isNonObjectAlias().
-     *
-     * @var array<string, ResolvedType>
-     */
-    private array $aliasTypes = [];
-
-    /**
-     * Component schema name => the original SchemaNode, for non-object alias
-     * components. Kept separately so a `$ref` to such an alias can recover the
-     * underlying schema and reuse buildRules() at the use site (so a date-time
-     * alias still contributes its date-time rule, a length-bounded string alias
-     * its max:/min:, etc.). Mirrors $mapSchemas.
-     *
-     * @var array<string, SchemaNode>
-     */
-    private array $aliasSchemas = [];
-
-    /**
-     * @var array<string, GeneratedFile>
-     */
-    private array $files = [];
-
-    /**
-     * Per-operation query Data classes (issue #63), emitted on demand by
-     * {@see generateQueryData()} AFTER generate() ran, keyed by class name.
-     * Kept apart from $files because generate() already returned its file set
-     * when the server scaffold asks for query classes; the planner collects
-     * these separately via {@see queryFiles()}.
-     *
-     * @var array<string, GeneratedFile>
-     */
-    private array $queryFiles = [];
-
-    /**
-     * Per-operation request-body Data classes (issue #76), emitted on demand by
-     * {@see generateBodyData()} AFTER generate() ran, keyed by class name. The
-     * bucket also holds every nested class an inline body spawned (a nested
-     * object property becomes its own Data class, exactly like a component's).
-     * Kept apart from $files for the same reason as $queryFiles: generate()
-     * already returned its file set when the server scaffold asks for body
-     * classes; the planner collects these separately via {@see bodyFiles()}.
-     *
-     * @var array<string, GeneratedFile>
-     */
-    private array $bodyFiles = [];
-
-    /**
-     * Non-fatal diagnostics gathered during a generate() run, keyed by the
-     * warning text so the same finding (re-seen across the read/write variants of
-     * one schema, or a recursive inline emit) is recorded only once. The CLI
-     * surfaces these verbatim. They never change what is generated: the channel
-     * only reports silent information loss the spec forced on us.
-     *
-     * @var array<string, true>
-     */
-    private array $warnings = [];
-
-    /**
-     * Where the resolver currently is, leading every degradation warning
-     * (issue #67): 'Schema "Holder"' while a component (or its read/write
-     * variants and inline nested classes) is emitted, 'Query parameters of
-     * operation GET /pets' during query-class generation. Deliberately
-     * schema-grained, not property-grained: combined with the text-keyed
-     * dedupe above, the read and write variants of one schema report a shared
-     * degradation once instead of spamming the channel per generated class.
-     */
-    private string $warningContext = 'Document';
-
-    /**
-     * Whether the class currently being emitted is the ROOT of a
-     * multipart/form-data request body (issue #75). Only the root properties
-     * of such a body are form parts, so only there a `type: string,
-     * format: binary` property (or an array of them) becomes an UploadedFile
-     * with `file` rules; a binary string nested deeper sits inside a
-     * JSON-serialized part and keeps its plain string typing. Set by
-     * generateMultipartBodyData() around its emitData() call and consulted
-     * together with `depth === 0`, mirroring the $warningContext pattern.
-     */
-    private bool $multipartBody = false;
-
-    /**
-     * Runtime support classes the current generate() run actually referenced
-     * (issue #40), keyed by short name so each is recorded once. Drives the
-     * inlined Support file set: only the support classes a spec uses are emitted
-     * into the consumer's Support namespace, so the set stays minimal and
-     * deterministic. Rebuilt per generate() call.
-     *
-     * @var array<string, true>
-     */
-    private array $usedSupportClasses = [];
-
-    /**
-     * Emitted class name => its tag group under the grouped data layout
-     * (issue #93), or null for the flat root. Holds EVERY generated class
-     * (components, write variants, nested inline classes, synthesized union
-     * variants, per-operation query and body classes); in the flat default
-     * every value is null. Drives the per-file namespace, the subdirectory,
-     * and the cross-group import decisions. Rebuilt per generate() call.
-     *
-     * @var array<string, ?string>
-     */
-    private array $fileGroups = [];
-
-    /**
-     * Reference scopes for the class currently being emitted (issue #93): a
-     * stack because emission is reentrant (an inline object property spawns a
-     * nested class mid-emit). Each entry records the tag group the emission
-     * runs under (so a spawned nested class inherits it) and the generated
-     * classes the rendered code references (property types, DataCollectionOf
-     * targets, Rule::enum classes, morph arms, the variant base), so the
-     * renderer can import exactly the cross-group references. The alias and
-     * map classification passes push a group-only scope, so a nested class
-     * spawned from inside an alias/map component follows THAT component.
-     *
-     * @var list<array{group: ?string, refs: array<string, true>}>
-     */
-    private array $refScopes = [];
-
-    /**
-     * The tag-grouped layout attribution for the current generate() run
-     * (issue #93): schema name => owning group. Computed from the document
-     * itself unless the options injected a precomputed map (a test seam).
-     *
-     * @var array<string, string>
-     */
-    private array $schemaGroups = [];
+    private GenerationState $state;
 
     public function __construct(
         private readonly GeneratorOptions $options = new GeneratorOptions,
     ) {
-        $this->names = new UniqueNames(self::RESERVED_CLASS_NAMES, caseInsensitive: true);
+        $this->state = new GenerationState($this->options, new UniqueNames(self::RESERVED_CLASS_NAMES, caseInsensitive: true));
     }
 
     /**
@@ -267,29 +80,14 @@ final class ModelGenerator
      */
     public function generate(OpenApiDocument $document): array
     {
-        $this->names = new UniqueNames(self::RESERVED_CLASS_NAMES, caseInsensitive: true);
-        $this->registry = [];
-        $this->writeClasses = [];
-        $this->mapAliases = [];
-        $this->mapSchemas = [];
-        $this->aliasTypes = [];
-        $this->aliasSchemas = [];
-        $this->files = [];
-        $this->queryFiles = [];
-        $this->bodyFiles = [];
-        $this->warnings = [];
-        $this->warningContext = 'Document';
-        $this->multipartBody = false;
-        $this->usedSupportClasses = [];
-        $this->fileGroups = [];
-        $this->refScopes = [];
+        $this->state = new GenerationState($this->options, new UniqueNames(self::RESERVED_CLASS_NAMES, caseInsensitive: true));
 
         // Tag-grouped data layout (issue #93, the only layout): attribute each
         // component schema to the tag group that solely owns it, via the same
         // transitive walk as the subset closure. Computed here from the
         // document itself so EVERY caller gets the grouped layout; the options
         // map is an injection seam for unit tests of the emission side.
-        $this->schemaGroups = $this->options->schemaGroups
+        $this->state->schemaGroups = $this->options->schemaGroups
             ?? (new SchemaClosure)->attributeByTag($document);
 
         $schemas = $this->componentSchemas($document);
@@ -299,14 +97,14 @@ final class ModelGenerator
         // base (a oneOf/anyOf of object $refs plus a discriminator) becomes an
         // abstract Data class rather than a non-object alias, and its variants
         // extend it. Built from the same component map so it is deterministic.
-        $this->discriminators = new DiscriminatorRegistry($schemas);
+        $this->state->discriminators = new DiscriminatorRegistry($schemas);
 
         // Surface why any discriminated union degraded to presence-only (a
         // non-object member, a multi-base conflict, or a base left with no
         // claimable variants) through the same diagnostics channel as the other
         // silent-information-loss warnings.
-        foreach ($this->discriminators->warnings() as $warning) {
-            $this->warnings[$warning] = true;
+        foreach ($this->state->discriminators->warnings() as $warning) {
+            $this->state->warnings[$warning] = true;
         }
 
         // The inline-union form (#38) has no named component per variant: the
@@ -314,7 +112,7 @@ final class ModelGenerator
         // each inline member. Merge those into the schema map so the rest of the
         // pipeline (registration, emission, $ref resolution) treats them exactly
         // like a named variant component. Sorted keys keep output deterministic.
-        foreach ($this->discriminators->syntheticVariants() as $variantName => $variantSchema) {
+        foreach ($this->state->discriminators->syntheticVariants() as $variantName => $variantSchema) {
             $schemas[$variantName] = $variantSchema;
         }
         ksort($schemas);
@@ -324,10 +122,10 @@ final class ModelGenerator
             // PropertyMorphableData), even though it is structurally a
             // oneOf/anyOf alias. Register it as such before the alias check
             // below would otherwise skip it.
-            if ($this->discriminators->isBase($name)) {
-                $class = $this->names->reserve($this->withSuffix(PhpIdentifier::toClassName($name)));
-                $this->registry[$name] = ['class' => $class, 'kind' => 'data', 'schema' => $schema];
-                $this->fileGroups[$class] = $this->groupForSchema($name);
+            if ($this->state->discriminators->isBase($name)) {
+                $class = $this->state->names->reserve($this->options->withSuffix(PhpIdentifier::toClassName($name)));
+                $this->state->registry[$name] = ['class' => $class, 'kind' => 'data', 'schema' => $schema];
+                $this->state->fileGroups[$class] = $this->state->groupForSchema($name);
 
                 continue;
             }
@@ -336,7 +134,7 @@ final class ModelGenerator
             // properties) is not a Data class: it is a typed array. Record it as
             // a map alias and skip emitting an empty class. References to it
             // inline the array type at the use site.
-            if ($this->isPureMap($schema)) {
+            if (SchemaFacts::isPureMap($schema)) {
                 continue;
             }
 
@@ -348,28 +146,28 @@ final class ModelGenerator
                 continue;
             }
 
-            $kind = $this->isEnum($schema) ? 'enum' : 'data';
+            $kind = SchemaFacts::isEnum($schema) ? 'enum' : 'data';
             $base = PhpIdentifier::toClassName($name);
-            $class = $kind === 'data' ? $this->withSuffix($base) : $base;
-            $class = $this->names->reserve($class);
+            $class = $kind === 'data' ? $this->options->withSuffix($base) : $base;
+            $class = $this->state->names->reserve($class);
 
-            $this->registry[$name] = ['class' => $class, 'kind' => $kind, 'schema' => $schema];
-            $this->fileGroups[$class] = $this->groupForSchema($name);
+            $this->state->registry[$name] = ['class' => $class, 'kind' => $kind, 'schema' => $schema];
+            $this->state->fileGroups[$class] = $this->state->groupForSchema($name);
         }
 
         // Second classification pass: resolve each pure-map component to its
         // array type. Done after the registry is built so a map whose value is a
         // `$ref` resolves the referenced class. Sorted for determinism.
         foreach ($schemas as $name => $schema) {
-            if ($this->isPureMap($schema)) {
-                $this->warningContext = sprintf('Schema "%s"', $name);
-                $this->mapSchemas[$name] = $schema;
+            if (SchemaFacts::isPureMap($schema)) {
+                $this->state->warningContext = sprintf('Schema "%s"', $name);
+                $this->state->mapSchemas[$name] = $schema;
                 // A nested class spawned from the map's value schema follows
                 // the map component's own tag group (issue #93); the recorded
                 // refs are discarded (use sites replay the cached classRefs).
-                $this->pushGroupScope($this->groupForSchema($name));
-                $this->mapAliases[$name] = $this->mapType($schema, PhpIdentifier::toClassName($name), 0, 'all');
-                $this->popRefScope();
+                $this->state->pushGroupScope($this->state->groupForSchema($name));
+                $this->state->mapAliases[$name] = $this->mapType($schema, PhpIdentifier::toClassName($name), 0, 'all');
+                $this->state->popRefScope();
             }
         }
 
@@ -383,11 +181,11 @@ final class ModelGenerator
             // A discriminated-union base is an (abstract) Data class, not a
             // non-object alias: never record it as an alias, or a $ref to it
             // would resolve to mixed instead of the base type.
-            if ($this->discriminators->isBase($name)) {
+            if ($this->state->discriminators->isBase($name)) {
                 continue;
             }
             if ($this->isNonObjectAlias($schema)) {
-                $this->aliasSchemas[$name] = $schema;
+                $this->state->aliasSchemas[$name] = $schema;
             }
         }
 
@@ -399,24 +197,24 @@ final class ModelGenerator
         // (its read/write split and server-scaffold registry entry are kept).
         $this->promoteChainedAliases($schemas);
 
-        foreach ($this->aliasSchemas as $name => $schema) {
+        foreach ($this->state->aliasSchemas as $name => $schema) {
             $this->resolveAlias($name);
         }
 
-        foreach ($this->registry as $name => $entry) {
+        foreach ($this->state->registry as $name => $entry) {
             // One warning context per component: the read/write variants and
             // every inline nested class of this schema report a shared
             // degradation once (issue #67).
-            $this->warningContext = sprintf('Schema "%s"', $name);
+            $this->state->warningContext = sprintf('Schema "%s"', $name);
 
             if ($entry['kind'] === 'enum') {
                 $this->emitEnum($entry['class'], $entry['schema']);
-            } elseif ($this->discriminators->isBase($name)) {
+            } elseif ($this->state->discriminators->isBase($name)) {
                 // The abstract base of a discriminated union: only the
                 // discriminator property, marked for morph, plus a match() that
                 // maps each discriminator value to its variant Data class.
                 $this->emitDiscriminatorBase($name, $entry['class']);
-            } elseif ($this->discriminators->isVariant($name)) {
+            } elseif ($this->state->discriminators->isVariant($name)) {
                 // A variant extends its base, forwards the discriminator, and
                 // declares only its own (non-discriminator) properties.
                 $this->emitVariant($name, $entry['class'], $entry['schema']);
@@ -424,20 +222,20 @@ final class ModelGenerator
                 // The spec marks fields readOnly/writeOnly: split into a read
                 // variant (drops writeOnly) and a write variant (drops readOnly).
                 $this->emitData($entry['class'], $entry['schema'], 0, 'read');
-                $writeClass = $this->names->reserve($this->withSuffix($this->stripSuffix($entry['class']).'Writable'));
-                $this->writeClasses[$name] = $writeClass;
+                $writeClass = $this->state->names->reserve($this->options->withSuffix($this->options->stripSuffix($entry['class']).'Writable'));
+                $this->state->writeClasses[$name] = $writeClass;
                 // The write variant is the same component, so it follows the
                 // component's tag group (issue #93).
-                $this->fileGroups[$writeClass] = $this->fileGroups[$entry['class']] ?? null;
+                $this->state->fileGroups[$writeClass] = $this->state->fileGroups[$entry['class']] ?? null;
                 $this->emitData($writeClass, $entry['schema'], 0, 'write');
             } else {
                 $this->emitData($entry['class'], $entry['schema'], 0);
             }
         }
 
-        ksort($this->files);
+        ksort($this->state->files);
 
-        return $this->files;
+        return $this->state->files;
     }
 
     /**
@@ -452,10 +250,10 @@ final class ModelGenerator
     {
         $result = [];
 
-        foreach ($this->registry as $name => $entry) {
+        foreach ($this->state->registry as $name => $entry) {
             $result[$name] = [
                 'dataClass' => $entry['class'],
-                'writeClass' => $this->writeClasses[$name] ?? null,
+                'writeClass' => $this->state->writeClasses[$name] ?? null,
                 'kind' => $entry['kind'],
             ];
         }
@@ -478,7 +276,7 @@ final class ModelGenerator
      */
     public function warnings(): array
     {
-        $warnings = array_keys($this->warnings);
+        $warnings = array_keys($this->state->warnings);
         sort($warnings);
 
         return $warnings;
@@ -520,7 +318,7 @@ final class ModelGenerator
     {
         // Degradation warnings inside the query pipeline name the operation,
         // not a schema: the parameters being resolved are operation-owned.
-        $this->warningContext = sprintf('Query parameters of operation %s', $operationLabel);
+        $this->state->warningContext = sprintf('Query parameters of operation %s', $operationLabel);
 
         $supported = [];
         foreach ($parameters as $parameter) {
@@ -528,7 +326,7 @@ final class ModelGenerator
 
             if ($reason !== null) {
                 $name = $parameter->name === '' ? '(unnamed)' : $parameter->name;
-                $this->warnings[sprintf(
+                $this->state->warnings[sprintf(
                     'Operation %s: query parameter "%s" was skipped: %s.',
                     $operationLabel,
                     $name,
@@ -545,14 +343,14 @@ final class ModelGenerator
             return null;
         }
 
-        $className = $this->names->reserve($this->withSuffix($baseName.'Query'));
+        $className = $this->state->names->reserve($this->options->withSuffix($baseName.'Query'));
 
         // A per-operation class belongs unambiguously to its operation's tag
         // group (issue #93); in the flat layout the group is null.
-        $this->fileGroups[$className] = $this->groupForTag($tag);
-        $this->pushRefScope($className);
+        $this->state->fileGroups[$className] = $this->groupForTag($tag);
+        $this->state->pushRefScope($className);
 
-        $base = $this->stripSuffix($className);
+        $base = $this->options->stripSuffix($className);
         $propertyNames = new UniqueNames;
 
         $paramsRequired = [];
@@ -573,7 +371,7 @@ final class ModelGenerator
             // (first_name + firstName); suffix collisions like emitData does.
             $propertyName = $propertyNames->reserve(PhpIdentifier::toPropertyName($wireName));
             $type = $this->resolveType($schema, $base.PhpIdentifier::toClassName($wireName), 1);
-            $this->noteClassRef(...$type->classRefs);
+            $this->state->noteClassRef(...$type->classRefs);
 
             // The form style serializes a boolean as ?flag=true / ?flag=false,
             // but Laravel's `boolean` rule only understands 1/0 (and PHP's
@@ -591,7 +389,7 @@ final class ModelGenerator
 
             // A parameter can be deprecated on the Parameter object itself or on
             // its schema; either way the property carries the `@deprecated` tag.
-            $deprecationTag = $parameter->deprecated === true ? '@deprecated' : $this->deprecationTag($schema);
+            $deprecationTag = $parameter->deprecated === true ? '@deprecated' : SchemaFacts::deprecationTag($schema);
 
             $rendered = $this->renderProperty($wireName, $propertyName, $type, $isRequired, $default, $deprecationTag);
 
@@ -616,7 +414,7 @@ final class ModelGenerator
         if ($params === []) {
             // Every surviving parameter lacked a usable schema (defensive; the
             // skip check above already filtered these). No useful class to emit.
-            $this->popRefScope();
+            $this->state->popRefScope();
 
             return null;
         }
@@ -629,16 +427,16 @@ final class ModelGenerator
 
         // A referenced enum or Data class may live in another tag group
         // (issue #93); import those from their real namespaces.
-        $imports = $this->withCrossGroupImports($className, $imports, $this->popRefScope());
+        $imports = $this->state->withCrossGroupImports($className, $imports, $this->state->popRefScope());
 
         $classDoc = [
-            'Query parameters of '.$this->docblockSafe($operationLabel).'.',
+            'Query parameters of '.PhpLiteral::docblockSafe($operationLabel).'.',
         ];
 
-        $this->queryFiles[$className] = new GeneratedFile(
+        $this->state->queryFiles[$className] = new GeneratedFile(
             $className,
             $this->renderDataClass($className, $params, $imports, $rules, $classDoc, fromQueryBooleans: $booleanNames),
-            $this->fileGroups[$className] ?? null,
+            $this->state->fileGroups[$className] ?? null,
         );
 
         return $className;
@@ -654,7 +452,7 @@ final class ModelGenerator
      */
     public function queryFiles(): array
     {
-        $files = $this->queryFiles;
+        $files = $this->state->queryFiles;
         ksort($files);
 
         return $files;
@@ -694,11 +492,11 @@ final class ModelGenerator
     {
         // Degradation warnings inside the body pipeline name the operation,
         // not a schema: an inline body schema is operation-owned.
-        $this->warningContext = sprintf('Request body of operation %s', $operationLabel);
+        $this->state->warningContext = sprintf('Request body of operation %s', $operationLabel);
 
         $reason = $this->bodySkipReason($schema);
         if ($reason !== null) {
-            $this->warnings[sprintf(
+            $this->state->warnings[sprintf(
                 'Operation %s: the inline request body schema was not generated as a typed Data class (%s); the controller method falls back to Illuminate\Http\Request.',
                 $operationLabel,
                 $reason,
@@ -707,28 +505,28 @@ final class ModelGenerator
             return null;
         }
 
-        $className = $this->names->reserve($this->withSuffix($baseName.'Request'));
+        $className = $this->state->names->reserve($this->options->withSuffix($baseName.'Request'));
 
         // A per-operation class belongs unambiguously to its operation's tag
         // group (issue #93); nested classes it spawns follow it through the
         // emission scope. Null in the flat layout.
-        $this->fileGroups[$className] = $this->groupForTag($tag);
+        $this->state->fileGroups[$className] = $this->groupForTag($tag);
 
         // emitData() writes the class (and every nested class it spawns) into
         // $files, which generate() already returned to its caller. Emit into a
         // clean bucket and collect the run's output into $bodyFiles, so the
         // planner picks the body classes up via bodyFiles() exactly like the
         // query classes.
-        $mainFiles = $this->files;
-        $this->files = [];
+        $mainFiles = $this->state->files;
+        $this->state->files = [];
 
         $variant = $this->hasReadWriteFlags($schema) ? 'write' : 'all';
-        $this->emitData($className, $schema, 0, $variant, ['Request body of '.$this->docblockSafe($operationLabel).'.']);
+        $this->emitData($className, $schema, 0, $variant, ['Request body of '.PhpLiteral::docblockSafe($operationLabel).'.']);
 
-        foreach ($this->files as $name => $file) {
-            $this->bodyFiles[$name] = $file;
+        foreach ($this->state->files as $name => $file) {
+            $this->state->bodyFiles[$name] = $file;
         }
-        $this->files = $mainFiles;
+        $this->state->files = $mainFiles;
 
         return $className;
     }
@@ -743,7 +541,7 @@ final class ModelGenerator
      */
     public function bodyFiles(): array
     {
-        $files = $this->bodyFiles;
+        $files = $this->state->bodyFiles;
         ksort($files);
 
         return $files;
@@ -775,12 +573,12 @@ final class ModelGenerator
      */
     public function generateMultipartBodyData(string $baseName, string $operationLabel, SchemaNode|ReferenceNode $schema, ?string $tag = null): ?string
     {
-        $this->warningContext = sprintf('Multipart request body of operation %s', $operationLabel);
+        $this->state->warningContext = sprintf('Multipart request body of operation %s', $operationLabel);
 
         if ($schema instanceof ReferenceNode) {
             $name = SchemaPointer::refName($schema->pointer());
-            if ($name === null || ! isset($this->registry[$name]) || $this->registry[$name]['kind'] !== 'data') {
-                $this->warnings[sprintf(
+            if ($name === null || ! isset($this->state->registry[$name]) || $this->state->registry[$name]['kind'] !== 'data') {
+                $this->state->warnings[sprintf(
                     'Operation %s: the multipart/form-data request body $ref "%s" does not resolve to an object component schema; the controller method falls back to Illuminate\Http\Request.',
                     $operationLabel,
                     $schema->pointer(),
@@ -789,12 +587,12 @@ final class ModelGenerator
                 return null;
             }
 
-            $schema = $this->registry[$name]['schema'];
+            $schema = $this->state->registry[$name]['schema'];
         }
 
         $reason = $this->bodySkipReason($schema);
         if ($reason !== null) {
-            $this->warnings[sprintf(
+            $this->state->warnings[sprintf(
                 'Operation %s: the multipart/form-data request body schema was not generated as a typed Data class (%s); the controller method falls back to Illuminate\Http\Request.',
                 $operationLabel,
                 $reason,
@@ -803,27 +601,27 @@ final class ModelGenerator
             return null;
         }
 
-        $className = $this->names->reserve($this->withSuffix($baseName.'Request'));
+        $className = $this->state->names->reserve($this->options->withSuffix($baseName.'Request'));
 
         // A per-operation class belongs unambiguously to its operation's tag
         // group (issue #93), exactly like generateBodyData(); nested classes
         // it spawns follow it through the emission scope. Null when flat.
-        $this->fileGroups[$className] = $this->groupForTag($tag);
+        $this->state->fileGroups[$className] = $this->groupForTag($tag);
 
         // Same bucket discipline as generateBodyData(): emit into a clean
         // bucket and collect into $bodyFiles for the planner.
-        $mainFiles = $this->files;
-        $this->files = [];
-        $this->multipartBody = true;
+        $mainFiles = $this->state->files;
+        $this->state->files = [];
+        $this->state->multipartBody = true;
 
         $variant = $this->hasReadWriteFlags($schema) ? 'write' : 'all';
-        $this->emitData($className, $schema, 0, $variant, ['Multipart request body of '.$this->docblockSafe($operationLabel).'.']);
+        $this->emitData($className, $schema, 0, $variant, ['Multipart request body of '.PhpLiteral::docblockSafe($operationLabel).'.']);
 
-        $this->multipartBody = false;
-        foreach ($this->files as $name => $file) {
-            $this->bodyFiles[$name] = $file;
+        $this->state->multipartBody = false;
+        foreach ($this->state->files as $name => $file) {
+            $this->state->bodyFiles[$name] = $file;
         }
-        $this->files = $mainFiles;
+        $this->state->files = $mainFiles;
 
         return $className;
     }
@@ -843,11 +641,11 @@ final class ModelGenerator
      */
     private function bodySkipReason(SchemaNode $schema): ?string
     {
-        if ($this->isPureMap($schema)) {
+        if (SchemaFacts::isPureMap($schema)) {
             return 'it is an object map with only additionalProperties, which resolves to a typed array, not a Data class';
         }
 
-        if ($this->isEnum($schema) || $this->isScalarEnumComponent($schema)) {
+        if (SchemaFacts::isEnum($schema) || SchemaFacts::isScalarEnumComponent($schema)) {
             return 'it is an enum, not an object shape';
         }
 
@@ -862,15 +660,15 @@ final class ModelGenerator
         // (a scalar/array/union alias, a map, an enum, or an unresolved
         // pointer) would merge to an empty class that silently drops the
         // payload, so it keeps the Request fallback instead.
-        $aliasRef = $this->bareAllOfRef($schema);
+        $aliasRef = SchemaFacts::bareAllOfRef($schema);
         if ($aliasRef !== null) {
             $name = SchemaPointer::refName($aliasRef->pointer());
-            if ($name === null || ! isset($this->registry[$name]) || $this->registry[$name]['kind'] !== 'data') {
+            if ($name === null || ! isset($this->state->registry[$name]) || $this->state->registry[$name]['kind'] !== 'data') {
                 return 'it is an allOf alias of a non-object component, so no Data class can type it';
             }
         }
 
-        $primary = $this->normalizeTypes($schema)[0] ?? null;
+        $primary = SchemaFacts::normalizeTypes($schema)[0] ?? null;
 
         if ($primary === 'object'
             || $this->notEmptyArray($schema->properties)
@@ -910,7 +708,7 @@ final class ModelGenerator
             return ['kind' => 'file', 'schema' => $resolved, 'leaf' => $resolved];
         }
 
-        if (($this->normalizeTypes($resolved)[0] ?? null) === 'array') {
+        if ((SchemaFacts::normalizeTypes($resolved)[0] ?? null) === 'array') {
             $items = $resolved->items;
             if ($items instanceof SchemaNode || $items instanceof ReferenceNode) {
                 $leaf = $this->multipartPartSchema($items);
@@ -934,14 +732,14 @@ final class ModelGenerator
             return $schema;
         }
 
-        $alias = $this->referencedAliasSchema($schema);
+        $alias = $this->state->referencedAliasSchema($schema);
 
-        return $alias === null ? null : $this->terminalAliasSchema($alias);
+        return $alias === null ? null : $this->state->terminalAliasSchema($alias);
     }
 
     private function isBinaryString(SchemaNode $schema): bool
     {
-        return ($this->normalizeTypes($schema)[0] ?? null) === 'string' && $schema->format === 'binary';
+        return (SchemaFacts::normalizeTypes($schema)[0] ?? null) === 'string' && $schema->format === 'binary';
     }
 
     /**
@@ -952,7 +750,7 @@ final class ModelGenerator
      */
     private function multipartFileType(array $part): ResolvedType
     {
-        $nullable = $this->isNullable($part['schema']);
+        $nullable = SchemaFacts::isNullable($part['schema']);
 
         if ($part['kind'] === 'file') {
             return new ResolvedType('UploadedFile', $nullable, null, [self::UPLOADED_FILE_FQCN]);
@@ -1078,11 +876,11 @@ final class ModelGenerator
             $name = SchemaPointer::refName($schema->pointer());
 
             return $name !== null
-                && isset($this->aliasSchemas[$name])
+                && isset($this->state->aliasSchemas[$name])
                 && $this->resolveAlias($name)->declaration === 'array';
         }
 
-        return ($this->normalizeTypes($schema)[0] ?? null) === 'array';
+        return (SchemaFacts::normalizeTypes($schema)[0] ?? null) === 'array';
     }
 
     /**
@@ -1109,15 +907,15 @@ final class ModelGenerator
                 return null;
             }
 
-            if (isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'data') {
+            if (isset($this->state->registry[$name]) && $this->state->registry[$name]['kind'] === 'data') {
                 return 'it is an object, which has no flat query-string serialization';
             }
 
-            if (isset($this->mapSchemas[$name])) {
+            if (isset($this->state->mapSchemas[$name])) {
                 return 'it is an object map, which has no flat query-string serialization';
             }
 
-            if (isset($this->aliasSchemas[$name])) {
+            if (isset($this->state->aliasSchemas[$name])) {
                 $resolved = $this->resolveAlias($name);
                 if ($resolved->isMap) {
                     return 'it is an object map, which has no flat query-string serialization';
@@ -1132,11 +930,11 @@ final class ModelGenerator
             return null;
         }
 
-        if ($this->isPureMap($schema)) {
+        if (SchemaFacts::isPureMap($schema)) {
             return 'it is an object map, which has no flat query-string serialization';
         }
 
-        $primary = $this->normalizeTypes($schema)[0] ?? null;
+        $primary = SchemaFacts::normalizeTypes($schema)[0] ?? null;
 
         if ($primary === 'object' || $this->notEmptyArray($schema->properties) || $this->notEmptyArray($schema->allOf)) {
             return 'it is an object, which has no flat query-string serialization';
@@ -1184,7 +982,7 @@ final class ModelGenerator
             // (issue #67). A mistyped (non-object) component entry never reaches
             // this map: the reader drops it during hydration.
             if ($schema instanceof ReferenceNode) {
-                $this->warnings[sprintf(
+                $this->state->warnings[sprintf(
                     'Component schema "%s" is a bare $ref ("%s") and is not generated; references to it degrade to mixed with presence-only validation.',
                     (string) $name,
                     $schema->pointer(),
@@ -1206,7 +1004,7 @@ final class ModelGenerator
      */
     private function emitData(string $className, SchemaNode $schema, int $depth, string $variant = 'all', array $docIntro = []): void
     {
-        $this->pushRefScope($className);
+        $this->state->pushRefScope($className);
 
         $properties = $this->objectProperties($schema);
         $required = $this->requiredNames($schema);
@@ -1216,12 +1014,12 @@ final class ModelGenerator
         // wrap it in a single `value` property typed by the scalar with the
         // `Rule::in` membership rule. Without this it would emit an empty,
         // useless Data class that silently accepts any value.
-        if ($properties === [] && $this->isScalarEnumComponent($schema)) {
+        if ($properties === [] && SchemaFacts::isScalarEnumComponent($schema)) {
             $properties = ['value' => $schema];
             $required = ['value'];
         }
 
-        $base = $this->stripSuffix($className);
+        $base = $this->options->stripSuffix($className);
         $propertyNames = new UniqueNames;
 
         $paramsRequired = [];
@@ -1250,10 +1048,10 @@ final class ModelGenerator
 
             // readOnly fields are response-only (drop from the write variant);
             // writeOnly fields are request-only (drop from the read variant).
-            if ($variant === 'read' && $this->isWriteOnly($propertySchema)) {
+            if ($variant === 'read' && SchemaFacts::isWriteOnly($propertySchema)) {
                 continue;
             }
-            if ($variant === 'write' && $this->isReadOnly($propertySchema)) {
+            if ($variant === 'write' && SchemaFacts::isReadOnly($propertySchema)) {
                 continue;
             }
 
@@ -1268,12 +1066,12 @@ final class ModelGenerator
             // root properties are form parts, so the detection is gated on
             // depth 0; a binary string nested deeper sits inside a
             // JSON-serialized part and keeps its plain string typing.
-            $filePart = $this->multipartBody && $depth === 0 ? $this->multipartFilePart($propertySchema) : null;
+            $filePart = $this->state->multipartBody && $depth === 0 ? $this->multipartFilePart($propertySchema) : null;
 
             $type = $filePart !== null
                 ? $this->multipartFileType($filePart)
                 : $this->resolveType($propertySchema, $base.PhpIdentifier::toClassName($wireName), $depth + 1, $variant);
-            $this->noteClassRef(...$type->classRefs);
+            $this->state->noteClassRef(...$type->classRefs);
 
             // A scalar `default` makes the property optional on input even when
             // the spec lists it as required: an omitted value is filled by the
@@ -1284,7 +1082,7 @@ final class ModelGenerator
             $default = $this->defaultValue($propertySchema, $type);
             $isRequired = $listedRequired && $default === null;
 
-            $rendered = $this->renderProperty($wireName, $propertyName, $type, $isRequired, $default, $this->deprecationTag($propertySchema));
+            $rendered = $this->renderProperty($wireName, $propertyName, $type, $isRequired, $default, SchemaFacts::deprecationTag($propertySchema));
 
             if ($isRequired) {
                 $paramsRequired[] = $rendered;
@@ -1321,7 +1119,7 @@ final class ModelGenerator
         // --no-enforce-closed-objects restores the lenient output. A schema
         // that also declares patternProperties widens the allow-set with its
         // patterns (issue #65); see closedObjectRule().
-        if ($this->options->enforceClosedObjects && $this->declaresClosedObject($schema)) {
+        if ($this->options->enforceClosedObjects && SchemaFacts::declaresClosedObject($schema)) {
             $closedObjectRule = $this->closedObjectRule($base, $declaredWireNames, $schema);
             if ($closedObjectRule !== null) {
                 $rules[self::CLOSED_OBJECT_SENTINEL] = [$closedObjectRule];
@@ -1346,7 +1144,7 @@ final class ModelGenerator
                 'write' => 'no writable (non-readOnly) properties',
                 default => 'no properties',
             };
-            $this->warnings[sprintf(
+            $this->state->warnings[sprintf(
                 'Schema "%s" has %s: the generated class "%s" has an empty body, so every payload field for this shape is dropped on hydration.',
                 $base,
                 $detail,
@@ -1362,23 +1160,23 @@ final class ModelGenerator
         // overflow is documented, not silently dropped into a non-functional
         // field.
         $classDoc = $docIntro;
-        $deprecationTag = $this->deprecationTag($schema);
+        $deprecationTag = SchemaFacts::deprecationTag($schema);
         if ($deprecationTag !== null) {
             $classDoc[] = $deprecationTag;
         }
-        if ($this->notEmptyArray($properties) && $this->additionalPropertiesSchema($schema) !== null) {
+        if ($this->notEmptyArray($properties) && SchemaFacts::additionalPropertiesSchema($schema) !== null) {
             $classDoc[] = 'This schema also declares additionalProperties: dynamic keys beyond the named properties above are not captured by this class.';
         }
 
         // Close this class's reference scope and import every cross-group
         // reference (issue #93); a flat-layout run records groups of null
         // everywhere, so the imports come back unchanged.
-        $imports = $this->withCrossGroupImports($className, $imports, $this->popRefScope());
+        $imports = $this->state->withCrossGroupImports($className, $imports, $this->state->popRefScope());
 
-        $this->files[$className] = new GeneratedFile(
+        $this->state->files[$className] = new GeneratedFile(
             $className,
             $this->renderDataClass($className, $params, $imports, $rules, $classDoc),
-            $this->fileGroups[$className] ?? null,
+            $this->state->fileGroups[$className] ?? null,
         );
     }
 
@@ -1392,9 +1190,9 @@ final class ModelGenerator
      */
     private function emitDiscriminatorBase(string $baseName, string $className): void
     {
-        $this->pushRefScope($className);
+        $this->state->pushRefScope($className);
 
-        $wireName = (string) $this->discriminators->propertyName($baseName);
+        $wireName = (string) $this->state->discriminators->propertyName($baseName);
         $propertyName = PhpIdentifier::toPropertyName($wireName);
 
         // The discriminator type comes from a variant that declares it (every
@@ -1427,7 +1225,7 @@ final class ModelGenerator
 
         $mapName = '';
         if (PhpIdentifier::needsMapName($wireName, $propertyName)) {
-            $mapName = "        #[MapName('".$this->escapeSingleQuoted($wireName)."')]\n";
+            $mapName = "        #[MapName('".PhpLiteral::escapeSingleQuoted($wireName)."')]\n";
             $imports[] = 'Spatie\\LaravelData\\Attributes\\MapName';
         }
 
@@ -1441,28 +1239,28 @@ final class ModelGenerator
         // value arrives as an int, and match is strict, so the arm must be an int
         // literal (1 not '1') or it would never compare equal.
         $arms = [];
-        foreach ($this->discriminators->valueToVariant($baseName) as $value => $variantSchemaName) {
-            $variantClass = $this->registry[$variantSchemaName]['class'] ?? null;
+        foreach ($this->state->discriminators->valueToVariant($baseName) as $value => $variantSchemaName) {
+            $variantClass = $this->state->registry[$variantSchemaName]['class'] ?? null;
             if ($variantClass === null) {
                 continue;
             }
-            $this->noteClassRef($variantClass);
+            $this->state->noteClassRef($variantClass);
             $arms[] = '            '.$this->discriminatorValueLiteral((string) $value, $type).' => '.$variantClass.'::class,';
         }
         $arms[] = '            default => null,';
 
         // A deprecated discriminated base carries a class-level `@deprecated`.
-        $baseSchema = $this->registry[$baseName]['schema'] ?? null;
-        $deprecationTag = $baseSchema instanceof SchemaNode ? $this->deprecationTag($baseSchema) : null;
+        $baseSchema = $this->state->registry[$baseName]['schema'] ?? null;
+        $deprecationTag = $baseSchema instanceof SchemaNode ? SchemaFacts::deprecationTag($baseSchema) : null;
 
         // A variant may live in another tag group (issue #93): the morph()
         // arms reference it by short name, so import it from its real group.
-        $imports = $this->withCrossGroupImports($className, $imports, $this->popRefScope());
+        $imports = $this->state->withCrossGroupImports($className, $imports, $this->state->popRefScope());
 
-        $this->files[$className] = new GeneratedFile(
+        $this->state->files[$className] = new GeneratedFile(
             $className,
             $this->renderDiscriminatorBase($className, $imports, $mapName, $propertyName, $type, $validationAttributes, $arms, $deprecationTag),
-            $this->fileGroups[$className] ?? null,
+            $this->state->fileGroups[$className] ?? null,
         );
     }
 
@@ -1493,10 +1291,10 @@ final class ModelGenerator
     private function discriminatorValueLiteral(string $value, ResolvedType $type): string
     {
         if ($type->declaration === 'int' && preg_match('/^-?\d+$/', $value) === 1) {
-            return $this->numberLiteral((int) $value);
+            return PhpLiteral::numberLiteral((int) $value);
         }
 
-        return $this->scalarLiteral($value);
+        return PhpLiteral::scalarLiteral($value);
     }
 
     /**
@@ -1507,16 +1305,16 @@ final class ModelGenerator
      */
     private function emitVariant(string $variantName, string $className, SchemaNode $schema): void
     {
-        $this->pushRefScope($className);
+        $this->state->pushRefScope($className);
 
-        $baseName = (string) $this->discriminators->baseOf($variantName);
-        $baseClass = $this->registry[$baseName]['class'] ?? 'Data';
+        $baseName = (string) $this->state->discriminators->baseOf($variantName);
+        $baseClass = $this->state->registry[$baseName]['class'] ?? 'Data';
         // The `extends` references the base by short name; under the grouped
         // layout (issue #93) the base may live in another group, so record the
         // reference (the defensive 'Data' fallback is never a generated class
         // and is filtered by withCrossGroupImports).
-        $this->noteClassRef($baseClass);
-        $discriminatorWire = (string) $this->discriminators->propertyName($baseName);
+        $this->state->noteClassRef($baseClass);
+        $discriminatorWire = (string) $this->state->discriminators->propertyName($baseName);
         $discriminatorProperty = PhpIdentifier::toPropertyName($discriminatorWire);
 
         // Forward the discriminator with the SAME type the base declares it with
@@ -1537,7 +1335,7 @@ final class ModelGenerator
         // keeps the named-component and inline forms unchanged (their base also
         // declares only the discriminator) and gives the allOf form correct
         // per-variant validation of the full merged shape.
-        $base = $this->stripSuffix($className);
+        $base = $this->options->stripSuffix($className);
         $propertyNames = new UniqueNames;
         // The discriminator property name is owned by the base; reserve it so a
         // variant's own property never collides with the forwarded param.
@@ -1578,12 +1376,12 @@ final class ModelGenerator
             $propertyName = $propertyNames->reserve(PhpIdentifier::toPropertyName($wireName));
             $listedRequired = in_array($wireName, $required, true);
             $type = $this->resolveType($propertySchema, $base.PhpIdentifier::toClassName($wireName), 1);
-            $this->noteClassRef(...$type->classRefs);
+            $this->state->noteClassRef(...$type->classRefs);
 
             $default = $this->defaultValue($propertySchema, $type);
             $isRequired = $listedRequired && $default === null;
 
-            $rendered = $this->renderProperty($wireName, $propertyName, $type, $isRequired, $default, $this->deprecationTag($propertySchema));
+            $rendered = $this->renderProperty($wireName, $propertyName, $type, $isRequired, $default, SchemaFacts::deprecationTag($propertySchema));
 
             if ($isRequired) {
                 $paramsRequired[] = $rendered;
@@ -1619,12 +1417,12 @@ final class ModelGenerator
 
         // Under the grouped layout (issue #93) the base or a referenced class
         // may live in another group; import those from their real namespaces.
-        $imports = $this->withCrossGroupImports($className, $imports, $this->popRefScope());
+        $imports = $this->state->withCrossGroupImports($className, $imports, $this->state->popRefScope());
 
-        $this->files[$className] = new GeneratedFile(
+        $this->state->files[$className] = new GeneratedFile(
             $className,
-            $this->renderVariantClass($className, $baseClass, $discriminatorProperty, $discriminatorDeclaration, $params, $imports, $rules, $this->deprecationTag($schema)),
-            $this->fileGroups[$className] ?? null,
+            $this->renderVariantClass($className, $baseClass, $discriminatorProperty, $discriminatorDeclaration, $params, $imports, $rules, SchemaFacts::deprecationTag($schema)),
+            $this->state->fileGroups[$className] ?? null,
         );
     }
 
@@ -1638,14 +1436,14 @@ final class ModelGenerator
      */
     private function discriminatorType(string $baseName, string $className): ResolvedType
     {
-        $wireName = (string) $this->discriminators->propertyName($baseName);
+        $wireName = (string) $this->state->discriminators->propertyName($baseName);
         $schema = $this->discriminatorPropertySchema($baseName, $wireName);
 
         if ($schema === null) {
             return new ResolvedType('string');
         }
 
-        return $this->resolveType($schema, $this->stripSuffix($className).PhpIdentifier::toClassName($wireName), 1);
+        return $this->resolveType($schema, $this->options->stripSuffix($className).PhpIdentifier::toClassName($wireName), 1);
     }
 
     /**
@@ -1666,15 +1464,15 @@ final class ModelGenerator
             return null;
         }
 
-        $const = $this->constValue($schema);
+        $const = SchemaFacts::constValue($schema);
         if ($const !== null) {
-            return ['Rule::in(['.$this->scalarLiteral($const[0]).'])'];
+            return ['Rule::in(['.PhpLiteral::scalarLiteral($const[0]).'])'];
         }
 
         // A single-value enum pins the value just like a const.
-        $values = $this->enumValues($schema);
+        $values = SchemaFacts::enumValues($schema);
         if (count($values) === 1) {
-            return ['Rule::in(['.$this->scalarLiteral($values[0]).'])'];
+            return ['Rule::in(['.PhpLiteral::scalarLiteral($values[0]).'])'];
         }
 
         return null;
@@ -1687,8 +1485,8 @@ final class ModelGenerator
      */
     private function discriminatorPropertySchema(string $baseName, string $wireName): ?SchemaNode
     {
-        foreach ($this->discriminators->variants($baseName) as $variantSchemaName) {
-            $schema = $this->registry[$variantSchemaName]['schema'] ?? null;
+        foreach ($this->state->discriminators->variants($baseName) as $variantSchemaName) {
+            $schema = $this->state->registry[$variantSchemaName]['schema'] ?? null;
             if ($schema === null) {
                 continue;
             }
@@ -1742,20 +1540,6 @@ final class ModelGenerator
     private const EMPTY_BODY_MARKER = '// The spec defines no properties for this schema.';
 
     /**
-     * The import FQCN for a runtime support class, resolved against the
-     * consumer's own Support namespace (issue #40), and recorded as used so it is
-     * inlined into the consumer's output. Generated code therefore imports its
-     * rules and transformer from `<DataNamespace>\Support`, never from the
-     * generator package, leaving the output self-contained.
-     */
-    private function supportImport(string $shortName): string
-    {
-        $this->usedSupportClasses[$shortName] = true;
-
-        return $this->options->supportNamespace().'\\'.$shortName;
-    }
-
-    /**
      * Record a runtime support class as used by the server scaffold, so it is
      * inlined into the consumer's Support namespace by supportFiles(). The
      * model pipeline records its own uses internally (supportImport()); this
@@ -1765,7 +1549,7 @@ final class ModelGenerator
      */
     public function markSupportClassUsed(string $shortName): void
     {
-        $this->usedSupportClasses[$shortName] = true;
+        $this->state->usedSupportClasses[$shortName] = true;
     }
 
     /**
@@ -1787,41 +1571,13 @@ final class ModelGenerator
         $emitter = new SupportClassEmitter($this->options->supportNamespace());
 
         $files = [];
-        foreach (array_keys($this->usedSupportClasses) as $shortName) {
+        foreach (array_keys($this->state->usedSupportClasses) as $shortName) {
             $files[$shortName] = $emitter->emit($shortName);
         }
 
         ksort($files);
 
         return $files;
-    }
-
-    /**
-     * The tag group a component schema's classes belong to under the grouped
-     * layout (issue #93), or null for the flat root (multi-group,
-     * unreferenced, or reserved schemas). Attribution comes from the map
-     * computed in generate(). A SYNTHESIZED inline-union variant (issue #38)
-     * is not a component, so the map can never name it: it follows its base.
-     * A named-component variant is attributed like every other component (the
-     * closure walk links it to its base, so it lands with the base unless
-     * another tag group also reaches it).
-     */
-    private function groupForSchema(string $schemaName): ?string
-    {
-        $groups = $this->schemaGroups;
-
-        if (isset($groups[$schemaName])) {
-            return $groups[$schemaName];
-        }
-
-        if (array_key_exists($schemaName, $this->discriminators->syntheticVariants())) {
-            $base = $this->discriminators->baseOf($schemaName);
-            if ($base !== null && isset($groups[$base])) {
-                return $groups[$base];
-            }
-        }
-
-        return null;
     }
 
     /**
@@ -1847,116 +1603,7 @@ final class ModelGenerator
      */
     public function namespaceFor(string $className): string
     {
-        $group = $this->fileGroups[$className] ?? null;
-
-        return $group === null ? $this->options->namespace : $this->options->namespace.'\\'.$group;
-    }
-
-    /**
-     * Open a reference scope for a class being emitted (issue #93). Scopes
-     * stack because emission is reentrant: an inline object property spawns a
-     * nested class in the middle of its holder's emission. The class's group
-     * must already be assigned in $fileGroups when the scope opens.
-     */
-    private function pushRefScope(string $className): void
-    {
-        $this->pushGroupScope($this->fileGroups[$className] ?? null);
-    }
-
-    /**
-     * Open a scope that only establishes the tag group spawned nested classes
-     * inherit (issue #93). Used by the alias and map classification passes,
-     * which resolve types (and may spawn inline classes) before any class
-     * emission runs; the refs recorded here are discarded on pop, because use
-     * sites replay them from the cached {@see ResolvedType::$classRefs}.
-     */
-    private function pushGroupScope(?string $group): void
-    {
-        $this->refScopes[] = ['group' => $group, 'refs' => []];
-    }
-
-    /**
-     * Close the current reference scope and return the generated classes it
-     * recorded, sorted for deterministic import order.
-     *
-     * @return list<string>
-     */
-    private function popRefScope(): array
-    {
-        $scope = array_pop($this->refScopes);
-        $refs = $scope === null ? [] : array_keys($scope['refs']);
-        sort($refs);
-
-        return $refs;
-    }
-
-    /**
-     * Record generated classes the class currently being emitted references.
-     * A no-op outside an emission scope (alias and map types resolved during
-     * the classification passes are replayed at their use sites through
-     * {@see ResolvedType::$classRefs} instead).
-     */
-    private function noteClassRef(string ...$classes): void
-    {
-        if ($this->refScopes === [] || $classes === []) {
-            return;
-        }
-
-        $top = array_key_last($this->refScopes);
-        foreach ($classes as $class) {
-            $this->refScopes[$top]['refs'][$class] = true;
-        }
-    }
-
-    /**
-     * The tag group of the scope currently emitting, or null at the flat root
-     * (and always null outside any scope). A nested inline class follows the
-     * class (or alias/map component) that spawned it, so a holder's group
-     * propagates to its whole inline subtree.
-     */
-    private function currentScopeGroup(): ?string
-    {
-        if ($this->refScopes === []) {
-            return null;
-        }
-
-        return $this->refScopes[array_key_last($this->refScopes)]['group'];
-    }
-
-    /**
-     * Merge the imports a class needs for its cross-group references (issue
-     * #93): every recorded generated class that lives in a DIFFERENT group
-     * gets a `use` of its real namespace. Same-group (and self) references
-     * stay short-name-only, exactly like the flat layout, and a recorded name
-     * that is not a generated class (the defensive `Data` fallback of a
-     * variant whose base vanished) is never imported. In the flat layout every
-     * group is null, so this returns the imports unchanged (re-sorting a list
-     * that is already unique and sorted).
-     *
-     * @param  list<string>  $imports
-     * @param  list<string>  $refs
-     * @return list<string>
-     */
-    private function withCrossGroupImports(string $className, array $imports, array $refs): array
-    {
-        $group = $this->fileGroups[$className] ?? null;
-
-        foreach ($refs as $ref) {
-            if ($ref === $className || ! array_key_exists($ref, $this->fileGroups)) {
-                continue;
-            }
-
-            if (($this->fileGroups[$ref] ?? null) === $group) {
-                continue;
-            }
-
-            $imports[] = $this->namespaceFor($ref).'\\'.$ref;
-        }
-
-        $imports = array_values(array_unique($imports));
-        sort($imports);
-
-        return $imports;
+        return $this->state->namespaceFor($className);
     }
 
     /**
@@ -1988,7 +1635,7 @@ final class ModelGenerator
         }
         foreach (self::RULE_CLASS_NAMES as $shortName) {
             if (str_contains($ruleText, 'new '.$shortName)) {
-                $imports[] = $this->supportImport($shortName);
+                $imports[] = $this->state->supportImport($shortName);
             }
         }
 
@@ -2046,13 +1693,13 @@ final class ModelGenerator
         // unaffected.
         if ($type->isMap) {
             $imports[] = 'Spatie\\LaravelData\\Attributes\\WithTransformer';
-            $imports[] = $this->supportImport(self::MAP_TRANSFORMER);
+            $imports[] = $this->state->supportImport(self::MAP_TRANSFORMER);
             $lines[] = '        #[WithTransformer(MapObjectTransformer::class)]';
         }
 
         if (PhpIdentifier::needsMapName($wireName, $propertyName)) {
             $imports[] = 'Spatie\\LaravelData\\Attributes\\MapName';
-            $lines[] = "        #[MapName('".$this->escapeSingleQuoted($wireName)."')]";
+            $lines[] = "        #[MapName('".PhpLiteral::escapeSingleQuoted($wireName)."')]";
         }
 
         if ($isRequired) {
@@ -2124,12 +1771,12 @@ final class ModelGenerator
                 ? (in_array('int', $members, true) || in_array('float', $members, true))
                 : in_array('float', $members, true);
 
-            return $accepts ? [$this->numberLiteral($value)] : null;
+            return $accepts ? [PhpLiteral::numberLiteral($value)] : null;
         }
 
         if (is_string($value)) {
             return in_array('string', $members, true)
-                ? ["'".$this->escapeSingleQuoted($value)."'"]
+                ? ["'".PhpLiteral::escapeSingleQuoted($value)."'"]
                 : null;
         }
 
@@ -2174,7 +1821,7 @@ final class ModelGenerator
             if ($member === 'null') {
                 continue;
             }
-            if (! in_array($member, self::SCALARS, true)) {
+            if (! in_array($member, SchemaFacts::SCALARS, true)) {
                 return false;
             }
         }
@@ -2220,7 +1867,7 @@ final class ModelGenerator
             // property rule is 'array' plus the map's own key-count bounds
             // (minProperties/maxProperties, issue #72) and a wildcard value rule
             // derived from the map's value schema.
-            $mapSchema = $this->referencedMapSchema($schema);
+            $mapSchema = $this->state->referencedMapSchema($schema);
             if ($mapSchema !== null) {
                 [$valueRules, $valueUses] = $this->mapValueRules($mapSchema);
 
@@ -2234,9 +1881,9 @@ final class ModelGenerator
             // rules, and a union alias its presence-only rules. A chained alias
             // (allOf-ref -> scalar) is followed to its terminal schema first so
             // the constraint at the end of the chain is not lost.
-            $aliasSchema = $this->referencedAliasSchema($schema);
+            $aliasSchema = $this->state->referencedAliasSchema($schema);
             if ($aliasSchema !== null) {
-                $terminal = $this->terminalAliasSchema($aliasSchema);
+                $terminal = $this->state->terminalAliasSchema($aliasSchema);
 
                 return $this->buildRules($terminal, $required, $type);
             }
@@ -2255,8 +1902,8 @@ final class ModelGenerator
             // the value. Guarded on the explicit object type so an untyped
             // component (whose instances may legally be non-objects) is never
             // measured by string length or numeric value.
-            $objectSchema = $this->referencedObjectSchema($schema);
-            if ($objectSchema !== null && ($this->normalizeTypes($objectSchema)[0] ?? null) === 'object') {
+            $objectSchema = $this->state->referencedObjectSchema($schema);
+            if ($objectSchema !== null && (SchemaFacts::normalizeTypes($objectSchema)[0] ?? null) === 'object') {
                 $countRules = $this->objectCountRules($objectSchema);
                 if ($countRules !== []) {
                     return [array_merge($rules, ["'array'"], $countRules), [], false];
@@ -2268,7 +1915,7 @@ final class ModelGenerator
 
         // A pure-map property: 'array' plus the map's own key-count bounds
         // (minProperties/maxProperties, issue #72) and a wildcard value rule.
-        if ($this->isPureMap($schema)) {
+        if (SchemaFacts::isPureMap($schema)) {
             [$valueRules, $valueUses] = $this->mapValueRules($schema);
 
             return [array_merge($rules, ["'array'"], $this->objectCountRules($schema)), $this->wildcardMap($valueRules), $valueUses];
@@ -2282,9 +1929,9 @@ final class ModelGenerator
         }
 
         if ($this->notEmptyArray($schema->enum)) {
-            $values = $this->enumValues($schema);
+            $values = SchemaFacts::enumValues($schema);
             if ($values !== []) {
-                $rules[] = 'Rule::in(['.implode(', ', array_map(fn (string|int|float|bool $value): string => $this->scalarLiteral($value), $values)).'])';
+                $rules[] = 'Rule::in(['.implode(', ', array_map(fn (string|int|float|bool $value): string => PhpLiteral::scalarLiteral($value), $values)).'])';
 
                 return [$rules, [], true];
             }
@@ -2292,14 +1939,14 @@ final class ModelGenerator
 
         // `const` is a single-value enum: enforce the one allowed value with
         // Rule::in, reusing the enum machinery and scalar-literal escaping.
-        $const = $this->constValue($schema);
+        $const = SchemaFacts::constValue($schema);
         if ($const !== null) {
-            $rules[] = 'Rule::in(['.$this->scalarLiteral($const[0]).'])';
+            $rules[] = 'Rule::in(['.PhpLiteral::scalarLiteral($const[0]).'])';
 
             return [$rules, [], true];
         }
 
-        $types = $this->normalizeTypes($schema);
+        $types = SchemaFacts::normalizeTypes($schema);
 
         // A multi-type union (`type: ["string", "integer"]`) stays presence-only:
         // a single type rule (`'string'`) would wrongly reject the other valid
@@ -2395,7 +2042,7 @@ final class ModelGenerator
         $items = $schema->items;
         $map = [];
 
-        if ($items instanceof SchemaNode && ($this->normalizeTypes($items)[0] ?? null) === 'array') {
+        if ($items instanceof SchemaNode && (SchemaFacts::normalizeTypes($items)[0] ?? null) === 'array') {
             // Each element at this level is itself an array: assert its shape and
             // count, then recurse to emit the inner level's rules ('.*.*', ...).
             $here = array_merge(["'array'"], $this->arrayCountRules($items));
@@ -2499,7 +2146,7 @@ final class ModelGenerator
                 // trigger name containing a comma cannot be expressed; skip it
                 // loudly instead of emitting a rule that watches wrong fields.
                 if (str_contains($trigger, ',')) {
-                    $this->warnings[sprintf(
+                    $this->state->warnings[sprintf(
                         'Schema "%s": dependentRequired trigger "%s" contains a comma, which cannot be expressed in a Laravel required_with parameter list; the dependency of "%s" on it is not enforced.',
                         $base,
                         $trigger,
@@ -2517,7 +2164,7 @@ final class ModelGenerator
             }
 
             $name = ($declaredNullable[$dependent] ?? false) ? 'present_with:' : 'required_with:';
-            $expression = "'".$this->escapeSingleQuoted($name.implode(',', $usable))."'";
+            $expression = "'".PhpLiteral::escapeSingleQuoted($name.implode(',', $usable))."'";
 
             $existing = $rules[$dependent] ?? [];
             if (($existing[0] ?? null) === "'sometimes'") {
@@ -2549,7 +2196,7 @@ final class ModelGenerator
         }
 
         foreach ($members as $member) {
-            $resolved = $this->resolveMemberSchema($member, $seen);
+            $resolved = $this->state->resolveMemberSchema($member, $seen);
             if ($resolved === null) {
                 continue;
             }
@@ -2617,13 +2264,13 @@ final class ModelGenerator
         }
 
         if ($this->notEmptyArray($items->enum)) {
-            $values = $this->enumValues($items);
+            $values = SchemaFacts::enumValues($items);
             if ($values !== []) {
-                return [['Rule::in(['.implode(', ', array_map(fn (string|int|float|bool $value): string => $this->scalarLiteral($value), $values)).'])'], true];
+                return [['Rule::in(['.implode(', ', array_map(fn (string|int|float|bool $value): string => PhpLiteral::scalarLiteral($value), $values)).'])'], true];
             }
         }
 
-        $primary = $this->normalizeTypes($items)[0] ?? null;
+        $primary = SchemaFacts::normalizeTypes($items)[0] ?? null;
 
         $rules = match ($primary) {
             'string' => $this->stringRules($items),
@@ -2652,7 +2299,7 @@ final class ModelGenerator
      */
     private function mapValueRules(SchemaNode $schema): array
     {
-        $value = $this->additionalPropertiesSchema($schema);
+        $value = SchemaFacts::additionalPropertiesSchema($schema);
 
         if ($value === true || $value === null) {
             return [null, false];
@@ -2684,13 +2331,13 @@ final class ModelGenerator
     private function inlineValueRules(SchemaNode $value): array
     {
         if ($this->notEmptyArray($value->enum)) {
-            $values = $this->enumValues($value);
+            $values = SchemaFacts::enumValues($value);
             if ($values !== []) {
-                return [['Rule::in(['.implode(', ', array_map(fn (string|int|float|bool $v): string => $this->scalarLiteral($v), $values)).'])'], true];
+                return [['Rule::in(['.implode(', ', array_map(fn (string|int|float|bool $v): string => PhpLiteral::scalarLiteral($v), $values)).'])'], true];
             }
         }
 
-        $primary = $this->normalizeTypes($value)[0] ?? null;
+        $primary = SchemaFacts::normalizeTypes($value)[0] ?? null;
 
         $rules = match ($primary) {
             'string' => $this->stringRules($value),
@@ -2768,15 +2415,15 @@ final class ModelGenerator
 
             // A scalar/array/union alias position enforces its terminal
             // schema's constraints, exactly like an alias at a property site.
-            $aliasSchema = $this->referencedAliasSchema($position);
+            $aliasSchema = $this->state->referencedAliasSchema($position);
             if ($aliasSchema !== null) {
-                return $this->prefixItemValueRules($this->terminalAliasSchema($aliasSchema));
+                return $this->prefixItemValueRules($this->state->terminalAliasSchema($aliasSchema));
             }
 
             // A map or object component arrives as a raw array: assert the
             // shape only (nested hydration is a typing concern, not a rules
             // one). An unresolvable $ref stays presence-only.
-            if ($this->referencedMapSchema($position) !== null || $this->referencedObjectSchema($position) !== null) {
+            if ($this->state->referencedMapSchema($position) !== null || $this->state->referencedObjectSchema($position) !== null) {
                 return [["'array'"], false];
             }
 
@@ -2786,7 +2433,7 @@ final class ModelGenerator
         // A multi-type position (`type: ["string", "integer"]`) and a
         // composition keyword stay presence-only: a single type rule would
         // wrongly reject the other valid members (mirrors buildRules()).
-        if (count($this->normalizeTypes($position)) > 1
+        if (count(SchemaFacts::normalizeTypes($position)) > 1
             || $this->notEmptyArray($position->oneOf)
             || $this->notEmptyArray($position->anyOf)
             || $this->notEmptyArray($position->allOf)) {
@@ -2795,84 +2442,11 @@ final class ModelGenerator
 
         [$rules, $uses] = $this->inlineValueRules($position);
 
-        if ($rules !== null && $this->isNullable($position)) {
+        if ($rules !== null && SchemaFacts::isNullable($position)) {
             $rules = array_merge(["'nullable'"], $rules);
         }
 
         return [$rules, $uses];
-    }
-
-    /**
-     * If a reference points at a pure-map component, return that component's
-     * schema so the caller can derive the map value rules. Returns null when the
-     * reference is not a pure-map component.
-     */
-    private function referencedMapSchema(ReferenceNode $reference): ?SchemaNode
-    {
-        $name = SchemaPointer::refName($reference->pointer());
-
-        return $name !== null ? ($this->mapSchemas[$name] ?? null) : null;
-    }
-
-    /**
-     * If a reference points at an emitted object Data-class component, return
-     * that component's schema so the caller can read schema-level constraints
-     * (minProperties/maxProperties, issue #72) that must be enforced at the use
-     * site. Returns null for enums and unregistered names.
-     */
-    private function referencedObjectSchema(ReferenceNode $reference): ?SchemaNode
-    {
-        $name = SchemaPointer::refName($reference->pointer());
-        if ($name === null) {
-            return null;
-        }
-
-        $entry = $this->registry[$name] ?? null;
-
-        return $entry !== null && $entry['kind'] === 'data' ? $entry['schema'] : null;
-    }
-
-    /**
-     * If a reference points at a non-object alias component (scalar/array/union),
-     * return that component's schema so the caller can derive its rules from the
-     * underlying type. Returns null when the reference is not such an alias.
-     */
-    private function referencedAliasSchema(ReferenceNode $reference): ?SchemaNode
-    {
-        $name = SchemaPointer::refName($reference->pointer());
-
-        return $name !== null ? ($this->aliasSchemas[$name] ?? null) : null;
-    }
-
-    /**
-     * Follow a chained alias (`allOf: [{$ref}]` -> alias -> ... -> scalar/array/
-     * union) to its terminal schema so rule derivation reads the constraint at
-     * the end of the chain, not the thin allOf wrapper (which would yield only
-     * presence rules). Cycle-guarded; a cyclic or dangling chain returns the last
-     * schema reached. A non-chain alias is returned unchanged.
-     *
-     * @param  array<string, true>  $seen  alias names already followed
-     */
-    private function terminalAliasSchema(SchemaNode $schema, array $seen = []): SchemaNode
-    {
-        $ref = $this->bareAllOfRef($schema);
-        if ($ref === null) {
-            return $schema;
-        }
-
-        $name = SchemaPointer::refName($ref->pointer());
-        if ($name === null || isset($seen[$name])) {
-            return $schema;
-        }
-
-        $next = $this->aliasSchemas[$name] ?? null;
-        if ($next === null) {
-            return $schema;
-        }
-
-        $seen[$name] = true;
-
-        return $this->terminalAliasSchema($next, $seen);
     }
 
     /**
@@ -2934,30 +2508,30 @@ final class ModelGenerator
 
         // 3.1 numeric exclusiveMinimum: a strict lower bound on its own.
         if (is_int($exclusiveMin) || is_float($exclusiveMin)) {
-            $rules[] = "'gt:".$this->numberLiteral($exclusiveMin)."'";
+            $rules[] = "'gt:".PhpLiteral::numberLiteral($exclusiveMin)."'";
         }
         if (is_int($exclusiveMax) || is_float($exclusiveMax)) {
-            $rules[] = "'lt:".$this->numberLiteral($exclusiveMax)."'";
+            $rules[] = "'lt:".PhpLiteral::numberLiteral($exclusiveMax)."'";
         }
 
         $min = $schema->minimum;
         if (is_int($min) || is_float($min)) {
             // 3.0 boolean exclusiveMinimum: true upgrades the bound to strict.
             $rules[] = $exclusiveMin === true
-                ? "'gt:".$this->numberLiteral($min)."'"
-                : "'min:".$this->numberLiteral($min)."'";
+                ? "'gt:".PhpLiteral::numberLiteral($min)."'"
+                : "'min:".PhpLiteral::numberLiteral($min)."'";
         }
 
         $max = $schema->maximum;
         if (is_int($max) || is_float($max)) {
             $rules[] = $exclusiveMax === true
-                ? "'lt:".$this->numberLiteral($max)."'"
-                : "'max:".$this->numberLiteral($max)."'";
+                ? "'lt:".PhpLiteral::numberLiteral($max)."'"
+                : "'max:".PhpLiteral::numberLiteral($max)."'";
         }
 
         $multipleOf = $schema->multipleOf;
         if ((is_int($multipleOf) || is_float($multipleOf)) && $multipleOf > 0) {
-            $rules[] = 'new MultipleOfRule('.$this->numberLiteral($multipleOf).')';
+            $rules[] = 'new MultipleOfRule('.PhpLiteral::numberLiteral($multipleOf).')';
         }
 
         return $rules;
@@ -3069,7 +2643,7 @@ final class ModelGenerator
             return null;
         }
 
-        return "'regex:".$this->escapeSingleQuoted($this->delimitedPattern($pattern))."'";
+        return "'regex:".PhpLiteral::escapeSingleQuoted($this->delimitedPattern($pattern))."'";
     }
 
     /**
@@ -3119,35 +2693,17 @@ final class ModelGenerator
     {
         $name = SchemaPointer::refName($reference->pointer());
 
-        if ($name !== null && isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'enum') {
+        if ($name !== null && isset($this->state->registry[$name]) && $this->state->registry[$name]['kind'] === 'enum') {
             // Every Rule::enum(X::class) expression flows through here, so
             // recording the reference at this single chokepoint lets the
             // grouped layout (issue #93) import an enum a rule references even
             // when the property type itself does not mention it.
-            $this->noteClassRef($this->registry[$name]['class']);
+            $this->state->noteClassRef($this->state->registry[$name]['class']);
 
-            return $this->registry[$name]['class'];
+            return $this->state->registry[$name]['class'];
         }
 
         return null;
-    }
-
-    private function scalarLiteral(string|int|float|bool $value): string
-    {
-        if (is_bool($value)) {
-            return $value ? 'true' : 'false';
-        }
-
-        if (is_int($value) || is_float($value)) {
-            return $this->numberLiteral($value);
-        }
-
-        return "'".$this->escapeSingleQuoted($value)."'";
-    }
-
-    private function numberLiteral(int|float $value): string
-    {
-        return (string) $value;
     }
 
     /**
@@ -3194,7 +2750,7 @@ final class ModelGenerator
         // Compared against the class's EFFECTIVE namespace: under the grouped
         // layout (issue #93) a class in a tag subnamespace must import a trait
         // living at the flat Data root, and vice versa.
-        if ($traitNamespace !== ltrim($this->namespaceFor($className), '\\') && ! in_array($fqcn, $imports, true)) {
+        if ($traitNamespace !== ltrim($this->state->namespaceFor($className), '\\') && ! in_array($fqcn, $imports, true)) {
             $imports[] = $fqcn;
             sort($imports);
         }
@@ -3221,7 +2777,7 @@ final class ModelGenerator
             ? ''
             : "/**\n".implode("\n", array_map(static fn (string $line): string => ' * '.$line, $classDoc))."\n */\n";
 
-        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->namespaceFor($className).";\n\n".$useBlock."\n\n".$docBlock.'final class '.$className.' extends Data';
+        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->state->namespaceFor($className).";\n\n".$useBlock."\n\n".$docBlock.'final class '.$className.' extends Data';
 
         if ($params === []) {
             // An object with no constructor properties is normally an empty class.
@@ -3303,7 +2859,7 @@ final class ModelGenerator
         }
 
         $names = implode(', ', array_map(
-            fn (string $name): string => "'".$this->escapeSingleQuoted($name)."'",
+            fn (string $name): string => "'".PhpLiteral::escapeSingleQuoted($name)."'",
             $booleanNames,
         ));
 
@@ -3347,7 +2903,7 @@ final class ModelGenerator
 
         $docBlock = $deprecationTag !== null ? '/**'."\n".' * '.$deprecationTag."\n".' */'."\n" : '';
 
-        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->namespaceFor($className).";\n\n".$useBlock."\n\n".$docBlock
+        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->state->namespaceFor($className).";\n\n".$useBlock."\n\n".$docBlock
             .'abstract class '.$className.' extends Data implements PropertyMorphableData';
 
         $attributeLine = '        #[PropertyForMorph, '.implode(', ', $validationAttributes)."]\n";
@@ -3364,7 +2920,7 @@ final class ModelGenerator
         // discriminator that needs a MapName (pet_type -> petType) would otherwise
         // read a missing key and always morph to null, rejecting every payload.
         $morph = "\n\n    /**\n     * @param  array<string, mixed>  \$properties\n     */\n    public static function morph(array \$properties): ?string\n    {\n"
-            .'        return match ($properties['."'".$this->escapeSingleQuoted($propertyName)."'".'] ?? null) {'."\n"
+            .'        return match ($properties['."'".PhpLiteral::escapeSingleQuoted($propertyName)."'".'] ?? null) {'."\n"
             .implode("\n", $arms)."\n"
             ."        };\n    }";
 
@@ -3395,7 +2951,7 @@ final class ModelGenerator
 
         $docBlock = $deprecationTag !== null ? '/**'."\n".' * '.$deprecationTag."\n".' */'."\n" : '';
 
-        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->namespaceFor($className).";\n\n".$useBlock.$docBlock
+        $header = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->state->namespaceFor($className).";\n\n".$useBlock.$docBlock
             .'final class '.$className.' extends '.$baseClass;
 
         // The discriminator is a forwarded, non-promoted parameter so only the
@@ -3425,7 +2981,7 @@ final class ModelGenerator
 
         $lines = [];
         foreach ($rules as $key => $expressions) {
-            $lines[] = "            '".$this->escapeSingleQuoted((string) $key)."' => [".implode(', ', $expressions).'],';
+            $lines[] = "            '".PhpLiteral::escapeSingleQuoted((string) $key)."' => [".implode(', ', $expressions).'],';
         }
 
         // The key type is `array-key`, not `string`: a property whose JSON name is
@@ -3455,8 +3011,8 @@ final class ModelGenerator
             return $this->resolveUnion($schema, $nameHint, $depth, $variant);
         }
 
-        $types = $this->normalizeTypes($schema);
-        $nullable = $this->isNullable($schema);
+        $types = SchemaFacts::normalizeTypes($schema);
+        $nullable = SchemaFacts::isNullable($schema);
         $primary = $types[0] ?? null;
 
         // A multi-type schema (`type: ["string", "integer"]`, the JSON Schema
@@ -3472,15 +3028,15 @@ final class ModelGenerator
             }
         }
 
-        if ($primary !== null && isset(self::SCALARS[$primary])) {
-            return new ResolvedType(self::SCALARS[$primary], $nullable);
+        if ($primary !== null && isset(SchemaFacts::SCALARS[$primary])) {
+            return new ResolvedType(SchemaFacts::SCALARS[$primary], $nullable);
         }
 
         // A bare `const` with no declared type: infer the PHP type from the
         // const literal so the property is typed (string or int) rather than
         // mixed. A typed const already took the scalar path above.
         if ($primary === null) {
-            $const = $this->constValue($schema);
+            $const = SchemaFacts::constValue($schema);
             if ($const !== null) {
                 return new ResolvedType(is_int($const[0]) ? 'int' : 'string', $nullable);
             }
@@ -3493,7 +3049,7 @@ final class ModelGenerator
         // A pure-map inline schema (only additionalProperties, no named
         // properties) becomes a typed array<string, X> rather than a nested
         // Data class.
-        if ($this->isPureMap($schema)) {
+        if (SchemaFacts::isPureMap($schema)) {
             return $this->mapType($schema, $nameHint, $depth, $variant);
         }
 
@@ -3510,7 +3066,7 @@ final class ModelGenerator
         // bare-ref check accepts a $ref to a non-object alias too, so a chained
         // alias (allOf-ref -> scalar/array/union) resolves through to the
         // underlying type via resolveReference rather than an empty class.
-        $aliasRef = $this->bareAllOfRef($schema);
+        $aliasRef = SchemaFacts::bareAllOfRef($schema);
         if ($aliasRef !== null) {
             $resolved = $this->resolveReference($aliasRef);
 
@@ -3552,7 +3108,7 @@ final class ModelGenerator
 
         // A `oneOf`/`anyOf` with no usable members carries no shape: mixed.
         if ($members === []) {
-            return new ResolvedType('mixed', $this->isNullable($schema));
+            return new ResolvedType('mixed', SchemaFacts::isNullable($schema));
         }
 
         // Pre-scan every member for the `null` type up front, not incrementally,
@@ -3561,7 +3117,7 @@ final class ModelGenerator
         // `type: object` member before the `null` member) returned a non-nullable
         // `mixed`, and a required+nullable oneOf then emitted a bare `required`
         // rule that false-rejected a spec-valid present null (issue #8).
-        $nullable = $this->isNullable($schema);
+        $nullable = SchemaFacts::isNullable($schema);
         foreach ($members as $member) {
             if ($this->isNullTypeMember($member)) {
                 $nullable = true;
@@ -3587,15 +3143,15 @@ final class ModelGenerator
                 // nullable union does not silently lose its null. The collapse
                 // is surfaced as a build warning naming the schema (and the
                 // pointer, when the messy member is a $ref), issue #67.
-                $this->warnings[$member instanceof ReferenceNode
+                $this->state->warnings[$member instanceof ReferenceNode
                     ? sprintf(
                         '%s: a oneOf/anyOf member $ref "%s" does not resolve to a plain scalar or a generated Data class; the union degrades to mixed with presence-only validation.',
-                        $this->warningContext,
+                        $this->state->warningContext,
                         $member->pointer(),
                     )
                     : sprintf(
                         '%s: a oneOf/anyOf member is not a plain scalar or a $ref to a generated Data class; the union degrades to mixed with presence-only validation.',
-                        $this->warningContext,
+                        $this->state->warningContext,
                     )] = true;
 
                 return new ResolvedType('mixed', $nullable);
@@ -3687,11 +3243,11 @@ final class ModelGenerator
         $declarations = [];
 
         foreach ($types as $type) {
-            if (! isset(self::SCALARS[$type])) {
+            if (! isset(SchemaFacts::SCALARS[$type])) {
                 return null;
             }
 
-            $declaration = self::SCALARS[$type];
+            $declaration = SchemaFacts::SCALARS[$type];
             if (! in_array($declaration, $declarations, true)) {
                 $declarations[] = $declaration;
             }
@@ -3732,7 +3288,7 @@ final class ModelGenerator
             return true;
         }
 
-        return is_array($raw) && $raw !== [] && $this->normalizeTypes($member) === [];
+        return is_array($raw) && $raw !== [] && SchemaFacts::normalizeTypes($member) === [];
     }
 
     /**
@@ -3753,19 +3309,19 @@ final class ModelGenerator
 
             // A $ref to a generated Data class is clean. A pure-map alias (typed
             // array) or an unknown/enum ref is not part of an object union.
-            if (isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'data') {
+            if (isset($this->state->registry[$name]) && $this->state->registry[$name]['kind'] === 'data') {
                 return true;
             }
 
             // A $ref to a non-object alias is clean only when it resolves to a
             // scalar (string|int): an array/map/union/mixed alias is not a clean
             // single union member. The resolved alias type drives the decision.
-            if (isset($this->aliasSchemas[$name])) {
+            if (isset($this->state->aliasSchemas[$name])) {
                 $resolved = $this->resolveAlias($name, $this->aliasSeen);
 
                 return ! $resolved->isUnion
                     && ! $resolved->isMap
-                    && in_array($resolved->declaration, self::SCALARS, true);
+                    && in_array($resolved->declaration, SchemaFacts::SCALARS, true);
             }
 
             return false;
@@ -3785,7 +3341,7 @@ final class ModelGenerator
             return false;
         }
 
-        $types = $this->normalizeTypes($member);
+        $types = SchemaFacts::normalizeTypes($member);
 
         // Exactly one declared scalar type is clean. Zero types (untyped/empty),
         // multiple types, 'array', or 'object' are not.
@@ -3793,7 +3349,7 @@ final class ModelGenerator
             return false;
         }
 
-        return isset(self::SCALARS[$types[0]]);
+        return isset(SchemaFacts::SCALARS[$types[0]]);
     }
 
     /**
@@ -3810,9 +3366,9 @@ final class ModelGenerator
         $name = SchemaPointer::refName($pointer);
 
         if ($name === null) {
-            $this->warnings[sprintf(
+            $this->state->warnings[sprintf(
                 '%s: $ref "%s" is external or not a #/components/schemas pointer and degrades to mixed with presence-only validation. Bundle external references into one document before generating.',
-                $this->warningContext,
+                $this->state->warningContext,
                 $pointer,
             )] = true;
 
@@ -3823,10 +3379,10 @@ final class ModelGenerator
         // site (the component itself has no Data class). The cached type was
         // resolved during classification (outside any emission scope), so its
         // recorded class references are replayed into the current scope here.
-        if (isset($this->mapAliases[$name])) {
-            $this->noteClassRef(...$this->mapAliases[$name]->classRefs);
+        if (isset($this->state->mapAliases[$name])) {
+            $this->state->noteClassRef(...$this->state->mapAliases[$name]->classRefs);
 
-            return $this->mapAliases[$name];
+            return $this->state->mapAliases[$name];
         }
 
         // A reference to a non-object alias component (scalar/array/union)
@@ -3834,29 +3390,29 @@ final class ModelGenerator
         // transitive (alias -> alias) and cycle-guarded via $aliasSeen, so a
         // chain reached mid-resolution still terminates. Cached like the map
         // aliases, so its class references are replayed too.
-        if (isset($this->aliasSchemas[$name])) {
+        if (isset($this->state->aliasSchemas[$name])) {
             $resolved = $this->resolveAlias($name, $this->aliasSeen);
-            $this->noteClassRef(...$resolved->classRefs);
+            $this->state->noteClassRef(...$resolved->classRefs);
 
             return $resolved;
         }
 
-        if (isset($this->registry[$name]) && is_string($this->registry[$name]['class'])) {
+        if (isset($this->state->registry[$name]) && is_string($this->state->registry[$name]['class'])) {
             // A reference to a generated backed enum is a native PHP enum, not a
             // Data class: mark it so an array of enums is not given an invalid
             // #[DataCollectionOf(SomeEnum::class)] attribute (which targets
             // class-string<BaseData>, failing PHPStan). spatie hydrates the backed
             // enum from the typed array via the array<int, SomeEnum> docblock.
-            $isEnum = $this->registry[$name]['kind'] === 'enum';
-            $class = $this->registry[$name]['class'];
-            $this->noteClassRef($class);
+            $isEnum = $this->state->registry[$name]['kind'] === 'enum';
+            $class = $this->state->registry[$name]['class'];
+            $this->state->noteClassRef($class);
 
             return new ResolvedType($class, isEnum: $isEnum, classRefs: [$class]);
         }
 
-        $this->warnings[sprintf(
+        $this->state->warnings[sprintf(
             '%s: $ref "%s" does not resolve to a generated type and degrades to mixed with presence-only validation.',
-            $this->warningContext,
+            $this->state->warningContext,
             $pointer,
         )] = true;
 
@@ -3910,14 +3466,14 @@ final class ModelGenerator
 
     private function resolveInlineObject(SchemaNode $schema, string $nameHint, int $depth, bool $nullable, string $variant = 'all'): ResolvedType
     {
-        $className = $this->names->reserve($this->withSuffix($nameHint));
+        $className = $this->state->names->reserve($this->options->withSuffix($nameHint));
 
         // A nested inline class follows the class that spawned it (issue #93),
         // so a holder's tag group propagates to its whole inline subtree.
-        $this->fileGroups[$className] = $this->currentScopeGroup();
+        $this->state->fileGroups[$className] = $this->state->currentScopeGroup();
 
         // Reserve the slot before recursing so nested cycles cannot reuse it.
-        $this->files[$className] = new GeneratedFile($className, '');
+        $this->state->files[$className] = new GeneratedFile($className, '');
         $this->emitData($className, $schema, $depth, $variant);
 
         return new ResolvedType($className, $nullable, classRefs: [$className]);
@@ -3929,7 +3485,7 @@ final class ModelGenerator
         // are all int or string; filtering floats here also narrows the type for
         // the backing/case helpers, which a native PHP enum cannot back on a float.
         $values = [];
-        foreach ($this->enumValues($schema) as $value) {
+        foreach (SchemaFacts::enumValues($schema) as $value) {
             if (is_int($value) || is_string($value)) {
                 $values[] = $value;
             }
@@ -3942,7 +3498,7 @@ final class ModelGenerator
         foreach ($values as $value) {
             $caseName = $this->enumCaseName($value, $backing);
             $caseName = $cases->reserve($caseName);
-            $literal = $backing === 'int' ? (string) (int) $value : "'".$this->escapeSingleQuoted((string) $value)."'";
+            $literal = $backing === 'int' ? (string) (int) $value : "'".PhpLiteral::escapeSingleQuoted((string) $value)."'";
             $lines[] = '    case '.$caseName.' = '.$literal.';';
         }
 
@@ -3951,12 +3507,12 @@ final class ModelGenerator
         // A deprecated enum component carries a class-level `@deprecated` so the
         // generated enum gets the same IDE/PHPStan deprecation signal as a Data
         // class.
-        $deprecationTag = $this->deprecationTag($schema);
+        $deprecationTag = SchemaFacts::deprecationTag($schema);
         $docBlock = $deprecationTag !== null ? '/**'."\n".' * '.$deprecationTag."\n".' */'."\n" : '';
 
-        $code = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->namespaceFor($className).";\n\n".$docBlock.'enum '.$className.': '.$backing."\n{\n".$body."\n}\n";
+        $code = "<?php\n\ndeclare(strict_types=1);\n\nnamespace ".$this->state->namespaceFor($className).";\n\n".$docBlock.'enum '.$className.': '.$backing."\n{\n".$body."\n}\n";
 
-        $this->files[$className] = new GeneratedFile($className, $code, $this->fileGroups[$className] ?? null);
+        $this->state->files[$className] = new GeneratedFile($className, $code, $this->state->fileGroups[$className] ?? null);
     }
 
     /**
@@ -3986,92 +3542,10 @@ final class ModelGenerator
         return $name === '_' ? 'Value' : $name;
     }
 
-    /**
-     * The usable scalar values of an `enum`: strings, ints, floats, and bools.
-     * Floats are included so a `{type: number, enum: [1.5, 2.5]}` schema still
-     * emits a `Rule::in([1.5, 2.5])` constraint instead of silently accepting any
-     * number. Bools are included so a mixed-type enum
-     * (`["one", 2, true, 3.5]`) keeps its boolean member in `Rule::in(...)`
-     * rather than silently dropping it (a spec-valid `true` would otherwise be
-     * false-rejected). Neither a float nor a bool can back a native PHP enum (PHP
-     * backs only int/string), so isEnum() screens both out of the backed-enum
-     * path separately, leaving them to the Data-class-with-`Rule::in` fallback.
-     *
-     * @return list<string|int|float|bool>
-     */
-    private function enumValues(SchemaNode $schema): array
-    {
-        $result = [];
-        foreach ($this->asArray($schema->enum) as $value) {
-            if (is_string($value) || is_int($value) || is_float($value) || is_bool($value)) {
-                $result[] = $value;
-            }
-        }
-
-        return $result;
-    }
-
-    /**
-     * Whether a component schema should become a native PHP backed enum. It must
-     * be an enum with usable values, no named properties, and crucially every
-     * value must be int or string: PHP backed enums cannot back a float or a bool.
-     * A float-bearing or bool-bearing enum is therefore NOT a backed enum here; it
-     * falls through to a Data class that carries the `Rule::in` constraint instead
-     * (see isScalarEnumComponent / emitData), which keeps the bool/float member in
-     * the membership rule rather than dropping it.
-     */
-    private function isEnum(SchemaNode $schema): bool
-    {
-        if (! $this->notEmptyArray($schema->enum)) {
-            return false;
-        }
-
-        if ($this->notEmptyArray($schema->properties)) {
-            return false;
-        }
-
-        $values = $this->enumValues($schema);
-        if ($values === []) {
-            return false;
-        }
-
-        foreach ($values as $value) {
-            if (is_float($value) || is_bool($value)) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * Whether a schema is a scalar enum that has no named properties and did
-     * NOT qualify as a native backed enum (isEnum). The only such case is an
-     * enum carrying a float value, which a backed enum cannot represent. Such a
-     * component is wrapped in a single-`value` Data class so the `Rule::in`
-     * constraint is still enforced rather than emitting an empty class.
-     */
-    private function isScalarEnumComponent(SchemaNode $schema): bool
-    {
-        if (! $this->notEmptyArray($schema->enum)) {
-            return false;
-        }
-
-        if ($this->notEmptyArray($schema->properties)) {
-            return false;
-        }
-
-        if ($this->isEnum($schema)) {
-            return false;
-        }
-
-        return $this->enumValues($schema) !== [];
-    }
-
     private function hasReadWriteFlags(SchemaNode $schema): bool
     {
         foreach ($this->objectProperties($schema) as $property) {
-            if ($this->isReadOnly($property) || $this->isWriteOnly($property)) {
+            if (SchemaFacts::isReadOnly($property) || SchemaFacts::isWriteOnly($property)) {
                 return true;
             }
         }
@@ -4101,7 +3575,7 @@ final class ModelGenerator
             return;
         }
 
-        $this->warnings[sprintf(
+        $this->state->warnings[sprintf(
             'Property "%s" on schema "%s" has a non-standard per-property "required" key, which OpenAPI ignores. '
             .'Use the schema-level "required" array instead. This field is generated as optional.',
             $propertyName,
@@ -4109,168 +3583,11 @@ final class ModelGenerator
         )] = true;
     }
 
-    private function isReadOnly(SchemaNode|ReferenceNode $schema): bool
-    {
-        return $schema instanceof SchemaNode && $schema->readOnly === true;
-    }
-
-    private function isWriteOnly(SchemaNode|ReferenceNode $schema): bool
-    {
-        return $schema instanceof SchemaNode && $schema->writeOnly === true;
-    }
-
-    /**
-     * Whether a schema (a component or a single property) is marked
-     * `deprecated: true`. SchemaNode types `deprecated` as a nullable strict
-     * bool, so a missing or mistyped flag never reads as deprecated.
-     */
-    private function isDeprecated(SchemaNode|ReferenceNode $schema): bool
-    {
-        return $schema instanceof SchemaNode && $schema->deprecated === true;
-    }
-
-    /**
-     * The deprecation docblock line for a deprecated schema (the literal
-     * "at-deprecated" tag, optionally followed by a reason), including a short
-     * reason when the spec supplies one via the vendor extension
-     * `x-deprecated-reason` or `x-deprecation-reason`. Returns null when the
-     * schema is not deprecated. The reason is spec-derived (untrusted), so it is
-     * run through docblockSafe() before being embedded in the comment.
-     */
-    private function deprecationTag(SchemaNode|ReferenceNode $schema): ?string
-    {
-        if (! $this->isDeprecated($schema)) {
-            return null;
-        }
-
-        $reason = $this->deprecationReason($schema);
-
-        return $reason !== null ? '@deprecated '.$reason : '@deprecated';
-    }
-
-    /**
-     * The deprecation reason text from a vendor extension, sanitized, or null
-     * when none is present or it sanitizes to empty. Both the singular
-     * `x-deprecated-reason` and the alternate `x-deprecation-reason` spellings
-     * are accepted; the first non-empty one wins (sorted-key independent: the two
-     * are checked in a fixed order for determinism).
-     */
-    private function deprecationReason(SchemaNode|ReferenceNode $schema): ?string
-    {
-        if (! $schema instanceof SchemaNode) {
-            return null;
-        }
-
-        foreach ([$schema->xDeprecatedReason, $schema->xDeprecationReason] as $value) {
-            if ($value !== null) {
-                $safe = $this->docblockSafe($value);
-                if ($safe !== '') {
-                    return $safe;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Neutralize spec-derived free text before it is placed inside a `/** ... *\/`
-     * docblock. Two hazards: a literal `*\/` would close the comment early and let
-     * the rest of the value inject raw PHP, and newlines or other control
-     * characters would let a value forge extra doc lines or break out. Every `*\/`
-     * becomes `* /` and all control characters (newlines, tabs, etc.) collapse to
-     * a single space. Mirrors the server scaffold's docblockSafe(): the OpenAPI
-     * spec is untrusted input. (The two live in separate emitter layers that
-     * Deptrac keeps apart, so the small duplication is intentional.)
-     */
-    private function docblockSafe(string $value): string
-    {
-        $value = str_replace('*/', '* /', $value);
-        $value = (string) preg_replace('/[\x00-\x1f\x7f]+/', ' ', $value);
-
-        return trim($value);
-    }
-
     private function isDataClass(ResolvedType $type): bool
     {
         return $type->declaration !== 'mixed'
             && $type->declaration !== 'array'
-            && ! in_array($type->declaration, self::SCALARS, true);
-    }
-
-    /**
-     * @return list<string>
-     */
-    private function normalizeTypes(SchemaNode $schema): array
-    {
-        $raw = $schema->type;
-        $types = [];
-
-        if (is_array($raw)) {
-            $types = $raw;
-        } elseif (is_string($raw) && $raw !== '') {
-            $types = [$raw];
-        }
-
-        $filtered = [];
-        foreach ($types as $type) {
-            if (is_string($type) && $type !== 'null') {
-                $filtered[] = $type;
-            }
-        }
-
-        return $filtered;
-    }
-
-    private function isNullable(SchemaNode $schema): bool
-    {
-        if ($schema->nullable === true) {
-            return true;
-        }
-
-        $raw = $schema->type;
-
-        return is_array($raw) && in_array('null', $raw, true);
-    }
-
-    /**
-     * The explicit `additionalProperties` value schema for a map, or null when
-     * the schema is not an explicitly-declared map.
-     *
-     * The node's `hasAdditionalProperties` presence flag (issue #104) tells an
-     * explicit `additionalProperties: true` apart from a plain object that
-     * never declared the key. We treat the map as present only when the spec
-     * set the key to a value other than `false`.
-     *
-     * Returns the value node for a typed map, or boolean `true` (as a marker)
-     * for `additionalProperties: true`. Returns null otherwise.
-     */
-    private function additionalPropertiesSchema(SchemaNode $schema): SchemaNode|ReferenceNode|true|null
-    {
-        if (! $schema->hasAdditionalProperties) {
-            return null;
-        }
-
-        $value = $schema->additionalProperties;
-
-        if ($value instanceof SchemaNode || $value instanceof ReferenceNode) {
-            return $value;
-        }
-
-        // additionalProperties: true (untyped map); false is not a map.
-        return $value === true ? true : null;
-    }
-
-    /**
-     * Whether the schema explicitly declares `additionalProperties: false`, the
-     * closed-object marker (issue #30). The node's `hasAdditionalProperties`
-     * presence flag (issue #104) tells an explicit `false` apart from an absent
-     * key. Returns true only when the spec set the key to literal `false`.
-     */
-    private function declaresClosedObject(SchemaNode $schema): bool
-    {
-        return $schema->hasAdditionalProperties
-            && $schema->additionalProperties === false;
+            && ! in_array($type->declaration, SchemaFacts::SCALARS, true);
     }
 
     /**
@@ -4292,17 +3609,17 @@ final class ModelGenerator
      */
     private function closedObjectRule(string $schemaName, array $wireNames, SchemaNode $schema): ?string
     {
-        $patterns = $this->patternPropertyPatterns($schema);
+        $patterns = SchemaFacts::patternPropertyPatterns($schema);
 
         if ($patterns === []) {
-            return 'new NoUnknownPropertiesRule('.$this->stringListLiteral($wireNames).')';
+            return 'new NoUnknownPropertiesRule('.PhpLiteral::stringListLiteral($wireNames).')';
         }
 
         $delimited = [];
         foreach ($patterns as $pattern) {
             $candidate = $this->delimitedPattern($pattern);
             if (! $this->compilesAsPcre($candidate)) {
-                $this->warnings[sprintf(
+                $this->state->warnings[sprintf(
                     'Schema "%s" declares patternProperties with a pattern that is not valid PCRE (%s); '
                     .'closed-object enforcement (additionalProperties: false) is skipped for this schema '
                     .'so spec-legal keys are never falsely rejected.',
@@ -4315,16 +3632,16 @@ final class ModelGenerator
             $delimited[] = $candidate;
         }
 
-        $this->warnings[sprintf(
+        $this->state->warnings[sprintf(
             'Schema "%s" combines additionalProperties: false with patternProperties. '
             .'Keys matching a pattern are accepted by the closed-object rule, but their value schemas are not validated.',
             $schemaName,
         )] = true;
 
         return 'new NoUnknownPropertiesRule('
-            .$this->stringListLiteral($wireNames)
+            .PhpLiteral::stringListLiteral($wireNames)
             .', '
-            .$this->stringListLiteral($delimited)
+            .PhpLiteral::stringListLiteral($delimited)
             .')';
     }
 
@@ -4344,60 +3661,6 @@ final class ModelGenerator
         } finally {
             restore_error_handler();
         }
-    }
-
-    /**
-     * The `patternProperties` patterns a schema declares, in spec order, read
-     * from the first-class typed keyword on SchemaNode (issue #104). The value
-     * schemas are intentionally ignored: only key admission is derived from
-     * them (see closedObjectRule()).
-     *
-     * @return list<string>
-     */
-    private function patternPropertyPatterns(SchemaNode $schema): array
-    {
-        $patterns = [];
-        foreach (array_keys($schema->patternProperties ?? []) as $pattern) {
-            $patterns[] = (string) $pattern;
-        }
-
-        return array_values(array_unique($patterns));
-    }
-
-    /**
-     * Whether a component schema is a pure map: an object whose only content is
-     * `additionalProperties` (a typed, ref, or untyped value), with no named
-     * `properties` and no composition keyword. Such a schema is a typed array,
-     * not a Data class. A mixed object (named properties AND
-     * additionalProperties) is NOT a pure map: its named properties are emitted
-     * normally and the dynamic overflow is documented as not captured.
-     */
-    private function isPureMap(SchemaNode $schema): bool
-    {
-        if ($this->additionalPropertiesSchema($schema) === null) {
-            return false;
-        }
-
-        if ($this->notEmptyArray($schema->properties)) {
-            return false;
-        }
-
-        if ($this->notEmptyArray($schema->allOf)
-            || $this->notEmptyArray($schema->oneOf)
-            || $this->notEmptyArray($schema->anyOf)
-        ) {
-            return false;
-        }
-
-        if ($this->notEmptyArray($schema->enum)) {
-            return false;
-        }
-
-        $types = $this->normalizeTypes($schema);
-        $primary = $types[0] ?? null;
-
-        // Only an object (or an untyped schema that is map-shaped) is a map.
-        return $primary === 'object' || $primary === null;
     }
 
     /**
@@ -4421,23 +3684,23 @@ final class ModelGenerator
             $promoted = false;
 
             foreach ($schemas as $name => $schema) {
-                if (isset($this->aliasSchemas[$name]) || ! isset($this->registry[$name])) {
+                if (isset($this->state->aliasSchemas[$name]) || ! isset($this->state->registry[$name])) {
                     continue;
                 }
 
-                $ref = $this->bareAllOfRef($schema);
+                $ref = SchemaFacts::bareAllOfRef($schema);
                 if ($ref === null) {
                     continue;
                 }
 
                 $target = SchemaPointer::refName($ref->pointer());
-                if ($target === null || ! isset($this->aliasSchemas[$target])) {
+                if ($target === null || ! isset($this->state->aliasSchemas[$target])) {
                     continue;
                 }
 
                 // The target is an alias: this thin wrapper is an alias too.
-                unset($this->registry[$name], $this->files[$name]);
-                $this->aliasSchemas[$name] = $schema;
+                unset($this->state->registry[$name], $this->state->files[$name]);
+                $this->state->aliasSchemas[$name] = $schema;
                 $promoted = true;
             }
         } while ($promoted);
@@ -4467,7 +3730,7 @@ final class ModelGenerator
         }
 
         // Pure-map and enum components have their own handling; never alias them.
-        if ($this->isPureMap($schema) || $this->isEnum($schema) || $this->isScalarEnumComponent($schema)) {
+        if (SchemaFacts::isPureMap($schema) || SchemaFacts::isEnum($schema) || SchemaFacts::isScalarEnumComponent($schema)) {
             return false;
         }
 
@@ -4487,7 +3750,7 @@ final class ModelGenerator
             return false;
         }
 
-        $types = $this->normalizeTypes($schema);
+        $types = SchemaFacts::normalizeTypes($schema);
         $primary = $types[0] ?? null;
 
         // A scalar (string/int/float/bool) or array component is a non-object
@@ -4499,7 +3762,7 @@ final class ModelGenerator
         }
 
         foreach ($types as $type) {
-            if (! isset(self::SCALARS[$type])) {
+            if (! isset(SchemaFacts::SCALARS[$type])) {
                 return false;
             }
         }
@@ -4521,12 +3784,12 @@ final class ModelGenerator
      */
     private function resolveAlias(string $name, array $seen = []): ResolvedType
     {
-        if (isset($this->aliasTypes[$name])) {
-            return $this->aliasTypes[$name];
+        if (isset($this->state->aliasTypes[$name])) {
+            return $this->state->aliasTypes[$name];
         }
 
         if (isset($seen[$name])) {
-            $this->warnings[sprintf(
+            $this->state->warnings[sprintf(
                 'Component schema "%s" is part of a cyclic alias chain and degrades to mixed with presence-only validation.',
                 $name,
             )] = true;
@@ -4534,7 +3797,7 @@ final class ModelGenerator
             return new ResolvedType('mixed');
         }
 
-        $schema = $this->aliasSchemas[$name] ?? null;
+        $schema = $this->state->aliasSchemas[$name] ?? null;
         if ($schema === null) {
             return new ResolvedType('mixed');
         }
@@ -4546,24 +3809,24 @@ final class ModelGenerator
         // the warning context is restored afterwards: a degradation inside the
         // alias is attributed to the alias component, not to whichever use
         // site happened to trigger the resolution first.
-        $previousContext = $this->warningContext;
-        $this->warningContext = sprintf('Schema "%s"', $name);
+        $previousContext = $this->state->warningContext;
+        $this->state->warningContext = sprintf('Schema "%s"', $name);
 
         // A nested class spawned from inside the alias (an array-of-inline-
         // object alias) follows the alias component's own tag group (issue
         // #93); the refs recorded here are discarded, because use sites replay
         // them from the cached classRefs.
-        $this->pushGroupScope($this->groupForSchema($name));
+        $this->state->pushGroupScope($this->state->groupForSchema($name));
 
         try {
             $resolved = $this->resolveType($schema, PhpIdentifier::toClassName($name), 0);
         } finally {
-            $this->popRefScope();
-            $this->warningContext = $previousContext;
+            $this->state->popRefScope();
+            $this->state->warningContext = $previousContext;
             $this->aliasSeen = [];
         }
 
-        return $this->aliasTypes[$name] = $resolved;
+        return $this->state->aliasTypes[$name] = $resolved;
     }
 
     /**
@@ -4582,8 +3845,8 @@ final class ModelGenerator
      */
     private function mapType(SchemaNode $schema, string $nameHint, int $depth, string $variant): ResolvedType
     {
-        $value = $this->additionalPropertiesSchema($schema);
-        $nullable = $this->isNullable($schema);
+        $value = SchemaFacts::additionalPropertiesSchema($schema);
+        $nullable = SchemaFacts::isNullable($schema);
 
         if ($value === true || $value === null) {
             return new ResolvedType('array', $nullable, 'array<string, mixed>', [], null, false, true);
@@ -4653,8 +3916,8 @@ final class ModelGenerator
      */
     private function mergeAllOf(SchemaNode $schema, array $seen = []): array
     {
-        $ownProperties = $this->localProperties($schema);
-        $ownRequired = $this->localRequired($schema);
+        $ownProperties = SchemaFacts::localProperties($schema);
+        $ownRequired = SchemaFacts::localRequired($schema);
 
         $members = $schema->allOf;
         if (! is_array($members) || $members === []) {
@@ -4670,7 +3933,7 @@ final class ModelGenerator
         $required = [];
 
         foreach ($members as $member) {
-            $resolved = $this->resolveMemberSchema($member, $seen);
+            $resolved = $this->state->resolveMemberSchema($member, $seen);
             if ($resolved === null) {
                 $this->warnUnmergedAllOfMember($member, $seen);
 
@@ -4730,22 +3993,22 @@ final class ModelGenerator
         $name = SchemaPointer::refName($pointer);
 
         if ($name === null) {
-            $this->warnings[sprintf(
+            $this->state->warnings[sprintf(
                 '%s: allOf member $ref "%s" is external or not a #/components/schemas pointer; its properties are not merged into the composed class. Bundle external references into one document before generating.',
-                $this->warningContext,
+                $this->state->warningContext,
                 $pointer,
             )] = true;
 
             return;
         }
 
-        if (isset($seen[$name]) || isset($this->aliasSchemas[$name]) || isset($this->mapSchemas[$name])) {
+        if (isset($seen[$name]) || isset($this->state->aliasSchemas[$name]) || isset($this->state->mapSchemas[$name])) {
             return;
         }
 
-        $this->warnings[sprintf(
+        $this->state->warnings[sprintf(
             '%s: allOf member $ref "%s" does not resolve to a component schema; its properties are not merged into the composed class.',
-            $this->warningContext,
+            $this->state->warningContext,
             $pointer,
         )] = true;
     }
@@ -4759,7 +4022,7 @@ final class ModelGenerator
      */
     private function mergedNullable(SchemaNode $schema, array $seen = []): bool
     {
-        if ($this->isNullable($schema)) {
+        if (SchemaFacts::isNullable($schema)) {
             return true;
         }
 
@@ -4769,7 +4032,7 @@ final class ModelGenerator
         }
 
         foreach ($members as $member) {
-            $resolved = $this->resolveMemberSchema($member, $seen);
+            $resolved = $this->state->resolveMemberSchema($member, $seen);
             if ($resolved === null) {
                 continue;
             }
@@ -4784,95 +4047,6 @@ final class ModelGenerator
     }
 
     /**
-     * Detect the "alias" shape: a schema whose only object content is an `allOf`
-     * with exactly one member, that member being a `$ref`, and the schema
-     * carrying no own properties. Such a schema is just the referenced type with
-     * extra annotations (typically a description), so it resolves to the
-     * referenced type rather than a merged copy. Returns the reference, or null
-     * when the shape does not match.
-     *
-     * Structural only: it does not consult the registry, so it can run during the
-     * alias-classification pass (before the registry is fully built) and so a
-     * chain to a non-object alias target (which is never in the registry) is
-     * still recognized. An unknown target resolves to `mixed` downstream via
-     * resolveReference, the same degenerate result an empty merged class gave.
-     */
-    private function bareAllOfRef(SchemaNode $schema): ?ReferenceNode
-    {
-        if ($this->notEmptyArray($schema->properties)) {
-            return null;
-        }
-
-        $members = $schema->allOf;
-        if (! is_array($members) || count($members) !== 1) {
-            return null;
-        }
-
-        $member = $members[0];
-        if (! $member instanceof ReferenceNode) {
-            return null;
-        }
-
-        return SchemaPointer::refName($member->pointer()) !== null ? $member : null;
-    }
-
-    /**
-     * Resolve one `allOf` member to a concrete schema. Inline schemas pass
-     * through. A `$ref` to a component schema is looked up in the registry,
-     * guarded against cycles by tracking the component names already in flight.
-     *
-     * @param  array<string, true>  $seen
-     * @return array{0: SchemaNode, 1: array<string, true>}|null resolved schema + updated cycle guard, or null if unresolvable
-     */
-    private function resolveMemberSchema(SchemaNode|ReferenceNode $member, array $seen): ?array
-    {
-        if ($member instanceof SchemaNode) {
-            return [$member, $seen];
-        }
-
-        $name = SchemaPointer::refName($member->pointer());
-
-        if ($name === null || isset($seen[$name]) || ! isset($this->registry[$name])) {
-            return null;
-        }
-
-        $target = $this->registry[$name]['schema'];
-        $seen[$name] = true;
-
-        return [$target, $seen];
-    }
-
-    /**
-     * @return array<string, SchemaNode|ReferenceNode>
-     */
-    private function localProperties(SchemaNode $schema): array
-    {
-        $result = [];
-        foreach ($this->asArray($schema->properties) as $name => $property) {
-            if ($property instanceof SchemaNode || $property instanceof ReferenceNode) {
-                $result[(string) $name] = $property;
-            }
-        }
-
-        return $result;
-    }
-
-    /**
-     * @return list<string>
-     */
-    private function localRequired(SchemaNode $schema): array
-    {
-        $result = [];
-        foreach ($this->asArray($schema->required) as $name) {
-            if (is_string($name)) {
-                $result[] = $name;
-            }
-        }
-
-        return $result;
-    }
-
-    /**
      * @param  list<string>  $names
      * @return list<string>
      */
@@ -4881,89 +4055,8 @@ final class ModelGenerator
         return array_values(array_unique($names));
     }
 
-    /**
-     * The `const` keyword (JSON Schema / OpenAPI 3.1) constrains a value to a
-     * single literal. A first-class typed keyword on SchemaNode with a presence
-     * flag (issue #104). Only scalar literals (string/int) we can both type and
-     * enforce with Rule::in are accepted; anything else (array/object/bool/
-     * float/null const) yields null and the schema is handled by the normal
-     * type path.
-     *
-     * Returns a single-element list so callers can distinguish "no const"
-     * (null) from "const present" ([value]) even for falsy values.
-     *
-     * @return array{0: string|int}|null
-     */
-    private function constValue(SchemaNode $schema): ?array
-    {
-        if (! $schema->hasConst) {
-            return null;
-        }
-
-        $value = $schema->const;
-
-        if (is_string($value) || is_int($value)) {
-            return [$value];
-        }
-
-        return null;
-    }
-
-    private function withSuffix(string $base): string
-    {
-        $suffix = $this->options->dataSuffix;
-
-        if ($suffix === '' || str_ends_with($base, $suffix)) {
-            return $base;
-        }
-
-        return $base.$suffix;
-    }
-
-    private function stripSuffix(string $className): string
-    {
-        $suffix = $this->options->dataSuffix;
-
-        if ($suffix !== '' && str_ends_with($className, $suffix)) {
-            return substr($className, 0, -strlen($suffix));
-        }
-
-        return $className;
-    }
-
-    private function escapeSingleQuoted(string $value): string
-    {
-        return str_replace(['\\', "'"], ['\\\\', "\\'"], $value);
-    }
-
-    /**
-     * A `['a', 'b']` PHP array literal of strings for the closed-object rule's
-     * allow-lists (declared wire names, delimited patternProperties patterns).
-     * Each item is single-quote-escaped (both come from untrusted spec input),
-     * mirroring how MapName renders a wire name.
-     *
-     * @param  list<string>  $values
-     */
-    private function stringListLiteral(array $values): string
-    {
-        $items = array_map(
-            fn (string $value): string => "'".$this->escapeSingleQuoted($value)."'",
-            array_values(array_unique($values)),
-        );
-
-        return '['.implode(', ', $items).']';
-    }
-
     private function notEmptyArray(mixed $value): bool
     {
         return is_array($value) && $value !== [];
-    }
-
-    /**
-     * @return array<array-key, mixed>
-     */
-    private function asArray(mixed $value): array
-    {
-        return is_array($value) ? $value : [];
     }
 }
