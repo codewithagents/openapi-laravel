@@ -172,6 +172,10 @@ collisions failing loudly.
   `field.*` rule would false-reject the prefix positions).
 - int64/bignum literal bounds, non-JSON responses, and `$ref`-valued map values degrade gracefully
   (typed in the docblock, not auto-hydrated).
+- A spec `pattern` is copied verbatim into the generated `regex:` rule with no complexity analysis
+  (#107), so a catastrophic-backtracking pattern in the spec becomes a potential ReDoS at runtime in
+  the generated app. PHP's `pcre.backtrack_limit` is the only backstop, turning a hang into a failed
+  match rather than preventing the CPU burn.
 - `in: header` / `in: cookie` parameters are not generated (warned per operation, #63 scoped them out).
 - Query parameters without a flat `key=value` / `key[]=value` form are skipped with a warning:
   `deepObject` (Stripe's filter objects), `spaceDelimited`/`pipeDelimited`, non-exploded arrays,
@@ -222,14 +226,16 @@ checks `strict: true`, and move from the direct-push flow to a PR + review workf
 The spec is untrusted input and the generated PHP is loaded and executed by the host. Defenses:
 docblock-injection neutralization, an identifier whitelist (path traversal, identifier injection, the
 `this` fatal), escaped literals, validated namespace options, structural rejection of non-OpenAPI
-documents, an input-size guard plus documented OS-limit guidance for the YAML-alias-bomb residual,
-operator-controlled CLI output paths, config-file output-path containment (#54), and a hostile-input
+documents, an input-size guard and a total hydrated-node-count guard against YAML alias amplification
+(#107), operator-controlled CLI output paths, config-file output-path containment (#54), and a hostile-input
 regression suite. Config containment: the standalone binary auto-discovers `openapi-laravel.json` from
 the working directory, so every config-sourced write path (`output.path`, `controllers.path`,
 `routes.path`) is contained by `PathContainment` to the config's directory; a `..` traversal, an
 absolute escape, or a symlinked-parent escape fails closed before any write. CLI flags keep full
-freedom by design. Residual: YAML alias expansion happens inside the vendored parser, so the size
-guard plus OS limits are the mitigation.
+freedom by design. YAML alias amplification (a sub-kilobyte anchor/alias bomb that sails under the
+byte and depth guards but fans out to millions of schema nodes) is bounded by a total
+hydrated-node-count guard in `OpenApiReader` (#107, `DEFAULT_MAX_NODES`, far above the largest corpus
+spec), which fails closed with a clear `ParseException` before memory is exhausted.
 
 ## Repo and release governance
 

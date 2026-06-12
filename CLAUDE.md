@@ -79,8 +79,9 @@ in memory and compares byte-for-byte against disk; exit 0 in sync, 1 drift, 2 co
 always in lockstep.
 
 **Security:** the spec is treated as untrusted input. Docblock-injection neutralization, identifier
-whitelisting, option validation, structural rejection of non-OpenAPI docs, an input-size guard,
-config output-path containment, and a hostile-input test suite.
+whitelisting, option validation, structural rejection of non-OpenAPI docs, an input-size guard, a
+total hydrated-node-count guard against YAML alias amplification (#107), config output-path
+containment, and a hostile-input test suite.
 
 **Quality:** PHPStan max, Pint, 100% type coverage, Pest native mutation, the differential
 validation oracle (#23: spec-valid payloads must pass and spec-invalid must fail through the real
@@ -103,7 +104,10 @@ Request fallback. Multipart residuals (#75): no file-size rule (OpenAPI has no s
 keyword), `encoding.contentType` is not read (only `contentMediaType` feeds `mimetypes:`), and a
 binary string nested below the multipart root stays a plain string; tuple `prefixItems` validates
 per position (#82, incl. a length cap for the closed `items: false` form) but still types as
-`array<int, mixed>`; int64 bounds and non-JSON responses degrade gracefully.
+`array<int, mixed>`; int64 bounds and non-JSON responses degrade gracefully. A spec `pattern` is
+copied verbatim into the generated `regex:` rule with no complexity analysis (#107), so a
+catastrophic-backtracking pattern in the spec becomes a potential ReDoS at runtime in the generated
+app; PHP's `pcre.backtrack_limit` is the only backstop (it turns a hang into a failed match).
 
 **Cross-language e2e demo (`e2e/`, owned by another agent, do not edit):** one petstore-plus spec
 drives a generated Laravel backend and an openapi-zod-ts TypeScript client + SPA, with a Playwright

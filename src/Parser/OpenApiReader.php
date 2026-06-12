@@ -71,6 +71,21 @@ final class OpenApiReader
     public const DEFAULT_MAX_DEPTH = 512;
 
     /**
+     * Upper bound on the TOTAL number of schema nodes hydrated from one
+     * document, guarding the recursive walk against YAML alias amplification
+     * (issue #107). Unlike the byte guard (which a tiny anchor/alias bomb sails
+     * under) and the depth guard (which bounds nesting, not fanout), this bounds
+     * BREADTH: a spec like `b: &b [*a,*a,...]` nested a few levels deep expands
+     * to millions of logical schema nodes from a sub-kilobyte file, exhausting
+     * memory before either other guard trips. The reader hydrates each alias
+     * occurrence as its own node, so counting hydrated schema nodes captures the
+     * blast directly. The ceiling sits far above the largest real corpus spec
+     * (the full GitHub spec hydrates well under 100k nodes), so legitimate specs
+     * are never rejected; override via the constructor only for trusted specs.
+     */
+    public const DEFAULT_MAX_NODES = 1_000_000;
+
+    /**
      * The canonical statement of the supported version matrix (issue #103).
      * Both the rejection error and the 3.2 best-effort warning point here so
      * the docs page stays the single source of truth.
@@ -101,8 +116,16 @@ final class OpenApiReader
 
     private const HTTP_METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace', 'query'];
 
+    /**
+     * Running count of schema nodes hydrated during the current read(), checked
+     * against {@see $maxNodes} on every schema-object hydration. Reset at the
+     * start of each read() so a reused reader instance stays correct.
+     */
+    private int $nodeCount = 0;
+
     public function __construct(
         private readonly int $maxDepth = self::DEFAULT_MAX_DEPTH,
+        private readonly int $maxNodes = self::DEFAULT_MAX_NODES,
     ) {}
 
     /**
@@ -117,6 +140,8 @@ final class OpenApiReader
         if (! is_array($data)) {
             $data = [];
         }
+
+        $this->nodeCount = 0;
 
         $version = $data['openapi'] ?? null;
 
@@ -583,6 +608,15 @@ final class OpenApiReader
     {
         if ($depth > $this->maxDepth) {
             throw new ParseException("OpenAPI document exceeds the maximum schema nesting depth ({$this->maxDepth}).");
+        }
+
+        // Total-node guard (issue #107): YAML alias amplification can fan a
+        // sub-kilobyte document out to millions of schema nodes without ever
+        // exceeding the byte or depth bounds. Counting every hydrated schema
+        // node and failing closed here bounds that breadth blowup before it
+        // exhausts memory.
+        if (++$this->nodeCount > $this->maxNodes) {
+            throw new ParseException("OpenAPI document exceeds the maximum hydrated schema node count ({$this->maxNodes}). This usually means the spec uses YAML anchors and aliases to amplify a small file into a very large structure. Override the bound via the constructor only for a trusted spec.");
         }
 
         // Closed tuple (issue #82): `items: false` next to a non-empty
