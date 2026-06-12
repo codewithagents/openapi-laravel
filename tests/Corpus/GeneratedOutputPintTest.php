@@ -47,11 +47,14 @@ it('generates Pint-idempotent output (pint --test reports no reformats)', functi
     $dir = sys_get_temp_dir().'/openapi-laravel-pint-'.bin2hex(random_bytes(6));
     expect(mkdir($dir, 0700, true) || is_dir($dir))->toBeTrue("could not create temp dir {$dir}");
 
-    foreach ($files as $file) {
-        file_put_contents($dir.'/'.$file->filename(), $file->code);
-    }
-    foreach ($supportFiles as $file) {
-        file_put_contents($dir.'/'.$file->filename(), $file->code);
+    // filename() may carry a tag-group subdirectory (issue #93), so create
+    // parent directories before writing, same as loadGeneratedFiles().
+    foreach ([...$files, ...array_values($supportFiles)] as $file) {
+        $path = $dir.'/'.$file->filename();
+        if (! is_dir(dirname($path))) {
+            mkdir(dirname($path), 0700, true);
+        }
+        file_put_contents($path, $file->code);
     }
 
     $repoRoot = dirname(__DIR__, 2);
@@ -64,10 +67,9 @@ it('generates Pint-idempotent output (pint --test reports no reformats)', functi
         $command = escapeshellarg($pint).' --test --config='.escapeshellarg($config).' '.escapeshellarg($dir).' 2>&1';
         exec($command, $output, $exitCode);
     } finally {
-        foreach ([...$files, ...$supportFiles] as $file) {
-            @unlink($dir.'/'.$file->filename());
-        }
-        @rmdir($dir);
+        // Remove the whole tree (including any tag-group subdirectories)
+        // regardless of result, mirroring the PHPStan gate's cleanup.
+        exec('rm -rf '.escapeshellarg($dir));
     }
 
     expect($exitCode)->toBe(

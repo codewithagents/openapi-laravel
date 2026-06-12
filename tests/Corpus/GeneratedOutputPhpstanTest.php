@@ -97,8 +97,14 @@ it('generates PHPStan-max-clean output (phpstan analyse reports no errors)', fun
         $subDir = $analyseDir.'/'.$name;
         expect(mkdir($subDir, 0700, true) || is_dir($subDir))->toBeTrue("could not create temp dir {$subDir}");
 
+        // filename() may carry a tag-group subdirectory (issue #93), so create
+        // parent directories before writing, same as loadGeneratedFiles().
         foreach ($files as $file) {
-            file_put_contents($subDir.'/'.$file->filename(), $file->code);
+            $filePath = $subDir.'/'.$file->filename();
+            if (! is_dir(dirname($filePath))) {
+                mkdir(dirname($filePath), 0700, true);
+            }
+            file_put_contents($filePath, $file->code);
         }
         // The support classes live in `<Data>\Support`, so a `Support/` subdir
         // keeps their files namespaced realistically next to the Data classes.
@@ -106,7 +112,11 @@ it('generates PHPStan-max-clean output (phpstan analyse reports no errors)', fun
             $supportSubDir = $subDir.'/Support';
             expect(mkdir($supportSubDir, 0700, true) || is_dir($supportSubDir))->toBeTrue("could not create temp dir {$supportSubDir}");
             foreach ($supportFiles as $file) {
-                file_put_contents($supportSubDir.'/'.$file->filename(), $file->code);
+                $filePath = $supportSubDir.'/'.$file->filename();
+                if (! is_dir(dirname($filePath))) {
+                    mkdir(dirname($filePath), 0700, true);
+                }
+                file_put_contents($filePath, $file->code);
             }
         }
         $totalFiles += count($files) + count($supportFiles);
