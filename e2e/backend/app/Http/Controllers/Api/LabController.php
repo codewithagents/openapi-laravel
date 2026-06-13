@@ -15,7 +15,6 @@ use App\Data\Lab\LabClosedNestData;
 use App\Data\Lab\LabCookieEchoData;
 use App\Data\Lab\LabDelimitedEchoData;
 use App\Data\Lab\LabDelimitedQueryQueryData;
-use App\Data\Lab\LabDelimitedQueryRequestData;
 use App\Data\Lab\LabEnumConstData;
 use App\Data\Lab\LabFormatsData;
 use App\Data\Lab\LabFormBodyRequestData;
@@ -218,28 +217,25 @@ final class LabController extends AbstractLabController
         );
     }
 
-    public function labDelimitedQuery(LabDelimitedQueryRequestData $body): LabDelimitedEchoData
+    public function labDelimitedQuery(): LabDelimitedEchoData
     {
-        // Non-exploded DELIMITED array query params (#132). The generated query
-        // class LabDelimitedQueryQueryData is ADDITIVE here (this op has a body, so
-        // the generator injects the body and leaves a docblock pointing at
-        // fromQuery($request)). We honor that, the same way uploadFile does for its
-        // query class: the generated fromQuery() factory splits each delimited
-        // query string on its style's delimiter (csv on comma, ssv on space, psv
-        // on pipe) BEFORE the array rules run, validates the per-item bounds (csv
+        // Non-exploded DELIMITED array query params on a body-less GET (#132, the
+        // real-world Stripe-style filter case). The generated query class
+        // LabDelimitedQueryQueryData is now ADDITIVE even on a GET (the abstract
+        // takes NO injected query param and points at fromQuery($request)). This
+        // is the fix that makes the split the runtime-live path: container
+        // injection would resolve the class from the RAW request and validate the
+        // UNSPLIT joined string first (the `array` rule would 422 before the split
+        // ran). By calling fromQuery() ourselves the same way path/header params
+        // call fromRoute()/fromHeaders(), the factory splits each delimited query
+        // string on its style's delimiter (csv on comma, ssv on space, psv on
+        // pipe) BEFORE the array rules run, validates the per-item bounds (csv
         // items min:1 max:100, so an out-of-range item 422s), and returns the
-        // typed arrays. This is the runtime-live path for the generated split:
-        // because the query class is reached via fromQuery() and not container
-        // injection, the split runs before validation instead of being shadowed by
-        // spatie validating the unsplit joined string (the body-less-GET hazard,
-        // see GET /lab/styles `ids`). The injected $body proves the multipart-free
-        // axes coexist: the body validates separately and never bleeds into the
-        // query split. Echoing the split arrays back proves the split happened
-        // (e.g. ?csv=1,2,3 -> [1,2,3]).
+        // typed arrays. Echoing them back proves the split happened on a GET
+        // (e.g. ?csv=1,2,3 -> ['1','2','3']).
         $query = LabDelimitedQueryQueryData::fromQuery(request());
 
         return new LabDelimitedEchoData(
-            note: $body->note,
             csv: $query->csv,
             ssv: $query->ssv,
             psv: $query->psv,
@@ -439,22 +435,25 @@ final class LabController extends AbstractLabController
 
     // --- Stage 5: documented residual pins ----------------------------------
 
-    public function labStyles(LabStylesQueryData $query): LabStylesEchoData
+    public function labStyles(): LabStylesEchoData
     {
-        // Query styles, post-#132. The deepObject `filter` object is STILL skipped
-        // with a warning at generation time, so it is absent from
-        // LabStylesQueryData and never validated. The pipeDelimited `ids` array is
-        // NO LONGER skipped (#132): it is now a generated, validated integer-array
-        // property. This op is a body-less GET, so the generator INJECTS the query
-        // class and spatie validates it against the RAW request. Container
-        // injection bypasses the generated fromQuery() split, so the injected
-        // `ids` is validated as the unsplit pipe-joined STRING and fails the
-        // `array` rule: any `ids` value 422s on this GET (the split path is only
-        // live where the query class is additive, see POST /lab/delimited-query).
-        // So we read only the validated `page`; a request that wants a 200 must
-        // omit `ids` entirely. A page default keeps the echo well-typed, and a
-        // garbage `filter` value never gates the request (deepObject is skipped).
-        return new LabStylesEchoData(page: $query->page ?? 0);
+        // Query styles, post-#132 additive fix. The deepObject `filter` object is
+        // STILL skipped with a warning at generation time, so it is absent from
+        // LabStylesQueryData and never validated. The pipeDelimited `ids` array,
+        // by contrast, is now a generated, validated integer-array property that
+        // SPLITS correctly even on this body-less GET: a delimited-array query
+        // class is now ADDITIVE (the abstract takes no injected param and points
+        // at fromQuery($request)), so calling fromQuery() ourselves runs the pipe
+        // split BEFORE the integer-array rules. Previously this op was forced to
+        // ignore `ids` because container injection validated the unsplit string
+        // and 422'd; now `ids=99|7` round-trips as [99, 7] and a non-integer item
+        // (ids=99|abc|7) 422s on the per-item rule. We echo the validated `page`
+        // (min:1 max:50) and the split `ids` so the test can assert both. A page
+        // default keeps the echo well-typed, and a garbage `filter` value never
+        // gates the request (deepObject is skipped).
+        $query = LabStylesQueryData::fromQuery(request());
+
+        return new LabStylesEchoData(page: $query->page ?? 0, ids: $query->ids);
     }
 
     public function labCookie(): LabCookieEchoData
