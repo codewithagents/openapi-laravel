@@ -10,9 +10,8 @@ use App\Data\Pet\FindPetsByTagsQueryData;
 use App\Data\Pet\PetData;
 use App\Data\Pet\PetWritableData;
 use App\Data\Pet\UpdatePetWithFormQueryData;
+use App\Data\Pet\UploadFileRequestData;
 use App\Support\PetStore;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Spatie\LaravelData\DataCollection;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -115,29 +114,68 @@ final class PetController extends AbstractPetController
         return $this->store->putPet($updated);
     }
 
-    public function destroy(int $petId): JsonResponse
+    public function destroy(int $petId): void
     {
+        // The generated abstract types this void: the spec declares 204 for the
+        // delete (issue #64), so the route carries RespondsWithStatus:204, which
+        // turns the framework's default 200 (empty body) into a 204 No Content.
+        // The handler only signals success or a 404; it never sets a status.
         $deleted = $this->store->deletePet($petId);
 
         if (! $deleted) {
             throw new NotFoundHttpException("Pet {$petId} not found.");
         }
-
-        return new JsonResponse(null, 204);
     }
 
-    public function uploadFile(Request $request, int $petId): ApiResponseData
+    public function uploadFile(UploadFileRequestData $body, int $petId): ApiResponseData
     {
-        if ($this->store->findPet($petId) === null) {
+        // $body arrived fully hydrated and validated against the generated
+        // multipart rules() (issue #75): $body->image is a real UploadedFile
+        // that already passed the 'file' + 'mimetypes:image/png' rules, so a
+        // non-PNG or missing part would have 422'd before reaching this method.
+        $pet = $this->store->findPet($petId);
+
+        if ($pet === null) {
             throw new NotFoundHttpException("Pet {$petId} not found.");
         }
 
-        $bytes = strlen($request->getContent());
+        // Persist the upload under storage/app and record it on the pet by
+        // appending a served URL to photoUrls, so the SPA detail panel reflects
+        // the attached photo. The store is file-backed, no DB.
+        $filename = "pet-{$petId}-".uniqid().'.png';
+        $body->image->storeAs('uploads', $filename);
+
+        $photoUrl = "/storage/uploads/{$filename}";
+        $this->store->putPet($this->withPhoto($pet, $photoUrl));
+
+        $size = $body->image->getSize() ?? 0;
+        $caption = $body->caption !== null ? " (caption: {$body->caption})" : '';
 
         return new ApiResponseData(
             code: 200,
             type: 'success',
-            message: "Image uploaded for pet {$petId} ({$bytes} bytes).",
+            message: "Image uploaded for pet {$petId}: {$photoUrl} ({$size} bytes){$caption}.",
+        );
+    }
+
+    /**
+     * Return a copy of the pet with one photo URL appended. Used by the upload
+     * to record the stored image on the pet without touching its other fields.
+     */
+    private function withPhoto(PetData $pet, string $photoUrl): PetData
+    {
+        return new PetData(
+            name: $pet->name,
+            photoUrls: [...$pet->photoUrls, $photoUrl],
+            id: $pet->id,
+            category: $pet->category,
+            tags: $pet->tags,
+            status: $pet->status,
+            microchipId: $pet->microchipId,
+            createdAt: $pet->createdAt,
+            weightKg: $pet->weightKg,
+            attributes: $pet->attributes,
+            externalId: $pet->externalId,
         );
     }
 

@@ -140,6 +140,11 @@ paths:
       responses:
         '200':
           description: successful operation
+          headers:
+            X-Total-Count:
+              description: Total number of pets matching the status filter.
+              schema:
+                type: integer
           content:
             application/json:
               schema:
@@ -297,7 +302,7 @@ paths:
             type: integer
             format: int64
       responses:
-        '200':
+        '204':
           description: Pet deleted
         '400':
           description: Invalid pet value
@@ -329,11 +334,20 @@ paths:
           schema:
             type: string
       requestBody:
+        required: true
         content:
-          application/octet-stream:
+          multipart/form-data:
             schema:
-              type: string
-              format: binary
+              type: object
+              required:
+                - image
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  contentMediaType: image/png
+                caption:
+                  type: string
       responses:
         '200':
           description: successful operation
@@ -348,9 +362,7 @@ paths:
         default:
           description: Unexpected error
       security:
-        - petstore_auth:
-            - write:pets
-            - read:pets
+        - pet_upload_key: []
   /store/inventory:
     get:
       tags:
@@ -874,4 +886,8 @@ components:
     api_key:
       type: apiKey
       name: api_key
+      in: header
+    pet_upload_key:
+      type: apiKey
+      name: X-API-Key
       in: header

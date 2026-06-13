@@ -1,7 +1,9 @@
 <?php
 
+use App\Http\Middleware\ApiKey;
 use App\Http\Middleware\CreatedResponse;
 use App\Http\Middleware\ForceJsonAccept;
+use App\Http\Middleware\TotalCountHeader;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -39,13 +41,23 @@ return Application::configure(basePath: dirname(__DIR__))
                 return;
             }
 
+            // TotalCountHeader is consumer-written glue for the X-Total-Count
+            // response header the spec declares on findPetsByStatus: the
+            // generator only warns about response headers (issue #114), so the
+            // adopter sets it. It is scoped by route name inside the middleware.
             Route::prefix('api')
-                ->middleware([ForceJsonAccept::class, CreatedResponse::class])
+                ->middleware([ForceJsonAccept::class, CreatedResponse::class, TotalCountHeader::class])
                 ->group($generatedRoutes);
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        // Register the 'api-key' alias the generated uploadFile route references.
+        // The generator maps the spec's pet_upload_key scheme to this alias (see
+        // config/openapi-laravel.php security.middleware_map); the consumer owns
+        // both the alias registration and the ApiKey enforcement class.
+        $middleware->alias([
+            'api-key' => ApiKey::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

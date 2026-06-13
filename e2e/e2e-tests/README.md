@@ -26,6 +26,14 @@ Every assertion maps to a specific contract-first proof:
 | Attributes map round-trips | additionalProperties map survives the full stack |
 | Delete removes from list | Generated client DELETEs and list re-fetches |
 | Status filter tabs | findPetsByStatus over real HTTP filters correctly |
+| Multipart PNG upload (#75) | generated `UploadFileRequestData` (`UploadedFile` + `file`/`mimetypes` rules) accepts the multipart POST; the photo URL lands on the pet |
+| Non-PNG upload 422 (#75) | the generated `mimetypes:image/png` rule rejects a text file |
+| Upload 401 / 200 (#77) | the mapped `api-key` middleware on the generated route enforces the `X-API-Key` scheme |
+| DELETE -> 204 (#64) | the generated `void` return + `RespondsWithStatus:204` yield an exact 204 with an empty body |
+| X-Total-Count header (#114, residual) | CONSUMER-written `TotalCountHeader` middleware sets the spec-declared header; the generator only warns, so this proves consumer glue, not generator support |
+
+See `../README.md` for the full coverage table with the spec construct behind
+each row and the generated-vs-consumer breakdown.
 
 ## Prerequisites
 
@@ -77,6 +85,9 @@ e2e-tests/
   run.sh                   Orchestration: up, wait, test, down
   tests/
     petstore.spec.ts       All end-to-end scenarios
+    fixtures/
+      pixel.png            1x1 PNG used by the multipart upload test
+      not-an-image.txt     non-PNG used to prove the mimetypes rule rejects it
   .gitignore
   README.md
 ```

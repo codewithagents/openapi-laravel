@@ -74,6 +74,17 @@ export function PetList({ refreshToken }: PetListProps) {
     }
   }
 
+  // After a photo upload, re-fetch the pet so the detail panel reflects the
+  // newly attached photo URL (the backend appends it to photoUrls).
+  const handleUploaded = async (petId: bigint) => {
+    try {
+      const detail = await getPetById(String(petId))
+      setSelectedPet(detail)
+    } catch {
+      // Leave the panel as-is; the upload itself already reported its result.
+    }
+  }
+
   return (
     <div>
       <div className="card">
@@ -160,7 +171,11 @@ export function PetList({ refreshToken }: PetListProps) {
       </div>
 
       {selectedPet && (
-        <PetDetail pet={selectedPet} onClose={() => setSelectedPet(null)} />
+        <PetDetail
+          pet={selectedPet}
+          onUploaded={(petId) => { void handleUploaded(petId) }}
+          onClose={() => setSelectedPet(null)}
+        />
       )}
     </div>
   )

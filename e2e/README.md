@@ -334,8 +334,38 @@ Note also that `PUT /pet` does a full replace (the write variant is the whole
 resource), so fields omitted from a PUT body become null. `created_at` is the
 exception: the controller preserves the original on update.
 
+## Playwright e2e coverage
+
+The Playwright suite (`e2e-tests/tests/petstore.spec.ts`) drives the SPA in
+headless Chromium over real HTTP, and for status-code / header assertions it
+also hits the backend directly via Playwright's request context. The table maps
+each covered feature to the spec construct that drives it and to exactly what
+the assertion proves, kept honest about what is GENERATED versus what is
+CONSUMER-WRITTEN glue.
+
+| Feature | Spec construct | What the Playwright assertion proves | Generated vs consumer |
+|---|---|---|---|
+| MapName round-trip | `microchip_id` snake_case property | the value survives the create -> read round trip in the list and detail | generated (`#[MapName]` on the Data class) |
+| writeOnly split | `secret_note: writeOnly` | the value sent on create never appears in any read response or the detail panel | generated (write/read variant split) |
+| readOnly server-set | `created_at: readOnly, date-time` | detail shows a server-set timestamp, the client value is ignored | generated rules + consumer assigns the value |
+| nullable scalar | `weight_kg: nullable` | a null stays present (rendered `null`) end to end | generated |
+| additionalProperties map | `attributes` string->string map | a non-empty map round-trips into the detail panel | generated |
+| oneOf scalar union | `external_id: oneOf [string, integer]` | a string stays a string, an integer stays an integer, both rendered without coercion | generated union type |
+| enum validation | `status` enum | an out-of-enum value 422s before the controller runs | generated `in:` rule |
+| multipart upload (#75) | `multipart/form-data` object body, `image: string/binary` + `contentMediaType: image/png` | a PNG posted via the generated client is stored and its URL appears on the pet; a non-PNG 422s on the generated `mimetypes:image/png` rule | generated `UploadFileRequestData` (`UploadedFile` field + `file`/`mimetypes` rules) + consumer stores the file |
+| security middleware (#77) | `security: [pet_upload_key]` apiKey scheme (header `X-API-Key`) + `security.middleware_map` config | upload is 401 without the key and succeeds with it | generated route carries the mapped middleware; consumer writes the `ApiKey` enforcement and registers the alias |
+| 204 No Content (#64) | `deletePet` declares `204` | DELETE returns exactly 204 with an empty body | generated `void` return + `RespondsWithStatus:204` route middleware |
+| response header (#114, RESIDUAL) | `X-Total-Count` header on `findByStatus` 200 | the header is present and its count matches the body length | NOT generated: the generator only WARNS about response headers. The header is set entirely by hand-written consumer glue (`TotalCountHeader` middleware). The test proves the consumer glue works, not generator support. |
+
+The last row is deliberately called out: it exercises a documented residual.
+The generator emits a warning for the declared `X-Total-Count` header and
+nothing else, so the assertion must not be read as "the generator handles
+response headers". It proves only that a real adopter can wire the header by
+hand on top of the generated scaffold.
+
 ## CORS
 
 `config/cors.php` is fully permissive (`paths: api/*`, origins/methods/headers
-all `*`). This is DEMO ONLY, to let a later SPA milestone call the API from any
-origin. A real deployment must pin origins and tighten methods/headers.
+all `*`), with `X-Total-Count` added to `exposed_headers` so the cross-origin
+SPA can read it. This is DEMO ONLY, to let the SPA call the API from any origin.
+A real deployment must pin origins and tighten methods/headers.

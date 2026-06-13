@@ -1,4 +1,15 @@
 import { test, expect, type Page } from '@playwright/test';
+import path from 'node:path';
+
+// Playwright compiles this spec as CommonJS, so __dirname is available natively.
+const PNG_FIXTURE = path.join(__dirname, 'fixtures', 'pixel.png');
+const TXT_FIXTURE = path.join(__dirname, 'fixtures', 'not-an-image.txt');
+
+// The backend API base, host-reachable, for tests that assert raw HTTP status
+// codes / headers directly (the generated client abstracts those away). The SPA
+// itself talks to this same origin from the browser.
+const API_BASE = process.env['API_BASE'] ?? 'http://localhost:8088/api';
+const UPLOAD_API_KEY = 'demo-upload-key';
 
 /**
  * Petstore end-to-end suite.
@@ -21,7 +32,8 @@ import { test, expect, type Page } from '@playwright/test';
  *   error-name, error-status, error-global,
  *   pet-detail, detail-id, detail-name, detail-status, detail-created-at,
  *   detail-microchip-id, detail-weight-kg, detail-external-id, detail-attributes,
- *   detail-close,
+ *   detail-photo-urls, detail-close,
+ *   upload-file-input, upload-caption-input, upload-submit, upload-status, upload-error,
  *   status-filter, filter-available, filter-pending, filter-sold,
  *   list-loading, empty-state, list-error, delete-error
  */
@@ -477,4 +489,184 @@ test('status filter switches between available, pending, and sold tabs', async (
   await page.click('[data-testid="filter-sold"]');
   await waitForPetList(page);
   await expect(page.locator('[data-testid="empty-state"]')).toBeVisible();
+});
+
+// ---------------------------------------------------------------------------
+// Helper: create a pet via the SPA and open its detail panel. Returns the
+// unique name so callers can re-locate it.
+// ---------------------------------------------------------------------------
+
+async function createPetAndOpenDetail(page: Page, prefix: string): Promise<string> {
+  await openApp(page);
+  await waitForPetList(page);
+
+  const uniqueName = `${prefix}-${Date.now()}`;
+  await fillAndSubmitCreateForm(page, { name: uniqueName, status: 'available' });
+
+  await page.waitForFunction(
+    (name: string) => {
+      const cells = Array.from(document.querySelectorAll('[data-testid="pet-name"]'));
+      return cells.some((el) => el.textContent === name);
+    },
+    uniqueName,
+    { timeout: 20_000 },
+  );
+
+  const row = page.locator('[data-testid="pet-row"]', {
+    has: page.locator(`[data-testid="pet-name"]:text("${uniqueName}")`),
+  });
+  await row.locator('[data-testid="view-btn"]').click();
+  await expect(page.locator('[data-testid="pet-detail"]')).toBeVisible({ timeout: 10_000 });
+
+  return uniqueName;
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 8: Multipart photo upload (#75)
+//
+// What this proves end to end:
+//   - The generator changed the octet-stream body to a multipart/form-data
+//     OBJECT body and synthesized UploadFileRequestData with an UploadedFile
+//     `image` field plus the 'file' + 'mimetypes:image/png' validation rules.
+//   - The generated openapi-zod-ts client builds the FormData and posts it.
+//   - The concrete controller stores the file and appends its URL to the pet's
+//     photoUrls, which the detail panel reflects.
+// ---------------------------------------------------------------------------
+
+test('uploads a PNG via the generated multipart client and the photo appears on the pet', async ({ page }) => {
+  await createPetAndOpenDetail(page, 'E2E-Upload');
+
+  // The pet starts with exactly one seeded photo URL (the create-form default).
+  const before = await page.locator('[data-testid="detail-photo-urls"]').textContent();
+  expect(before).toBeTruthy();
+
+  // Attach the tiny PNG fixture and an optional caption, then upload.
+  await page.setInputFiles('[data-testid="upload-file-input"]', PNG_FIXTURE);
+  await page.fill('[data-testid="upload-caption-input"]', 'profile shot');
+  await page.click('[data-testid="upload-submit"]');
+
+  // The upload status reflects the backend's ApiResponse.message, which echoes
+  // the stored photo URL and the caption (proving the multipart parts arrived).
+  const status = page.locator('[data-testid="upload-status"]');
+  await expect(status).toBeVisible({ timeout: 10_000 });
+  const statusText = await status.textContent();
+  expect(statusText).toContain('Image uploaded');
+  expect(statusText).toContain('/storage/uploads/');
+  expect(statusText).toContain('caption: profile shot');
+
+  // After upload the panel refreshes; the new photo URL is now listed.
+  await expect(page.locator('[data-testid="detail-photo-urls"]')).toContainText('/storage/uploads/', {
+    timeout: 10_000,
+  });
+});
+
+test('rejects a non-PNG upload with a 422 from the generated mimetypes rule', async ({ page }) => {
+  await createPetAndOpenDetail(page, 'E2E-UploadBad');
+
+  // The generated rule is 'mimetypes:image/png'. A text file must be rejected
+  // by the Laravel validator before the controller body runs.
+  await page.setInputFiles('[data-testid="upload-file-input"]', TXT_FIXTURE);
+  await page.click('[data-testid="upload-submit"]');
+
+  const error = page.locator('[data-testid="upload-error"]');
+  await expect(error).toBeVisible({ timeout: 10_000 });
+  await expect(error).toContainText('422');
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 9: Security middleware (#77)
+//
+// The spec marks uploadImage as requiring the pet_upload_key apiKey scheme
+// (header X-API-Key). config/openapi-laravel.php maps that scheme to the
+// 'api-key' middleware, so the generated route carries it. The consumer-written
+// ApiKey middleware enforces a fixed demo key. We assert raw HTTP directly so
+// the status codes are unambiguous.
+// ---------------------------------------------------------------------------
+
+test('upload is rejected with 401 when the API key is missing, and accepted with it', async ({ page, request }) => {
+  // Seed pet 1 (Rex) always exists. Build the multipart body for both calls.
+  const fs = require('node:fs') as typeof import('node:fs');
+  const png = fs.readFileSync(PNG_FIXTURE);
+  const multipart = {
+    image: { name: 'pixel.png', mimeType: 'image/png', buffer: png },
+    caption: 'auth check',
+  };
+
+  // Without the X-API-Key header: the generated route's api-key middleware 401s.
+  const noKey = await request.post(`${API_BASE}/pet/1/uploadImage`, {
+    multipart,
+    headers: { Accept: 'application/json' },
+  });
+  expect(noKey.status()).toBe(401);
+
+  // With the correct key: the request passes the middleware and succeeds.
+  // laravel-data serializes a Data object returned from a POST as 201 Created,
+  // so the upload (a POST returning ApiResponseData) responds 201.
+  const withKey = await request.post(`${API_BASE}/pet/1/uploadImage`, {
+    multipart,
+    headers: { Accept: 'application/json', 'X-API-Key': UPLOAD_API_KEY },
+  });
+  expect(withKey.ok()).toBe(true);
+  expect(withKey.status()).toBe(201);
+  const bodyJson = await withKey.json();
+  expect(bodyJson.message).toContain('Image uploaded');
+
+  // And the same X-API-Key path works through the SPA (the generated client
+  // forwards the per-call apiKey config as the X-API-Key header).
+  await createPetAndOpenDetail(page, 'E2E-UploadAuth');
+  await page.setInputFiles('[data-testid="upload-file-input"]', PNG_FIXTURE);
+  await page.click('[data-testid="upload-submit"]');
+  await expect(page.locator('[data-testid="upload-status"]')).toBeVisible({ timeout: 10_000 });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 10: 204 No Content on DELETE (#64)
+//
+// The spec declares 204 for deletePet, so the generator types the abstract
+// destroy() void and stamps RespondsWithStatus:204 on the route. We assert the
+// raw status code is exactly 204 with an empty body (the row-disappears path is
+// already covered indirectly in Scenario 6).
+// ---------------------------------------------------------------------------
+
+test('DELETE pet returns a 204 No Content with an empty body', async ({ request }) => {
+  // Create a throwaway pet through the API, then delete it and inspect the
+  // raw response.
+  const created = await request.post(`${API_BASE}/pet`, {
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    data: { name: `E2E-204-${Date.now()}`, photoUrls: ['https://example.com/x.png'], status: 'available' },
+  });
+  expect(created.status()).toBe(201);
+  const createdPet = await created.json();
+  const id = createdPet.id;
+
+  const del = await request.delete(`${API_BASE}/pet/${id}`, {
+    headers: { Accept: 'application/json' },
+  });
+  expect(del.status()).toBe(204);
+  expect((await del.body()).length).toBe(0);
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 11: X-Total-Count response header (#114, a DOCUMENTED RESIDUAL)
+//
+// IMPORTANT: this does NOT prove the generator emits response-header handling.
+// The generator only WARNS about the spec's declared X-Total-Count header and
+// generates nothing for it. The header is set by hand-written consumer glue
+// (App\Http\Middleware\TotalCountHeader). This test proves that consumer glue
+// works, and documents the seam between generated and hand-written code.
+// ---------------------------------------------------------------------------
+
+test('findByStatus carries the consumer-set X-Total-Count header (documented residual)', async ({ request }) => {
+  const res = await request.get(`${API_BASE}/pet/findByStatus?status=available`, {
+    headers: { Accept: 'application/json' },
+  });
+  expect(res.status()).toBe(200);
+
+  const total = res.headers()['x-total-count'];
+  expect(total).toBeDefined();
+
+  const body = await res.json();
+  expect(Array.isArray(body)).toBe(true);
+  // The header count matches the number of items actually returned.
+  expect(Number(total)).toBe(body.length);
 });
