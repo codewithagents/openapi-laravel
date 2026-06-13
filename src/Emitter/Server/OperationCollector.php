@@ -967,14 +967,11 @@ final class OperationCollector
             return [];
         }
 
-        $result = [];
-        foreach ($components->parameters as $name => $parameter) {
-            if (is_string($name) && $name !== '' && $parameter instanceof ParameterNode) {
-                $result[$name] = $parameter;
-            }
-        }
-
-        return $result;
+        return array_filter(
+            $components->parameters,
+            static fn (mixed $parameter, mixed $name): bool => is_string($name) && $name !== '' && $parameter instanceof ParameterNode,
+            ARRAY_FILTER_USE_BOTH,
+        );
     }
 
     /**
@@ -993,14 +990,11 @@ final class OperationCollector
             return [];
         }
 
-        $result = [];
-        foreach ($components->requestBodies as $name => $body) {
-            if (is_string($name) && $name !== '' && $body instanceof RequestBodyNode) {
-                $result[$name] = $body;
-            }
-        }
-
-        return $result;
+        return array_filter(
+            $components->requestBodies,
+            static fn (mixed $body, mixed $name): bool => is_string($name) && $name !== '' && $body instanceof RequestBodyNode,
+            ARRAY_FILTER_USE_BOTH,
+        );
     }
 
     /**
@@ -1086,14 +1080,11 @@ final class OperationCollector
             return [];
         }
 
-        $result = [];
-        foreach ($components->responses as $name => $response) {
-            if (is_string($name) && $name !== '' && $response instanceof ResponseNode) {
-                $result[$name] = $response;
-            }
-        }
-
-        return $result;
+        return array_filter(
+            $components->responses,
+            static fn (mixed $response, mixed $name): bool => is_string($name) && $name !== '' && $response instanceof ResponseNode,
+            ARRAY_FILTER_USE_BOTH,
+        );
     }
 
     /**

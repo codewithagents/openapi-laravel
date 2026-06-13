@@ -17,10 +17,10 @@ use CodeWithAgents\OpenApiLaravel\Parser\Spec\SchemaNode;
  *
  * @internal
  */
-final class EnumEmitter
+final readonly class EnumEmitter
 {
     public function __construct(
-        private readonly GenerationState $state,
+        private GenerationState $state,
     ) {}
 
     public function emitEnum(string $className, SchemaNode $schema): void

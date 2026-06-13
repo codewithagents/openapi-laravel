@@ -208,8 +208,12 @@ final class RequestDataSynthesizer
      * presence-only `mixed`, and header additionally skips the reserved
      * framework-owned standard headers.
      *
-     * @param  'query'|'path'|'header'  $in
-     * @param  list<ParameterNode>  $parameters
+     * @param  'query'|'path'|'header'  $in  the parameter location this call synthesizes a class for
+     * @param  string  $baseName  StudlyCaps operation context (operationId or the method+path fallback), without suffix
+     * @param  string  $operationLabel  "GET /pets", for warning messages
+     * @param  list<ParameterNode>  $parameters  the operation's parameters; only those matching `$in` are kept
+     * @param  ?string  $tag  the operation's first tag (or the 'Untagged' fallback) for the grouped layout (issue #93); ignored in the flat layout
+     * @return string|null the synthesized class name, or null when every parameter was skipped
      */
     private function generateParamData(string $in, string $baseName, string $operationLabel, array $parameters, ?string $tag): ?string
     {
