@@ -79,7 +79,12 @@ and `php -l` gates, before anything ships.
 
 ### Models [shipped]
 laravel-data classes, spec-derived `rules()` (exclusive bounds, `multipleOf`, `uniqueItems`, strict
-date/date-time/time/duration, hostname, defaults, `const`), backed enums, readOnly/writeOnly split,
+date/date-time/time/duration, hostname, defaults, `const`), backed enums, a TRANSITIVE
+readOnly/writeOnly split (a writable variant is synthesized when the schema OR any descendant
+nested object, collection element, map value, allOf member, or union member declares a
+readOnly/writeOnly property, and the write variant recurses into the nested and collection-nested
+Data classes, so a client-sent value for a nested readOnly field is dropped on the write path at
+any depth, including through a component `$ref`),
 nested objects, collections, `allOf` merge, `additionalProperties` typed maps (empty map serializes
 as `{}`), `oneOf`/`anyOf` native unions for scalars, and discriminated object unions (all three forms:
 named-component, inline-union with synthesized variant names, and allOf-inheritance) validated and

@@ -247,6 +247,29 @@ final class ModelGenerator
             $this->types->resolveAlias($name);
         }
 
+        // Reserve every component's writable-variant name BEFORE emitting any
+        // class. The split decision is transitive (issue: nested readOnly), so a
+        // component's write variant may reference ANOTHER component's write
+        // variant; resolveReference picks the writable class in a write scope,
+        // and that mapping must exist for the referenced component no matter the
+        // registry emission order. Reserving up front decouples the two.
+        foreach ($this->state->registry as $name => $entry) {
+            if ($entry['kind'] !== 'data'
+                || $this->state->discriminators->isBase($name)
+                || $this->state->discriminators->isVariant($name)
+            ) {
+                continue;
+            }
+            if (! $this->hasReadWriteFlags($entry['schema'])) {
+                continue;
+            }
+            $writeClass = $this->state->names->reserve($this->options->withSuffix($this->options->stripSuffix($entry['class']).'Writable'));
+            $this->state->writeClasses[$name] = $writeClass;
+            // The write variant is the same component, so it follows the
+            // component's tag group (issue #93).
+            $this->state->fileGroups[$writeClass] = $this->state->fileGroups[$entry['class']] ?? null;
+        }
+
         foreach ($this->state->registry as $name => $entry) {
             // One warning context per component: the read/write variants and
             // every inline nested class of this schema report a shared
@@ -264,16 +287,13 @@ final class ModelGenerator
                 // A variant extends its base, forwards the discriminator, and
                 // declares only its own (non-discriminator) properties.
                 $this->emitVariant($name, $entry['class'], $entry['schema']);
-            } elseif ($this->hasReadWriteFlags($entry['schema'])) {
-                // The spec marks fields readOnly/writeOnly: split into a read
-                // variant (drops writeOnly) and a write variant (drops readOnly).
+            } elseif (isset($this->state->writeClasses[$name])) {
+                // The spec marks fields readOnly/writeOnly (on this schema or a
+                // descendant): split into a read variant (drops writeOnly) and a
+                // write variant (drops readOnly), the write-class name already
+                // reserved in the pre-pass above.
                 $this->emitData($entry['class'], $entry['schema'], 0, 'read');
-                $writeClass = $this->state->names->reserve($this->options->withSuffix($this->options->stripSuffix($entry['class']).'Writable'));
-                $this->state->writeClasses[$name] = $writeClass;
-                // The write variant is the same component, so it follows the
-                // component's tag group (issue #93).
-                $this->state->fileGroups[$writeClass] = $this->state->fileGroups[$entry['class']] ?? null;
-                $this->emitData($writeClass, $entry['schema'], 0, 'write');
+                $this->emitData($this->state->writeClasses[$name], $entry['schema'], 0, 'write');
             } else {
                 $this->emitData($entry['class'], $entry['schema'], 0);
             }
@@ -1141,15 +1161,126 @@ final class ModelGenerator
         return $this->state->namespaceFor($className);
     }
 
+    /**
+     * Whether a schema OR any of its descendant (nested object, array-element,
+     * map-value, union-member, allOf-merged) schemas declares a `readOnly` or
+     * `writeOnly` property, so a read/write variant split must be synthesized.
+     *
+     * The detection is TRANSITIVE: a root object whose own properties carry no
+     * flags but whose nested object (at any depth, including inside a collection)
+     * marks a property `readOnly`/`writeOnly` still splits, so the write variant
+     * recurses into the nested class and drops the server-managed field on the
+     * write path. Without the transitive walk a request body bound to the read
+     * variant accepts client input for a nested readOnly field.
+     *
+     * The walk resolves a `$ref` to a component object schema through the
+     * registry, guarded against cycles by the set of component names already in
+     * flight (the same guard {@see mergeAllOf()} uses); a recursive schema is
+     * therefore visited once. Non-object components (aliases, maps, enums) carry
+     * no read/write split of their own and are not followed: a $ref to such a
+     * component contributes its underlying type, not a nested Data class.
+     */
     private function hasReadWriteFlags(SchemaNode $schema): bool
     {
-        foreach ($this->objectProperties($schema) as $property) {
+        // visited is keyed by SchemaNode object identity (spl_object_id) and is
+        // SHARED across the whole walk for one root. It memoizes "this exact
+        // node carries no readOnly/writeOnly anywhere below it", so a node
+        // reachable through many distinct paths (a DAG of inline objects, a
+        // component $ref hit from several siblings, a repeated allOf member) is
+        // walked once. Without it the walk is exponential on real-world specs
+        // whose inline graph fans out, which hangs the generator.
+        $visited = [];
+
+        return $this->schemaHasReadWriteFlags($schema, $visited);
+    }
+
+    /**
+     * @param  array<int, true>  $visited  schema object ids already fully walked with no flag found (shared, by reference)
+     */
+    private function schemaHasReadWriteFlags(SchemaNode $schema, array &$visited): bool
+    {
+        $id = spl_object_id($schema);
+        if (isset($visited[$id])) {
+            return false;
+        }
+        // Mark BEFORE recursing: a cyclic structure (a self-referential inline
+        // allOf, or a $ref chain reaching the same node again) sees the node as
+        // in-flight and treats the back-edge as "no new flag", terminating.
+        $visited[$id] = true;
+
+        // Walk the LOCAL structure only and follow every `$ref` through
+        // childSchemaHasReadWriteFlags(). Using the allOf-MERGED property map
+        // here instead would re-inline a self-referential allOf member ($ref
+        // back to the same component) into fresh inline copies the memo never
+        // matches, recursing forever; the explicit member walk below keeps refs
+        // as refs and inline nodes as the same object, so the memo fires.
+        foreach (SchemaFacts::localProperties($schema) as $property) {
             if (SchemaFacts::isReadOnly($property) || SchemaFacts::isWriteOnly($property)) {
+                return true;
+            }
+
+            if ($this->childSchemaHasReadWriteFlags($property, $visited)) {
+                return true;
+            }
+        }
+
+        // allOf members compose more properties into this object; a member may
+        // be an inline object or a $ref to a component. A bare `allOf: [{$ref}]`
+        // alias wrapper is covered here too.
+        foreach ($schema->allOf ?? [] as $member) {
+            if (($member instanceof SchemaNode || $member instanceof ReferenceNode)
+                && $this->childSchemaHasReadWriteFlags($member, $visited)) {
+                return true;
+            }
+        }
+
+        // A pure-map component's value schema, an array's item/prefixItems
+        // schema, and a union's members all carry descendant shapes that may
+        // mark flags even when the holder declares no named properties.
+        $additional = SchemaFacts::additionalPropertiesSchema($schema);
+        if (($additional instanceof SchemaNode || $additional instanceof ReferenceNode)
+            && $this->childSchemaHasReadWriteFlags($additional, $visited)) {
+            return true;
+        }
+
+        if ($schema->items !== null && $this->childSchemaHasReadWriteFlags($schema->items, $visited)) {
+            return true;
+        }
+
+        foreach ($schema->prefixItems ?? [] as $item) {
+            if (($item instanceof SchemaNode || $item instanceof ReferenceNode)
+                && $this->childSchemaHasReadWriteFlags($item, $visited)) {
+                return true;
+            }
+        }
+
+        foreach (SchemaPointer::unionMembers($schema) as $member) {
+            if ($this->childSchemaHasReadWriteFlags($member, $visited)) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * Walk one child schema (a property value, array item, map value, or union
+     * member), resolving a `$ref` to a component object schema through the
+     * registry. Only an object Data component carries a read/write split; an
+     * alias, a pure map, or an enum component does not, so a $ref to a non-Data
+     * component contributes its underlying type with no nested class to follow.
+     *
+     * @param  array<int, true>  $visited  shared memo (by reference)
+     */
+    private function childSchemaHasReadWriteFlags(SchemaNode|ReferenceNode $child, array &$visited): bool
+    {
+        if ($child instanceof ReferenceNode) {
+            $target = $this->state->referencedObjectSchema($child);
+
+            return $target !== null && $this->schemaHasReadWriteFlags($target, $visited);
+        }
+
+        return $this->schemaHasReadWriteFlags($child, $visited);
     }
 
     /**

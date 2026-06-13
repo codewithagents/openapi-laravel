@@ -798,6 +798,69 @@ const READER_BASELINE_REBASELINED_30 = [
     'zuora.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
 ];
 
+/*
+ * INTENTIONAL post-freeze rebaseline (transitive nested-readOnly write split):
+ * the twenty-eight specs in READER_BASELINE_REBASELINED_NESTED_READONLY carry a
+ * post-fix hash because the read/write variant split is now TRANSITIVE. The bug:
+ * readOnly enforcement did not recurse into nested objects on the WRITE path. A
+ * schema whose OWN properties carried no readOnly/writeOnly but whose NESTED
+ * object (at any depth, including inside a collection, a map, an allOf member, or
+ * reached through a component `$ref`) marked a property readOnly never got a
+ * writable variant, so a request body bound to the READ variant whose nested item
+ * classes treated the nested readOnly field as writable; a client-sent value for
+ * that server-managed field was wrongly accepted. The fix makes the split
+ * decision transitive (a writable variant is synthesized when the schema OR any
+ * descendant declares a flag) and recurses the readOnly-stripping into the nested
+ * and collection-nested Data classes, with a component `$ref` in a write scope
+ * resolving to that component's writable variant. The divergence in each of these
+ * hashes is purely ADDITIVE: new `<...>WritableData` classes for the transitively
+ * split schemas (and their descendants), plus the request-body controller params
+ * that now type the writable variant; no read-path output, enum, route, or
+ * warning changed. A spec also present in an earlier rebaseline list accumulates
+ * the changes; every spec outside the rebaseline lists stays the frozen v0.11.0
+ * freeze, byte for byte.
+ */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-fix output (the
+ * transitive nested-readOnly write split), keyed by spec basename. The per-spec
+ * test below still compares against the JSON baseline, which now holds these
+ * specs' post-fix hashes; the coverage test pins that every listed name exists on
+ * disk and in the baseline, so the list cannot rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_NESTED_READONLY = [
+    '1password-connect.yaml' => 'transitive nested-readOnly write split',
+    'ably.json' => 'transitive nested-readOnly write split',
+    'adyen-legal-entity.yaml' => 'transitive nested-readOnly write split',
+    'airflow.json' => 'transitive nested-readOnly write split',
+    'asana.json' => 'transitive nested-readOnly write split',
+    'box.json' => 'transitive nested-readOnly write split',
+    'bunq.json' => 'transitive nested-readOnly write split',
+    'configcat.json' => 'transitive nested-readOnly write split',
+    'github.json' => 'transitive nested-readOnly write split',
+    'google_bigquery.json' => 'transitive nested-readOnly write split',
+    'google_cloudrun.json' => 'transitive nested-readOnly write split',
+    'google_docs.json' => 'transitive nested-readOnly write split',
+    'google_drive.json' => 'transitive nested-readOnly write split',
+    'google_functions.json' => 'transitive nested-readOnly write split',
+    'google_gke.json' => 'transitive nested-readOnly write split',
+    'google_gmail.json' => 'transitive nested-readOnly write split',
+    'google_logging.json' => 'transitive nested-readOnly write split',
+    'google_monitoring.json' => 'transitive nested-readOnly write split',
+    'google_pubsub.json' => 'transitive nested-readOnly write split',
+    'google_sheets.json' => 'transitive nested-readOnly write split',
+    'google_speech.json' => 'transitive nested-readOnly write split',
+    'google_translate.json' => 'transitive nested-readOnly write split',
+    'google_vision.json' => 'transitive nested-readOnly write split',
+    'jira.json' => 'transitive nested-readOnly write split',
+    'linode.json' => 'transitive nested-readOnly write split',
+    'plaid.json' => 'transitive nested-readOnly write split',
+    'rawg.json' => 'transitive nested-readOnly write split',
+    'xero.json' => 'transitive nested-readOnly write split',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -867,10 +930,11 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
     }
 
     // Every spec rebaselined for #110, #116, #120, #122, #124, #125, #126,
-    // #113, #121, #129, or #30 must still exist on disk and carry a hash in the
-    // baseline (it is an update, not an exemption): a renamed or deleted spec
-    // would make the documented rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_30)] as $spec) {
+    // #113, #121, #129, #30, or the transitive nested-readOnly write split must
+    // still exist on disk and carry a hash in the baseline (it is an update, not
+    // an exemption): a renamed or deleted spec would make the documented
+    // rebaseline lists rot silently.
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }

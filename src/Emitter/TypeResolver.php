@@ -55,7 +55,7 @@ final class TypeResolver
         }
 
         if ($schema instanceof ReferenceNode) {
-            return $this->resolveReference($schema);
+            return $this->resolveReference($schema, $variant);
         }
 
         // oneOf/anyOf become a native PHP union type when every member resolves
@@ -124,7 +124,7 @@ final class TypeResolver
         // underlying type via resolveReference rather than an empty class.
         $aliasRef = SchemaFacts::bareAllOfRef($schema);
         if ($aliasRef !== null) {
-            $resolved = $this->resolveReference($aliasRef);
+            $resolved = $this->resolveReference($aliasRef, $variant);
 
             return $allOfNullable ? new ResolvedType($resolved->declaration, true, $resolved->docType, $resolved->imports, $resolved->dataCollectionOf, $resolved->isUnion, $resolved->isMap, $resolved->isEnum, $resolved->classRefs) : $resolved;
         }
@@ -416,7 +416,7 @@ final class TypeResolver
      * operation) where it was encountered (issue #67) instead of hollowing the
      * output silently.
      */
-    private function resolveReference(ReferenceNode $reference): ResolvedType
+    private function resolveReference(ReferenceNode $reference, string $variant = 'all'): ResolvedType
     {
         $pointer = $reference->pointer();
         $name = SchemaPointer::refName($pointer);
@@ -461,6 +461,18 @@ final class TypeResolver
             // enum from the typed array via the array<int, SomeEnum> docblock.
             $isEnum = $this->state->registry[$name]['kind'] === 'enum';
             $class = $this->state->registry[$name]['class'];
+
+            // In a write scope a $ref to a component that split read/write
+            // resolves to that component's WRITABLE variant, so a nested
+            // readOnly field on the referenced component is dropped on the write
+            // path too (transitive readOnly enforcement). The write-class names
+            // are reserved before any variant is emitted, so the mapping exists
+            // regardless of emission order. A read/all scope keeps the read
+            // class, and an enum (no split) is unaffected.
+            if ($variant === 'write' && isset($this->state->writeClasses[$name])) {
+                $class = $this->state->writeClasses[$name];
+            }
+
             $this->state->noteClassRef($class);
 
             return new ResolvedType($class, isEnum: $isEnum, classRefs: [$class]);

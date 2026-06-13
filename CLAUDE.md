@@ -28,7 +28,11 @@ config's directory (#54).
 
 **Models:** laravel-data classes, spec-derived `rules()` (incl. exclusive bounds, `multipleOf`,
 `uniqueItems`, strict date/date-time/time/duration, hostname, defaults, `const`), backed enums,
-readOnly/writeOnly split, nested objects, collections, `@deprecated` docblocks. Composition:
+a TRANSITIVE readOnly/writeOnly split (a writable variant is synthesized when the schema OR any
+descendant nested object, collection element, map value, allOf/union member declares a
+readOnly/writeOnly property; the write variant recurses into nested and collection-nested Data
+classes, including through a component `$ref`, so a client-sent value for a nested readOnly field is
+dropped on the write path at any depth), nested objects, collections, `@deprecated` docblocks. Composition:
 `allOf` merged flat, `additionalProperties` as typed maps (empty map serializes as `{}`),
 `oneOf`/`anyOf` native unions for scalars, discriminated object unions (named-component, inline-union
 with synthesized variant names, and allOf-inheritance forms) validated and hydrated via an abstract
