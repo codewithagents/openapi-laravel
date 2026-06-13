@@ -226,8 +226,11 @@ What the generator handles today:
   (`style: form, explode: false`, `spaceDelimited`, `pipeDelimited`) is split on its declared
   delimiter in `fromQuery()` before the array rules run, and a `style: deepObject` object parameter
   (Stripe's `?filter[gte]=10`) is synthesized as a nested object property with dotted nested rules.
-  Only `in: cookie` parameters remain unsupported, skipped with a generator warning, not silently
-  dropped
+  Being honest about what does NOT work: the OpenAPI default array serialization, `form` +
+  `explode: true` with repeated keys (`?tags=a&tags=b`), is not supported, because PHP collapses
+  repeated query keys to a single value (only the last survives), so reach for the bracket form
+  (`?tags[]=a&tags[]=b`) or a non-exploded delimited array instead. `in: cookie` parameters are also
+  unsupported. Both cases are skipped with a generator warning, never silently dropped
 - **Path and header parameters** → a per-operation `<Operation>PathData` / `<Operation>HeaderData`
   class with spec-derived `rules()`, validated and hydrated through `::fromRoute($request)` /
   `::fromHeaders($request)` so a path segment's or custom header's min/max/pattern/enum/format is
