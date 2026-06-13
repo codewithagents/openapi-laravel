@@ -438,6 +438,40 @@ runtime behavior:
   contract uses the PHP-native bracket form `?tags[]=a&tags[]=b` (active, green);
   the repeated-key ideal is parked as a clearly-labeled `.fixme`.
 
+### #77 security middleware matrix (AND / OR / public), end-to-end
+
+The single `security middleware (#77)` row above proves the simplest case (one
+scheme on `uploadFile`). The full requirement-object semantics are proven on a
+dedicated set of `/lab/secure-*` GET operations, all at the OPERATION level (no
+document-level `security` block, which would stamp auth onto every existing
+route). Two apiKey header schemes back the matrix: `lab_session` (`X-Lab-Session`,
+token `sess-1234`) and `lab_team` (`X-Lab-Team`, token `team-1234`), mapped in
+`config/openapi-laravel.php` `security.middleware_map` to the `lab-session` /
+`lab-team` guard middleware.
+
+| Operation | `security` | Generated route middleware | What the assertion proves | Status |
+|---|---|---|---|---|
+| `GET /lab/secure-single` | `[{ lab_session: [] }]` | `[lab-session]` | one required scheme: no header 401, valid token 200 | proven |
+| `GET /lab/secure-and` | `[{ lab_session: [], lab_team: [] }]` | `[lab-session, lab-team]` | AND: both schemes in ONE requirement object apply; both headers 200, EACH one missing in turn 401 | proven |
+| `GET /lab/secure-or` | `[{ lab_session: [] }, { lab_team: [] }]` | `[lab-session]` (first only) | OR: the generator enforces ONLY the FIRST requirement object and warns, dropping `lab_team`. Valid `X-Lab-Session` 200; `X-Lab-Session` MISSING but valid `X-Lab-Team` 401 (a real OR would accept this) | proven (documented caveat) |
+| `GET /lab/secure-public` | `[]` | (none) | `security: []` is explicitly public: reachable with no creds (200) | proven |
+
+The OR caveat is the load-bearing, possibly-surprising one and is asserted
+explicitly. Route middleware is an AND-only stack and cannot express OR, so when
+an operation declares multiple alternative requirement objects the generator
+keeps only the first and emits, verbatim:
+
+```
+Operation GET /lab/secure-or: security declares 2 alternative requirements (OR),
+which middleware cannot express; only the first alternative (lab_session) is
+enforced, ignored: (lab_team).
+```
+
+So `/lab/secure-or` accepts a valid `X-Lab-Session` (first requirement) but
+REJECTS a request that only carries a valid `X-Lab-Team` (second requirement),
+even though a spec-true OR would admit it. The e2e test pins this exact behavior
+so the divergence from the OpenAPI ideal stays visible and honest.
+
 ## CORS
 
 `config/cors.php` is fully permissive (`paths: api/*`, origins/methods/headers

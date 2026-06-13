@@ -1348,6 +1348,81 @@ test('routes group (#71): prefix /v1 is applied and the group middleware runs', 
 });
 
 // ---------------------------------------------------------------------------
+// Stage 1E: #77 SECURITY MIDDLEWARE MATRIX (AND / OR / public), end-to-end.
+//
+// Four GET lab ops carry operation-level `security`. config security.
+// middleware_map maps lab_session -> lab-session and lab_team -> lab-team, so
+// the generator stamps the route middleware per the documented rules:
+//   - secure-single  security: [{ lab_session }]            -> [lab-session]
+//   - secure-and     security: [{ lab_session, lab_team }]  -> [lab-session, lab-team]   (AND: both apply)
+//   - secure-or      security: [{ lab_session }, { lab_team }] -> [lab-session]           (OR: ONLY the first
+//                     requirement object is enforced; the generator drops lab_team and warns)
+//   - secure-public  security: []                            -> (no auth middleware)
+//
+// These are GET ops returning a LabSecureEchoData, so a success is 200 (the 201
+// promotion is POST-only, see CreatedResponse). A 200 here means the FULL
+// stamped middleware stack admitted the request; a 401 means a required guard
+// rejected it. The two guard tokens are sess-1234 (X-Lab-Session) and team-1234
+// (X-Lab-Team), fixed in the LabSession / LabTeam middleware.
+// ---------------------------------------------------------------------------
+
+const LAB_SESSION_TOKEN = 'sess-1234';
+const LAB_TEAM_TOKEN = 'team-1234';
+
+test('lab/secure-single (#77): one scheme is enforced, missing creds 401 and valid creds 200', async ({ request }) => {
+  // No X-Lab-Session header: the lab-session guard rejects.
+  const missing = await labGet(request, 'secure-single');
+  expect(missing.status).toBe(401);
+
+  // Valid token: the single required scheme passes, the echo comes back.
+  const ok = await labGet(request, 'secure-single', { 'X-Lab-Session': LAB_SESSION_TOKEN });
+  expect(ok.status).toBe(200);
+  expect(ok.body).toEqual({ ok: true, op: 'secure-single' });
+});
+
+test('lab/secure-and (#77): BOTH schemes in one requirement object apply (AND)', async ({ request }) => {
+  // Both headers valid: the whole AND stack passes.
+  const both = await labGet(request, 'secure-and', {
+    'X-Lab-Session': LAB_SESSION_TOKEN,
+    'X-Lab-Team': LAB_TEAM_TOKEN,
+  });
+  expect(both.status).toBe(200);
+  expect(both.body).toEqual({ ok: true, op: 'secure-and' });
+
+  // Drop the team header: lab-team rejects, proving lab-team is in the stack.
+  const noTeam = await labGet(request, 'secure-and', { 'X-Lab-Session': LAB_SESSION_TOKEN });
+  expect(noTeam.status).toBe(401);
+
+  // Drop the session header: lab-session rejects, proving it is in the stack too.
+  const noSession = await labGet(request, 'secure-and', { 'X-Lab-Team': LAB_TEAM_TOKEN });
+  expect(noSession.status).toBe(401);
+});
+
+test('lab/secure-or (#77): ONLY the first requirement object is enforced (documented OR caveat)', async ({ request }) => {
+  // The spec OR is [{ lab_session }, { lab_team }]. Middleware cannot express
+  // OR, so the generator enforces ONLY the FIRST requirement object
+  // (lab_session) and warns, dropping lab_team. This is the documented,
+  // possibly-surprising behavior and we assert it EXPLICITLY:
+
+  // First requirement satisfied (X-Lab-Session valid): 200.
+  const firstOk = await labGet(request, 'secure-or', { 'X-Lab-Session': LAB_SESSION_TOKEN });
+  expect(firstOk.status).toBe(200);
+  expect(firstOk.body).toEqual({ ok: true, op: 'secure-or' });
+
+  // First requirement MISSING but the SECOND (X-Lab-Team) satisfied: still 401,
+  // because lab_team was never stamped onto the route. A real OR would accept
+  // this; the generator's first-only behavior rejects it. This is the caveat.
+  const secondOnly = await labGet(request, 'secure-or', { 'X-Lab-Team': LAB_TEAM_TOKEN });
+  expect(secondOnly.status).toBe(401);
+});
+
+test('lab/secure-public (#77): security:[] carries no auth middleware and is reachable with no creds', async ({ request }) => {
+  const ok = await labGet(request, 'secure-public');
+  expect(ok.status).toBe(200);
+  expect(ok.body).toEqual({ ok: true, op: 'secure-public' });
+});
+
+// ---------------------------------------------------------------------------
 // Stage 2: COMPOSITION FORMS
 // ---------------------------------------------------------------------------
 

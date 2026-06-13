@@ -26,6 +26,7 @@ use App\Data\Lab\LabPathPathData;
 use App\Data\Lab\LabPresenceData;
 use App\Data\Lab\LabQueryEchoData;
 use App\Data\Lab\LabQueryQueryData;
+use App\Data\Lab\LabSecureEchoData;
 use App\Data\Lab\LabShapeData;
 use App\Data\Lab\LabSharedBodyRequestData;
 use App\Data\Lab\LabSharedResponseResponseData;
@@ -257,5 +258,33 @@ final class LabController extends AbstractLabController
             type: 'success',
             message: "Received {$count} photo(s){$album}.",
         );
+    }
+
+    // --- Stage 4: #77 security middleware matrix (AND / OR / public) --------
+    //
+    // Each method is a pure echo reached ONLY after the route's generated
+    // middleware stack has passed. The middleware is what proves the matrix;
+    // the body just confirms the request got through. By the time any of these
+    // run, every required guard has already returned 401 on a failed header, so
+    // a 200 here means the full stamped stack admitted the request.
+
+    public function labSecureSingle(): LabSecureEchoData
+    {
+        return new LabSecureEchoData(ok: true, op: 'secure-single');
+    }
+
+    public function labSecureAnd(): LabSecureEchoData
+    {
+        return new LabSecureEchoData(ok: true, op: 'secure-and');
+    }
+
+    public function labSecureOr(): LabSecureEchoData
+    {
+        return new LabSecureEchoData(ok: true, op: 'secure-or');
+    }
+
+    public function labSecurePublic(): LabSecureEchoData
+    {
+        return new LabSecureEchoData(ok: true, op: 'secure-public');
     }
 }

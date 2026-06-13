@@ -3,6 +3,8 @@
 use App\Http\Middleware\ApiKey;
 use App\Http\Middleware\CreatedResponse;
 use App\Http\Middleware\ForceJsonAccept;
+use App\Http\Middleware\LabSession;
+use App\Http\Middleware\LabTeam;
 use App\Http\Middleware\RouteGroupMarker;
 use App\Http\Middleware\TotalCountHeader;
 use Illuminate\Foundation\Application;
@@ -61,6 +63,12 @@ return Application::configure(basePath: dirname(__DIR__))
             // The generated route group (routes.middleware in config, #71)
             // references this alias; the consumer supplies the class.
             'route-group-marker' => RouteGroupMarker::class,
+            // The #77 security-matrix lab routes reference these aliases. The
+            // generator maps lab_session -> lab-session and lab_team -> lab-team
+            // (config security.middleware_map) and stamps them per the AND/OR
+            // matrix; the consumer supplies the guard classes.
+            'lab-session' => LabSession::class,
+            'lab-team' => LabTeam::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

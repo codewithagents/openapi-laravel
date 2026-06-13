@@ -74,10 +74,17 @@ return [
      * (petstore_auth oauth2, api_key) are intentionally left unmapped: they
      * stay public in this demo and the generator warns about them, which is the
      * documented behaviour we want to exercise.
+     *
+     * lab_session / lab_team back the #77 security-matrix lab operations
+     * (/lab/secure-single, secure-and, secure-or, secure-public). They map to
+     * the lab-session / lab-team guard middleware so the AND/OR/public matrix is
+     * proven end-to-end over real HTTP.
      */
     'security' => [
         'middleware_map' => [
             'pet_upload_key' => ['api-key'],
+            'lab_session' => ['lab-session'],
+            'lab_team' => ['lab-team'],
         ],
     ],
 

@@ -1303,6 +1303,67 @@ paths:
                 $ref: '#/components/schemas/LabTuple'
         '422':
           description: Validation exception
+  /lab/secure-single:
+    get:
+      tags:
+        - lab
+      summary: One requirement object, one scheme (#77 AND, single scheme).
+      operationId: labSecureSingle
+      security:
+        - lab_session: []
+      responses:
+        '200':
+          description: echoed when the single required scheme is satisfied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabSecureEcho'
+  /lab/secure-and:
+    get:
+      tags:
+        - lab
+      summary: One requirement object, two schemes (#77 AND, both must apply).
+      operationId: labSecureAnd
+      security:
+        - lab_session: []
+          lab_team: []
+      responses:
+        '200':
+          description: echoed only when BOTH required schemes are satisfied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabSecureEcho'
+  /lab/secure-or:
+    get:
+      tags:
+        - lab
+      summary: Two requirement objects (#77 OR, generator enforces only the FIRST).
+      operationId: labSecureOr
+      security:
+        - lab_session: []
+        - lab_team: []
+      responses:
+        '200':
+          description: echoed when the FIRST requirement object's scheme is satisfied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabSecureEcho'
+  /lab/secure-public:
+    get:
+      tags:
+        - lab
+      summary: Explicitly public (#77, security:[] overrides nothing, no middleware).
+      operationId: labSecurePublic
+      security: []
+      responses:
+        '200':
+          description: echoed with no credentials required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabSecureEcho'
 components:
   schemas:
     Order:
@@ -1746,6 +1807,16 @@ components:
       properties:
         token:
           type: string
+    LabSecureEcho:
+      type: object
+      required:
+        - ok
+        - op
+      properties:
+        ok:
+          type: boolean
+        op:
+          type: string
     LabAnyOf:
       type: object
       required:
@@ -1917,4 +1988,12 @@ components:
     pet_upload_key:
       type: apiKey
       name: X-API-Key
+      in: header
+    lab_session:
+      type: apiKey
+      name: X-Lab-Session
+      in: header
+    lab_team:
+      type: apiKey
+      name: X-Lab-Team
       in: header
