@@ -423,17 +423,20 @@ it('emits the fromHeaders docblock pointer on the abstract method (issue #121)',
         ->and($code)->toContain('\\App\\Data\\Widget\\ListWidgetsHeaderData::fromHeaders($request).');
 });
 
-it('leaves queryParam null when every query parameter is un-serializable, with one warning each', function () {
+it('synthesizes a query class from the delimited arrays and warns only on the truly un-serializable parameters (issue #132)', function () {
     [$descriptors, $generator] = collectQueryParameters();
 
-    expect(descriptorFor($descriptors, 'get', '/search')->queryParam)->toBeNull();
+    // matrix (pipeDelimited array) and csv (form + explode: false array) are now
+    // split and validated (issue #132), so the operation gets a query class; only
+    // filter (deepObject), shape (object $ref), and payload (content-typed) skip.
+    expect(descriptorFor($descriptors, 'get', '/search')->queryParam)->not->toBeNull();
 
     $warnings = implode("\n", $generator->warnings());
     expect($warnings)->toContain('query parameter "filter" was skipped: style "deepObject" is not supported yet')
         ->and($warnings)->toContain('query parameter "shape" was skipped: it is an object')
-        ->and($warnings)->toContain('query parameter "matrix" was skipped: style "pipeDelimited"')
-        ->and($warnings)->toContain('query parameter "csv" was skipped: a non-exploded (explode: false) array')
-        ->and($warnings)->toContain('query parameter "payload" was skipped: it declares no schema');
+        ->and($warnings)->toContain('query parameter "payload" was skipped: it declares no schema')
+        ->and($warnings)->not->toContain('query parameter "matrix" was skipped')
+        ->and($warnings)->not->toContain('query parameter "csv" was skipped');
 });
 
 it('warns about cookie parameters instead of silently dropping them, but validates custom headers (issue #121)', function () {

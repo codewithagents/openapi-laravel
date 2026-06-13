@@ -260,6 +260,11 @@ final class RequestDataSynthesizer
         $booleanNames = [];
         $headerNames = [];
 
+        // Wire name -> delimiter for delimited (non-exploded) array query
+        // parameters (issue #132); the fromQuery() factory splits the single
+        // joined string on the delimiter before the array rules validate it.
+        $delimitedArrayNames = [];
+
         foreach ($supported as $parameter) {
             // HTTP header names are case-insensitive and Symfony lowercases
             // every key in $request->headers->all() (issue #121), so a header
@@ -289,6 +294,16 @@ final class RequestDataSynthesizer
             // the factory maps the literals to '1'/'0' before validating.
             if ($type->declaration === 'bool') {
                 $booleanNames[] = $wireName;
+            }
+
+            // A delimited (non-exploded) array query parameter arrives as one
+            // joined string; the factory splits it on the delimiter before the
+            // array rules run (issue #132). Only applies to query.
+            if ($in === 'query') {
+                $delimiter = $this->queryArrayDelimiter($parameter);
+                if ($delimiter !== null) {
+                    $delimitedArrayNames[$wireName] = $delimiter;
+                }
             }
 
             // A scalar `default` makes the parameter optional on input even when
@@ -346,7 +361,7 @@ final class RequestDataSynthesizer
         $rendered = match ($in) {
             'path' => $this->renderer->renderDataClass($className, $params, $imports, $rules, $classDoc, fromRouteBooleans: $booleanNames),
             'header' => $this->renderer->renderDataClass($className, $params, $imports, $rules, $classDoc, fromHeaderNames: $headerNames, fromHeaderBooleans: $booleanNames),
-            default => $this->renderer->renderDataClass($className, $params, $imports, $rules, $classDoc, fromQueryBooleans: $booleanNames),
+            default => $this->renderer->renderDataClass($className, $params, $imports, $rules, $classDoc, fromQueryBooleans: $booleanNames, fromQueryDelimitedArrays: $delimitedArrayNames),
         };
 
         $file = new GeneratedFile(
@@ -1150,29 +1165,69 @@ final class RequestDataSynthesizer
         if ($style === 'deepObject') {
             return 'style "deepObject" is not supported yet';
         }
-        if ($style === 'spaceDelimited' || $style === 'pipeDelimited') {
-            return 'style "'.$style.'" serializes the array into a single delimited value, which the generated array rules cannot validate';
-        }
 
         $schema = $parameter->schema;
         if ($schema === null) {
             return 'it declares no schema (content-typed query parameters are not supported yet)';
         }
 
-        // A non-exploded form array arrives as ONE comma-joined string
-        // (?ids=1,2,3), not the per-item ?ids[]=1&ids[]=2 shape the generated
-        // `array` rule validates.
-        if ($parameter->explode === false && $this->isQueryArraySchema($schema)) {
-            return 'a non-exploded (explode: false) array arrives as a single comma-joined value, which the generated array rules cannot validate';
-        }
+        // A delimited (non-exploded) array arrives as ONE joined string
+        // (?ids=1,2,3 for form, space- or pipe-joined for the delimited styles)
+        // rather than the per-item ?ids[]=1&ids[]=2 shape the `array` rule
+        // expects. The fromQuery() factory splits the string on the declared
+        // delimiter before validating (issue #132), so these now participate in
+        // validation; queryArrayDelimiter() returns the delimiter when this
+        // applies. A spaceDelimited/pipeDelimited style on a NON-array schema is
+        // meaningless (those styles only serialize arrays), so it falls through
+        // to the shape check and is treated like a plain scalar.
 
         return $this->queryShapeSkipReason($schema, 0);
     }
 
     /**
+     * The delimiter a delimited (non-exploded) array query parameter serializes
+     * its items with (issue #132), or null when the parameter is NOT a delimited
+     * array, in which case the existing handling applies unchanged:
+     *
+     *   - form + explode: true (the query default)  ->  null (repeated ?ids[]=1)
+     *   - form + explode: false                      ->  "," (?ids=1,2,3)
+     *   - spaceDelimited (array, any explode)        ->  " " (?ids=1 2 3)
+     *   - pipeDelimited (array, any explode)          ->  "|" (?ids=1|2|3)
+     *
+     * Only an array schema is delimited; the styles are no-ops on a scalar, so
+     * a non-array schema always returns null. The default style is `form` and
+     * the default `explode` for `form` is true, so an UNSPECIFIED explode keeps
+     * the repeated-key path (null); only an explicit `explode: false` (or a
+     * delimited style, whose meaningful form is explode: false) triggers the
+     * split path.
+     */
+    private function queryArrayDelimiter(ParameterNode $parameter): ?string
+    {
+        $schema = $parameter->schema;
+        if ($schema === null || ! $this->isQueryArraySchema($schema)) {
+            return null;
+        }
+
+        $style = $parameter->style;
+        if ($style === 'spaceDelimited') {
+            return ' ';
+        }
+        if ($style === 'pipeDelimited') {
+            return '|';
+        }
+
+        // form style (explicit or default): only explode: false is delimited.
+        if ($parameter->explode === false) {
+            return ',';
+        }
+
+        return null;
+    }
+
+    /**
      * Whether a query parameter's schema is an array (directly, or through a
      * non-object alias component that resolves to an array). Used only for the
-     * explode: false check above.
+     * delimiter detection above.
      */
     private function isQueryArraySchema(SchemaNode|ReferenceNode $schema): bool
     {

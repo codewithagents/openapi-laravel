@@ -1025,6 +1025,41 @@ const READER_BASELINE_REBASELINED_130 = [
 ];
 
 /**
+ * INTENTIONAL post-freeze rebaseline (GitHub issue #132, delimited array query
+ * parameters): the 18 specs in READER_BASELINE_REBASELINED_DELIMITED_ARRAYS
+ * carry a post-#132 hash because they declare a non-exploded delimited array
+ * query parameter (form + explode: false, spaceDelimited, or pipeDelimited).
+ * Such a parameter used to be skipped with a warning; it is now synthesized
+ * into the operation's query class and its fromQuery() factory splits the
+ * single joined string on the delimiter before the array rules validate, so
+ * the generated query class (and the dropped skip warning) changed. A spec
+ * present in an earlier rebaseline list accumulates the changes; every spec
+ * outside the rebaseline lists stays the frozen v0.11.0 freeze, byte for byte.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_DELIMITED_ARRAYS = [
+    'airflow.json' => 'non-exploded delimited array query parameter is split and validated',
+    'apple_appstore.json' => 'non-exploded delimited array query parameter is split and validated',
+    'asana.json' => 'non-exploded delimited array query parameter is split and validated',
+    'box.json' => 'non-exploded delimited array query parameter is split and validated',
+    'bungie.json' => 'non-exploded delimited array query parameter is split and validated',
+    'docker.json' => 'non-exploded delimited array query parameter is split and validated',
+    'gettyimages.json' => 'non-exploded delimited array query parameter is split and validated',
+    'here_positioning.json' => 'non-exploded delimited array query parameter is split and validated',
+    'here_tracking.json' => 'non-exploded delimited array query parameter is split and validated',
+    'open-meteo.yaml' => 'non-exploded delimited array query parameter is split and validated',
+    'reverb.json' => 'non-exploded delimited array query parameter is split and validated',
+    'sendgrid.json' => 'non-exploded delimited array query parameter is split and validated',
+    'soundcloud.json' => 'non-exploded delimited array query parameter is split and validated',
+    'spotify.yaml' => 'non-exploded delimited array query parameter is split and validated',
+    'traccar.json' => 'non-exploded delimited array query parameter is split and validated',
+    'twitter.json' => 'non-exploded delimited array query parameter is split and validated',
+    'wordnik.json' => 'non-exploded delimited array query parameter is split and validated',
+    'xero.json' => 'non-exploded delimited array query parameter is split and validated',
+];
+
+/**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
  * the per-spec comparison exempts exactly these names; everything else in
@@ -1093,11 +1128,11 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
     }
 
     // Every spec rebaselined for #110, #116, #120, #122, #124, #125, #126,
-    // #113, #121, #129, #30, or the transitive nested-readOnly write split must
-    // still exist on disk and carry a hash in the baseline (it is an update, not
-    // an exemption): a renamed or deleted spec would make the documented
-    // rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY), ...array_keys(READER_BASELINE_REBASELINED_130)] as $spec) {
+    // #113, #121, #129, #30, #130, the transitive nested-readOnly write split,
+    // or #132 (delimited arrays) must still exist on disk and carry a hash in
+    // the baseline (it is an update, not an exemption): a renamed or deleted
+    // spec would make the documented rebaseline lists rot silently.
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY), ...array_keys(READER_BASELINE_REBASELINED_130), ...array_keys(READER_BASELINE_REBASELINED_DELIMITED_ARRAYS)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }

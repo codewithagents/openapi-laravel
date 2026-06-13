@@ -110,12 +110,44 @@ paths:
             type: array
             items:
               type: string
+        - name: tags
+          in: query
+          style: spaceDelimited
+          schema:
+            type: array
+            minItems: 1
+            items:
+              type: string
+              minLength: 2
         - name: payload
           in: query
           content:
             application/json:
               schema:
                 type: object
+      responses:
+        '200':
+          description: ok
+  /filter:
+    get:
+      tags:
+        - widget
+      operationId: filterWidgets
+      parameters:
+        # Both a delimited array (form + explode: false) and a boolean: the
+        # fromQuery() factory must split AND map literals, in that order.
+        - name: kinds
+          in: query
+          explode: false
+          schema:
+            type: array
+            items:
+              type: integer
+              minimum: 1
+        - name: active
+          in: query
+          schema:
+            type: boolean
       responses:
         '200':
           description: ok

@@ -345,8 +345,9 @@ final class ClassRenderer
      * @param  list<string>|null  $fromRouteBooleans  non-null emits the route-only fromRoute() factory (per-operation path classes, issue #113); the list holds the wire names of boolean parameters that need true/false literal mapping. At most one of $fromQueryBooleans / $fromRouteBooleans / $fromHeaderNames is non-null.
      * @param  list<string>|null  $fromHeaderNames  non-null emits the header-only fromHeaders() factory (per-operation header classes, issue #121); the list holds EVERY header's lowercased wire name, so the factory pulls the first value of each declared header before validating
      * @param  list<string>  $fromHeaderBooleans  the subset of $fromHeaderNames that are boolean and need true/false literal mapping; ignored unless $fromHeaderNames is non-null
+     * @param  array<string, string>  $fromQueryDelimitedArrays  wire name -> delimiter for delimited (non-exploded) array query parameters (issue #132); the fromQuery() factory splits each on its delimiter before validating. Ignored unless $fromQueryBooleans is non-null
      */
-    public function renderDataClass(string $className, array $params, array $imports, array $rules, array $classDoc = [], ?array $fromQueryBooleans = null, ?array $fromRouteBooleans = null, ?array $fromHeaderNames = null, array $fromHeaderBooleans = []): string
+    public function renderDataClass(string $className, array $params, array $imports, array $rules, array $classDoc = [], ?array $fromQueryBooleans = null, ?array $fromRouteBooleans = null, ?array $fromHeaderNames = null, array $fromHeaderBooleans = [], array $fromQueryDelimitedArrays = []): string
     {
         [$imports, $traitUse] = $this->applyValidationTrait($className, $imports);
 
@@ -400,7 +401,7 @@ final class ClassRenderer
         $constructor = "    public function __construct(\n".$body."\n    ) {}";
 
         $factory = match (true) {
-            $fromQueryBooleans !== null => "\n\n".$this->renderFromQuery($fromQueryBooleans),
+            $fromQueryBooleans !== null => "\n\n".$this->renderFromQuery($fromQueryBooleans, $fromQueryDelimitedArrays),
             $fromRouteBooleans !== null => "\n\n".$this->renderFromRoute($fromRouteBooleans),
             $fromHeaderNames !== null => "\n\n".$this->renderFromHeaders($fromHeaderNames, $fromHeaderBooleans),
             default => '',
@@ -427,15 +428,29 @@ final class ClassRenderer
      * to '1'/'0' first, so spec-valid requests validate and hydrate
      * correctly.
      *
+     * Delimited (non-exploded) array parameters need another step (issue #132):
+     * a `style: form, explode: false` array arrives as one comma-joined string
+     * (?ids=1,2,3), a `spaceDelimited` array as a space-joined string, and a
+     * `pipeDelimited` array as a pipe-joined string, instead of the repeated
+     * ?ids[]=1&ids[]=2 shape the `array` rule expects. The factory splits the
+     * single string on the declared delimiter into an array first, so the
+     * per-item rules (min/max items, item type, item constraints) validate the
+     * resulting items. An absent parameter stays absent (only a present key is
+     * split). A present non-string value (a client who sent repeated keys
+     * anyway) is left untouched, so it still reaches the array rules. An empty
+     * string splits to a single empty-string element (PHP's explode() default),
+     * which the item rules then judge.
+     *
      * @param  list<string>  $booleanNames  wire names of the class's boolean parameters, in spec order
+     * @param  array<string, string>  $delimitedArrays  wire name -> delimiter for delimited array parameters, in spec order
      */
-    private function renderFromQuery(array $booleanNames): string
+    private function renderFromQuery(array $booleanNames, array $delimitedArrays = []): string
     {
         $doc = '    /**'."\n"
             .'     * Validate against rules() and hydrate from the query string only, so'."\n"
             .'     * request-body fields never bleed into query validation (or vice versa).'."\n";
 
-        if ($booleanNames === []) {
+        if ($booleanNames === [] && $delimitedArrays === []) {
             return $doc
                 .'     */'."\n"
                 .'    public static function fromQuery(Request $request): static'."\n"
@@ -444,28 +459,54 @@ final class ClassRenderer
                 .'    }';
         }
 
-        $names = implode(', ', array_map(
-            fn (string $name): string => "'".PhpLiteral::escapeSingleQuoted($name)."'",
-            $booleanNames,
-        ));
+        $docExtra = '';
+        $body = '        $query = $request->query->all();'."\n";
+
+        if ($delimitedArrays !== []) {
+            $docExtra .= '     * Delimited (non-exploded) array parameters arrive as one joined string,'."\n"
+                .'     * which is split on its delimiter into an array before validation.'."\n";
+
+            $pairs = implode(', ', array_map(
+                fn (string $delimiter, string $name): string => "'".PhpLiteral::escapeSingleQuoted($name)."' => '".PhpLiteral::escapeSingleQuoted($delimiter)."'",
+                $delimitedArrays,
+                array_keys($delimitedArrays),
+            ));
+
+            $body .= "\n"
+                .'        foreach (['.$pairs.'] as $name => $delimiter) {'."\n"
+                .'            if (array_key_exists($name, $query) && is_string($query[$name])) {'."\n"
+                .'                $query[$name] = explode($delimiter, $query[$name]);'."\n"
+                .'            }'."\n"
+                .'        }'."\n";
+        }
+
+        if ($booleanNames !== []) {
+            $docExtra .= '     * Boolean parameters arrive as the form-style literals true / false,'."\n"
+                .'     * which are mapped to 1 / 0 before validation.'."\n";
+
+            $names = implode(', ', array_map(
+                fn (string $name): string => "'".PhpLiteral::escapeSingleQuoted($name)."'",
+                $booleanNames,
+            ));
+
+            $body .= "\n"
+                .'        foreach (['.$names.'] as $name) {'."\n"
+                .'            if (array_key_exists($name, $query)) {'."\n"
+                .'                $query[$name] = match ($query[$name]) {'."\n"
+                ."                    'true' => '1',"."\n"
+                ."                    'false' => '0',"."\n"
+                .'                    default => $query[$name],'."\n"
+                .'                };'."\n"
+                .'            }'."\n"
+                .'        }'."\n";
+        }
 
         return $doc
-            .'     * Boolean parameters arrive as the form-style literals true / false,'."\n"
-            .'     * which are mapped to 1 / 0 before validation.'."\n"
+            .$docExtra
             .'     */'."\n"
             .'    public static function fromQuery(Request $request): static'."\n"
             ."    {\n"
-            .'        $query = $request->query->all();'."\n"
-            ."\n"
-            .'        foreach (['.$names.'] as $name) {'."\n"
-            .'            if (array_key_exists($name, $query)) {'."\n"
-            .'                $query[$name] = match ($query[$name]) {'."\n"
-            ."                    'true' => '1',"."\n"
-            ."                    'false' => '0',"."\n"
-            .'                    default => $query[$name],'."\n"
-            .'                };'."\n"
-            .'            }'."\n"
-            .'        }'."\n"
+            .$body
             ."\n"
             .'        return self::validateAndCreate($query);'."\n"
             .'    }';

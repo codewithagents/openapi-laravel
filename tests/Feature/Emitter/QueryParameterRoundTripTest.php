@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 use App\Data\Pet\ListPetsQueryData;
 use App\Data\Widget\CreateWidgetQueryData;
+use App\Data\Widget\FilterWidgetsQueryData;
 use App\Data\Widget\ListWidgetsQueryData;
+use App\Data\Widget\SearchWidgetsQueryData;
 use App\Data\Widget\WidgetState;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
@@ -167,4 +169,70 @@ it('accepts and hydrates literal true/false boolean query values', function () {
 
 it('rejects a non-boolean value for a boolean parameter', function () {
     CreateWidgetQueryData::fromQuery(Request::create('/widgets?validateOnly=banana', 'POST'));
+})->throws(ValidationException::class);
+
+// ---------------------------------------------------------------------------
+// Delimited (non-exploded) array query parameters (issue #132): the factory
+// splits the single joined string on its delimiter, then the array element
+// rules validate the items through the real Laravel validator.
+// ---------------------------------------------------------------------------
+
+it('splits a comma-delimited (form + explode: false) array and validates the items', function () {
+    // ?csv=a,b,c arrives as one string; the factory splits it into ['a','b','c'].
+    $query = SearchWidgetsQueryData::fromQuery(Request::create('/search?csv=a,b,c', 'GET'));
+
+    expect($query->csv)->toBe(['a', 'b', 'c']);
+});
+
+it('splits a space-delimited array and validates the items', function () {
+    // ?tags=aa+bb+cc decodes to "aa bb cc"; the factory splits on the space.
+    $query = SearchWidgetsQueryData::fromQuery(Request::create('/search?tags=aa%20bb%20cc', 'GET'));
+
+    expect($query->tags)->toBe(['aa', 'bb', 'cc']);
+});
+
+it('splits a pipe-delimited array and validates the items', function () {
+    $query = SearchWidgetsQueryData::fromQuery(Request::create('/search?matrix=a|b|c', 'GET'));
+
+    expect($query->matrix)->toBe(['a', 'b', 'c']);
+});
+
+it('rejects a delimited array item that violates the per-item constraints', function () {
+    // tags items require minLength 2; the second split item "b" is too short, so
+    // the real Laravel validator rejects the split array.
+    SearchWidgetsQueryData::fromQuery(Request::create('/search?tags=aa%20b', 'GET'));
+})->throws(ValidationException::class);
+
+it('splits an empty-string delimited value to a single empty-string element', function () {
+    // ?tags= is a PRESENT key with an empty value: PHP explode("", ...) yields a
+    // single empty-string element [""], so the array IS present (minItems 1 is
+    // satisfied with one element). Laravel treats an empty string as absent for
+    // non-required item rules, so the per-item minLength is not enforced on it.
+    // This is explode()'s natural behavior; an absent key (no split) stays null.
+    $query = SearchWidgetsQueryData::fromQuery(Request::create('/search?tags=', 'GET'));
+
+    expect($query->tags)->toBe(['']);
+});
+
+it('treats an absent delimited array as null (not an empty array)', function () {
+    $query = SearchWidgetsQueryData::fromQuery(Request::create('/search', 'GET'));
+
+    expect($query->csv)->toBeNull()
+        ->and($query->matrix)->toBeNull()
+        ->and($query->tags)->toBeNull();
+});
+
+it('splits the delimited array AND maps the boolean in one operation', function () {
+    // FilterWidgets has both kinds (comma-delimited int array) and active (bool).
+    $query = FilterWidgetsQueryData::fromQuery(Request::create('/filter?kinds=1,2,3&active=true', 'GET'));
+
+    // laravel-data keeps array<int, int> elements as their wire strings (the same
+    // as the existing exploded ?ids[]= path); the `integer` item rule still
+    // validates them. The bool literal is mapped and hydrated.
+    expect($query->kinds)->toBe(['1', '2', '3'])
+        ->and($query->active)->toBeTrue();
+});
+
+it('rejects a delimited int array whose split item is below the spec minimum', function () {
+    FilterWidgetsQueryData::fromQuery(Request::create('/filter?kinds=1,0,3', 'GET'));
 })->throws(ValidationException::class);
