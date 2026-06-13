@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.12.0](https://github.com/codewithagents/openapi-laravel/compare/v0.11.0...v0.12.0) (2026-06-13)
+
+
+### Features
+
+* **e2e:** extend contract and backend for the runtime feature matrix ([8161294](https://github.com/codewithagents/openapi-laravel/commit/8161294484851c31d403f51a8dcb718930fc566e))
+* **emitter:** generate validation for header parameters ([#121](https://github.com/codewithagents/openapi-laravel/issues/121)) ([277316c](https://github.com/codewithagents/openapi-laravel/commit/277316c7e3a23d6dfa05288f4a90e5e6e5938dca))
+* **emitter:** generate validation for path parameters ([#113](https://github.com/codewithagents/openapi-laravel/issues/113)) ([c8357ac](https://github.com/codewithagents/openapi-laravel/commit/c8357ace0be07c7edb895f3cd5bb78fa79e37fc0))
+* **parser:** add internal OpenAPI spec value objects ([#104](https://github.com/codewithagents/openapi-laravel/issues/104)) ([a875697](https://github.com/codewithagents/openapi-laravel/commit/a875697c39dea830dd0260d1c41ef30f52f259c1))
+* **parser:** add OpenApiReader hydrating the typed spec graph ([#104](https://github.com/codewithagents/openapi-laravel/issues/104)) ([c11aeed](https://github.com/codewithagents/openapi-laravel/commit/c11aeeda299317cd8003d1412911d8d0fccae7e6))
+* **server:** resolve component $ref request bodies to typed Data params ([#110](https://github.com/codewithagents/openapi-laravel/issues/110)) ([343e48d](https://github.com/codewithagents/openapi-laravel/commit/343e48d6c46b48ea26999632490d8ca6f1257de9))
+* **server:** resolve component $ref responses to typed return types ([#116](https://github.com/codewithagents/openapi-laravel/issues/116)) ([0d2e8ab](https://github.com/codewithagents/openapi-laravel/commit/0d2e8ab70f53704bd901696b4dc5ee6b52f04cb6))
+* **server:** type non-JSON responses as base Response with degradation warning ([#120](https://github.com/codewithagents/openapi-laravel/issues/120)) ([3be9f98](https://github.com/codewithagents/openapi-laravel/commit/3be9f98224287b85e6c392f27be53d1c92f1989d))
+* **server:** warn on response headers, callbacks, and webhooks instead of silent drops ([#122](https://github.com/codewithagents/openapi-laravel/issues/122)) ([9a4312b](https://github.com/codewithagents/openapi-laravel/commit/9a4312b1a0063552b9921eef25a1623fb78e81f4))
+
+
+### Bug Fixes
+
+* **emitter:** constrain integer path params with whereNumber to prevent TypeError 500 ([#129](https://github.com/codewithagents/openapi-laravel/issues/129)) ([4b1ff10](https://github.com/codewithagents/openapi-laravel/commit/4b1ff107607d038868ad31d2c81736e8606008df))
+* **emitter:** reject missing discriminator value with 422 ([fa80101](https://github.com/codewithagents/openapi-laravel/commit/fa80101c5920483e66c3a131eb72bb95e0bc9f9e)), closes [#126](https://github.com/codewithagents/openapi-laravel/issues/126)
+* **emitter:** reject unknown discriminator value with 422 ([#124](https://github.com/codewithagents/openapi-laravel/issues/124)) ([#127](https://github.com/codewithagents/openapi-laravel/issues/127)) ([e988afa](https://github.com/codewithagents/openapi-laravel/commit/e988afa72e4698c98a60ac15cef7f5334d3afd33))
+* **emitter:** synthesize writable variants transitively so nested readOnly recurses on write ([7437138](https://github.com/codewithagents/openapi-laravel/commit/7437138472c5eb9c7bc7e200b4087888a6335a51))
+* **naming:** dedupe class names case-insensitively to avoid filename collisions ([#108](https://github.com/codewithagents/openapi-laravel/issues/108)) ([#112](https://github.com/codewithagents/openapi-laravel/issues/112)) ([680a309](https://github.com/codewithagents/openapi-laravel/commit/680a309bddc71acecc289958a3a8de471ef1b8c2))
+* **parser:** bound the 3.2 itemSchema scan, route mistyped additionalProperties to extra ([#104](https://github.com/codewithagents/openapi-laravel/issues/104)) ([93461da](https://github.com/codewithagents/openapi-laravel/commit/93461da73251101c1d1b1403341002eab3f1812d))
+* **parser:** bound total hydrated node count against YAML alias amplification ([#107](https://github.com/codewithagents/openapi-laravel/issues/107)) ([c1c354f](https://github.com/codewithagents/openapi-laravel/commit/c1c354f2e9645f81ac4baabf858c89898a761631))
+* **server:** honor declared non-200 success status on Data-returning operations ([#125](https://github.com/codewithagents/openapi-laravel/issues/125)) ([#128](https://github.com/codewithagents/openapi-laravel/issues/128)) ([3648a34](https://github.com/codewithagents/openapi-laravel/commit/3648a34d4f4265b8744d9b488d4d41bdb7745de9))
+* **support:** scope NoUnknownPropertiesRule to its nested subtree so closed objects enforce recursively ([#30](https://github.com/codewithagents/openapi-laravel/issues/30)) ([22a4327](https://github.com/codewithagents/openapi-laravel/commit/22a4327fe138dc794fe7e64bfa9d6f22df59ac6d))
+
 ## [0.11.0](https://github.com/codewithagents/openapi-laravel/compare/v0.10.0...v0.11.0) (2026-06-12)
 
 
