@@ -6,6 +6,7 @@ use App\DiscriminatedData\CatData;
 use App\DiscriminatedData\CatHolderData;
 use App\DiscriminatedData\DogData;
 use App\DiscriminatedData\HolderData;
+use App\DiscriminatedData\PetData;
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
@@ -136,6 +137,37 @@ it('rejects a cat discriminator carrying a dog shape (per-variant: meow required
 it('rejects an unmapped discriminator value', function () {
     HolderData::validate(['pet' => ['petType' => 'unknown']]);
 })->throws(ValidationException::class);
+
+// Regression for #124: an unknown discriminator value on a TOP-LEVEL union (the
+// abstract base consumed directly, e.g. as a request body) must surface a 422,
+// not the uncatchable CannotCreateAbstractClass a 500. The validate() path runs
+// the morph guard, but the creation paths (from / validateAndCreate / container
+// injection) resolve the morph class BEFORE validation, so the morph() default
+// arm now throws a ValidationException to make every path reject cleanly.
+it('rejects an unknown discriminator value on the base via validate() (#124)', function () {
+    PetData::validate(['petType' => 'unknown']);
+})->throws(ValidationException::class);
+
+it('rejects an unknown discriminator value on the base via from() (#124)', function () {
+    PetData::from(['petType' => 'unknown']);
+})->throws(ValidationException::class);
+
+it('rejects an unknown discriminator value on the base via validateAndCreate() (#124)', function () {
+    PetData::validateAndCreate(['petType' => 'unknown']);
+})->throws(ValidationException::class);
+
+it('rejects an unknown discriminator value on a NESTED union via from() (#124)', function () {
+    // The same morph-then-validate creation path applies one level down, so a
+    // hydrating from() on the holder must also reject rather than 500.
+    HolderData::from(['pet' => ['petType' => 'unknown']]);
+})->throws(ValidationException::class);
+
+it('still hydrates a valid variant on the base via from() after the #124 fix', function () {
+    $pet = PetData::from(['petType' => 'cat', 'meow' => 'mrr']);
+
+    expect($pet)->toBeInstanceOf(CatData::class);
+    expect($pet->meow)->toBe('mrr');
+});
 
 it('rejects a payload missing the discriminator property', function () {
     HolderData::validate(['pet' => ['meow' => 'mrr']]);

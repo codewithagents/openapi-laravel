@@ -168,6 +168,14 @@ collisions failing loudly.
 - Undiscriminated object unions (no `discriminator`) stay `mixed`, presence-only by design (#31).
 - An allOf-inheritance variant that does not pin its discriminator with a `const` is not rejected for
   a wrong value when validated STANDALONE (morph routing through the base is unaffected).
+- An UNKNOWN discriminator value is a clean 422 on every consumption path (#124): the morphable
+  base's `morph()` default arm throws a `ValidationException` rather than returning null, so the
+  morph-then-validate creation paths (`from()` / `validateAndCreate()` / container injection) reject
+  before the uncatchable `CannotCreateAbstractClass` (a 500) can fire. A discriminator that is
+  MISSING ENTIRELY still throws `CannotCreateAbstractClass` on the creation paths (laravel-data's
+  morph resolver short-circuits before `morph()` is reached when the property is absent); the
+  `validate()` path rejects it cleanly via the morph guard, so a body validated before hydration is
+  unaffected, but a raw `from()` on an absent discriminator remains a 500 (a separate, narrower gap).
 - Component `$ref` request bodies resolve to typed Data params (#110); only a body that is NOT an
   object shape (an array, scalar, union, enum, free-form map, or a whole-body binary multipart
   schema) keeps the warned `Illuminate\Http\Request` fallback, whether it arrives inline (#76),
