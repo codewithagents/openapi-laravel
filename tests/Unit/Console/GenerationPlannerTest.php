@@ -146,9 +146,11 @@ it('emits query-skip warnings in a model-only run but keeps the scaffold cookie 
 
     // Model-only: the data-layer diagnostics (skipped query parameters) are
     // kept, the scaffold-only diagnostics (the cookie parameter the controllers
-    // would not type) stay out, unchanged from before.
+    // would not type) stay out, unchanged from before. The `shape` parameter is
+    // a $ref to an object component, which has no flat query-string form, so it
+    // is still skipped (the deepObject `filter` is now synthesized, issue #131).
     $modelOnly = implode("\n", $planner->plan($request($querySpec(), $out))->warnings);
-    expect($modelOnly)->toContain('query parameter "filter" was skipped')
+    expect($modelOnly)->toContain('query parameter "shape" was skipped')
         ->and($modelOnly)->not->toContain('cookie parameter(s)');
 
     // With the scaffold enabled the cookie warning is merged in as before. The

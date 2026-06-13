@@ -83,15 +83,25 @@ paths:
         - widget
       operationId: searchWidgets
       parameters:
-        # Every parameter here is un-serializable: the operation must get NO query class.
+        # A deepObject object parameter (Stripe-style filter[gte]=...): synthesized
+        # into a nested SearchWidgetsQueryFilterData class with per-property rules
+        # (issue #131). The bracketed keys parse natively into a nested array.
         - name: filter
           in: query
           style: deepObject
+          explode: true
           schema:
             type: object
             properties:
+              gte:
+                type: integer
+                minimum: 0
+              lte:
+                type: integer
+                minimum: 0
               color:
                 type: string
+                minLength: 2
         - name: shape
           in: query
           schema:
@@ -125,6 +135,32 @@ paths:
             application/json:
               schema:
                 type: object
+      responses:
+        '200':
+          description: ok
+  /lookup:
+    get:
+      tags:
+        - widget
+      operationId: lookupWidgets
+      parameters:
+        # A body-less GET carrying ONLY a deepObject object parameter (issue
+        # #131): the native bracket parsing means the nested array is already in
+        # the shape the nested-class rules expect, so the query class stays
+        # container-injectable (no additive forcing, unlike a delimited array).
+        - name: range
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              gte:
+                type: integer
+                minimum: 0
+              lte:
+                type: integer
+                minimum: 0
       responses:
         '200':
           description: ok

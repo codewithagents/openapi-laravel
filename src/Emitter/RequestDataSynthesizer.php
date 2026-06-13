@@ -96,10 +96,14 @@ final class RequestDataSynthesizer
      * controller parameter hydrates through the same query-only path.
      *
      * A parameter whose serialization cannot round-trip through Laravel's
-     * flat `key=value` / `key[]=value` query parsing (style deepObject,
-     * space/pipe-delimited, a non-exploded array, an object or object-map
-     * shape, a content-typed parameter) is skipped with a warning rather than
-     * given rules that would false-reject valid requests.
+     * query parsing is skipped with a warning rather than given rules that
+     * would false-reject valid requests: a flat-form object or object-map
+     * shape, and a content-typed parameter. A delimited (non-exploded) array
+     * is split in fromQuery() before validating (issue #132). A `deepObject`
+     * OBJECT parameter (issue #131) is synthesized as a nested object property:
+     * `?filter[gte]=10` parses NATIVELY into a nested array, so it needs no
+     * splitting, and the nested Data class carries the per-property rules; a
+     * non-object deepObject (or `explode: false`) keeps the skip.
      *
      * @param  string  $baseName  StudlyCaps operation context (operationId or the method+path fallback), without suffix
      * @param  string  $operationLabel  "GET /pets", for warning messages
@@ -265,6 +269,20 @@ final class RequestDataSynthesizer
         // joined string on the delimiter before the array rules validate it.
         $delimitedArrayNames = [];
 
+        // The query path can now spawn nested Data classes (a deepObject object
+        // parameter, issue #131), which resolveInlineObject() writes into
+        // $this->state->files (the main component bucket already returned by
+        // generate()). Mirror the body path's bucket discipline: emit into a
+        // clean bucket and drain the spawned classes into $queryFiles for the
+        // planner. Path and header never spawn classes (they degrade a
+        // non-scalar to presence-only mixed), so the swap is query-only and a
+        // no-op for them in practice; keeping it query-scoped leaves their
+        // established behavior byte-identical.
+        $mainFiles = $this->state->files;
+        if ($in === 'query') {
+            $this->state->files = [];
+        }
+
         foreach ($supported as $parameter) {
             // HTTP header names are case-insensitive and Symfony lowercases
             // every key in $request->headers->all() (issue #121), so a header
@@ -339,6 +357,9 @@ final class RequestDataSynthesizer
         if ($params === []) {
             // Every surviving parameter lacked a usable schema (defensive; the
             // skip check above already filtered these). No useful class to emit.
+            // Restore the component bucket (the query swap is the only mutation;
+            // any spawned classes are discarded with the abandoned class).
+            $this->state->files = $mainFiles;
             $this->state->popRefScope();
 
             return null;
@@ -376,9 +397,28 @@ final class RequestDataSynthesizer
             default => $this->state->queryFiles[$className] = $file,
         };
 
+        if ($in === 'query') {
+            // Drain any nested Data classes a deepObject object parameter spawned
+            // (issue #131) into $queryFiles for the planner, then restore the
+            // component bucket. The main class was just written into $queryFiles
+            // directly above, so only the spawned nested classes remain here.
+            foreach ($this->state->files as $name => $nestedFile) {
+                $this->state->queryFiles[$name] = $nestedFile;
+            }
+            $this->state->files = $mainFiles;
+        }
+
         // A query class carrying a delimited-array param must be additive, not
         // injected (issue #132): record it so the collector skips injection and
         // points at ::fromQuery($request) instead, the same as path/header.
+        //
+        // A deepObject parameter (issue #131) does NOT need this: PHP/Laravel
+        // parse ?filter[gte]=10 NATIVELY into a nested array, so the value is
+        // already in the shape the nested Data class rules expect. The raw
+        // request that spatie validates on container injection (body-less GET)
+        // therefore validates correctly with no pre-split, unlike the joined
+        // delimited string. So a deepObject-only query class stays injectable;
+        // only a delimited-array param forces the class additive.
         if ($in === 'query' && $delimitedArrayNames !== []) {
             $this->state->delimitedQueryClasses[$className] = true;
         }
@@ -1168,12 +1208,37 @@ final class RequestDataSynthesizer
             return 'it has no usable name';
         }
 
+        $schema = $parameter->schema;
+
         $style = $parameter->style;
         if ($style === 'deepObject') {
-            return 'style "deepObject" is not supported yet';
+            // A deepObject parameter serializes an OBJECT as bracketed keys
+            // (?filter[gte]=10&filter[lte]=20), which PHP/Laravel parse NATIVELY
+            // into a nested array (['filter' => ['gte' => '10', 'lte' => '20']]).
+            // No manual splitting is needed (unlike the delimited-array case of
+            // issue #132): the nested structure is already in $request->query().
+            // So an OBJECT deepObject param is synthesized as a nested object
+            // property whose own Data class carries the per-property rules, the
+            // same machinery a nested object body property uses (issue #131).
+            // The form is only meaningful with explode: true (the deepObject
+            // default), so explode: false is still skipped, and a non-object
+            // schema (a scalar/array, which deepObject cannot serialize as a
+            // flat key) keeps the skip too.
+            if ($parameter->explode === false) {
+                return 'style "deepObject" requires explode: true to serialize the object keys';
+            }
+
+            if ($schema === null) {
+                return 'it declares no schema (content-typed query parameters are not supported yet)';
+            }
+
+            if (! $this->isQueryObjectSchema($schema)) {
+                return 'style "deepObject" only serializes an object schema, but this parameter is not an object';
+            }
+
+            return null;
         }
 
-        $schema = $parameter->schema;
         if ($schema === null) {
             return 'it declares no schema (content-typed query parameters are not supported yet)';
         }
@@ -1247,6 +1312,35 @@ final class RequestDataSynthesizer
         }
 
         return (SchemaFacts::normalizeTypes($schema)[0] ?? null) === 'array';
+    }
+
+    /**
+     * Whether a deepObject query parameter's schema is an object that can be
+     * synthesized into a nested Data-class property (issue #131): an inline
+     * object (an explicit `type: object`, an `allOf` merge, or a bare
+     * `properties` set), or a `$ref` to a generated object Data component. A
+     * pure map, a scalar, an array, a union, or an enum is NOT an object the
+     * nested-object pipeline can type, so it keeps the deepObject skip.
+     */
+    private function isQueryObjectSchema(SchemaNode|ReferenceNode $schema): bool
+    {
+        if ($schema instanceof ReferenceNode) {
+            $name = SchemaPointer::refName($schema->pointer());
+
+            return $name !== null
+                && isset($this->state->registry[$name])
+                && $this->state->registry[$name]['kind'] === 'data';
+        }
+
+        if (SchemaFacts::isPureMap($schema)) {
+            return false;
+        }
+
+        $primary = SchemaFacts::normalizeTypes($schema)[0] ?? null;
+
+        return $primary === 'object'
+            || $this->notEmptyArray($schema->properties)
+            || $this->notEmptyArray($schema->allOf);
     }
 
     /**

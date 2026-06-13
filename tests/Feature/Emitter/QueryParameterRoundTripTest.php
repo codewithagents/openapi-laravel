@@ -6,6 +6,7 @@ use App\Data\Pet\ListPetsQueryData;
 use App\Data\Widget\CreateWidgetQueryData;
 use App\Data\Widget\FilterWidgetsQueryData;
 use App\Data\Widget\ListWidgetsQueryData;
+use App\Data\Widget\LookupWidgetsQueryData;
 use App\Data\Widget\SearchWidgetsQueryData;
 use App\Data\Widget\WidgetState;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
@@ -235,4 +236,59 @@ it('splits the delimited array AND maps the boolean in one operation', function 
 
 it('rejects a delimited int array whose split item is below the spec minimum', function () {
     FilterWidgetsQueryData::fromQuery(Request::create('/filter?kinds=1,0,3', 'GET'));
+})->throws(ValidationException::class);
+
+// ---------------------------------------------------------------------------
+// deepObject object query parameters (issue #131): ?range[gte]=10&range[lte]=20
+// parses NATIVELY into ['range' => ['gte' => '10', 'lte' => '20']], so the
+// nested Data class validates and hydrates the nested values with NO manual
+// splitting (unlike the delimited-array case above).
+// ---------------------------------------------------------------------------
+
+it('hydrates a deepObject parameter into a nested Data class from a real query string', function () {
+    // The bracketed keys are parsed by PHP into a nested array before fromQuery()
+    // ever sees them, so the nested SearchWidgetsQueryFilterData hydrates directly.
+    $request = Request::create('/search?filter[gte]=10&filter[lte]=20&filter[color]=blue', 'GET');
+
+    $query = SearchWidgetsQueryData::fromQuery($request);
+
+    expect($query->filter)->not->toBeNull()
+        ->and($query->filter->gte)->toBe(10)
+        ->and($query->filter->lte)->toBe(20)
+        ->and($query->filter->color)->toBe('blue');
+});
+
+it('treats an absent deepObject parameter as null', function () {
+    $query = SearchWidgetsQueryData::fromQuery(Request::create('/search', 'GET'));
+
+    expect($query->filter)->toBeNull();
+});
+
+it('rejects a deepObject nested value that violates the per-property constraints', function () {
+    // filter[gte] has minimum 0; -1 must fail through the nested-class rules,
+    // validated as the dotted filter.gte path by the real Laravel validator.
+    SearchWidgetsQueryData::fromQuery(Request::create('/search?filter[gte]=-1', 'GET'));
+})->throws(ValidationException::class);
+
+it('rejects a deepObject nested string shorter than its minLength', function () {
+    SearchWidgetsQueryData::fromQuery(Request::create('/search?filter[color]=x', 'GET'));
+})->throws(ValidationException::class);
+
+it('routes a deepObject-only body-less GET through container injection (issue #131)', function () {
+    // GET /lookup is body-less with ONLY a deepObject parameter, so its query
+    // class stays container-injectable (the native nested array validates fine,
+    // no pre-split needed). Prove the injected path hydrates the nested values.
+    $this->app->instance('request', Request::create('/lookup?range[gte]=5&range[lte]=9', 'GET'));
+
+    $query = $this->app->make(LookupWidgetsQueryData::class);
+
+    expect($query->range)->not->toBeNull()
+        ->and($query->range->gte)->toBe(5)
+        ->and($query->range->lte)->toBe(9);
+});
+
+it('rejects an invalid deepObject value on the container-injection path too', function () {
+    $this->app->instance('request', Request::create('/lookup?range[gte]=-3', 'GET'));
+
+    $this->app->make(LookupWidgetsQueryData::class);
 })->throws(ValidationException::class);

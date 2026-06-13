@@ -1066,6 +1066,34 @@ const READER_BASELINE_REBASELINED_DELIMITED_ARRAYS = [
     'xero.json' => 'non-exploded delimited array query parameter is split and validated',
 ];
 
+/*
+ * INTENTIONAL post-freeze rebaseline (#131, deepObject object query
+ * parameters): the four specs in READER_BASELINE_REBASELINED_DEEPOBJECT carry
+ * a post-#131 hash because they declare a `style: deepObject` query parameter
+ * whose schema is an OBJECT (Stripe-style filter[gte]=...&filter[lte]=...).
+ * Such a parameter used to be skipped with the "style deepObject is not
+ * supported yet" warning; it is now synthesized into the operation's query
+ * class as a nested object property, flowing through the SAME nested-object
+ * pipeline a body property uses (resolveType spawns a nested Data class, which
+ * carries the per-property rules). PHP/Laravel parse the bracketed keys
+ * NATIVELY into a nested array, so fromQuery() needs no manual splitting and
+ * the class stays container-injectable on a body-less GET (unlike the
+ * delimited-array case of #132). The divergence is the new nested query Data
+ * class(es) plus the dropped/changed skip warnings; a deepObject parameter on a
+ * non-object schema (or with explode: false) keeps a skip with a more specific
+ * reason, which also feeds the hash. A spec present in an earlier rebaseline
+ * list accumulates the changes; every spec outside the rebaseline lists stays
+ * the frozen v0.11.0 freeze, byte for byte.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_DEEPOBJECT = [
+    'here_tracking.json' => 'deepObject object query parameters synthesized; a non-object deepObject keeps a more specific skip',
+    'openai.yaml' => 'deepObject object query parameter synthesized as a nested query class',
+    'soundcloud.json' => 'deepObject object query parameters synthesized as nested query classes',
+    'stripe.json' => 'deepObject object query parameters synthesized as nested query classes',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -1136,10 +1164,11 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
 
     // Every spec rebaselined for #110, #116, #120, #122, #124, #125, #126,
     // #113, #121, #129, #30, #130, the transitive nested-readOnly write split,
-    // or #132 (delimited arrays) must still exist on disk and carry a hash in
-    // the baseline (it is an update, not an exemption): a renamed or deleted
-    // spec would make the documented rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY), ...array_keys(READER_BASELINE_REBASELINED_130), ...array_keys(READER_BASELINE_REBASELINED_DELIMITED_ARRAYS)] as $spec) {
+    // #132 (delimited arrays), or #131 (deepObject object query parameters)
+    // must still exist on disk and carry a hash in the baseline (it is an
+    // update, not an exemption): a renamed or deleted spec would make the
+    // documented rebaseline lists rot silently.
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY), ...array_keys(READER_BASELINE_REBASELINED_130), ...array_keys(READER_BASELINE_REBASELINED_DELIMITED_ARRAYS), ...array_keys(READER_BASELINE_REBASELINED_DEEPOBJECT)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }

@@ -467,16 +467,103 @@ it('synthesizes a query class from the delimited arrays and warns only on the tr
     [$descriptors, $generator] = collectQueryParameters();
 
     // matrix (pipeDelimited array) and csv (form + explode: false array) are now
-    // split and validated (issue #132), so the operation gets a query class; only
-    // filter (deepObject), shape (object $ref), and payload (content-typed) skip.
+    // split and validated (issue #132), filter (deepObject object) is synthesized
+    // as a nested class (issue #131), so the operation gets a query class; only
+    // shape (object $ref) and payload (content-typed) skip.
     expect(descriptorFor($descriptors, 'get', '/search')->queryParam)->not->toBeNull();
 
     $warnings = implode("\n", $generator->warnings());
-    expect($warnings)->toContain('query parameter "filter" was skipped: style "deepObject" is not supported yet')
-        ->and($warnings)->toContain('query parameter "shape" was skipped: it is an object')
+    expect($warnings)->toContain('query parameter "shape" was skipped: it is an object')
         ->and($warnings)->toContain('query parameter "payload" was skipped: it declares no schema')
+        ->and($warnings)->not->toContain('query parameter "filter" was skipped')
+        ->and($warnings)->not->toContain('style "deepObject" is not supported yet')
         ->and($warnings)->not->toContain('query parameter "matrix" was skipped')
         ->and($warnings)->not->toContain('query parameter "csv" was skipped');
+});
+
+it('synthesizes a deepObject object query parameter into a nested Data class with per-property rules (issue #131)', function () {
+    [$descriptors, $generator] = collectQueryParameters();
+
+    // The /search query class types the deepObject filter as a nested Data
+    // class property (presence-only at the parent, like a body nested object),
+    // and the nested class carries the per-property rules.
+    $files = $generator->queryFiles();
+    $search = $files['SearchWidgetsQueryData']->code;
+    expect($search)->toContain('public readonly ?SearchWidgetsQueryFilterData $filter = null')
+        ->and($search)->toContain("'filter' => ['sometimes']");
+
+    // The nested class is drained into the query files (not orphaned in the
+    // component bucket) and carries the dotted-path constraints (gte/lte/color).
+    expect($files)->toHaveKey('SearchWidgetsQueryFilterData');
+    $nested = $files['SearchWidgetsQueryFilterData']->code;
+    expect($nested)->toContain("'gte' => ['sometimes', 'integer', 'min:0']")
+        ->and($nested)->toContain("'lte' => ['sometimes', 'integer', 'min:0']")
+        ->and($nested)->toContain("'color' => ['sometimes', 'string', 'min:2']");
+});
+
+it('keeps a deepObject-only query class injectable on a body-less GET (issue #131 vs #132)', function () {
+    [$descriptors, $generator] = collectQueryParameters();
+
+    // GET /lookup is a body-less GET carrying ONLY a deepObject parameter.
+    // A deepObject value parses NATIVELY into a nested array, so the raw request
+    // spatie validates on container injection already matches the nested-class
+    // rules: no pre-split is needed (unlike a delimited array, which forces the
+    // class additive in #132). So the class is NOT marked additive and the
+    // descriptor stays injected.
+    expect($generator->queryClassHasDelimitedArray('LookupWidgetsQueryData'))->toBeFalse();
+
+    $lookup = descriptorFor($descriptors, 'get', '/lookup');
+    expect($lookup->queryParam)->not->toBeNull()
+        ->and($lookup->queryParam['type'])->toBe('LookupWidgetsQueryData')
+        ->and($lookup->queryParam['injected'])->toBeTrue();
+});
+
+it('keeps the skip and warning for a non-object deepObject query parameter (issue #131)', function () {
+    // deepObject only serializes an OBJECT (its keys become bracketed
+    // sub-keys). A deepObject on an array or scalar schema is meaningless, so
+    // it keeps the established skip+warn rather than synthesizing a property.
+    $document = [
+        'openapi' => '3.0.3',
+        'info' => ['title' => 'Test', 'version' => '1.0.0'],
+        'paths' => [
+            '/items' => [
+                'get' => [
+                    'operationId' => 'listItems',
+                    'parameters' => [
+                        [
+                            'name' => 'tags',
+                            'in' => 'query',
+                            'style' => 'deepObject',
+                            'explode' => true,
+                            'schema' => ['type' => 'array', 'items' => ['type' => 'string']],
+                        ],
+                        [
+                            'name' => 'noExplode',
+                            'in' => 'query',
+                            'style' => 'deepObject',
+                            'explode' => false,
+                            'schema' => ['type' => 'object', 'properties' => ['a' => ['type' => 'string']]],
+                        ],
+                    ],
+                    'responses' => ['200' => ['description' => 'ok']],
+                ],
+            ],
+        ],
+    ];
+
+    $spec = (new OpenApiReader)->read($document);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
+
+    $generator = new ModelGenerator;
+    $generator->generate($spec);
+    $descriptors = (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($spec);
+
+    // Both parameters skip, so the operation gets no query class at all.
+    expect(descriptorFor($descriptors, 'get', '/items')->queryParam)->toBeNull();
+
+    $warnings = implode("\n", $generator->warnings());
+    expect($warnings)->toContain('query parameter "tags" was skipped: style "deepObject" only serializes an object schema')
+        ->and($warnings)->toContain('query parameter "noExplode" was skipped: style "deepObject" requires explode: true');
 });
 
 it('warns about cookie parameters instead of silently dropping them, but validates custom headers (issue #121)', function () {
