@@ -184,8 +184,8 @@ lives in `src/` (out of scope for the test layer).
 
 | Operation (path) | Constructs | Issues |
 |------------------|-----------|--------|
-| `getWidget` (`GET /widgets/{widgetId}`) | integer path param, query param, header param, cookie param, 200 JSON, default response | |
-| `createWidget` (`POST /widgets`) | requestBody inline schema, 201 created | |
+| `getWidget` (`GET /widgets/{widgetId}`) | integer path param, query param, header param, cookie param, 200 JSON with a response header (dropped with a warning), default response | #114 |
+| `createWidget` (`POST /widgets`) | requestBody inline schema, 201 created, operation callback (dropped with a warning) | #115 |
 | `deleteAllWidgets` (`DELETE /widgets`) | 204 no content | |
 | `createGadget` (`POST /gadgets`) | requestBody $ref to component schema, response oneOf of $ref objects, 422 with no content schema | |
 | `createGizmo` (`POST /gizmos`) | requestBody $ref to a component requestBody (resolved to the wrapped schema's Data class) | #110 |

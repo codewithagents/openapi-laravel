@@ -195,6 +195,12 @@ collisions failing loudly.
   the generated app. PHP's `pcre.backtrack_limit` is the only backstop, turning a hang into a failed
   match rather than preventing the CPU burn.
 - `in: header` / `in: cookie` parameters are not generated (warned per operation, #63 scoped them out).
+- Response headers are not generated (warned per operation, #114). Only the SELECTED success
+  response warns: it is the one response the generator consumes, so headers on error responses (or
+  bypassed success alternatives) stay silent by design.
+- Operation `callbacks` (warned per operation) and root `webhooks` (one document-level warning)
+  are not generated (#115); callback/webhook handler scaffolding is a separate decision,
+  deliberately out of scope for now.
 - Query parameters without a flat `key=value` / `key[]=value` form are skipped with a warning:
   `deepObject` (Stripe's filter objects), `spaceDelimited`/`pipeDelimited`, non-exploded arrays,
   object-shaped and content-typed parameters.

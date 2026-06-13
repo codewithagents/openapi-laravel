@@ -69,6 +69,10 @@ paths:
       responses:
         '200':
           description: A single widget as JSON
+          headers:                # RESPONSE header on the selected success
+            X-Request-Id:         # response: dropped with a warning (#114)
+              schema:
+                type: string
           content:
             application/json:
               schema:
@@ -99,6 +103,18 @@ paths:
                 weight:
                   type: number
                   format: double
+      callbacks:                  # operation callback: dropped with a warning (#115)
+        widgetCreated:
+          '{$request.body#/notifyUrl}':
+            post:
+              requestBody:
+                content:
+                  application/json:
+                    schema:
+                      $ref: '#/components/schemas/Widget'
+              responses:
+                '200':
+                  description: Callback received
       responses:
         '201':                    # 201 Created
           description: Widget created

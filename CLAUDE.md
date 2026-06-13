@@ -119,7 +119,10 @@ binary string nested below the multipart root stays a plain string; tuple `prefi
 per position (#82, incl. a length cap for the closed `items: false` form) but still types as
 `array<int, mixed>`; int64 bounds degrade gracefully. A non-JSON-only success response is typed as
 the base Symfony `Response` with a warning (#117/#118, honest typing, no Data return); a response
-with NO declared content keeps the JsonResponse default. A spec `pattern` is
+with NO declared content keeps the JsonResponse default. Response headers are not generated but
+warn per operation on the SELECTED success response only (#114, the one response the generator
+consumes; error-response headers stay silent by design); operation `callbacks` warn per operation
+and root `webhooks` warn once at document level (#115, no handler scaffolding). A spec `pattern` is
 copied verbatim into the generated `regex:` rule with no complexity analysis (#107), so a
 catastrophic-backtracking pattern in the spec becomes a potential ReDoS at runtime in the generated
 app; PHP's `pcre.backtrack_limit` is the only backstop (it turns a hang into a failed match).

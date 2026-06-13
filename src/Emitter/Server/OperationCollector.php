@@ -195,6 +195,13 @@ final class OperationCollector
         $this->componentResponses = $this->collectComponentResponses($document);
         $this->componentResponseTags = $this->collectComponentResponseTags($document);
 
+        // Root-level webhooks (issue #115): the reader hydrates them, but no
+        // emitter consumes them, so a webhook-leaning spec would otherwise
+        // generate a complete-looking slice that silently misses a whole
+        // interaction surface. ONE document-level warning naming the webhook
+        // keys; handler scaffolding is a deliberate non-goal for now.
+        $this->warnWebhooks($document);
+
         // Security-to-middleware resolution (issue #77): one resolver per run,
         // seeded with the configured map and the document-level security so
         // every operation resolves against the same state. The typo check
@@ -380,6 +387,7 @@ final class OperationCollector
         [$returnType, $returnDoc, $successStatus] = $this->responseType($operation, $imports, $label);
 
         $this->warnUnsupportedParameterLocations($method, $path, $parameters);
+        $this->warnCallbacks($operation, $label);
         $queryParam = $this->queryParam($method, $path, $operation, $parameters, $bodyParam, $bodyRequiresRequest, $pathParams, $imports);
 
         sort($imports);
@@ -546,6 +554,93 @@ final class OperationCollector
                     $kind,
                 )] = true;
             }
+        }
+    }
+
+    /**
+     * Record a warning when the SELECTED success response declares response
+     * headers (issue #114): the reader parses them, but no emitter generates
+     * typing or emission for them, and silence would hide the information
+     * loss. Only the selected success response warns, because it is the one
+     * response the generator consumes; headers on error responses (or on
+     * bypassed success alternatives) describe output the scaffold never
+     * touches in any form. One warning per operation with the header names
+     * listed, in spec order.
+     *
+     * @param  string  $label  "GET /pets", for warning messages
+     */
+    private function warnResponseHeaders(ResponseNode $response, string $label): void
+    {
+        $names = [];
+        foreach (array_keys($response->headers ?? []) as $name) {
+            $name = (string) $name;
+            if ($name !== '') {
+                $names[] = '"'.$name.'"';
+            }
+        }
+
+        if ($names !== []) {
+            $this->warnings[sprintf(
+                'Operation %s: response header(s) %s on the selected success response are not generated (response headers are not supported yet).',
+                $label,
+                implode(', ', $names),
+            )] = true;
+        }
+    }
+
+    /**
+     * Record a warning when an operation declares `callbacks` (issue #115):
+     * the reader keeps them as raw passthrough, no emitter consumes them, and
+     * a spec leaning on callbacks would otherwise lose a whole interaction
+     * surface in silence. One warning per operation with the callback keys
+     * listed, in spec order. Generating callback scaffolding is a separate
+     * decision, deliberately out of scope.
+     *
+     * @param  string  $label  "GET /pets", for warning messages
+     */
+    private function warnCallbacks(OperationNode $operation, string $label): void
+    {
+        $keys = [];
+        foreach (array_keys($operation->callbacks ?? []) as $key) {
+            $key = (string) $key;
+            if ($key !== '') {
+                $keys[] = '"'.$key.'"';
+            }
+        }
+
+        if ($keys !== []) {
+            $this->warnings[sprintf(
+                'Operation %s: callback(s) %s are not generated (callbacks are not supported yet).',
+                $label,
+                implode(', ', $keys),
+            )] = true;
+        }
+    }
+
+    /**
+     * Record ONE document-level warning when the document declares root
+     * `webhooks` (issue #115, OpenAPI 3.1): the reader hydrates them, no
+     * emitter consumes them, and a webhook-leaning spec would otherwise
+     * generate a complete-looking slice that silently misses a whole
+     * interaction surface. The webhook keys are listed in spec order.
+     * Generating webhook handler scaffolding is a separate decision,
+     * deliberately out of scope.
+     */
+    private function warnWebhooks(OpenApiDocument $document): void
+    {
+        $keys = [];
+        foreach (array_keys($document->webhooks) as $key) {
+            $key = (string) $key;
+            if ($key !== '') {
+                $keys[] = '"'.$key.'"';
+            }
+        }
+
+        if ($keys !== []) {
+            $this->warnings[sprintf(
+                'Document webhook(s) %s are not generated (webhooks are not supported yet).',
+                implode(', ', $keys),
+            )] = true;
         }
     }
 
@@ -1154,6 +1249,18 @@ final class OperationCollector
     private function responseType(OperationNode $operation, array &$imports, string $label): array
     {
         [$response, $status, $componentName] = $this->successResponse($operation->responses, $label);
+
+        // Response headers are parsed but never generated (issue #114): warn
+        // when the SELECTED success response declares them, before the 204
+        // shortcut so a body-less 204 with headers (a Location, say) still
+        // reports the drop. Deliberately only the selected response: it is
+        // the one response the generator actually consumes, and error
+        // responses are never inspected at all. A 204 selected as an
+        // unresolved $ref stays silent (its body, headers included, is never
+        // resolved), consistent with the rest of the 204 short-circuit.
+        if ($response instanceof ResponseNode) {
+            $this->warnResponseHeaders($response, $label);
+        }
 
         if ($status === 204) {
             return ['void', null, 204];
