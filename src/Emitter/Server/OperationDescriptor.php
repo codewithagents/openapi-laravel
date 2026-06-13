@@ -61,6 +61,15 @@ final readonly class OperationDescriptor
         public string $returnType,
         public ?string $returnDoc,
         public ?string $summary,
+        /*
+         * Whether the spec marks this operation `deprecated: true`. The
+         * abstract controller method carries an `@deprecated` docblock line
+         * when set, symmetric with the `@deprecated` tag a deprecated schema
+         * gives its generated Data class. OpenAPI's operation `deprecated` is a
+         * bare boolean with no reason field, so the line stays a plain
+         * `@deprecated`.
+         */
+        public bool $deprecated,
         public array $imports,
         public ?array $queryParam = null,
         /*
