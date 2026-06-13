@@ -31,9 +31,19 @@ Every assertion maps to a specific contract-first proof:
 | Upload 401 / 200 (#77) | the mapped `api-key` middleware on the generated route enforces the `X-API-Key` scheme |
 | DELETE -> 204 (#64) | the generated `void` return + `RespondsWithStatus:204` yield an exact 204 with an empty body |
 | X-Total-Count header (#114, residual) | CONSUMER-written `TotalCountHeader` middleware sets the spec-declared header; the generator only warns, so this proves consumer glue, not generator support |
+| Upload image serving (#75, D) | the recorded `/storage/uploads/<file>` URL serves the bytes (byte-identical to the upload) via the public storage symlink |
 
-See `../README.md` for the full coverage table with the spec construct behind
-each row and the generated-vs-consumer breakdown.
+The suite also has an API-contract tier: the stateless `/lab/*` endpoints hit
+the backend directly (Playwright `request` fixture, no UI) to prove the full
+runtime feature matrix in breadth: numeric/string/array constraints, string
+formats, enum/const, closed objects, presence/defaults, typed maps (incl. empty
+map serializes `{}`), oneOf scalar unions, nested objects + collections, backed
+enums, allOf merge, discriminated unions, component `$ref` request/response
+bodies (#110/#116), and a non-200 success status. Two rows are `test.fixme`
+where real behavior diverges from the promised contract (unknown discriminator
+returns 500 not 422; a 202 on a POST returning Data is pre-empted to 201 by
+laravel-data). See `../README.md` for the full living coverage table with the
+spec construct, generated-vs-consumer breakdown, and proven-vs-residual status.
 
 ## Prerequisites
 

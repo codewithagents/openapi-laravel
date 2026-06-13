@@ -336,32 +336,66 @@ exception: the controller preserves the original on update.
 
 ## Playwright e2e coverage
 
-The Playwright suite (`e2e-tests/tests/petstore.spec.ts`) drives the SPA in
-headless Chromium over real HTTP, and for status-code / header assertions it
-also hits the backend directly via Playwright's request context. The table maps
-each covered feature to the spec construct that drives it and to exactly what
-the assertion proves, kept honest about what is GENERATED versus what is
-CONSUMER-WRITTEN glue.
+The Playwright suite (`e2e-tests/tests/petstore.spec.ts`) has two tiers. The UI
+journeys drive the SPA in headless Chromium over real HTTP. The API-contract
+tier (the `/lab/*` endpoints) hits the backend directly via Playwright's request
+fixture for breadth over the runtime feature matrix: each `/lab` endpoint
+validates a crafted body against the generated `rules()` and echoes the hydrated
+object back, so a single POST proves BOTH validation (a violation 422s) and
+serialization/hydration (a valid payload returns correctly shaped). The `lab`
+tag and its schemas live in the same `spec/petstore.yaml`; its `LabController`
+is a pure stateless echo (no PetStore).
 
-| Feature | Spec construct | What the Playwright assertion proves | Generated vs consumer |
-|---|---|---|---|
-| MapName round-trip | `microchip_id` snake_case property | the value survives the create -> read round trip in the list and detail | generated (`#[MapName]` on the Data class) |
-| writeOnly split | `secret_note: writeOnly` | the value sent on create never appears in any read response or the detail panel | generated (write/read variant split) |
-| readOnly server-set | `created_at: readOnly, date-time` | detail shows a server-set timestamp, the client value is ignored | generated rules + consumer assigns the value |
-| nullable scalar | `weight_kg: nullable` | a null stays present (rendered `null`) end to end | generated |
-| additionalProperties map | `attributes` string->string map | a non-empty map round-trips into the detail panel | generated |
-| oneOf scalar union | `external_id: oneOf [string, integer]` | a string stays a string, an integer stays an integer, both rendered without coercion | generated union type |
-| enum validation | `status` enum | an out-of-enum value 422s before the controller runs | generated `in:` rule |
-| multipart upload (#75) | `multipart/form-data` object body, `image: string/binary` + `contentMediaType: image/png` | a PNG posted via the generated client is stored and its URL appears on the pet; a non-PNG 422s on the generated `mimetypes:image/png` rule | generated `UploadFileRequestData` (`UploadedFile` field + `file`/`mimetypes` rules) + consumer stores the file |
-| security middleware (#77) | `security: [pet_upload_key]` apiKey scheme (header `X-API-Key`) + `security.middleware_map` config | upload is 401 without the key and succeeds with it | generated route carries the mapped middleware; consumer writes the `ApiKey` enforcement and registers the alias |
-| 204 No Content (#64) | `deletePet` declares `204` | DELETE returns exactly 204 with an empty body | generated `void` return + `RespondsWithStatus:204` route middleware |
-| response header (#114, RESIDUAL) | `X-Total-Count` header on `findByStatus` 200 | the header is present and its count matches the body length | NOT generated: the generator only WARNS about response headers. The header is set entirely by hand-written consumer glue (`TotalCountHeader` middleware). The test proves the consumer glue works, not generator support. |
+This table is a LIVING DOC, not a CI gate. It is honest about what is GENERATED
+versus CONSUMER-WRITTEN glue, and about what is PROVEN versus a RESIDUAL.
 
-The last row is deliberately called out: it exercises a documented residual.
-The generator emits a warning for the declared `X-Total-Count` header and
-nothing else, so the assertion must not be read as "the generator handles
-response headers". It proves only that a real adopter can wire the header by
-hand on top of the generated scaffold.
+Status note: spatie/laravel-data serializes a `Data` object returned from a POST
+as `201 Created`, so every `/lab` echo (and the pet/order creates) responds 201,
+not 200. That is a laravel-data framework default, not a generator choice.
+
+### UI-journey tier (SPA over real HTTP)
+
+| Feature | Spec construct | What the assertion proves | Generated vs consumer | Status |
+|---|---|---|---|---|
+| MapName round-trip | `microchip_id` snake_case property | the value survives create -> read in the list and detail | generated `#[MapName]` | proven |
+| writeOnly split | `secret_note: writeOnly` | the sent value never appears in any read | generated write/read split | proven |
+| readOnly server-set | `created_at: readOnly, date-time` | detail shows a server-set timestamp, client value ignored | generated rules + consumer assigns value | proven |
+| nullable scalar | `weight_kg: nullable` | a null stays present (rendered `null`) | generated | proven |
+| additionalProperties map | `attributes` string->string map | a non-empty map round-trips into the detail panel | generated | proven |
+| oneOf scalar union | `external_id: oneOf [string, integer]` | string stays string, integer stays integer | generated union type | proven |
+| enum validation | `status` enum | an out-of-enum value 422s | generated `in:` rule | proven |
+| multipart upload (#75) | `multipart/form-data` object body, `image: string/binary` + `contentMediaType: image/png` | a PNG posted via the generated client is stored and its URL appears on the pet; a non-PNG 422s | generated `UploadFileRequestData` (`UploadedFile` + `file`/`mimetypes` rules) + consumer stores the file | proven |
+| upload image serving (#75, D) | same | the recorded `/storage/uploads/<file>` URL serves the bytes (200, `image/png`, byte-identical to the upload) | generated upload param + consumer stores on the public disk + `php artisan storage:link` at container start | proven |
+| security middleware (#77) | `security: [pet_upload_key]` apiKey (`X-API-Key`) + `security.middleware_map` | upload is 401 without the key, succeeds with it | generated route carries the mapped middleware; consumer writes `ApiKey` enforcement + alias | proven |
+| 204 No Content (#64) | `deletePet` declares `204` | DELETE returns exactly 204 with an empty body | generated `void` return + `RespondsWithStatus:204` | proven |
+| response header (#114) | `X-Total-Count` header on `findByStatus` 200 | the header is present and its count matches the body length | NOT generated: generator only WARNS. Header set by consumer `TotalCountHeader` middleware. Proves consumer glue, not generator support. | residual |
+
+### API-contract tier (`/lab/*`, raw HTTP)
+
+| Feature | Spec construct | What the assertion proves | Generated vs consumer | Status |
+|---|---|---|---|---|
+| numeric bounds | `minimum`/`maximum`, `exclusiveMinimum`/`exclusiveMaximum`, `multipleOf` | valid round-trips; each violation (incl. the exclusive boundary value, non-multiple) 422s | generated `min`/`max`/`gt`/`lt` + `MultipleOfRule` | proven |
+| string constraints | `minLength`/`maxLength`, `pattern` | valid round-trips; short/long/bad-pattern 422 | generated `min`/`max`/`regex` | proven |
+| array constraints | `minItems`/`maxItems`, `uniqueItems` | valid round-trips; too few/too many/duplicate 422 | generated `min`/`max` + `distinct` | proven |
+| string formats | `date`, `date-time`, `time`, `duration`, `email`, `uuid`, `hostname` | valid round-trips; each bad format 422 | generated `date_format`/`email`/`uuid` + `Rfc3339DateTimeRule`/`Rfc3339TimeRule`/`Iso8601DurationRule`/`HostnameRule` | proven |
+| enum + const | `enum`, `const` | valid round-trips; out-of-enum and wrong-const 422 | generated `Rule::in([...])` (const becomes a single-value `in`) | proven |
+| closed object | `additionalProperties: false` | a payload with an unknown key 422s | generated `NoUnknownPropertiesRule` | proven |
+| presence + default | `required`, `nullable`, optional, `default` | required-missing 422; nullable/optional default to null; the spec `default` appears in the response; overriding it is honored | generated constructor defaults + `required`/`nullable`/`sometimes` rules | proven |
+| typed map + empty map | `additionalProperties: {type: integer}` | a non-empty map round-trips; an EMPTY map serializes as `{}` not `[]`; a bad value 422 | generated typed map + `MapObjectTransformer` | proven |
+| oneOf scalar union | `oneOf: [string, integer]` | BOTH variants hydrate without coercion | generated `string\|int` union type | proven |
+| nested + collection | nested `$ref` object + `array` of `$ref` objects | nested object and the collection round-trip; a deep violation 422 | generated nested Data + `#[DataCollectionOf]` | proven |
+| backed enum | named string `enum` component | round-trips; out-of-enum 422 | generated backed `enum` class + `Rule::enum(...)` | proven |
+| allOf merged-flat | `allOf: [$ref base, inline object]` | both branches round-trip; a missing field from either branch 422 | generated flat-merged Data | proven |
+| discriminated union | `oneOf` + `discriminator` (named-component) | each variant hydrates to its own shape by `kind`; a variant-specific rule still fires after morph | generated morphable abstract base + `morph()` | proven |
+| discriminated union, UNKNOWN discriminator | same | an unmapped `kind` SHOULD be 422 | generated `morph()` returns null | RESIDUAL/BUG: returns 500 (laravel-data `CannotCreateAbstractClass` thrown during hydration, before validation). Test is `.fixme` at the promised 422. |
+| component $ref request body (#110) + $ref response (#116) | `requestBody.$ref -> requestBodies/...` wrapping a schema `$ref`, and `response.$ref -> responses/...` wrapping the same | typed round-trip; the resolved component's rules 422 on violation | generated: both resolved to one typed `LabRefPayloadData` param + return | proven |
+| non-200 success (#64), POST + Data | `202` declared on a POST returning a Data object | SHOULD respond 202 | generated `RespondsWithStatus:202` | DIVERGENCE: responds 201. laravel-data's POST=201 default pre-empts the rewrite (RespondsWithStatus only rewrites an exactly-200 response). The 204 DELETE works because that handler returns void (a 200 the middleware can rewrite). Test is `.fixme` at the promised 202. |
+
+Two rows are skipped via `test.fixme` because real behavior diverges from the
+promised contract and the divergence is NOT a documented residual: the unknown
+discriminator 500 and the 202-on-POST status. They are kept at the promised
+assertion (422 / 202) so they flip green the moment the generator or the demo
+wiring is fixed. See the suite comments for the full root-cause writeups.
 
 ## CORS
 

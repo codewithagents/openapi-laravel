@@ -41,6 +41,13 @@ log "Backend: installing composer dependencies (with dev, so the generator resol
 log "Backend: generating Data classes, abstract controllers, and routes ..."
 ( cd "${BACKEND_DIR}" && php artisan openapi:generate --controllers --routes )
 
+# Link public/storage -> storage/app/public so uploaded images served at
+# /storage/uploads/<file> work in a local (non-docker) `run.sh --no-docker`
+# flow too. The docker image does the same at container start. Harmless and
+# idempotent; --force replaces any stale link.
+log "Backend: linking the public storage disk (for uploaded image serving) ..."
+( cd "${BACKEND_DIR}" && mkdir -p storage/app/public/uploads && php artisan storage:link --force )
+
 # ---------------------------------------------------------------------------
 # Frontend: openapi-zod-ts is a devDependency; install then run the `gen`
 # script, which writes the whole client into src/api.

@@ -139,11 +139,13 @@ final class PetController extends AbstractPetController
             throw new NotFoundHttpException("Pet {$petId} not found.");
         }
 
-        // Persist the upload under storage/app and record it on the pet by
-        // appending a served URL to photoUrls, so the SPA detail panel reflects
-        // the attached photo. The store is file-backed, no DB.
+        // Persist the upload on the PUBLIC disk (storage/app/public/uploads) and
+        // record it on the pet by appending the served URL to photoUrls. The
+        // public disk is exposed at /storage via `php artisan storage:link`
+        // (public/storage -> storage/app/public), run at container start, so the
+        // recorded /storage/uploads/<file> URL actually serves the image bytes.
         $filename = "pet-{$petId}-".uniqid().'.png';
-        $body->image->storeAs('uploads', $filename);
+        $body->image->storeAs('uploads', $filename, 'public');
 
         $photoUrl = "/storage/uploads/{$filename}";
         $this->store->putPet($this->withPhoto($pet, $photoUrl));

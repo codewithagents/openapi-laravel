@@ -49,15 +49,18 @@ RUN set -eux; \
     php artisan config:clear
 
 # Writable runtime dirs + the file-backed store location. storage/app holds
-# petstore.json (read-modify-write on every mutation).
+# petstore.json (read-modify-write on every mutation); storage/app/public/uploads
+# holds uploaded images served through the public symlink.
 RUN set -eux; \
-    mkdir -p storage/app storage/framework/cache/data \
+    mkdir -p storage/app storage/app/public/uploads storage/framework/cache/data \
              storage/framework/sessions storage/framework/views \
              storage/logs bootstrap/cache; \
     chmod -R ug+rwx storage bootstrap/cache
 
 EXPOSE 8088
 
-# Seed the deterministic store (Rex #1, Whiskers #2) on container start, then
-# serve. Seeding at runtime (not build) keeps every fresh `up` reproducible.
-CMD ["sh", "-c", "php artisan petstore:reset && php artisan serve --host=0.0.0.0 --port=8088"]
+# On container start: link public/storage -> storage/app/public so uploaded
+# images are reachable at /storage/uploads/<file>, seed the deterministic store
+# (Rex #1, Whiskers #2), then serve. Doing this at runtime (not build) keeps
+# every fresh `up` reproducible.
+CMD ["sh", "-c", "php artisan storage:link --force && php artisan petstore:reset && php artisan serve --host=0.0.0.0 --port=8088"]

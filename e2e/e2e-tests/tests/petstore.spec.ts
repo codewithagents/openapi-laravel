@@ -14,10 +14,13 @@ const UPLOAD_API_KEY = 'demo-upload-key';
 /**
  * Petstore end-to-end suite.
  *
- * These tests drive the SPA at http://localhost:8080 in headless Chromium.
- * Every assertion exercises a full round trip:
- *   browser -> SPA -> generated openapi-zod-ts client -> real HTTP ->
- *   generated Laravel backend (via openapi-laravel)
+ * Two tiers:
+ *  - UI journeys: drive the SPA at http://localhost:8080 in headless Chromium,
+ *    proving browser -> SPA -> generated openapi-zod-ts client -> real HTTP ->
+ *    generated Laravel backend (via openapi-laravel).
+ *  - API-contract tier (the /lab/* tests below): hit the backend directly via
+ *    Playwright's `request` fixture for breadth over the runtime feature matrix
+ *    (validation, serialization, composition), no UI involved.
  *
  * The backend seeds two pets on first start (Rex/available, Whiskers/pending).
  * The store is file-backed and persists within a container run, so tests
@@ -669,4 +672,323 @@ test('findByStatus carries the consumer-set X-Total-Count header (documented res
   expect(Array.isArray(body)).toBe(true);
   // The header count matches the number of items actually returned.
   expect(Number(total)).toBe(body.length);
+});
+
+// ===========================================================================
+// API-CONTRACT TIER: the stateless /lab/* endpoints.
+//
+// These hit the backend directly via Playwright's `request` fixture (no UI):
+// each endpoint validates a crafted JSON body against the GENERATED rules() and
+// echoes the hydrated object back. So one POST proves BOTH sides of the round
+// trip at once: validation (a violation 422s) and serialization/hydration (a
+// valid payload comes back correctly shaped).
+//
+// Assertions encode what the project PROMISES (CLAUDE.md "Current state"). Where
+// a strict assertion diverges from real behavior, it is either (a) reconciled to
+// a documented residual with a citing comment, or (b) left at the promised
+// contract and marked test.fixme with a loud comment + a reported bug.
+//
+// NOTE ON STATUS: spatie/laravel-data serializes a Data object returned from a
+// POST as 201 Created (not 200). Every lab echo is a POST returning Data, so the
+// success status is 201. This was established in Pass 2 and is laravel-data's
+// framework default, independent of any middleware.
+// ===========================================================================
+
+const LAB_OK = 201;
+
+/** POST JSON to a /lab endpoint and return { status, body }. */
+async function labPost(
+  request: import('@playwright/test').APIRequestContext,
+  endpoint: string,
+  payload: unknown,
+): Promise<{ status: number; body: any }> {
+  const res = await request.post(`${API_BASE}/lab/${endpoint}`, {
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    data: payload,
+  });
+  let body: any = null;
+  try {
+    body = await res.json();
+  } catch {
+    body = null;
+  }
+  return { status: res.status(), body };
+}
+
+// ---------------------------------------------------------------------------
+// A. VALIDATION rules (generated rules(), enforced by the real Laravel validator)
+// ---------------------------------------------------------------------------
+
+test('lab/numeric: bounds, exclusive bounds, and multipleOf round-trip and reject', async ({ request }) => {
+  // Valid: 10 <= bounded <= 20, 0 < exclusive < 1, multiple of 5.
+  const ok = await labPost(request, 'numeric', { bounded: 15, exclusive: 0.5, multiple: 25 });
+  expect(ok.status).toBe(LAB_OK);
+  expect(ok.body).toEqual({ bounded: 15, exclusive: 0.5, multiple: 25 });
+
+  // minimum / maximum (min:10, max:20).
+  expect((await labPost(request, 'numeric', { bounded: 9, exclusive: 0.5, multiple: 25 })).status).toBe(422);
+  expect((await labPost(request, 'numeric', { bounded: 21, exclusive: 0.5, multiple: 25 })).status).toBe(422);
+  // exclusiveMinimum / exclusiveMaximum (gt:0, lt:1) reject the boundary itself.
+  expect((await labPost(request, 'numeric', { bounded: 15, exclusive: 0, multiple: 25 })).status).toBe(422);
+  expect((await labPost(request, 'numeric', { bounded: 15, exclusive: 1, multiple: 25 })).status).toBe(422);
+  // multipleOf (custom MultipleOfRule(5)).
+  expect((await labPost(request, 'numeric', { bounded: 15, exclusive: 0.5, multiple: 23 })).status).toBe(422);
+});
+
+test('lab/string: minLength, maxLength, and pattern round-trip and reject', async ({ request }) => {
+  const ok = await labPost(request, 'string', { sized: 'hello', coded: 'AB-1234' });
+  expect(ok.status).toBe(LAB_OK);
+  expect(ok.body).toEqual({ sized: 'hello', coded: 'AB-1234' });
+
+  expect((await labPost(request, 'string', { sized: 'ab', coded: 'AB-1234' })).status).toBe(422); // min:3
+  expect((await labPost(request, 'string', { sized: 'toolongvalue', coded: 'AB-1234' })).status).toBe(422); // max:8
+  expect((await labPost(request, 'string', { sized: 'hello', coded: 'bad-code' })).status).toBe(422); // regex
+});
+
+test('lab/array: minItems, maxItems, and uniqueItems round-trip and reject', async ({ request }) => {
+  const ok = await labPost(request, 'array', { bag: ['a', 'b'], distinct: [1, 2, 3] });
+  expect(ok.status).toBe(LAB_OK);
+  expect(ok.body).toEqual({ bag: ['a', 'b'], distinct: [1, 2, 3] });
+
+  expect((await labPost(request, 'array', { bag: ['a'], distinct: [1] })).status).toBe(422); // min:2
+  expect((await labPost(request, 'array', { bag: ['a', 'b', 'c', 'd', 'e'], distinct: [1] })).status).toBe(422); // max:4
+  expect((await labPost(request, 'array', { bag: ['a', 'b'], distinct: [1, 1, 2] })).status).toBe(422); // uniqueItems
+});
+
+test('lab/formats: date, date-time, time, duration, email, uuid, hostname round-trip and reject', async ({ request }) => {
+  const valid = {
+    day: '2026-01-15',
+    moment: '2026-01-15T10:30:00Z',
+    clock: '10:30:00',
+    span: 'P1DT2H',
+    mail: 'a@b.com',
+    identifier: '550e8400-e29b-41d4-a716-446655440000',
+    host: 'example.com',
+  };
+  const ok = await labPost(request, 'formats', valid);
+  expect(ok.status).toBe(LAB_OK);
+  expect(ok.body).toEqual(valid);
+
+  expect((await labPost(request, 'formats', { ...valid, day: '15-01-2026' })).status).toBe(422); // date
+  expect((await labPost(request, 'formats', { ...valid, moment: 'not-a-datetime' })).status).toBe(422); // date-time
+  expect((await labPost(request, 'formats', { ...valid, clock: '99:99:99' })).status).toBe(422); // time
+  expect((await labPost(request, 'formats', { ...valid, span: '2 hours' })).status).toBe(422); // duration
+  expect((await labPost(request, 'formats', { ...valid, mail: 'notanemail' })).status).toBe(422); // email
+  expect((await labPost(request, 'formats', { ...valid, identifier: 'not-a-uuid' })).status).toBe(422); // uuid
+  expect((await labPost(request, 'formats', { ...valid, host: 'not a host!' })).status).toBe(422); // hostname
+});
+
+test('lab/enum-const: enum membership and const round-trip and reject', async ({ request }) => {
+  const ok = await labPost(request, 'enum-const', { color: 'green', version: 'v2' });
+  expect(ok.status).toBe(LAB_OK);
+  expect(ok.body).toEqual({ color: 'green', version: 'v2' });
+
+  expect((await labPost(request, 'enum-const', { color: 'purple', version: 'v2' })).status).toBe(422); // enum
+  expect((await labPost(request, 'enum-const', { color: 'green', version: 'v1' })).status).toBe(422); // const (Rule::in(['v2']))
+});
+
+test('lab/closed: additionalProperties:false rejects an unknown key', async ({ request }) => {
+  const ok = await labPost(request, 'closed', { known: 'yes' });
+  expect(ok.status).toBe(LAB_OK);
+  expect(ok.body).toEqual({ known: 'yes' });
+
+  // The generated NoUnknownPropertiesRule rejects any key not in the schema.
+  expect((await labPost(request, 'closed', { known: 'yes', surprise: 'boom' })).status).toBe(422);
+});
+
+test('lab/presence: required, nullable, optional, and default behave per the contract', async ({ request }) => {
+  // mandatory is required; nullableField/optionalField default to null; withDefault
+  // fills the spec default when omitted.
+  const omitted = await labPost(request, 'presence', { mandatory: 'here' });
+  expect(omitted.status).toBe(LAB_OK);
+  expect(omitted.body).toEqual({
+    mandatory: 'here',
+    nullableField: null,
+    optionalField: null,
+    withDefault: 'fallback', // the spec default appears in the response
+  });
+
+  // missing required field 422s.
+  expect((await labPost(request, 'presence', { nullableField: 'x' })).status).toBe(422);
+
+  // explicit null on the nullable field is accepted and stays null.
+  const explicitNull = await labPost(request, 'presence', { mandatory: 'here', nullableField: null });
+  expect(explicitNull.status).toBe(LAB_OK);
+  expect(explicitNull.body.nullableField).toBeNull();
+
+  // overriding the default is honored.
+  const overridden = await labPost(request, 'presence', { mandatory: 'here', withDefault: 'custom' });
+  expect(overridden.body.withDefault).toBe('custom');
+});
+
+// ---------------------------------------------------------------------------
+// B. SERIALIZATION / HYDRATION round-trips
+// ---------------------------------------------------------------------------
+
+test('lab/map: typed additionalProperties map round-trips, and an empty map serializes as {} not []', async ({ request }) => {
+  const nonEmpty = await labPost(request, 'map', { label: 'x', counts: { a: 1, b: 2 } });
+  expect(nonEmpty.status).toBe(LAB_OK);
+  expect(nonEmpty.body.counts).toEqual({ a: 1, b: 2 });
+
+  // The keystone: an EMPTY map must serialize as a JSON object {}, NOT an array
+  // []. The generated MapObjectTransformer forces object encoding. We check the
+  // raw text so [] vs {} is unambiguous.
+  const emptyRes = await request.post(`${API_BASE}/lab/map`, {
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    data: { label: 'x', counts: {} },
+  });
+  expect(emptyRes.status()).toBe(LAB_OK);
+  const emptyText = await emptyRes.text();
+  expect(emptyText).toContain('"counts":{}');
+  expect(emptyText).not.toContain('"counts":[]');
+
+  // a non-integer map value 422s.
+  expect((await labPost(request, 'map', { label: 'x', counts: { a: 'bad' } })).status).toBe(422);
+});
+
+test('lab/union: oneOf scalar union hydrates BOTH variants without coercion', async ({ request }) => {
+  const asString = await labPost(request, 'union', { value: 'hello' });
+  expect(asString.status).toBe(LAB_OK);
+  expect(asString.body.value).toBe('hello');
+  expect(typeof asString.body.value).toBe('string');
+
+  const asInt = await labPost(request, 'union', { value: 42 });
+  expect(asInt.status).toBe(LAB_OK);
+  expect(asInt.body.value).toBe(42);
+  expect(typeof asInt.body.value).toBe('number'); // stays an integer, not "42"
+});
+
+test('lab/nested: nested object + collection of objects round-trip', async ({ request }) => {
+  const payload = {
+    title: 'T',
+    inner: { label: 'L', weight: 1.5 },
+    items: [{ label: 'a' }, { label: 'b', weight: 2 }],
+  };
+  const ok = await labPost(request, 'nested', payload);
+  expect(ok.status).toBe(LAB_OK);
+  expect(ok.body.title).toBe('T');
+  expect(ok.body.inner).toEqual({ label: 'L', weight: 1.5 });
+  expect(ok.body.items).toHaveLength(2);
+  expect(ok.body.items[0].label).toBe('a');
+  expect(ok.body.items[1]).toEqual({ label: 'b', weight: 2 });
+
+  // a violation deep in the nested object 422s.
+  expect((await labPost(request, 'nested', { title: 'T', inner: { weight: 1 }, items: [] })).status).toBe(422);
+});
+
+test('lab/backed-enum: a named string enum component round-trips and rejects out-of-enum', async ({ request }) => {
+  const ok = await labPost(request, 'backed-enum', { priority: 'high' });
+  expect(ok.status).toBe(LAB_OK);
+  expect(ok.body).toEqual({ priority: 'high' });
+
+  expect((await labPost(request, 'backed-enum', { priority: 'urgent' })).status).toBe(422);
+});
+
+// ---------------------------------------------------------------------------
+// C. COMPOSITION / ADVANCED
+// ---------------------------------------------------------------------------
+
+test('lab/allof: allOf merged-flat object round-trips both branches and rejects a missing field', async ({ request }) => {
+  const ok = await labPost(request, 'allof', { baseField: 'b', extraField: 7 });
+  expect(ok.status).toBe(LAB_OK);
+  expect(ok.body).toEqual({ baseField: 'b', extraField: 7 });
+
+  expect((await labPost(request, 'allof', { extraField: 7 })).status).toBe(422); // missing base branch field
+  expect((await labPost(request, 'allof', { baseField: 'b' })).status).toBe(422); // missing extra branch field
+});
+
+test('lab/shape: discriminated object union hydrates each variant by its discriminator', async ({ request }) => {
+  // circle variant
+  const circle = await labPost(request, 'shape', { kind: 'circle', radius: 2.5 });
+  expect(circle.status).toBe(LAB_OK);
+  expect(circle.body.kind).toBe('circle');
+  expect(circle.body.radius).toBe(2.5);
+  expect(circle.body.side).toBeUndefined(); // hydrated to the circle shape, not square
+
+  // square variant
+  const square = await labPost(request, 'shape', { kind: 'square', side: 3 });
+  expect(square.status).toBe(LAB_OK);
+  expect(square.body.kind).toBe('square');
+  expect(square.body.side).toBe(3);
+  expect(square.body.radius).toBeUndefined();
+
+  // a variant-specific rule still fires after the morph (circle.radius gt:0).
+  expect((await labPost(request, 'shape', { kind: 'circle', radius: 0 })).status).toBe(422);
+  // a missing variant field 422s.
+  expect((await labPost(request, 'shape', { kind: 'circle' })).status).toBe(422);
+});
+
+// DISCOVERED BUG (see final report): an UNKNOWN discriminator value on a
+// named-component discriminated union returns HTTP 500, not 422. The generated
+// morph() returns null for an unmapped `kind`, and laravel-data then throws
+// CannotCreateAbstractClass during hydration (before validation runs), which
+// surfaces as a 500 Server Error. The promised contract is that spec-invalid
+// input is rejected with 422 (#38 says these unions "validate and hydrate via an
+// abstract morphable base"). This is an UNDOCUMENTED divergence, so the strict
+// assertion is left at the promised 422 and the test is skipped via .fixme.
+test.fixme('lab/shape: an unknown discriminator value should be a 422, not a 500', async ({ request }) => {
+  const unknown = await labPost(request, 'shape', { kind: 'triangle', radius: 1 });
+  expect(unknown.status).toBe(422); // ACTUAL: 500 (CannotCreateAbstractClass from the morph layer)
+});
+
+test('lab/ref-body: a component $ref request body (#110) and $ref response (#116) round-trip with a typed Data class', async ({ request }) => {
+  // The spec wires this operation's body via requestBodies/LabRefBody (a $ref to
+  // LabRefPayload) and its response via responses/LabRefResponse (the same $ref).
+  // The generator resolved BOTH to the typed LabRefPayloadData param + return.
+  const ok = await labPost(request, 'ref-body', { note: 'hi', amount: 5 });
+  expect(ok.status).toBe(LAB_OK);
+  expect(ok.body).toEqual({ note: 'hi', amount: 5 });
+
+  // the resolved component's rules() are enforced (amount min:1, note min:1).
+  expect((await labPost(request, 'ref-body', { note: 'hi', amount: 0 })).status).toBe(422);
+  expect((await labPost(request, 'ref-body', { note: '', amount: 5 })).status).toBe(422);
+});
+
+// DISCOVERED DIVERGENCE (see final report): the spec declares 202 for
+// labAccepted and the generator stamps RespondsWithStatus:202 on the route, but
+// the live response is 201, not 202. Root cause: spatie/laravel-data serializes
+// a Data object returned from a POST as 201, and RespondsWithStatus only
+// rewrites an EXACTLY-200 response (#64: "only an exactly-200 response is ever
+// rewritten"). So for a POST returning a Data object, the 201 default pre-empts
+// the declared non-200 success status and RespondsWithStatus never fires. The
+// 204 DELETE path works because that handler returns void (a 200 the middleware
+// can rewrite). Strict assertion left at the promised 202, marked .fixme.
+test.fixme('lab/accepted: a 202 success status should be honored by RespondsWithStatus', async ({ request }) => {
+  const res = await request.post(`${API_BASE}/lab/accepted`, {
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    data: { baseField: 'b', extraField: 7 },
+  });
+  expect(res.status()).toBe(202); // ACTUAL: 201 (laravel-data POST default pre-empts the rewrite)
+});
+
+// ---------------------------------------------------------------------------
+// D. UPLOAD: the recorded image URL actually serves the bytes
+// ---------------------------------------------------------------------------
+
+test('uploaded image is fetchable at its /storage URL and matches the uploaded pixel', async ({ request }) => {
+  const fs = require('node:fs') as typeof import('node:fs');
+  const png = fs.readFileSync(PNG_FIXTURE);
+
+  // Upload to seeded pet 1 (Rex) with the API key.
+  const upload = await request.post(`${API_BASE}/pet/1/uploadImage`, {
+    headers: { Accept: 'application/json', 'X-API-Key': UPLOAD_API_KEY },
+    multipart: { image: { name: 'pixel.png', mimeType: 'image/png', buffer: png } },
+  });
+  expect(upload.ok()).toBe(true);
+  const message: string = (await upload.json()).message;
+
+  // Pull the recorded /storage/uploads/<file>.png URL out of the echoed message.
+  const match = message.match(/\/storage\/uploads\/[^\s)]+\.png/);
+  expect(match).not.toBeNull();
+  const storedUrl = match![0];
+
+  // The public storage symlink (php artisan storage:link, run at container
+  // start) makes that URL serve the actual bytes.
+  const origin = API_BASE.replace(/\/api$/, '');
+  const img = await request.get(`${origin}${storedUrl}`);
+  expect(img.status()).toBe(200);
+  expect(img.headers()['content-type']).toContain('image/png');
+  const served = await img.body();
+  expect(served.length).toBe(png.length); // non-empty, same size as the uploaded pixel
+  expect(Buffer.compare(served, png)).toBe(0); // byte-identical to what we uploaded
 });
