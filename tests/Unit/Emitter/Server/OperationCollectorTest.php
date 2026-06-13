@@ -602,7 +602,7 @@ it('merges a PathItem-level query parameter into the generated query class with 
         ->and($code)->toContain("'ids.*' => ['integer', 'min:1']")
         ->and($code)->toContain("'q' => ['sometimes', 'string', 'max:64', 'min:2']")
         // Every query class carries the query-only factory.
-        ->and($code)->toContain('public static function fromQuery(Request $request): static')
+        ->and($code)->toContain('public static function fromQuery(Request $request): self')
         ->and($code)->toContain('return self::validateAndCreate($request->query->all());');
 });
 

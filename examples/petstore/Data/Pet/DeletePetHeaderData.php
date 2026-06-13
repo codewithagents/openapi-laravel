@@ -25,7 +25,7 @@ final class DeletePetHeaderData extends Data
      * lowercased) and each value is an array, so the first value of each
      * declared header is taken before validation.
      */
-    public static function fromHeaders(Request $request): static
+    public static function fromHeaders(Request $request): self
     {
         $all = $request->headers->all();
         $headers = [];

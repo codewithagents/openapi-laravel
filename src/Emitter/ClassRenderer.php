@@ -453,7 +453,7 @@ final class ClassRenderer
         if ($booleanNames === [] && $delimitedArrays === []) {
             return $doc
                 .'     */'."\n"
-                .'    public static function fromQuery(Request $request): static'."\n"
+                .'    public static function fromQuery(Request $request): self'."\n"
                 ."    {\n"
                 .'        return self::validateAndCreate($request->query->all());'."\n"
                 .'    }';
@@ -504,7 +504,7 @@ final class ClassRenderer
         return $doc
             .$docExtra
             .'     */'."\n"
-            .'    public static function fromQuery(Request $request): static'."\n"
+            .'    public static function fromQuery(Request $request): self'."\n"
             ."    {\n"
             .$body
             ."\n"
@@ -540,7 +540,7 @@ final class ClassRenderer
         if ($booleanNames === []) {
             return $doc
                 .'     */'."\n"
-                .'    public static function fromRoute(Request $request): static'."\n"
+                .'    public static function fromRoute(Request $request): self'."\n"
                 ."    {\n"
                 .'        return self::validateAndCreate($request->route()->parameters());'."\n"
                 .'    }';
@@ -555,7 +555,7 @@ final class ClassRenderer
             .'     * Boolean parameters arrive as the form-style literals true / false,'."\n"
             .'     * which are mapped to 1 / 0 before validation.'."\n"
             .'     */'."\n"
-            .'    public static function fromRoute(Request $request): static'."\n"
+            .'    public static function fromRoute(Request $request): self'."\n"
             ."    {\n"
             .'        $parameters = $request->route()->parameters();'."\n"
             ."\n"
@@ -622,7 +622,7 @@ final class ClassRenderer
         if ($booleanNames === []) {
             return $doc
                 .'     */'."\n"
-                .'    public static function fromHeaders(Request $request): static'."\n"
+                .'    public static function fromHeaders(Request $request): self'."\n"
                 ."    {\n"
                 .$prologue
                 ."\n"
@@ -639,7 +639,7 @@ final class ClassRenderer
             .'     * Boolean parameters arrive as the form-style literals true / false,'."\n"
             .'     * which are mapped to 1 / 0 before validation.'."\n"
             .'     */'."\n"
-            .'    public static function fromHeaders(Request $request): static'."\n"
+            .'    public static function fromHeaders(Request $request): self'."\n"
             ."    {\n"
             .$prologue
             ."\n"

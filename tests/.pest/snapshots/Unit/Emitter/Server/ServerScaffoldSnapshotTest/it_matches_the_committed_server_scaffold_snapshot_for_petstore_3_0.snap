@@ -235,7 +235,7 @@ final class FindPetsByStatusQueryData extends Data
      * Validate against rules() and hydrate from the query string only, so
      * request-body fields never bleed into query validation (or vice versa).
      */
-    public static function fromQuery(Request $request): static
+    public static function fromQuery(Request $request): self
     {
         return self::validateAndCreate($request->query->all());
     }
@@ -274,7 +274,7 @@ final class FindPetsByTagsQueryData extends Data
      * Validate against rules() and hydrate from the query string only, so
      * request-body fields never bleed into query validation (or vice versa).
      */
-    public static function fromQuery(Request $request): static
+    public static function fromQuery(Request $request): self
     {
         return self::validateAndCreate($request->query->all());
     }
@@ -314,7 +314,7 @@ final class LoginUserQueryData extends Data
      * Validate against rules() and hydrate from the query string only, so
      * request-body fields never bleed into query validation (or vice versa).
      */
-    public static function fromQuery(Request $request): static
+    public static function fromQuery(Request $request): self
     {
         return self::validateAndCreate($request->query->all());
     }
@@ -354,7 +354,7 @@ final class UpdatePetWithFormQueryData extends Data
      * Validate against rules() and hydrate from the query string only, so
      * request-body fields never bleed into query validation (or vice versa).
      */
-    public static function fromQuery(Request $request): static
+    public static function fromQuery(Request $request): self
     {
         return self::validateAndCreate($request->query->all());
     }
@@ -393,7 +393,7 @@ final class UploadFileQueryData extends Data
      * Validate against rules() and hydrate from the query string only, so
      * request-body fields never bleed into query validation (or vice versa).
      */
-    public static function fromQuery(Request $request): static
+    public static function fromQuery(Request $request): self
     {
         return self::validateAndCreate($request->query->all());
     }
@@ -432,7 +432,7 @@ final class DeleteOrderPathData extends Data
      * only, so path-segment constraints are enforced at runtime (a bad value
      * is a 422, not a silent 200).
      */
-    public static function fromRoute(Request $request): static
+    public static function fromRoute(Request $request): self
     {
         return self::validateAndCreate($request->route()->parameters());
     }
@@ -471,7 +471,7 @@ final class DeletePetPathData extends Data
      * only, so path-segment constraints are enforced at runtime (a bad value
      * is a 422, not a silent 200).
      */
-    public static function fromRoute(Request $request): static
+    public static function fromRoute(Request $request): self
     {
         return self::validateAndCreate($request->route()->parameters());
     }
@@ -510,7 +510,7 @@ final class DeleteUserPathData extends Data
      * only, so path-segment constraints are enforced at runtime (a bad value
      * is a 422, not a silent 200).
      */
-    public static function fromRoute(Request $request): static
+    public static function fromRoute(Request $request): self
     {
         return self::validateAndCreate($request->route()->parameters());
     }
@@ -549,7 +549,7 @@ final class GetOrderByIdPathData extends Data
      * only, so path-segment constraints are enforced at runtime (a bad value
      * is a 422, not a silent 200).
      */
-    public static function fromRoute(Request $request): static
+    public static function fromRoute(Request $request): self
     {
         return self::validateAndCreate($request->route()->parameters());
     }
@@ -588,7 +588,7 @@ final class GetPetByIdPathData extends Data
      * only, so path-segment constraints are enforced at runtime (a bad value
      * is a 422, not a silent 200).
      */
-    public static function fromRoute(Request $request): static
+    public static function fromRoute(Request $request): self
     {
         return self::validateAndCreate($request->route()->parameters());
     }
@@ -627,7 +627,7 @@ final class GetUserByNamePathData extends Data
      * only, so path-segment constraints are enforced at runtime (a bad value
      * is a 422, not a silent 200).
      */
-    public static function fromRoute(Request $request): static
+    public static function fromRoute(Request $request): self
     {
         return self::validateAndCreate($request->route()->parameters());
     }
@@ -666,7 +666,7 @@ final class UpdatePetWithFormPathData extends Data
      * only, so path-segment constraints are enforced at runtime (a bad value
      * is a 422, not a silent 200).
      */
-    public static function fromRoute(Request $request): static
+    public static function fromRoute(Request $request): self
     {
         return self::validateAndCreate($request->route()->parameters());
     }
@@ -705,7 +705,7 @@ final class UpdateUserPathData extends Data
      * only, so path-segment constraints are enforced at runtime (a bad value
      * is a 422, not a silent 200).
      */
-    public static function fromRoute(Request $request): static
+    public static function fromRoute(Request $request): self
     {
         return self::validateAndCreate($request->route()->parameters());
     }
@@ -744,7 +744,7 @@ final class UploadFilePathData extends Data
      * only, so path-segment constraints are enforced at runtime (a bad value
      * is a 422, not a silent 200).
      */
-    public static function fromRoute(Request $request): static
+    public static function fromRoute(Request $request): self
     {
         return self::validateAndCreate($request->route()->parameters());
     }
@@ -787,7 +787,7 @@ final class DeletePetHeaderData extends Data
      * lowercased) and each value is an array, so the first value of each
      * declared header is taken before validation.
      */
-    public static function fromHeaders(Request $request): static
+    public static function fromHeaders(Request $request): self
     {
         $all = $request->headers->all();
         $headers = [];
