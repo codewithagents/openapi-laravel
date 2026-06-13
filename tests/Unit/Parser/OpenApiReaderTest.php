@@ -46,26 +46,37 @@ function readSchema(array|bool $schema): SchemaNode|ReferenceNode
 
 // --- Structural rejection and version gating (#103 parity) -----------------
 
-it('rejects non-array input as a missing openapi version string', function () {
-    (new OpenApiReader)->read('not a document', 'bad.yaml');
-})->throws(ParseException::class, "missing 'openapi' version string");
+it('rejects non-array input as a missing openapi version string, naming the pointer and expectation', function () {
+    expect(fn () => (new OpenApiReader)->read('not a document', 'bad.yaml'))
+        ->toThrow(ParseException::class, 'Not an OpenAPI 3.x document (bad.yaml)')
+        ->toThrow(ParseException::class, "the root '#/openapi' member must be a version string like '3.1.0'");
+});
+
+it('names the found type in the missing-openapi message', function () {
+    expect(fn () => (new OpenApiReader)->read(['openapi' => 30, 'info' => []], 's'))
+        ->toThrow(ParseException::class, 'but a number')
+        ->toThrow(ParseException::class, "Swagger 2.0 (a 'swagger' key)");
+});
 
 it('rejects a document without an openapi key, naming the supported matrix', function () {
     (new OpenApiReader)->read(['swagger' => '2.0'], 'swagger.json');
 })->throws(ParseException::class, 'Supported versions: OpenAPI 3.0.x and 3.1.x');
 
-it('rejects unsupported versions exactly', function (string $version) {
+it('rejects unsupported versions exactly, naming the #/openapi pointer', function (string $version) {
     expect(fn () => (new OpenApiReader)->read(['openapi' => $version, 'info' => ['title' => 'T', 'version' => '1']], 's'))
-        ->toThrow(ParseException::class, "Unsupported OpenAPI version '{$version}'");
+        ->toThrow(ParseException::class, "Unsupported OpenAPI version '{$version}' at #/openapi (s)");
 })->with(['2.0', '3.3.0', '4.0.0', '3.10.1', '30.0.0']);
 
-it('rejects a document missing the info object', function () {
-    (new OpenApiReader)->read(['openapi' => '3.1.0'], 's');
-})->throws(ParseException::class, "missing required 'info' object");
+it('rejects a document missing the info object, naming the pointer and a hint', function () {
+    expect(fn () => (new OpenApiReader)->read(['openapi' => '3.1.0'], 's'))
+        ->toThrow(ParseException::class, "the required '#/info' object is missing")
+        ->toThrow(ParseException::class, "Add an 'info' object with at least a 'title' and a 'version'");
+});
 
-it('rejects a mistyped info value as a missing info object', function () {
-    (new OpenApiReader)->read(['openapi' => '3.1.0', 'info' => 'Petstore'], 's');
-})->throws(ParseException::class, "missing required 'info' object");
+it('rejects a mistyped info value naming the found type', function () {
+    expect(fn () => (new OpenApiReader)->read(['openapi' => '3.1.0', 'info' => 'Petstore'], 's'))
+        ->toThrow(ParseException::class, "the required '#/info' object is a string");
+});
 
 it('accepts every supported version band without warnings', function (string $version) {
     $document = (new OpenApiReader)->read(['openapi' => $version, 'info' => ['title' => 'T', 'version' => '1']], 's');
@@ -667,18 +678,36 @@ it('normalizes boolean items at any nesting depth', function () {
 
 // --- Depth bound -------------------------------------------------------------
 
-it('rejects schema nesting beyond the configured depth bound', function () {
+it('rejects schema nesting beyond the configured depth bound, naming the source and pointer', function () {
     $schema = ['type' => 'string'];
     for ($i = 0; $i < 12; $i++) {
         $schema = ['type' => 'object', 'properties' => ['next' => $schema]];
     }
 
-    (new OpenApiReader(maxDepth: 10))->read([
+    expect(fn () => (new OpenApiReader(maxDepth: 10))->read([
         'openapi' => '3.1.0',
         'info' => ['title' => 'T', 'version' => '1'],
         'components' => ['schemas' => ['Deep' => $schema]],
-    ], 's');
-})->throws(ParseException::class, 'maximum schema nesting depth (10)');
+    ], 'deep.yaml'))
+        ->toThrow(ParseException::class, 'maximum schema nesting depth (10)')
+        ->toThrow(ParseException::class, '(deep.yaml)')
+        ->toThrow(ParseException::class, 'at #/components/schemas/Deep/properties/next')
+        ->toThrow(ParseException::class, '--max-depth');
+});
+
+it('escapes slashes and tildes in the JSON pointer of a depth-bound error', function () {
+    $schema = ['type' => 'string'];
+    for ($i = 0; $i < 4; $i++) {
+        $schema = ['type' => 'object', 'properties' => ['a/b~c' => $schema]];
+    }
+
+    expect(fn () => (new OpenApiReader(maxDepth: 2))->read([
+        'openapi' => '3.1.0',
+        'info' => ['title' => 'T', 'version' => '1'],
+        'components' => ['schemas' => ['Deep' => $schema]],
+    ], 's'))
+        ->toThrow(ParseException::class, 'a~1b~0c');
+});
 
 it('hydrates nesting within the depth bound', function () {
     $schema = ['type' => 'string'];
@@ -711,12 +740,15 @@ it('rejects total schema node count beyond the configured bound', function () {
         ];
     }
 
-    (new OpenApiReader(maxNodes: 20))->read([
+    expect(fn () => (new OpenApiReader(maxNodes: 20))->read([
         'openapi' => '3.1.0',
         'info' => ['title' => 'T', 'version' => '1'],
         'components' => ['schemas' => $schemas],
-    ], 's');
-})->throws(ParseException::class, 'maximum hydrated schema node count (20)');
+    ], 'wide.yaml'))
+        ->toThrow(ParseException::class, 'maximum hydrated schema node count (20)')
+        ->toThrow(ParseException::class, '(wide.yaml)')
+        ->toThrow(ParseException::class, 'at #/components/schemas/');
+});
 
 it('rejects a YAML alias-fanout bomb that stays under the byte and depth bounds', function () {
     // A classic alias-amplification bomb: each level references the previous
