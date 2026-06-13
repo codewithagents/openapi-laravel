@@ -94,7 +94,7 @@ final readonly class CommandRequestFactory
 
         // Security-to-middleware mapping (issue #77). Config-only like the
         // route group settings: a map is config-shaped, there is no CLI flag.
-        $securityMiddlewareMap = $this->configMiddlewareMap('openapi-laravel.security.middleware_map');
+        $securityMiddlewareMap = $this->configMiddlewareMap();
 
         return new GenerationRequest(
             $spec,
@@ -132,9 +132,9 @@ final readonly class CommandRequestFactory
      *
      * @return array<string, list<string>>
      */
-    private function configMiddlewareMap(string $key): array
+    private function configMiddlewareMap(): array
     {
-        $configured = config($key);
+        $configured = config('openapi-laravel.security.middleware_map');
         if (! is_array($configured)) {
             return [];
         }
@@ -332,7 +332,7 @@ final readonly class CommandRequestFactory
 
         $configured = config($configKey);
 
-        return $configured === null ? true : (bool) $configured;
+        return $configured === null || (bool) $configured;
     }
 
     private function stringOption(Command $command, string $name): ?string
