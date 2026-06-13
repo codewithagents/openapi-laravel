@@ -386,8 +386,8 @@ not 200. That is a laravel-data framework default, not a generator choice.
 | empty-map RESPONSE | `GET /lab/empty-map` returns a `LabMap` with an EMPTY `counts` map | the RAW response text contains `"counts":{}` not `"counts":[]` (response side of map serialization; request side is the row above) | generated `MapObjectTransformer` forces JSON object encoding on the return | proven |
 | oneOf scalar union | `oneOf: [string, integer]` | BOTH variants hydrate without coercion | generated `string\|int` union type | proven |
 | nested + collection | nested `$ref` object + `array` of `$ref` objects | nested object and the collection round-trip; a deep violation 422 | generated nested Data + `#[DataCollectionOf]` | proven |
-| nested-in-collection readOnly/writeOnly (#writable-variant recursion) | `POST /lab/nested-variant`: a collection `items[]` of objects each carrying a `writeOnly` (`secret`) AND a `readOnly` (`serverId`) field | writeOnly is correctly DROPPED from the read response inside each item, BUT a client-sent readOnly `serverId` LEAKS back verbatim | **REAL BUG (parked `test.fixme`):** the read/write split does NOT recurse on the REQUEST side for a nested-in-collection class. The root declares no own readOnly/writeOnly so no writable root variant is synthesized; the body binds to the read variant `LabNestedVariantData`, whose item class `LabVariantItemData` treats `serverId` as a normal writable property. Generator `src/` territory, out of scope to fix here |
-| nested closed object (#30 recursion) | `POST /lab/closed-nest`: a closed object (`additionalProperties: false`) nested as a property (`inner`) AND inside a collection (`items[]`) | a CLEAN payload should pass and an unknown nested key should 422 keyed on the nested path | **REAL BUG (parked `test.fixme`):** the `NoUnknownPropertiesRule` does NOT recurse. As a Laravel `DataAwareRule` its `setData()` always receives the full TOP-LEVEL payload, so the nested rule compares the ROOT keys (`inner`, `items`) against the inner allow-list (`known`) and falsely rejects EVERY payload, clean ones included. Generator `src/` territory, out of scope to fix here |
+| nested-in-collection readOnly/writeOnly (#writable-variant recursion) | `POST /lab/nested-variant`: a collection `items[]` of objects each carrying a `writeOnly` (`secret`) AND a `readOnly` (`serverId`) field | writeOnly `secret` is DROPPED from the read response inside each item, and a client-sent readOnly `serverId` is IGNORED (never echoed back); the read response carries only the server-managed `serverId` | proven (was a real bug; fixed in commit `7437138`): the generator now synthesizes the writable root variant TRANSITIVELY whenever a nested/collected child has one, so the body binds to `LabNestedVariantWritableData` whose item class `LabVariantItemWritableData` has no `serverId` property at all (the client value cannot bind), and the read variant drops `secret` on serialization |
+| nested closed object (#30 recursion) | `POST /lab/closed-nest`: a closed object (`additionalProperties: false`) nested as a property (`inner`) AND inside a collection (`items[]`) | a CLEAN payload passes; an unknown key on the inner property 422s keyed on `inner.*`; an unknown key on a collection element 422s keyed on `items.N.*`; the standalone top-level closed object still rejects unknown keys (no regression) | proven (was a real bug; fixed in commit `22a4327`): the `NoUnknownPropertiesRule` now scopes to its own nested subtree instead of inspecting the full top-level payload, so each closed object enforces its OWN allow-list against its OWN keys and recurses correctly |
 | backed enum | named string `enum` component | round-trips; out-of-enum 422 | generated backed `enum` class + `Rule::enum(...)` | proven |
 | allOf merged-flat | `allOf: [$ref base, inline object]` | both branches round-trip; a missing field from either branch 422 | generated flat-merged Data | proven |
 | discriminated union | `oneOf` + `discriminator` (named-component) | each variant hydrates to its own shape by `kind`; a variant-specific rule still fires after morph | generated morphable abstract base + `morph()` | proven |
@@ -425,12 +425,14 @@ non-JSON response surfaces. All are raw-HTTP assertions via the request fixture.
 
 Every active row above is an assertion. Several of them (the unknown
 discriminator, the 202-on-POST status, path-param and header-param validation,
-and the missing discriminator on the controller path) were first shipped as
-`test.fixme` holding the promised assertion because real behavior diverged; the
-e2e suite surfaced them as bugs/gaps, they were fixed/shipped in the generator
-(#124 / PR #127, #125 / PR #128, #113, #121), and the assertions are now active
-and green. This is the suite working as intended: strict assertions that encode
-the promised contract and fail until the contract actually holds.
+the missing discriminator on the controller path, the nested-in-collection
+readOnly/writeOnly recursion, and the nested closed-object recursion) were first
+shipped as `test.fixme` holding the promised assertion because real behavior
+diverged; the e2e suite surfaced them as bugs/gaps, they were fixed/shipped in
+the generator (#124 / PR #127, #125 / PR #128, #113, #121, and the recursion
+fixes in commits `7437138` and `22a4327`), and the assertions are now active and
+green. This is the suite working as intended: strict assertions that encode the
+promised contract and fail until the contract actually holds.
 
 One row remains a deliberately-parked `test.fixme`, holding the OpenAPI-ideal
 contract with a loud comment so the limitation is documented without lying about

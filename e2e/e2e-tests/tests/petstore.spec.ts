@@ -1784,31 +1784,17 @@ test('lab/nested-binary (#75 residual): a binary field NESTED below the multipar
 //   (b) readOnly `serverId` is server-managed: a client-sent value is IGNORED
 //       (it must NOT echo back as the client sent it).
 //
-// FINDING (real generator bug): the root LabNestedVariant declares no own
-// readOnly/writeOnly, so NO writable root variant is synthesized, and the body
-// param is bound to the READ variant LabNestedVariantData. Its items collection
-// is typed LabVariantItemData (the READ variant), which treats readOnly serverId
-// as a normal hydratable, writable property. So a client-sent serverId is
-// accepted and ECHOED BACK verbatim: the readOnly split does NOT recurse on the
-// REQUEST side for a nested-in-collection class. (The writeOnly side DOES drop
-// `secret` from the read serialization, so part (a) passes.) This test asserts
-// the correct contract, so part (b) FAILS until the generator either synthesizes
-// a writable root variant whenever a nested/collected child has one, or binds the
-// body to a writable form whose collection points at LabVariantItemWritableData.
-//
-// !!! REAL BUG CONFIRMED over HTTP (kept as the CORRECT assertion, parked .fixme
-// !!! to keep the suite runnable). OBSERVED response for items with a client-sent
-// !!! readOnly serverId + writeOnly secret:
-// !!!   {"title":"recursion","items":[{"name":"first","serverId":"CLIENT-RO-1"},
-// !!!    {"name":"second","serverId":"CLIENT-RO-2"}]}
-// !!! writeOnly `secret` IS correctly dropped (the split's writeOnly side recurses
-// !!! into the read serialization), BUT readOnly `serverId` round-trips the
-// !!! CLIENT-SENT value verbatim. The readOnly split does NOT recurse on the
-// !!! REQUEST side for a nested-in-collection class: the body binds to the read
-// !!! variant, whose item class treats serverId as a normal writable property.
-// !!! Generator src/ territory, out of scope to fix here. The (a) writeOnly leg
-// !!! passes; the (b) readOnly leg is what fails.
-test.fixme('lab/nested-variant (#writable-variant recursion): writeOnly omitted AND readOnly ignored inside EACH collection item [REAL BUG: readOnly leaks, see comment]', async ({ request }) => {
+// FIX CONFIRMED (commit 7437138 "synthesize writable variants transitively so
+// nested readOnly recurses on write"). The root LabNestedVariant declares no own
+// readOnly/writeOnly, but a nested/collected child (LabVariantItem) does, so the
+// generator now synthesizes a WRITABLE root variant transitively. The body param
+// is LabNestedVariantWritableData, whose items collection points at
+// LabVariantItemWritableData (only name + writeOnly secret, NO readOnly serverId).
+// So a client-sent serverId is structurally impossible to bind on the request
+// side: it never reaches the controller, and the read response carries only the
+// server-managed serverId. The writeOnly secret is still dropped from the READ
+// serialization. Both legs now hold over HTTP, so this is an active test.
+test('lab/nested-variant (#writable-variant recursion): writeOnly omitted AND readOnly ignored inside EACH collection item', async ({ request }) => {
   const res = await request.post(`${API_BASE}/lab/nested-variant`, {
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     data: {
@@ -1835,10 +1821,16 @@ test.fixme('lab/nested-variant (#writable-variant recursion): writeOnly omitted 
   expect(rawText).not.toContain('WRITEONLY-MUST-NOT-LEAK-2');
 
   // (b) readOnly serverId: a client-sent value must be IGNORED, never echoed
-  // back verbatim. (Currently FAILS: the read-variant item binds serverId as a
-  // writable property, so the client value round-trips. Real generator bug.)
+  // back verbatim. The writable item variant has no serverId property at all, so
+  // the client value cannot bind; the read variant surfaces the server-managed one.
   expect(rawText, 'client-sent readOnly serverId leaked back into the response').not.toContain('CLIENT-RO-1');
   expect(rawText).not.toContain('CLIENT-RO-2');
+  // The server-managed serverId IS present on each read item (server-owned).
+  for (const item of body.items) {
+    expect(item.serverId, 'server-managed serverId missing from read item').toBeDefined();
+    expect(item.serverId).not.toBe('CLIENT-RO-1');
+    expect(item.serverId).not.toBe('CLIENT-RO-2');
+  }
 });
 
 // (2) Closed-object enforcement on a NESTED object.
@@ -1852,41 +1844,23 @@ test.fixme('lab/nested-variant (#writable-variant recursion): writeOnly omitted 
 //   - an unknown key on the inner property 422s keyed on `inner.*`;
 //   - an unknown key on an array item 422s keyed on `items.*`.
 //
-// FINDING (real generator bug): NoUnknownPropertiesRule is a Laravel
-// DataAwareRule. Laravel's setData() always injects the FULL TOP-LEVEL payload,
-// never the nested object's subset. When the rule runs for a nested attribute
-// (inner.__openapi... / items.0.__openapi...) it still inspects the ROOT keys
-// (`inner`, `items`) and compares them against the INNER allow-list (`known`), so
-// it falsely reports the root's keys as unknown. Net effect: every closed nested
-// object REJECTS EVERY payload, including a perfectly clean one. The rule does
-// not recurse. This test asserts the correct contract, so the clean-payload leg
-// FAILS until the generated rule is made nesting-aware (e.g. inspect the keyed
-// subtree, not the whole payload).
-//
-// !!! REAL BUG CONFIRMED over HTTP (kept as the CORRECT assertion, parked .fixme
-// !!! to keep the suite runnable). OBSERVED for a perfectly CLEAN payload
-// !!! ({inner:{known:'a'},items:[{known:'b'},{known:'c'}]}):
-// !!!   422 {"errors":{
-// !!!     "inner.__openapi_laravel_no_unknown_properties":
-// !!!       ["...may not contain unknown properties: inner, items."],
-// !!!     "items.0.__openapi_laravel_no_unknown_properties":[...],
-// !!!     "items.1.__openapi_laravel_no_unknown_properties":[...]}}
-// !!! The nested NoUnknownPropertiesRule receives the ROOT payload via Laravel's
-// !!! DataAwareRule::setData() (which always hands over the full top-level data,
-// !!! never the nested subtree), then compares the root keys (inner, items)
-// !!! against the inner allow-list (known) and falsely rejects them. Net effect:
-// !!! EVERY closed nested object rejects EVERY payload, clean ones included. The
-// !!! #30 rule does NOT recurse. Generator src/ territory, out of scope to fix
-// !!! here. The whole test fails on its FIRST (clean-payload) leg.
-test.fixme('lab/closed-nest (#30 recursion): unknown nested key 422s on the nested path, clean payload passes [REAL BUG: clean payload rejected, see comment]', async ({ request }) => {
-  // Clean payload: must PASS. (Currently FAILS: the rule rejects even clean data
-  // because setData() hands it the root keys, not the inner subtree.)
+// FIX CONFIRMED (commit 22a4327 "scope NoUnknownPropertiesRule to its nested
+// subtree so closed objects enforce recursively"). The rule now inspects the
+// keyed nested subtree (inner.* / items.N.*), not the full top-level payload, so
+// a closed nested object enforces its OWN allow-list against its OWN keys. A
+// clean payload now passes; an unknown key on the inner property 422s keyed on
+// inner.*; an unknown key on a collection element 422s keyed on items.N.*. The
+// top-level closed enforcement is unchanged (no regression). Active test.
+test('lab/closed-nest (#30 recursion): unknown nested key 422s on the nested path, clean payload passes', async ({ request }) => {
+  // Clean payload (valid inner + valid collection): must PASS.
   const clean = await request.post(`${API_BASE}/lab/closed-nest`, {
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     data: { inner: { known: 'a' }, items: [{ known: 'b' }, { known: 'c' }] },
   });
   expect(clean.status(), `clean closed-nest returned ${clean.status()}: ${await clean.text()}`).toBe(LAB_OK);
-  expect(clean.body).toBeDefined;
+  const cleanBody = await clean.json();
+  expect(cleanBody.inner.known).toBe('a');
+  expect(cleanBody.items).toHaveLength(2);
 
   // Unknown key on the INNER property: must 422 keyed on inner.*.
   const innerBad = await request.post(`${API_BASE}/lab/closed-nest`, {
@@ -1894,17 +1868,34 @@ test.fixme('lab/closed-nest (#30 recursion): unknown nested key 422s on the nest
     data: { inner: { known: 'a', sneaky: 'BAD' }, items: [{ known: 'b' }] },
   });
   expect(innerBad.status(), `inner-unknown closed-nest returned ${innerBad.status()}`).toBe(422);
-  const innerErrors = JSON.stringify((await innerBad.json()).errors ?? {});
-  expect(innerErrors).toContain('inner');
+  const innerErrorKeys = Object.keys((await innerBad.json()).errors ?? {});
+  expect(
+    innerErrorKeys.some((k) => k.startsWith('inner')),
+    `expected an error keyed on inner.*, got: ${innerErrorKeys.join(', ')}`,
+  ).toBe(true);
 
-  // Unknown key on an ARRAY ITEM: must 422 keyed on items.*.
+  // Unknown key on a COLLECTION element's inner object: must 422 keyed on items.N.*.
   const itemBad = await request.post(`${API_BASE}/lab/closed-nest`, {
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    data: { inner: { known: 'a' }, items: [{ known: 'b', sneaky: 'BAD' }] },
+    data: { inner: { known: 'a' }, items: [{ known: 'b' }, { known: 'c', sneaky: 'BAD' }] },
   });
   expect(itemBad.status(), `item-unknown closed-nest returned ${itemBad.status()}`).toBe(422);
-  const itemErrors = JSON.stringify((await itemBad.json()).errors ?? {});
-  expect(itemErrors).toContain('items');
+  const itemErrorKeys = Object.keys((await itemBad.json()).errors ?? {});
+  expect(
+    itemErrorKeys.some((k) => k.startsWith('items.1')),
+    `expected an error keyed on items.1.*, got: ${itemErrorKeys.join(', ')}`,
+  ).toBe(true);
+
+  // Regression pin: the standalone TOP-LEVEL closed object (/lab/closed, the
+  // non-nested case) still rejects an unknown key after the recursion fix.
+  // (LabClosedNest's own root is an OPEN object, so it does NOT reject extra root
+  // keys; only the nested LabClosedInner is closed. The top-level closed contract
+  // lives on /lab/closed.)
+  const rootBad = await request.post(`${API_BASE}/lab/closed`, {
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    data: { known: 'a', sneaky: 'BAD' },
+  });
+  expect(rootBad.status(), `top-level closed object returned ${rootBad.status()}`).toBe(422);
 });
 
 test('lab/tuple (#82): prefixItems validate per position (and the value round-trips)', async ({ request }) => {

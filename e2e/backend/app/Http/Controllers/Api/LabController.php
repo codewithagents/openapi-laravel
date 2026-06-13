@@ -26,6 +26,7 @@ use App\Data\Lab\LabMapData;
 use App\Data\Lab\LabNestedBinaryRequestData;
 use App\Data\Lab\LabNestedData;
 use App\Data\Lab\LabNestedVariantData;
+use App\Data\Lab\LabNestedVariantWritableData;
 use App\Data\Lab\LabNumericData;
 use App\Data\Lab\LabPathEchoData;
 use App\Data\Lab\LabPathPathData;
@@ -44,6 +45,7 @@ use App\Data\Lab\LabTraitCheckData;
 use App\Data\Lab\LabTupleData;
 use App\Data\Lab\LabUnionData;
 use App\Data\Lab\LabUnionSelectorData;
+use App\Data\Lab\LabVariantItemData;
 use App\Data\Lab\LabVehicleBaseData;
 use App\Data\LabRefPayloadData;
 use Illuminate\Http\JsonResponse;
@@ -136,17 +138,30 @@ final class LabController extends AbstractLabController
         return $labNested;
     }
 
-    public function labNestedVariant(LabNestedVariantData $labNestedVariant): LabNestedVariantData
+    public function labNestedVariant(LabNestedVariantWritableData $labNestedVariant): LabNestedVariantData
     {
         // Nested-in-collection readOnly/writeOnly split (#writable-variant
-        // recursion). The framework hydrated and validated the body against the
-        // generated rules() before this ran. We echo it back: the read-variant
-        // serialization is what the test inspects. If the split recurses, each
-        // item omits the writeOnly `secret` and surfaces a server-managed
-        // `serverId`, never the client-sent one. This pure echo cannot itself
-        // inject a serverId, so the assertion checks the generated read variant
-        // does not carry the client-sent writeOnly value back out.
-        return $labNestedVariant;
+        // recursion, fix 7437138). The body param is now the WRITABLE variant:
+        // the generator synthesized it transitively, so each item is a
+        // LabVariantItemWritableData carrying only the writable fields
+        // (name + writeOnly secret). The readOnly serverId is NOT a property of
+        // the writable item at all, so a client-sent serverId never reaches this
+        // controller: it cannot be echoed back. We map the validated writable
+        // input to the READ variant, stamping a server-managed serverId per item
+        // (proving serverId is server-owned, never the client value). The read
+        // variant drops the writeOnly secret from serialization.
+        $readItems = [];
+        foreach ($labNestedVariant->items as $index => $item) {
+            $readItems[] = new LabVariantItemData(
+                name: $item->name,
+                serverId: 'SERVER-MANAGED-'.($index + 1),
+            );
+        }
+
+        return new LabNestedVariantData(
+            title: $labNestedVariant->title,
+            items: $readItems,
+        );
     }
 
     public function labClosedNest(LabClosedNestData $labClosedNest): LabClosedNestData

@@ -39,10 +39,10 @@ runtime feature matrix in breadth: numeric/string/array constraints, string
 formats, enum/const, closed objects, presence/defaults, typed maps (incl. empty
 map serializes `{}`), oneOf scalar unions, nested objects + collections, backed
 enums, allOf merge, discriminated unions, component `$ref` request/response
-bodies (#110/#116), and a non-200 success status. Two rows are `test.fixme`
-where real behavior diverges from the promised contract (unknown discriminator
-returns 500 not 422; a 202 on a POST returning Data is pre-empted to 201 by
-laravel-data). See `../README.md` for the full living coverage table with the
+bodies (#110/#116), and a non-200 success status. One row is a deliberately
+parked `test.fixme`: the findByTags OpenAPI explode repeated-key form, a PHP
+runtime residual (PHP collapses repeated query keys to the last value), not a
+generator bug. See `../README.md` for the full living coverage table with the
 spec construct, generated-vs-consumer breakdown, and proven-vs-residual status.
 
 ## Prerequisites
