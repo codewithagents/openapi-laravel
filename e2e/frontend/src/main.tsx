@@ -4,7 +4,7 @@ import { configureClient } from './api/client-config.js'
 import { App } from './App.js'
 import './index.css'
 
-const apiBase = (import.meta.env['VITE_API_BASE'] as string | undefined) ?? 'http://localhost:8088/api'
+const apiBase = (import.meta.env['VITE_API_BASE'] as string | undefined) ?? 'http://localhost:8088/api/v1'
 
 // The generated openapi-zod-ts client does not add an Accept header by default,
 // so browsers send text/html which causes Laravel to return 302 redirects on

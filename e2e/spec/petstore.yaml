@@ -991,6 +991,318 @@ paths:
                 $ref: '#/components/schemas/LabAllOf'
         '422':
           description: Validation exception
+  /lab/query:
+    get:
+      tags:
+        - lab
+      summary: Echo constrained query parameters (enum + min/max + pattern).
+      operationId: labQuery
+      parameters:
+        - name: tier
+          in: query
+          required: true
+          schema:
+            type: string
+            enum:
+              - bronze
+              - silver
+              - gold
+        - name: count
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^[A-Z]{3}$'
+      responses:
+        '200':
+          description: echoed query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabQueryEcho'
+        '422':
+          description: Validation exception
+  /lab/path/{score}:
+    get:
+      tags:
+        - lab
+      summary: Echo a constrained path parameter (issue #113 residual).
+      operationId: labPath
+      parameters:
+        - name: score
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 10
+            maximum: 20
+      responses:
+        '200':
+          description: echoed path parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabPathEcho'
+        '422':
+          description: Validation exception
+  /lab/header:
+    get:
+      tags:
+        - lab
+      summary: Echo a constrained header parameter (issue #121 pending).
+      operationId: labHeader
+      parameters:
+        - name: X-Lab-Token
+          in: header
+          required: true
+          schema:
+            type: string
+            pattern: '^tok-[0-9]{4}$'
+      responses:
+        '200':
+          description: echoed header parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabHeaderEcho'
+        '422':
+          description: Validation exception
+  /lab/inline-body:
+    post:
+      tags:
+        - lab
+      summary: Echo an INLINE object request body (#76, not a $ref).
+      operationId: labInlineBody
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - rank
+              properties:
+                title:
+                  type: string
+                  minLength: 2
+                rank:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  title:
+                    type: string
+                  rank:
+                    type: integer
+        '422':
+          description: Validation exception
+  /lab/shared-one:
+    post:
+      tags:
+        - lab
+      summary: First op sharing the inline-object component body/response (#110/#116).
+      operationId: labSharedOne
+      requestBody:
+        $ref: '#/components/requestBodies/LabSharedBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/LabSharedResponse'
+        '422':
+          description: Validation exception
+  /lab/shared-two:
+    post:
+      tags:
+        - lab
+      summary: Second op sharing the SAME inline-object component body/response.
+      operationId: labSharedTwo
+      requestBody:
+        $ref: '#/components/requestBodies/LabSharedBody'
+      responses:
+        '200':
+          $ref: '#/components/responses/LabSharedResponse'
+        '422':
+          description: Validation exception
+  /lab/inline-shape:
+    post:
+      tags:
+        - lab
+      summary: Discriminated union, INLINE-UNION form with synthesized variant names (#38).
+      operationId: labInlineShape
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabInlineShape'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabInlineShape'
+        '422':
+          description: Validation exception
+  /lab/inherit-shape:
+    post:
+      tags:
+        - lab
+      summary: Discriminated union, allOf-inheritance form (#38).
+      operationId: labInheritShape
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabVehicleBase'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabVehicleBase'
+        '422':
+          description: Validation exception
+  /lab/response-union:
+    post:
+      tags:
+        - lab
+      summary: A response that is a oneOf of Data classes (#116 union return).
+      operationId: labResponseUnion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabUnionSelector'
+      responses:
+        '200':
+          description: one of two Data-class shapes
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/LabCircle'
+                  - $ref: '#/components/schemas/LabSquare'
+        '422':
+          description: Validation exception
+  /lab/anyof-union:
+    post:
+      tags:
+        - lab
+      summary: An anyOf scalar union (distinct from oneOf).
+      operationId: labAnyOfUnion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabAnyOf'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabAnyOf'
+        '422':
+          description: Validation exception
+  /lab/plain-text:
+    get:
+      tags:
+        - lab
+      summary: A text/plain response (#117/#118, non-JSON).
+      operationId: labPlainText
+      responses:
+        '200':
+          description: plain text
+          content:
+            text/plain:
+              schema:
+                type: string
+  /lab/download:
+    get:
+      tags:
+        - lab
+      summary: A binary download response (#117/#118, non-JSON).
+      operationId: labDownload
+      responses:
+        '200':
+          description: binary payload
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /lab/gallery:
+    post:
+      tags:
+        - lab
+      summary: Multipart with an array of binary files (#75 edge).
+      operationId: labGallery
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - photos
+              properties:
+                photos:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                    contentMediaType: image/png
+                album:
+                  type: string
+      responses:
+        '200':
+          description: echoed file count
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '422':
+          description: Validation exception
+  /lab/tuple:
+    post:
+      tags:
+        - lab
+      summary: A tuple via prefixItems (#82), per-position validation.
+      operationId: labTuple
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabTuple'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabTuple'
+        '422':
+          description: Validation exception
 components:
   schemas:
     Order:
@@ -1407,6 +1719,119 @@ components:
         amount:
           type: integer
           minimum: 1
+    LabQueryEcho:
+      type: object
+      required:
+        - tier
+        - count
+        - code
+      properties:
+        tier:
+          type: string
+        count:
+          type: integer
+        code:
+          type: string
+    LabPathEcho:
+      type: object
+      required:
+        - score
+      properties:
+        score:
+          type: integer
+    LabHeaderEcho:
+      type: object
+      required:
+        - token
+      properties:
+        token:
+          type: string
+    LabAnyOf:
+      type: object
+      required:
+        - value
+      properties:
+        value:
+          anyOf:
+            - type: boolean
+            - type: integer
+    LabUnionSelector:
+      type: object
+      required:
+        - want
+      properties:
+        want:
+          type: string
+          enum:
+            - circle
+            - square
+    LabVehicleBase:
+      type: object
+      required:
+        - vehicleType
+      properties:
+        vehicleType:
+          type: string
+      discriminator:
+        propertyName: vehicleType
+        mapping:
+          car: '#/components/schemas/LabCar'
+          boat: '#/components/schemas/LabBoat'
+    LabCar:
+      allOf:
+        - $ref: '#/components/schemas/LabVehicleBase'
+        - type: object
+          required:
+            - wheels
+          properties:
+            wheels:
+              type: integer
+              minimum: 3
+    LabBoat:
+      allOf:
+        - $ref: '#/components/schemas/LabVehicleBase'
+        - type: object
+          required:
+            - draft
+          properties:
+            draft:
+              type: number
+              exclusiveMinimum: 0
+    LabTuple:
+      type: object
+      required:
+        - pair
+      properties:
+        pair:
+          type: array
+          prefixItems:
+            - type: string
+            - type: integer
+              minimum: 0
+    LabInlineShape:
+      oneOf:
+        - type: object
+          required:
+            - petType
+            - bark
+          properties:
+            petType:
+              type: string
+              const: dog
+            bark:
+              type: string
+        - type: object
+          required:
+            - petType
+            - meow
+          properties:
+            petType:
+              type: string
+              const: cat
+            meow:
+              type: string
+      discriminator:
+        propertyName: petType
   requestBodies:
     Pet:
       description: Pet object that needs to be added to the store
@@ -1432,6 +1857,26 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/LabRefPayload'
+    LabSharedBody:
+      description: >-
+        A component request body whose schema is an INLINE object (not a $ref),
+        referenced by 2+ operations. The generator emits ONE shared
+        LabSharedBodyRequestData class (#110).
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - sku
+              - qty
+            properties:
+              sku:
+                type: string
+                pattern: '^SKU-[0-9]{3}$'
+              qty:
+                type: integer
+                minimum: 1
   responses:
     LabRefResponse:
       description: A component response that wraps a schema $ref (#116).
@@ -1439,6 +1884,23 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/LabRefPayload'
+    LabSharedResponse:
+      description: >-
+        A component response whose schema is an INLINE object (not a $ref),
+        referenced by 2+ operations. The generator emits ONE shared
+        LabSharedResponseResponseData class (#116).
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - sku
+              - qty
+            properties:
+              sku:
+                type: string
+              qty:
+                type: integer
   securitySchemes:
     petstore_auth:
       type: oauth2

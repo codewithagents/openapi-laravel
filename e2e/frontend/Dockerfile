@@ -5,13 +5,14 @@
 #
 # VITE_API_BASE is a BUILD-time value: Vite inlines import.meta.env into the
 # bundle. It must be the URL the user's BROWSER will reach, i.e. the host-mapped
-# backend port (http://localhost:8088/api), NOT the internal compose service
-# name, because the fetch runs in the browser, not inside this container.
+# backend port plus the /v1 generated route-group prefix
+# (http://localhost:8088/api/v1), NOT the internal compose service name, because
+# the fetch runs in the browser, not inside this container.
 
 FROM node:20-alpine AS build
 
 # Bake the backend URL the browser will call. Overridable via --build-arg.
-ARG VITE_API_BASE=http://localhost:8088/api
+ARG VITE_API_BASE=http://localhost:8088/api/v1
 ENV VITE_API_BASE=${VITE_API_BASE}
 
 WORKDIR /app

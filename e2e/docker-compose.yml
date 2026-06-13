@@ -4,7 +4,8 @@
 # Port wiring (the load-bearing detail): the SPA's fetch runs in the user's
 # browser, so VITE_API_BASE must be a HOST-reachable URL, not the internal
 # compose service name. The frontend bundle is therefore built against
-# http://localhost:8088/api (the host-mapped backend port), and the backend
+# http://localhost:8088/api/v1 (the host-mapped backend port, plus the /v1
+# prefix the generated route group adds per routes.prefix, #71), and the backend
 # already ships fully permissive CORS for the demo so the cross-origin call
 # (localhost:8080 -> localhost:8088) is allowed.
 
@@ -29,9 +30,9 @@ services:
     build:
       context: ./frontend
       args:
-        # The URL the BROWSER will hit (host-mapped backend port), inlined into
-        # the bundle by Vite at build time.
-        VITE_API_BASE: http://localhost:8088/api
+        # The URL the BROWSER will hit (host-mapped backend port + /v1 group
+        # prefix), inlined into the bundle by Vite at build time.
+        VITE_API_BASE: http://localhost:8088/api/v1
     image: openapi-laravel-e2e-frontend
     ports:
       - "8080:80"

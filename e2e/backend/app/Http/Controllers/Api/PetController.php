@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
-use App\Data\Pet\ApiResponseData;
+use App\Data\ApiResponseData;
 use App\Data\Pet\FindPetsByStatusQueryData;
 use App\Data\Pet\FindPetsByTagsQueryData;
 use App\Data\Pet\PetData;

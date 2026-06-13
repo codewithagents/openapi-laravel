@@ -3,6 +3,7 @@
 use App\Http\Middleware\ApiKey;
 use App\Http\Middleware\CreatedResponse;
 use App\Http\Middleware\ForceJsonAccept;
+use App\Http\Middleware\RouteGroupMarker;
 use App\Http\Middleware\TotalCountHeader;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -57,6 +58,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // both the alias registration and the ApiKey enforcement class.
         $middleware->alias([
             'api-key' => ApiKey::class,
+            // The generated route group (routes.middleware in config, #71)
+            // references this alias; the consumer supplies the class.
+            'route-group-marker' => RouteGroupMarker::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

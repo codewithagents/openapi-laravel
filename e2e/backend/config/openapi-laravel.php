@@ -53,6 +53,16 @@ return [
     'routes' => [
         'enabled' => false,
         'path' => base_path('routes/api.generated.php'),
+
+        /*
+         * #71: wrap every generated route in one Route::group with this prefix
+         * and middleware stack. The prefix is applied ON TOP of the /api mount
+         * in bootstrap/app.php, so routes become /api/v1/.... The marker
+         * middleware (RouteGroupMarker) runs on every generated route and proves
+         * the group middleware fires by stamping an X-Route-Group header.
+         */
+        'prefix' => 'v1',
+        'middleware' => ['route-group-marker'],
     ],
 
     /*
