@@ -290,11 +290,42 @@ test('submitting an empty name shows a 422 validation error', async ({ page }) =
   // Leave name blank, submit.
   await page.click('[data-testid="submit"]');
 
-  // The error-name element should appear with a validation message.
-  await expect(page.locator('[data-testid="error-name"]')).toBeVisible({ timeout: 10_000 });
-  const errorText = await page.locator('[data-testid="error-name"]').textContent();
-  expect(errorText).not.toBeNull();
-  expect(errorText!.length).toBeGreaterThan(0);
+  // The error-name element should appear with a non-empty validation message.
+  const errorName = page.locator('[data-testid="error-name"]');
+  await expect(errorName).toBeVisible({ timeout: 10_000 });
+  // The message text is the validator's, surfaced through the generated client.
+  // Assert it is non-empty and names the offending field (Laravel's default
+  // required message contains the attribute name 'name').
+  await expect(errorName).not.toBeEmpty();
+  await expect(errorName).toContainText(/name/i);
+});
+
+// Raw-HTTP companion: prove the create endpoint itself enforces the required
+// 'name' with an exact 422 and a Laravel-shaped validation error body, so the
+// UI assertion above is grounded in the generated rules(), not UI glue.
+test('POST /pet with a missing name 422s with a name-keyed error bag', async ({ request }) => {
+  const res = await request.post(`${API_BASE}/pet`, {
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    data: { photoUrls: ['https://example.com/x.png'], status: 'available' },
+  });
+  expect(res.status()).toBe(422);
+  const body = await res.json();
+  // Laravel's ValidationException response is { message, errors: { field: [...] } }.
+  expect(body).toHaveProperty('errors');
+  expect(body.errors).toHaveProperty('name');
+  expect(Array.isArray(body.errors.name)).toBe(true);
+  expect(body.errors.name.length).toBeGreaterThan(0);
+});
+
+// Raw-HTTP: an out-of-enum status is rejected by the generated enum rule.
+test('POST /pet with an out-of-enum status 422s', async ({ request }) => {
+  const res = await request.post(`${API_BASE}/pet`, {
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    data: { name: `E2E-BadStatus-${Date.now()}`, photoUrls: ['https://example.com/x.png'], status: 'flying' },
+  });
+  expect(res.status()).toBe(422);
+  const body = await res.json();
+  expect(body.errors).toHaveProperty('status');
 });
 
 // ---------------------------------------------------------------------------
@@ -542,9 +573,11 @@ async function createPetAndOpenDetail(page: Page, prefix: string): Promise<strin
 test('uploads a PNG via the generated multipart client and the photo appears on the pet', async ({ page }) => {
   await createPetAndOpenDetail(page, 'E2E-Upload');
 
-  // The pet starts with exactly one seeded photo URL (the create-form default).
-  const before = await page.locator('[data-testid="detail-photo-urls"]').textContent();
-  expect(before).toBeTruthy();
+  // The pet starts with exactly one photo URL (the create-form default
+  // 'https://example.com/photo.jpg'), and no /storage/uploads/ URL yet.
+  const photoUrls = page.locator('[data-testid="detail-photo-urls"]');
+  await expect(photoUrls).toContainText('https://example.com/photo.jpg');
+  await expect(photoUrls).not.toContainText('/storage/uploads/');
 
   // Attach the tiny PNG fixture and an optional caption, then upload.
   await page.setInputFiles('[data-testid="upload-file-input"]', PNG_FIXTURE);
@@ -577,6 +610,31 @@ test('rejects a non-PNG upload with a 422 from the generated mimetypes rule', as
   const error = page.locator('[data-testid="upload-error"]');
   await expect(error).toBeVisible({ timeout: 10_000 });
   await expect(error).toContainText('422');
+});
+
+// Raw-HTTP companion for the multipart rules (#75): a non-PNG part 422s on the
+// generated mimetypes rule, and a missing required 'image' part 422s on the
+// generated file rule. Both pass the api-key middleware first.
+test('multipart uploadImage: wrong mime type and a missing required part both 422', async ({ request }) => {
+  const fs = require('node:fs') as typeof import('node:fs');
+  const txt = fs.readFileSync(TXT_FIXTURE);
+
+  // Wrong content type for the 'image' part: mimetypes:image/png rejects it.
+  const wrongMime = await request.post(`${API_BASE}/pet/1/uploadImage`, {
+    headers: { Accept: 'application/json', 'X-API-Key': UPLOAD_API_KEY },
+    multipart: { image: { name: 'not-an-image.txt', mimeType: 'text/plain', buffer: txt } },
+  });
+  expect(wrongMime.status()).toBe(422);
+  expect((await wrongMime.json()).errors).toHaveProperty('image');
+
+  // Missing the required 'image' part entirely: the file rule rejects it. We
+  // send only the optional caption so the body is a well-formed multipart.
+  const missing = await request.post(`${API_BASE}/pet/1/uploadImage`, {
+    headers: { Accept: 'application/json', 'X-API-Key': UPLOAD_API_KEY },
+    multipart: { caption: 'no file here' },
+  });
+  expect(missing.status()).toBe(422);
+  expect((await missing.json()).errors).toHaveProperty('image');
 });
 
 // ---------------------------------------------------------------------------
@@ -613,8 +671,13 @@ test('upload is rejected with 401 when the API key is missing, and accepted with
     headers: { Accept: 'application/json', 'X-API-Key': UPLOAD_API_KEY },
   });
   expect(withKey.status()).toBe(201);
+  // ApiResponseData round-trips with the spec-declared fields and the echoed
+  // message, proving the multipart parts (image + caption) arrived intact.
   const bodyJson = await withKey.json();
-  expect(bodyJson.message).toContain('Image uploaded');
+  expect(bodyJson.code).toBe(200);
+  expect(bodyJson.type).toBe('success');
+  expect(bodyJson.message).toContain('Image uploaded for pet 1');
+  expect(bodyJson.message).toContain('caption: auth check');
 
   // A WRONG key is rejected too (not just a missing one).
   const wrongKey = await request.post(`${API_BASE}/pet/1/uploadImage`, {
@@ -625,11 +688,14 @@ test('upload is rejected with 401 when the API key is missing, and accepted with
 
   // And the same X-API-Key path works through the SPA (the generated client
   // forwards the per-call apiKey config as the X-API-Key header). Assert the
-  // success message actually appears, not merely that the element is visible.
+  // status text actually reflects a successful upload, not just visibility.
   await createPetAndOpenDetail(page, 'E2E-UploadAuth');
   await page.setInputFiles('[data-testid="upload-file-input"]', PNG_FIXTURE);
   await page.click('[data-testid="upload-submit"]');
-  await expect(page.locator('[data-testid="upload-status"]')).toContainText('Image uploaded', { timeout: 10_000 });
+  const status = page.locator('[data-testid="upload-status"]');
+  await expect(status).toBeVisible({ timeout: 10_000 });
+  await expect(status).toContainText('Image uploaded');
+  await expect(status).toContainText('/storage/uploads/');
 });
 
 // ---------------------------------------------------------------------------
@@ -689,6 +755,177 @@ test('findByStatus carries the consumer-set X-Total-Count header (documented res
   expect(Array.isArray(body)).toBe(true);
   // The header count matches the number of items actually returned.
   expect(Number(total)).toBe(body.length);
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 12: Pet read/write split + serialization seams over raw HTTP.
+//
+// The UI tier proves the readOnly/writeOnly split through the SPA. These raw
+// HTTP tests pin the SAME contract directly at the wire, with explicit negative
+// assertions: a writeOnly field is genuinely ABSENT from the read response, a
+// readOnly field sent by a client is IGNORED (server value wins), the snake_case
+// MapName round-trips both directions, and the attributes map + oneOf external_id
+// hydrate without coercion.
+// ---------------------------------------------------------------------------
+
+test('POST /pet read/write split: writeOnly absent, readOnly server-set, MapName round-trips', async ({ request }) => {
+  const name = `E2E-RW-${Date.now()}`;
+  const res = await request.post(`${API_BASE}/pet`, {
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    data: {
+      name,
+      photoUrls: ['https://example.com/rw.png'],
+      status: 'available',
+      // snake_case wire name maps to camelCase microchipId on the Data class.
+      microchip_id: 'chip-rw-7',
+      // writeOnly: accepted on write, must NEVER appear in the read response.
+      secret_note: 'TOP-SECRET-MUST-NOT-LEAK',
+      // readOnly: a client-sent value must be ignored; the server sets its own.
+      created_at: '1999-01-01T00:00:00+00:00',
+      weight_kg: 4.25,
+      external_id: 'ext-rw-legacy',
+    },
+  });
+  expect(res.status()).toBe(201);
+  const pet = await res.json();
+
+  // MapName: the snake_case wire field is echoed back as snake_case.
+  expect(pet.microchip_id).toBe('chip-rw-7');
+  expect(pet.weight_kg).toBe(4.25);
+  expect(pet.name).toBe(name);
+
+  // readOnly created_at: present, server-set, and NOT the client-sent 1999 value.
+  expect(pet.created_at).toBeDefined();
+  expect(pet.created_at).not.toBe('1999-01-01T00:00:00+00:00');
+
+  // writeOnly secret_note: genuinely absent from the read response, by key and
+  // by value. Check both the parsed object and the raw text so a leak anywhere
+  // in the payload is caught.
+  expect(pet).not.toHaveProperty('secret_note');
+  const raw = await request.get(`${API_BASE}/pet/${pet.id}`, { headers: { Accept: 'application/json' } });
+  expect(raw.status()).toBe(200);
+  const rawText = await raw.text();
+  expect(rawText).not.toContain('secret_note');
+  expect(rawText).not.toContain('TOP-SECRET-MUST-NOT-LEAK');
+
+  // clean up the throwaway pet.
+  expect((await request.delete(`${API_BASE}/pet/${pet.id}`, { headers: { Accept: 'application/json' } })).status()).toBe(204);
+});
+
+test('POST /pet attributes map round-trips intact, and an empty map serializes as {} not []', async ({ request }) => {
+  // Non-empty map round-trips key-for-key.
+  const withAttrs = await request.post(`${API_BASE}/pet`, {
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    data: {
+      name: `E2E-Attrs-${Date.now()}`,
+      photoUrls: ['https://example.com/a.png'],
+      status: 'available',
+      attributes: { color: 'black', size: 'large' },
+    },
+  });
+  expect(withAttrs.status()).toBe(201);
+  const petA = await withAttrs.json();
+  expect(petA.attributes).toEqual({ color: 'black', size: 'large' });
+  expect((await request.delete(`${API_BASE}/pet/${petA.id}`, { headers: { Accept: 'application/json' } })).status()).toBe(204);
+
+  // Empty map must serialize as a JSON object {}, never an array []. Check raw
+  // text so the distinction is unambiguous (the MapObjectTransformer forces it).
+  const empty = await request.post(`${API_BASE}/pet`, {
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    data: {
+      name: `E2E-EmptyAttrs-${Date.now()}`,
+      photoUrls: ['https://example.com/e.png'],
+      status: 'available',
+      attributes: {},
+    },
+  });
+  expect(empty.status()).toBe(201);
+  const emptyText = await empty.text();
+  expect(emptyText).toContain('"attributes":{}');
+  expect(emptyText).not.toContain('"attributes":[]');
+  const petE = await empty.json();
+  expect((await request.delete(`${API_BASE}/pet/${petE.id}`, { headers: { Accept: 'application/json' } })).status()).toBe(204);
+});
+
+test('POST /pet oneOf external_id hydrates string and integer variants without coercion', async ({ request }) => {
+  const asString = await request.post(`${API_BASE}/pet`, {
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    data: { name: `E2E-ExtStr-${Date.now()}`, photoUrls: ['https://example.com/s.png'], status: 'available', external_id: 'abc-123' },
+  });
+  expect(asString.status()).toBe(201);
+  const petS = await asString.json();
+  expect(petS.external_id).toBe('abc-123');
+  expect(typeof petS.external_id).toBe('string');
+  expect((await request.delete(`${API_BASE}/pet/${petS.id}`, { headers: { Accept: 'application/json' } })).status()).toBe(204);
+
+  const asInt = await request.post(`${API_BASE}/pet`, {
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    data: { name: `E2E-ExtInt-${Date.now()}`, photoUrls: ['https://example.com/i.png'], status: 'available', external_id: 778899 },
+  });
+  expect(asInt.status()).toBe(201);
+  const petI = await asInt.json();
+  expect(petI.external_id).toBe(778899); // stays an integer, not "778899"
+  expect(typeof petI.external_id).toBe('number');
+  expect((await request.delete(`${API_BASE}/pet/${petI.id}`, { headers: { Accept: 'application/json' } })).status()).toBe(204);
+});
+
+test('GET /pet/{id} for a missing pet returns 404', async ({ request }) => {
+  const res = await request.get(`${API_BASE}/pet/99999999`, { headers: { Accept: 'application/json' } });
+  expect(res.status()).toBe(404);
+});
+
+test('DELETE /pet/{id} for a missing pet returns 404', async ({ request }) => {
+  const res = await request.delete(`${API_BASE}/pet/99999999`, { headers: { Accept: 'application/json' } });
+  expect(res.status()).toBe(404);
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 13: findByStatus query parameter (the generated query Data class).
+//
+// The status query param is a required enum with a spec default of 'available'.
+// A valid value filters; an out-of-enum value 422s on the generated rule.
+// ---------------------------------------------------------------------------
+
+test('GET /pet/findByStatus filters by a valid status and rejects an out-of-enum status', async ({ request }) => {
+  const available = await request.get(`${API_BASE}/pet/findByStatus?status=available`, {
+    headers: { Accept: 'application/json' },
+  });
+  expect(available.status()).toBe(200);
+  const list = await available.json();
+  expect(Array.isArray(list)).toBe(true);
+  // Every returned pet actually carries the requested status.
+  for (const pet of list) {
+    expect(pet.status).toBe('available');
+  }
+
+  // An out-of-enum status value is rejected by the generated query rule.
+  const bad = await request.get(`${API_BASE}/pet/findByStatus?status=teleporting`, {
+    headers: { Accept: 'application/json' },
+  });
+  expect(bad.status()).toBe(422);
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 14: store/inventory map-valued response (additionalProperties int).
+//
+// getInventory returns an object with additionalProperties: integer. The
+// response must be a JSON object of string -> integer, never an array.
+// ---------------------------------------------------------------------------
+
+test('GET /store/inventory returns a string-to-integer map object', async ({ request }) => {
+  const res = await request.get(`${API_BASE}/store/inventory`, {
+    headers: { Accept: 'application/json', 'X-API-Key': UPLOAD_API_KEY },
+  });
+  expect(res.status()).toBe(200);
+  const text = await res.text();
+  // A map response must be a JSON object, not an array.
+  expect(text.trim().startsWith('{')).toBe(true);
+  const body = await res.json();
+  expect(Array.isArray(body)).toBe(false);
+  // Every value is an integer (string keys -> integer counts).
+  for (const value of Object.values(body)) {
+    expect(Number.isInteger(value)).toBe(true);
+  }
 });
 
 // ===========================================================================
