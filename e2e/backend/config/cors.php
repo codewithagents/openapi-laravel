@@ -21,7 +21,10 @@ return [
 
     'allowed_headers' => ['*'],
 
-    'exposed_headers' => [],
+    // Expose X-Total-Count so the cross-origin SPA fetch can read it. A
+    // browser cannot read a custom response header on a CORS response unless
+    // the server lists it here.
+    'exposed_headers' => ['X-Total-Count'],
 
     'max_age' => 0,
 

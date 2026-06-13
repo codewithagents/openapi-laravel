@@ -8,8 +8,16 @@
 #
 # Environment variables:
 #   SKIP_DOCKER=1         - same as --no-docker (skip compose up/down)
+#   SKIP_GEN=1            - skip the regeneration pre-step (use existing generated files)
 #   BACKEND_URL           - override backend health-check URL (default http://localhost:8088/up)
 #   FRONTEND_URL          - override frontend health-check URL (default http://localhost:8080)
+#
+# The generated layer (backend Data/Abstract controllers/routes, frontend
+# src/api) is NOT committed. run.sh regenerates it from the spec via
+# ../generate.sh BEFORE building the images, so the demo always exercises the
+# current generator output. The Docker build contexts (./backend, ./frontend)
+# do not include the spec or the path-repo generator, so generation must happen
+# here on the host, never inside the Dockerfiles.
 #
 # Exit code mirrors the Playwright test exit code.
 # ---------------------------------------------------------------------------
@@ -17,11 +25,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPOSE_FILE="$(cd "${SCRIPT_DIR}/.." && pwd)/docker-compose.yml"
+E2E_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+COMPOSE_FILE="${E2E_DIR}/docker-compose.yml"
+GENERATE_SCRIPT="${E2E_DIR}/generate.sh"
 
 BACKEND_URL="${BACKEND_URL:-http://localhost:8088/up}"
 FRONTEND_URL="${FRONTEND_URL:-http://localhost:8080}"
 SKIP_DOCKER="${SKIP_DOCKER:-0}"
+SKIP_GEN="${SKIP_GEN:-0}"
 
 if [[ "${1:-}" == "--no-docker" ]]; then
   SKIP_DOCKER=1
@@ -53,6 +64,17 @@ wait_for_url() {
     sleep 1
   done
 }
+
+# ---------------------------------------------------------------------------
+# Regenerate the mechanical layer from the spec (before any image build).
+# ---------------------------------------------------------------------------
+
+if [[ "$SKIP_GEN" != "1" ]]; then
+  log "Regenerating backend and frontend from the spec (${GENERATE_SCRIPT}) ..."
+  bash "${GENERATE_SCRIPT}"
+else
+  log "SKIP_GEN=1: skipping regeneration, using existing generated files."
+fi
 
 # ---------------------------------------------------------------------------
 # Stack management

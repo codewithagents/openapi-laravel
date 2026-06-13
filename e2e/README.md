@@ -36,9 +36,22 @@ e2e/
     config/cors.php           Permissive CORS, DEMO ONLY (for the later SPA).
 ```
 
-Generated files are committed on purpose: they are the proof artifact. The
-Laravel `vendor/` directory and the runtime store file
-(`storage/app/petstore.json`) are gitignored.
+Generated files are NOT committed. This demo behaves like a real consumer of
+the generators: the business logic (concrete controllers, middleware, the store,
+models, providers) is versioned, the mechanical layer (`app/Data/**`, the
+`Abstract*Controller` classes, `routes/api.generated.php`, and the frontend's
+`src/api/**`) is gitignored and regenerated from the spec on every run by
+`e2e/generate.sh`. CI runs that script, then builds and drives the stack, so the
+demo is a real regression gate on the generator output. The Laravel `vendor/`
+directory and the runtime store file (`storage/app/petstore.json`) are gitignored
+too.
+
+Regenerate the full mechanical layer (backend and frontend) at any time:
+
+```bash
+cd e2e
+./generate.sh
+```
 
 ## The petstore-plus seams
 
@@ -141,19 +154,24 @@ endpoints are real HTTP routes. `php artisan route:list` shows them all.
 
 ## Run the whole stack in Docker
 
-One command brings up the generated backend and the SPA together, reachable so a
-real browser can drive the SPA which calls the backend over real HTTP:
+Generate first, then bring up the generated backend and the SPA together,
+reachable so a real browser can drive the SPA which calls the backend over real
+HTTP:
 
 ```bash
+e2e/generate.sh                                       # regenerate from the spec
 docker compose -f e2e/docker-compose.yml up -d --build
 # backend:  http://localhost:8088   (API under /api, health at /up)
 # frontend: http://localhost:8080   (the built SPA)
 docker compose -f e2e/docker-compose.yml down
 ```
 
-Both services run the committed code as-is: the containers do NOT regenerate the
-backend Data classes or the frontend client. The generated artifacts that ship
-in the repo are the proof, and the images just boot them.
+The containers do NOT regenerate: the Docker build contexts (`./backend`,
+`./frontend`) do not include the spec or the path-repo generator, so generation
+cannot happen inside the Dockerfiles. It runs on the host (or in CI) via
+`generate.sh` BEFORE the build, and the images then COPY the freshly generated
+output in. `e2e/e2e-tests/run.sh` runs `generate.sh` automatically before the
+compose build (set `SKIP_GEN=1` to reuse existing generated files).
 
 ### How the path-repo problem is solved (backend)
 
@@ -187,9 +205,10 @@ byte-identical output.
   database server: the demo is fully file-backed via `storage/app/petstore.json`)
   and seeds the deterministic store (`petstore:reset`) on container start.
 - `frontend/Dockerfile`: multi-stage. Node 20 + pnpm to `pnpm install
-  --frozen-lockfile` and `pnpm build` (the generated client in `src/api` is
-  committed, so the build only typechecks and bundles it), then nginx serves the
-  static `dist/`.
+  --frozen-lockfile` and `pnpm build` (the generated client in `src/api` was
+  written to disk by `generate.sh` before the build, so the build only typechecks
+  and bundles committed glue plus generated client), then nginx serves the static
+  `dist/`.
 - `docker-compose.yml`: `backend` (host `8088`) and `frontend` (host `8080`) on a
   shared bridge network, each with a healthcheck; the frontend waits for the
   backend to be healthy.
@@ -315,8 +334,74 @@ Note also that `PUT /pet` does a full replace (the write variant is the whole
 resource), so fields omitted from a PUT body become null. `created_at` is the
 exception: the controller preserves the original on update.
 
+## Playwright e2e coverage
+
+The Playwright suite (`e2e-tests/tests/petstore.spec.ts`) has two tiers. The UI
+journeys drive the SPA in headless Chromium over real HTTP. The API-contract
+tier (the `/lab/*` endpoints) hits the backend directly via Playwright's request
+fixture for breadth over the runtime feature matrix: each `/lab` endpoint
+validates a crafted body against the generated `rules()` and echoes the hydrated
+object back, so a single POST proves BOTH validation (a violation 422s) and
+serialization/hydration (a valid payload returns correctly shaped). The `lab`
+tag and its schemas live in the same `spec/petstore.yaml`; its `LabController`
+is a pure stateless echo (no PetStore).
+
+This table is a LIVING DOC, not a CI gate. It is honest about what is GENERATED
+versus CONSUMER-WRITTEN glue, and about what is PROVEN versus a RESIDUAL.
+
+Status note: spatie/laravel-data serializes a `Data` object returned from a POST
+as `201 Created`, so every `/lab` echo (and the pet/order creates) responds 201,
+not 200. That is a laravel-data framework default, not a generator choice.
+
+### UI-journey tier (SPA over real HTTP)
+
+| Feature | Spec construct | What the assertion proves | Generated vs consumer | Status |
+|---|---|---|---|---|
+| MapName round-trip | `microchip_id` snake_case property | the value survives create -> read in the list and detail | generated `#[MapName]` | proven |
+| writeOnly split | `secret_note: writeOnly` | the sent value never appears in any read | generated write/read split | proven |
+| readOnly server-set | `created_at: readOnly, date-time` | detail shows a server-set timestamp, client value ignored | generated rules + consumer assigns value | proven |
+| nullable scalar | `weight_kg: nullable` | a null stays present (rendered `null`) | generated | proven |
+| additionalProperties map | `attributes` string->string map | a non-empty map round-trips into the detail panel | generated | proven |
+| oneOf scalar union | `external_id: oneOf [string, integer]` | string stays string, integer stays integer | generated union type | proven |
+| enum validation | `status` enum | an out-of-enum value 422s | generated `in:` rule | proven |
+| multipart upload (#75) | `multipart/form-data` object body, `image: string/binary` + `contentMediaType: image/png` | a PNG posted via the generated client is stored and its URL appears on the pet; a non-PNG 422s | generated `UploadFileRequestData` (`UploadedFile` + `file`/`mimetypes` rules) + consumer stores the file | proven |
+| upload image serving (#75, D) | same | the recorded `/storage/uploads/<file>` URL serves the bytes (200, `image/png`, byte-identical to the upload) | generated upload param + consumer stores on the public disk + `php artisan storage:link` at container start | proven |
+| security middleware (#77) | `security: [pet_upload_key]` apiKey (`X-API-Key`) + `security.middleware_map` | upload is 401 without the key, succeeds with it | generated route carries the mapped middleware; consumer writes `ApiKey` enforcement + alias | proven |
+| 204 No Content (#64) | `deletePet` declares `204` | DELETE returns exactly 204 with an empty body | generated `void` return + `RespondsWithStatus:204` | proven |
+| response header (#114) | `X-Total-Count` header on `findByStatus` 200 | the header is present and its count matches the body length | NOT generated: generator only WARNS. Header set by consumer `TotalCountHeader` middleware. Proves consumer glue, not generator support. | residual |
+
+### API-contract tier (`/lab/*`, raw HTTP)
+
+| Feature | Spec construct | What the assertion proves | Generated vs consumer | Status |
+|---|---|---|---|---|
+| numeric bounds | `minimum`/`maximum`, `exclusiveMinimum`/`exclusiveMaximum`, `multipleOf` | valid round-trips; each violation (incl. the exclusive boundary value, non-multiple) 422s | generated `min`/`max`/`gt`/`lt` + `MultipleOfRule` | proven |
+| string constraints | `minLength`/`maxLength`, `pattern` | valid round-trips; short/long/bad-pattern 422 | generated `min`/`max`/`regex` | proven |
+| array constraints | `minItems`/`maxItems`, `uniqueItems` | valid round-trips; too few/too many/duplicate 422 | generated `min`/`max` + `distinct` | proven |
+| string formats | `date`, `date-time`, `time`, `duration`, `email`, `uuid`, `hostname` | valid round-trips; each bad format 422 | generated `date_format`/`email`/`uuid` + `Rfc3339DateTimeRule`/`Rfc3339TimeRule`/`Iso8601DurationRule`/`HostnameRule` | proven |
+| enum + const | `enum`, `const` | valid round-trips; out-of-enum and wrong-const 422 | generated `Rule::in([...])` (const becomes a single-value `in`) | proven |
+| closed object | `additionalProperties: false` | a payload with an unknown key 422s | generated `NoUnknownPropertiesRule` | proven |
+| presence + default | `required`, `nullable`, optional, `default` | required-missing 422; nullable/optional default to null; the spec `default` appears in the response; overriding it is honored | generated constructor defaults + `required`/`nullable`/`sometimes` rules | proven |
+| typed map + empty map | `additionalProperties: {type: integer}` | a non-empty map round-trips; an EMPTY map serializes as `{}` not `[]`; a bad value 422 | generated typed map + `MapObjectTransformer` | proven |
+| oneOf scalar union | `oneOf: [string, integer]` | BOTH variants hydrate without coercion | generated `string\|int` union type | proven |
+| nested + collection | nested `$ref` object + `array` of `$ref` objects | nested object and the collection round-trip; a deep violation 422 | generated nested Data + `#[DataCollectionOf]` | proven |
+| backed enum | named string `enum` component | round-trips; out-of-enum 422 | generated backed `enum` class + `Rule::enum(...)` | proven |
+| allOf merged-flat | `allOf: [$ref base, inline object]` | both branches round-trip; a missing field from either branch 422 | generated flat-merged Data | proven |
+| discriminated union | `oneOf` + `discriminator` (named-component) | each variant hydrates to its own shape by `kind`; a variant-specific rule still fires after morph | generated morphable abstract base + `morph()` | proven |
+| discriminated union, UNKNOWN discriminator | same | an unmapped `kind` is rejected with 422 | generated `morph()` throws `ValidationException` on an unmapped value | proven (was a 500; fixed in #124 / PR #127) |
+| component $ref request body (#110) + $ref response (#116) | `requestBody.$ref -> requestBodies/...` wrapping a schema `$ref`, and `response.$ref -> responses/...` wrapping the same | typed round-trip; the resolved component's rules 422 on violation | generated: both resolved to one typed `LabRefPayloadData` param + return | proven |
+| non-200 success (#64), POST + Data | `202` declared on a POST returning a Data object | responds 202 | generated `RespondsWithStatus:202` (now normalizes any 2xx) | proven (was 201; fixed in #125 / PR #128) |
+
+Every row above is an active assertion. Two of them (the unknown discriminator
+and the 202-on-POST status) were first shipped as `test.fixme` holding the
+promised assertion because real behavior diverged; the e2e suite surfaced both
+as bugs, they were fixed in the generator (#124 / PR #127 and #125 / PR #128),
+and the assertions are now active and green. This is the suite working as
+intended: strict assertions that encode the promised contract and fail until the
+contract actually holds.
+
 ## CORS
 
 `config/cors.php` is fully permissive (`paths: api/*`, origins/methods/headers
-all `*`). This is DEMO ONLY, to let a later SPA milestone call the API from any
-origin. A real deployment must pin origins and tighten methods/headers.
+all `*`), with `X-Total-Count` added to `exposed_headers` so the cross-origin
+SPA can read it. This is DEMO ONLY, to let the SPA call the API from any origin.
+A real deployment must pin origins and tighten methods/headers.

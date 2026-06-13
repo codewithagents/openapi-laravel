@@ -1,0 +1,113 @@
+name: E2E
+
+# Cross-language regression gate. The e2e demo is a real consumer of the two
+# generators: the business logic is versioned, the generated layer is NOT.
+# This job regenerates that layer from the spec, builds the docker-compose
+# stack from the fresh output, and drives it with the Playwright suite over
+# real HTTP. It is standalone (separate from the PHP ci.yml gate).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Cross-language e2e (generate, build, Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # --- PHP toolchain (backend generation + composer install) ---------
+      # 8.3 matches the backend Dockerfile (php:8.3-cli).
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: composer:v2
+
+      - name: Cache composer (e2e backend)
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: e2e-composer-${{ hashFiles('e2e/backend/composer.json') }}
+          restore-keys: e2e-composer-
+
+      # --- Node toolchain (frontend generation + bundle) -----------------
+      # pnpm 9 matches the frontend Dockerfile pin (reads the v9.0 lockfile).
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: e2e/frontend/pnpm-lock.yaml
+
+      # --- Regenerate the mechanical layer from the spec -----------------
+      # generate.sh installs both toolchains' deps and runs both generators.
+      - name: Generate backend + frontend from spec
+        run: ./generate.sh
+        working-directory: e2e
+
+      # --- Build and start the stack -------------------------------------
+      - name: Build and start compose stack
+        run: docker compose -f e2e/docker-compose.yml up -d --build
+
+      - name: Wait for backend health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf --max-time 3 http://localhost:8088/up > /dev/null 2>&1; then
+              echo "backend is up"; exit 0
+            fi
+            sleep 1
+          done
+          echo "backend did not become healthy"; exit 1
+
+      - name: Wait for frontend health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf --max-time 3 http://localhost:8080 > /dev/null 2>&1; then
+              echo "frontend is up"; exit 0
+            fi
+            sleep 1
+          done
+          echo "frontend did not become healthy"; exit 1
+
+      # --- Playwright suite ----------------------------------------------
+      - name: Install Playwright dependencies
+        run: npm ci || npm install
+        working-directory: e2e/e2e-tests
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: e2e/e2e-tests
+
+      - name: Run Playwright suite
+        run: npx playwright test --reporter=list
+        working-directory: e2e/e2e-tests
+
+      # --- Diagnostics on failure ----------------------------------------
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/e2e-tests/playwright-report
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Dump compose logs
+        if: failure()
+        run: docker compose -f e2e/docker-compose.yml logs
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose -f e2e/docker-compose.yml down --remove-orphans

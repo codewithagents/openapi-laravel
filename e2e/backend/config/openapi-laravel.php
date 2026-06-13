@@ -56,6 +56,22 @@ return [
     ],
 
     /*
+     * Map each spec security scheme name to the route middleware that enforces
+     * it. The generator stamps the mapped middleware onto every route whose
+     * operation requires that scheme (#77). Here the upload operation requires
+     * pet_upload_key (an apiKey header scheme), so the generated uploadFile
+     * route carries the api-key middleware below. The other schemes
+     * (petstore_auth oauth2, api_key) are intentionally left unmapped: they
+     * stay public in this demo and the generator warns about them, which is the
+     * documented behaviour we want to exercise.
+     */
+    'security' => [
+        'middleware_map' => [
+            'pet_upload_key' => ['api-key'],
+        ],
+    ],
+
+    /*
      * Maximum schema nesting depth the parser will follow before bailing out.
      * Guards against pathological or maliciously deep specs.
      */

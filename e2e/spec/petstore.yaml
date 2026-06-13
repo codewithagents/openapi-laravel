@@ -35,6 +35,12 @@ tags:
       url: https://swagger.io
   - name: user
     description: Operations about user
+  - name: lab
+    description: >-
+      Stateless validation and serialization lab. Each endpoint validates a
+      crafted request body against the spec-derived rules() and echoes the
+      hydrated object back, so the e2e suite can prove the full runtime feature
+      matrix (validation, hydration, composition) without any persistence.
 paths:
   /pet:
     put:
@@ -140,6 +146,11 @@ paths:
       responses:
         '200':
           description: successful operation
+          headers:
+            X-Total-Count:
+              description: Total number of pets matching the status filter.
+              schema:
+                type: integer
           content:
             application/json:
               schema:
@@ -297,7 +308,7 @@ paths:
             type: integer
             format: int64
       responses:
-        '200':
+        '204':
           description: Pet deleted
         '400':
           description: Invalid pet value
@@ -329,11 +340,20 @@ paths:
           schema:
             type: string
       requestBody:
+        required: true
         content:
-          application/octet-stream:
+          multipart/form-data:
             schema:
-              type: string
-              format: binary
+              type: object
+              required:
+                - image
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  contentMediaType: image/png
+                caption:
+                  type: string
       responses:
         '200':
           description: successful operation
@@ -348,9 +368,7 @@ paths:
         default:
           description: Unexpected error
       security:
-        - petstore_auth:
-            - write:pets
-            - read:pets
+        - pet_upload_key: []
   /store/inventory:
     get:
       tags:
@@ -665,6 +683,314 @@ paths:
           description: User not found
         default:
           description: Unexpected error
+  /lab/numeric:
+    post:
+      tags:
+        - lab
+      summary: Echo a numeric-constraints object.
+      operationId: labNumeric
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabNumeric'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabNumeric'
+        '422':
+          description: Validation exception
+  /lab/string:
+    post:
+      tags:
+        - lab
+      summary: Echo a string-constraints object.
+      operationId: labString
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabString'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabString'
+        '422':
+          description: Validation exception
+  /lab/array:
+    post:
+      tags:
+        - lab
+      summary: Echo an array-constraints object.
+      operationId: labArray
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabArray'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabArray'
+        '422':
+          description: Validation exception
+  /lab/formats:
+    post:
+      tags:
+        - lab
+      summary: Echo a string-formats object.
+      operationId: labFormats
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabFormats'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabFormats'
+        '422':
+          description: Validation exception
+  /lab/enum-const:
+    post:
+      tags:
+        - lab
+      summary: Echo an enum and const object.
+      operationId: labEnumConst
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabEnumConst'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabEnumConst'
+        '422':
+          description: Validation exception
+  /lab/closed:
+    post:
+      tags:
+        - lab
+      summary: Echo a closed object (additionalProperties false).
+      operationId: labClosed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabClosed'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabClosed'
+        '422':
+          description: Validation exception
+  /lab/presence:
+    post:
+      tags:
+        - lab
+      summary: Echo a required / nullable / optional / default object.
+      operationId: labPresence
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabPresence'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabPresence'
+        '422':
+          description: Validation exception
+  /lab/map:
+    post:
+      tags:
+        - lab
+      summary: Echo a typed additionalProperties map object.
+      operationId: labMap
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabMap'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabMap'
+        '422':
+          description: Validation exception
+  /lab/union:
+    post:
+      tags:
+        - lab
+      summary: Echo a scalar oneOf union object.
+      operationId: labUnion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabUnion'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabUnion'
+        '422':
+          description: Validation exception
+  /lab/nested:
+    post:
+      tags:
+        - lab
+      summary: Echo a nested object plus collection.
+      operationId: labNested
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabNested'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabNested'
+        '422':
+          description: Validation exception
+  /lab/backed-enum:
+    post:
+      tags:
+        - lab
+      summary: Echo an object carrying a backed enum.
+      operationId: labBackedEnum
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabBackedEnum'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabBackedEnum'
+        '422':
+          description: Validation exception
+  /lab/allof:
+    post:
+      tags:
+        - lab
+      summary: Echo an allOf merged-flat object.
+      operationId: labAllOf
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabAllOf'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabAllOf'
+        '422':
+          description: Validation exception
+  /lab/shape:
+    post:
+      tags:
+        - lab
+      summary: Echo a discriminated object union (named-component form).
+      operationId: labShape
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabShape'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabShape'
+        '422':
+          description: Validation exception
+  /lab/ref-body:
+    post:
+      tags:
+        - lab
+      summary: Echo via a component requestBodies $ref (#110).
+      operationId: labRefBody
+      requestBody:
+        $ref: '#/components/requestBodies/LabRefBody'
+      responses:
+        '200':
+          description: echoed via a component responses $ref (#116)
+          $ref: '#/components/responses/LabRefResponse'
+        '422':
+          description: Validation exception
+  /lab/accepted:
+    post:
+      tags:
+        - lab
+      summary: A 202 Accepted success status (exercises RespondsWithStatus).
+      operationId: labAccepted
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabAllOf'
+      responses:
+        '202':
+          description: accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabAllOf'
+        '422':
+          description: Validation exception
 components:
   schemas:
     Order:
@@ -844,6 +1170,243 @@ components:
           type: string
       xml:
         name: '##default'
+    LabNumeric:
+      type: object
+      required:
+        - bounded
+        - exclusive
+        - multiple
+      properties:
+        bounded:
+          type: integer
+          minimum: 10
+          maximum: 20
+        exclusive:
+          type: number
+          exclusiveMinimum: 0
+          exclusiveMaximum: 1
+        multiple:
+          type: integer
+          multipleOf: 5
+    LabString:
+      type: object
+      required:
+        - sized
+        - coded
+      properties:
+        sized:
+          type: string
+          minLength: 3
+          maxLength: 8
+        coded:
+          type: string
+          pattern: '^[A-Z]{2}-[0-9]{4}$'
+    LabArray:
+      type: object
+      required:
+        - bag
+        - distinct
+      properties:
+        bag:
+          type: array
+          minItems: 2
+          maxItems: 4
+          items:
+            type: string
+        distinct:
+          type: array
+          uniqueItems: true
+          items:
+            type: integer
+    LabFormats:
+      type: object
+      required:
+        - day
+        - moment
+        - clock
+        - span
+        - mail
+        - identifier
+        - host
+      properties:
+        day:
+          type: string
+          format: date
+        moment:
+          type: string
+          format: date-time
+        clock:
+          type: string
+          format: time
+        span:
+          type: string
+          format: duration
+        mail:
+          type: string
+          format: email
+        identifier:
+          type: string
+          format: uuid
+        host:
+          type: string
+          format: hostname
+    LabEnumConst:
+      type: object
+      required:
+        - color
+        - version
+      properties:
+        color:
+          type: string
+          enum:
+            - red
+            - green
+            - blue
+        version:
+          type: string
+          const: v2
+    LabClosed:
+      type: object
+      additionalProperties: false
+      required:
+        - known
+      properties:
+        known:
+          type: string
+    LabPresence:
+      type: object
+      required:
+        - mandatory
+      properties:
+        mandatory:
+          type: string
+        nullableField:
+          type: string
+          nullable: true
+        optionalField:
+          type: string
+        withDefault:
+          type: string
+          default: fallback
+    LabMap:
+      type: object
+      required:
+        - label
+      properties:
+        label:
+          type: string
+        counts:
+          type: object
+          additionalProperties:
+            type: integer
+    LabUnion:
+      type: object
+      required:
+        - value
+      properties:
+        value:
+          oneOf:
+            - type: string
+            - type: integer
+    LabInner:
+      type: object
+      required:
+        - label
+      properties:
+        label:
+          type: string
+        weight:
+          type: number
+    LabNested:
+      type: object
+      required:
+        - title
+        - inner
+        - items
+      properties:
+        title:
+          type: string
+        inner:
+          $ref: '#/components/schemas/LabInner'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LabInner'
+    LabPriority:
+      type: string
+      enum:
+        - low
+        - medium
+        - high
+      description: A named string enum component, generated as a backed enum class.
+    LabBackedEnum:
+      type: object
+      required:
+        - priority
+      properties:
+        priority:
+          $ref: '#/components/schemas/LabPriority'
+    LabBase:
+      type: object
+      required:
+        - baseField
+      properties:
+        baseField:
+          type: string
+    LabAllOf:
+      allOf:
+        - $ref: '#/components/schemas/LabBase'
+        - type: object
+          required:
+            - extraField
+          properties:
+            extraField:
+              type: integer
+    LabCircle:
+      type: object
+      required:
+        - kind
+        - radius
+      properties:
+        kind:
+          type: string
+          const: circle
+        radius:
+          type: number
+          exclusiveMinimum: 0
+    LabSquare:
+      type: object
+      required:
+        - kind
+        - side
+      properties:
+        kind:
+          type: string
+          const: square
+        side:
+          type: number
+          exclusiveMinimum: 0
+    LabShape:
+      oneOf:
+        - $ref: '#/components/schemas/LabCircle'
+        - $ref: '#/components/schemas/LabSquare'
+      discriminator:
+        propertyName: kind
+        mapping:
+          circle: '#/components/schemas/LabCircle'
+          square: '#/components/schemas/LabSquare'
+    LabRefPayload:
+      type: object
+      required:
+        - note
+        - amount
+      properties:
+        note:
+          type: string
+          minLength: 1
+        amount:
+          type: integer
+          minimum: 1
   requestBodies:
     Pet:
       description: Pet object that needs to be added to the store
@@ -862,6 +1425,20 @@ components:
             type: array
             items:
               $ref: '#/components/schemas/User'
+    LabRefBody:
+      description: A component request body that wraps a schema $ref (#110).
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/LabRefPayload'
+  responses:
+    LabRefResponse:
+      description: A component response that wraps a schema $ref (#116).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/LabRefPayload'
   securitySchemes:
     petstore_auth:
       type: oauth2
@@ -874,4 +1451,8 @@ components:
     api_key:
       type: apiKey
       name: api_key
+      in: header
+    pet_upload_key:
+      type: apiKey
+      name: X-API-Key
       in: header

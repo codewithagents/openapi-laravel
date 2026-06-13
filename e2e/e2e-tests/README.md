@@ -26,6 +26,24 @@ Every assertion maps to a specific contract-first proof:
 | Attributes map round-trips | additionalProperties map survives the full stack |
 | Delete removes from list | Generated client DELETEs and list re-fetches |
 | Status filter tabs | findPetsByStatus over real HTTP filters correctly |
+| Multipart PNG upload (#75) | generated `UploadFileRequestData` (`UploadedFile` + `file`/`mimetypes` rules) accepts the multipart POST; the photo URL lands on the pet |
+| Non-PNG upload 422 (#75) | the generated `mimetypes:image/png` rule rejects a text file |
+| Upload 401 / 200 (#77) | the mapped `api-key` middleware on the generated route enforces the `X-API-Key` scheme |
+| DELETE -> 204 (#64) | the generated `void` return + `RespondsWithStatus:204` yield an exact 204 with an empty body |
+| X-Total-Count header (#114, residual) | CONSUMER-written `TotalCountHeader` middleware sets the spec-declared header; the generator only warns, so this proves consumer glue, not generator support |
+| Upload image serving (#75, D) | the recorded `/storage/uploads/<file>` URL serves the bytes (byte-identical to the upload) via the public storage symlink |
+
+The suite also has an API-contract tier: the stateless `/lab/*` endpoints hit
+the backend directly (Playwright `request` fixture, no UI) to prove the full
+runtime feature matrix in breadth: numeric/string/array constraints, string
+formats, enum/const, closed objects, presence/defaults, typed maps (incl. empty
+map serializes `{}`), oneOf scalar unions, nested objects + collections, backed
+enums, allOf merge, discriminated unions, component `$ref` request/response
+bodies (#110/#116), and a non-200 success status. Two rows are `test.fixme`
+where real behavior diverges from the promised contract (unknown discriminator
+returns 500 not 422; a 202 on a POST returning Data is pre-empted to 201 by
+laravel-data). See `../README.md` for the full living coverage table with the
+spec construct, generated-vs-consumer breakdown, and proven-vs-residual status.
 
 ## Prerequisites
 
@@ -77,6 +95,9 @@ e2e-tests/
   run.sh                   Orchestration: up, wait, test, down
   tests/
     petstore.spec.ts       All end-to-end scenarios
+    fixtures/
+      pixel.png            1x1 PNG used by the multipart upload test
+      not-an-image.txt     non-PNG used to prove the mimetypes rule rejects it
   .gitignore
   README.md
 ```

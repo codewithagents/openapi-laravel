@@ -1,7 +1,9 @@
 <?php
 
+use App\Http\Middleware\ApiKey;
 use App\Http\Middleware\CreatedResponse;
 use App\Http\Middleware\ForceJsonAccept;
+use App\Http\Middleware\TotalCountHeader;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -24,14 +26,38 @@ return Application::configure(basePath: dirname(__DIR__))
         // all error responses JSON regardless of what the client advertised.
         //
         // CreatedResponse promotes successful create operations to 201.
+        //
+        // The routes file is GENERATED (not committed) and written by
+        // ../generate.sh before the stack builds. Guard the require so the
+        // framework can still boot in a clean checkout where it does not exist
+        // yet: without this, `composer install` (which boots artisan via
+        // package:discover) and `openapi:generate` itself both fatal on the
+        // missing require before generation ever runs. Once generated, the
+        // routes load normally.
         then: function (): void {
+            $generatedRoutes = __DIR__.'/../routes/api.generated.php';
+
+            if (! file_exists($generatedRoutes)) {
+                return;
+            }
+
+            // TotalCountHeader is consumer-written glue for the X-Total-Count
+            // response header the spec declares on findPetsByStatus: the
+            // generator only warns about response headers (issue #114), so the
+            // adopter sets it. It is scoped by route name inside the middleware.
             Route::prefix('api')
-                ->middleware([ForceJsonAccept::class, CreatedResponse::class])
-                ->group(__DIR__.'/../routes/api.generated.php');
+                ->middleware([ForceJsonAccept::class, CreatedResponse::class, TotalCountHeader::class])
+                ->group($generatedRoutes);
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        // Register the 'api-key' alias the generated uploadFile route references.
+        // The generator maps the spec's pet_upload_key scheme to this alias (see
+        // config/openapi-laravel.php security.middleware_map); the consumer owns
+        // both the alias registration and the ApiKey enforcement class.
+        $middleware->alias([
+            'api-key' => ApiKey::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
