@@ -1227,6 +1227,58 @@ const READER_BASELINE_REBASELINED_SELF_STATIC = [
     'zuora.json' => 'final query Data factory return type changed from static to self',
 ];
 
+/*
+ * INTENTIONAL post-freeze rebaseline (deprecated controller docblocks): the 22
+ * specs in READER_BASELINE_REBASELINED_DEPRECATED_CONTROLLER_DOCBLOCKS carry a
+ * post-fix hash because they declare at least one operation marked
+ * `deprecated: true`, whose abstract controller method now carries an
+ * `@deprecated` docblock line (symmetric with the `@deprecated` tag a
+ * deprecated schema already gives its generated Data class). OpenAPI's
+ * operation `deprecated` is a bare boolean with no reason field, so the line is
+ * a plain `@deprecated`. The ONLY divergence in each of these hashes is the
+ * added `@deprecated` docblock line(s) on the affected abstract controller
+ * methods: a strict, additive documentation improvement, no existing file
+ * dropped, retyped, or reworded, and the warning lists are byte-identical. A
+ * spec also present in an earlier rebaseline list accumulates the change; every
+ * spec outside the rebaseline lists stays the frozen v0.11.0 freeze, byte for
+ * byte.
+ */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-fix output (a
+ * deprecated operation's abstract controller method gains an `@deprecated`
+ * docblock line), keyed by spec basename. The per-spec test below still
+ * compares against the JSON baseline, which now holds these specs' post-fix
+ * hashes; the coverage test pins that every listed name exists on disk and in
+ * the baseline, so the list cannot rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_DEPRECATED_CONTROLLER_DOCBLOCKS = [
+    'adyen-checkout.yaml' => 'deprecated operation gains an @deprecated controller method docblock',
+    'apple_appstore.json' => 'deprecated operation gains an @deprecated controller method docblock',
+    'aws_lambda.json' => 'deprecated operation gains an @deprecated controller method docblock',
+    'aws_s3.json' => 'deprecated operation gains an @deprecated controller method docblock',
+    'bitbucket.json' => 'deprecated operation gains an @deprecated controller method docblock',
+    'codat_accounting.json' => 'deprecated operation gains an @deprecated controller method docblock',
+    'codat_banking.json' => 'deprecated operation gains an @deprecated controller method docblock',
+    'digitalocean.json' => 'deprecated operation gains an @deprecated controller method docblock',
+    'dracoon.json' => 'deprecated operation gains an @deprecated controller method docblock',
+    'elevenlabs.json' => 'deprecated operation gains an @deprecated controller method docblock',
+    'github.json' => 'deprecated operation gains an @deprecated controller method docblock',
+    'here_tracking.json' => 'deprecated operation gains an @deprecated controller method docblock',
+    'jira.json' => 'deprecated operation gains an @deprecated controller method docblock',
+    'linode.json' => 'deprecated operation gains an @deprecated controller method docblock',
+    'openai.yaml' => 'deprecated operation gains an @deprecated controller method docblock',
+    'plaid.json' => 'deprecated operation gains an @deprecated controller method docblock',
+    'resend.json' => 'deprecated operation gains an @deprecated controller method docblock',
+    'shutterstock.json' => 'deprecated operation gains an @deprecated controller method docblock',
+    'soundcloud.json' => 'deprecated operation gains an @deprecated controller method docblock',
+    'spotify.yaml' => 'deprecated operation gains an @deprecated controller method docblock',
+    'stripe.json' => 'deprecated operation gains an @deprecated controller method docblock',
+    'zoom.json' => 'deprecated operation gains an @deprecated controller method docblock',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -1297,11 +1349,11 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
 
     // Every spec rebaselined for #110, #116, #120, #122, #124, #125, #126,
     // #113, #121, #129, #30, #130, the transitive nested-readOnly write split,
-    // #132 (delimited arrays), or #131 (deepObject object query parameters)
-    // must still exist on disk and carry a hash in the baseline (it is an
-    // update, not an exemption): a renamed or deleted spec would make the
-    // documented rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY), ...array_keys(READER_BASELINE_REBASELINED_130), ...array_keys(READER_BASELINE_REBASELINED_DELIMITED_ARRAYS), ...array_keys(READER_BASELINE_REBASELINED_DEEPOBJECT), ...array_keys(READER_BASELINE_REBASELINED_SELF_STATIC)] as $spec) {
+    // #132 (delimited arrays), #131 (deepObject object query parameters), or the
+    // deprecated controller docblocks must still exist on disk and carry a hash
+    // in the baseline (it is an update, not an exemption): a renamed or deleted
+    // spec would make the documented rebaseline lists rot silently.
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY), ...array_keys(READER_BASELINE_REBASELINED_130), ...array_keys(READER_BASELINE_REBASELINED_DELIMITED_ARRAYS), ...array_keys(READER_BASELINE_REBASELINED_DEEPOBJECT), ...array_keys(READER_BASELINE_REBASELINED_SELF_STATIC), ...array_keys(READER_BASELINE_REBASELINED_DEPRECATED_CONTROLLER_DOCBLOCKS)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }
