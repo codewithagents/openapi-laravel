@@ -132,9 +132,9 @@ copied verbatim into the generated `regex:` rule with no complexity analysis (#1
 catastrophic-backtracking pattern in the spec becomes a potential ReDoS at runtime in the generated
 app; PHP's `pcre.backtrack_limit` is the only backstop (it turns a hang into a failed match).
 
-**Cross-language e2e demo (`e2e/`, owned by another agent, do not edit):** one petstore-plus spec
-drives a generated Laravel backend and an openapi-zod-ts TypeScript client + SPA, with a Playwright
-headless-Chrome suite over real HTTP against a docker-compose stack. The full loop is green.
+**Cross-language e2e demo (`e2e/`):** one petstore-plus spec drives a generated Laravel backend and
+an openapi-zod-ts TypeScript client + SPA, with a Playwright headless-Chrome suite over real HTTP
+against a docker-compose stack. The full loop is green.
 
 ## Layout
 
