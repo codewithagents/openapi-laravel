@@ -79,6 +79,11 @@ A multipart/form-data object body (#75, inline or schema-$ref) synthesizes the s
 `format: binary` root parts typed `UploadedFile` (`file` rule, plus `mimetypes:` from a well-formed
 `contentMediaType`), arrays of binary as `array<int, UploadedFile>` with `field.*` file rules, and
 non-binary parts validated like JSON fields; JSON wins when an operation declares both media types.
+An `application/x-www-form-urlencoded` OBJECT body (#130) routes through the SAME `<Operation>RequestData`
+JSON-object pipeline (urlencoded values arrive in `$request->all()` exactly like JSON, validated by the
+same spec-derived rules), inline or schema-$ref or component-$ref; the media-type precedence is
+JSON > multipart > form-urlencoded (existing check order, JSON always wins); a non-object urlencoded
+body keeps the warned Request fallback.
 A `#/components/requestBodies/...` $ref body resolves to the component and routes through the same
 content-type logic (#110): a wrapped schema $ref reuses that component's existing Data class, an
 inline object schema emits ONE shared `<Component>RequestData` class for every referencing
@@ -149,9 +154,10 @@ contract, and the variants are untouched. The one remaining discriminator residu
 allOf-inheritance variant whose discriminator is not pinned by a `const` is not rejected for a wrong
 value when validated standalone (morph routing through the base is unaffected). Component
 `$ref` request bodies (`#/components/requestBodies/...`) resolve to typed Data params (#110);
-inline JSON OBJECT bodies are generated as `<Operation>RequestData` classes (#76) and
-multipart/form-data OBJECT bodies too (#75), but a body that is not an object shape (array, scalar,
-union, enum, free-form map, whole-body binary multipart) keeps the warned Request fallback.
+inline JSON OBJECT bodies are generated as `<Operation>RequestData` classes (#76), multipart/form-data
+OBJECT bodies too (#75), and `application/x-www-form-urlencoded` OBJECT bodies too (#130), but a body
+that is not an object shape (array, scalar, union, enum, free-form map, whole-body binary multipart)
+keeps the warned Request fallback.
 Component `$ref` responses resolve to typed returns (#116); a component response whose JSON schema
 is not an object shape keeps the warned JsonResponse fallback, an unresolvable response $ref
 (external, `#/paths/...`, missing, ref-to-ref) keeps it too. An inline (non-component) object
