@@ -29,9 +29,11 @@ use CodeWithAgents\OpenApiLaravel\Parser\Spec\SchemaNode;
  * Robustness is a hard requirement: a missing operationId, absent tags, no
  * responses, non-JSON bodies, weird path tokens, and unresolved $refs must
  * never fatal. An inline JSON object body synthesizes a per-operation Data
- * class through the model generator (issue #76), and a multipart/form-data
+ * class through the model generator (issue #76), a multipart/form-data
  * object body does the same with UploadedFile typing for its binary parts
- * (issue #75); when a type cannot be derived the collector falls back to
+ * (issue #75), and an application/x-www-form-urlencoded object body routes
+ * through the same JSON-object pipeline (issue #130, urlencoded input arrives
+ * in $request->all() exactly like JSON); when a type cannot be derived the collector falls back to
  * injecting Request / returning JsonResponse (or the base Symfony Response
  * for a response that declares only non-JSON content, issues #117/#118), and
  * every such fallback is surfaced through the warnings channel (issue #67)
@@ -1139,8 +1141,14 @@ final class OperationCollector
      * pipeline, so the inline shape gets the same rules() and typed param a
      * component schema would. A multipart/form-data object body (issue #75,
      * inline or `$ref`) synthesizes the same per-operation class with
-     * UploadedFile typing for its binary file parts; JSON wins when an
-     * operation declares both media types. A body that is itself a `$ref` to
+     * UploadedFile typing for its binary file parts. An
+     * application/x-www-form-urlencoded object body (issue #130) routes through
+     * the SAME JSON-object pipeline as the inline JSON path (urlencoded values
+     * arrive in `$request->all()` exactly like JSON, with no binary parts), so
+     * a `$ref` schema reuses its component's Data class and an inline object
+     * synthesizes `<Operation>RequestData`. The documented content-type
+     * precedence is JSON > multipart > form-urlencoded: JSON wins whenever it
+     * is declared alongside anything else. A body that is itself a `$ref` to
      * `#/components/requestBodies/<Name>` (issue #110) resolves to the
      * component and routes through exactly this logic, with one twist: a
      * synthesized class is SHARED across every operation referencing the
@@ -1242,11 +1250,87 @@ final class OperationCollector
                 return [null, true];
             }
 
+            // No JSON, no multipart: an application/x-www-form-urlencoded
+            // object body (issue #130) is structurally identical to a JSON
+            // object body. Laravel parses urlencoded input into
+            // $request->all() exactly like JSON, so it routes through the SAME
+            // generateBodyData() JSON-object pipeline (NOT the multipart
+            // UploadedFile path: urlencoded carries no binary parts). Consulted
+            // only after jsonSchema() AND multipartSchema() found nothing, so
+            // the documented precedence is JSON > multipart > form-urlencoded:
+            // JSON still wins over everything (the established, richer mapping),
+            // and an operation declaring both multipart and urlencoded keeps
+            // the multipart typing it already had. A non-object urlencoded body
+            // returns null with a warning and keeps the Request fallback below,
+            // exactly like the non-object JSON case.
+            $formUrlencoded = $this->formUrlencodedSchema($body->content);
+
+            if ($formUrlencoded !== null) {
+                if ($this->models !== null) {
+                    // A schema-level $ref reuses the component's existing Data
+                    // class like any JSON $ref body; an inline object shape (or
+                    // a component body, issue #110) synthesizes through the JSON
+                    // pipeline. The component body emits ONE shared class named
+                    // after the component, placed in the single tag group its
+                    // referencing operations share (or the flat root when they
+                    // span groups), exactly like the JSON path below.
+                    if ($formUrlencoded instanceof ReferenceNode) {
+                        $pointer = $formUrlencoded->pointer();
+                        $name = SchemaPointer::refName($pointer);
+                        if ($name !== null && isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'data') {
+                            $entry = $this->registry[$name];
+                            $type = $entry['writeClass'] ?? $entry['dataClass'];
+                            $imports[] = $this->dataFqcn($type);
+
+                            return [['name' => PhpIdentifier::toPropertyName($name), 'type' => $type], false];
+                        }
+
+                        $this->warnings[$name === null
+                            ? sprintf(
+                                'Operation %s: the application/x-www-form-urlencoded request body $ref "%s" is external or not a #/components/schemas pointer; the controller method falls back to Illuminate\Http\Request.',
+                                $label,
+                                $pointer,
+                            )
+                            : sprintf(
+                                'Operation %s: the application/x-www-form-urlencoded request body $ref "%s" does not resolve to a generated Data class; the controller method falls back to Illuminate\Http\Request.',
+                                $label,
+                                $pointer,
+                            )] = true;
+                        $imports[] = self::REQUEST_FQCN;
+
+                        return [null, true];
+                    }
+
+                    $class = $componentBodyName !== null
+                        ? $this->models->generateComponentBodyData($componentBodyName, $label, $formUrlencoded, $this->componentBodyTags[$componentBodyName] ?? null)
+                        : $this->models->generateBodyData($bodyBaseName, $label, $formUrlencoded, $this->firstTag($operation));
+
+                    if ($class !== null) {
+                        $imports[] = $this->dataFqcn($class);
+
+                        return [['name' => $this->bodyParamName($pathParams), 'type' => $class], false];
+                    }
+                    // The generator already warned (a non-object shape); keep
+                    // the documented Request fallback.
+                } else {
+                    // Legacy wiring without a model generator (internal call
+                    // sites and tests only; the planner always wires one in).
+                    $this->warnings[sprintf(
+                        'Operation %s: the request body is application/x-www-form-urlencoded and no model generator is wired in to synthesize a Data class; the controller method falls back to Illuminate\Http\Request.',
+                        $label,
+                    )] = true;
+                }
+
+                $imports[] = self::REQUEST_FQCN;
+
+                return [null, true];
+            }
+
             // Body exists but no schema this generator types (octet-stream,
-            // form-urlencoded, etc.): fall back to injecting Request.
+            // a plain-text body, etc.): fall back to injecting Request.
             if ($body->content !== []) {
                 $this->warnings[sprintf(
-                    'Operation %s: the request body declares no application/json or multipart/form-data schema; no body validation is generated and the controller method falls back to Illuminate\Http\Request.',
+                    'Operation %s: the request body declares no application/json, multipart/form-data, or application/x-www-form-urlencoded schema; no body validation is generated and the controller method falls back to Illuminate\Http\Request.',
                     $label,
                 )] = true;
                 $imports[] = self::REQUEST_FQCN;
@@ -1799,6 +1883,35 @@ final class OperationCollector
     private function isMultipartFormData(string $mediaType): bool
     {
         return strtolower(trim(explode(';', $mediaType)[0])) === 'multipart/form-data';
+    }
+
+    /**
+     * Find the application/x-www-form-urlencoded schema in a content map
+     * (issue #130). Only consulted after {@see jsonSchema()} AND
+     * {@see multipartSchema()} found nothing, so the documented precedence is
+     * JSON > multipart > form-urlencoded.
+     *
+     * @param  array<array-key, MediaTypeNode>  $content
+     */
+    private function formUrlencodedSchema(array $content): SchemaNode|ReferenceNode|null
+    {
+        foreach ($content as $mediaType => $media) {
+            if (! is_string($mediaType) || ! $this->isFormUrlencoded($mediaType)) {
+                continue;
+            }
+
+            $schema = $media->schema;
+            if ($schema !== null) {
+                return $schema;
+            }
+        }
+
+        return null;
+    }
+
+    private function isFormUrlencoded(string $mediaType): bool
+    {
+        return strtolower(trim(explode(';', $mediaType)[0])) === 'application/x-www-form-urlencoded';
     }
 
     private function scalarType(SchemaNode $schema): ?string

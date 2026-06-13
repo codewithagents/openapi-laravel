@@ -167,3 +167,115 @@ it('accepts every spec-valid inline body payload through the real validator', fu
 it('rejects every spec-invalid inline body payload through the real validator', function (array $payload) {
     expect(inlineBodyOracleOutcome($payload))->toBe('reject');
 })->with('spec_invalid_inline_bodies');
+
+/*
+ * Differential oracle for application/x-www-form-urlencoded object bodies
+ * (issue #130). The media type routes through the SAME generateBodyData()
+ * pipeline as the inline JSON path (urlencoded input arrives in
+ * $request->all() exactly like JSON), so the synthesized class and its rules()
+ * are byte-identical to the JSON case. This oracle proves end to end that a
+ * form-urlencoded body's spec constraints are enforced by the real Laravel
+ * validator just like the JSON body above: a smaller but representative
+ * constraint set across scalars, an enum, and a closed-object key check.
+ */
+
+/**
+ * @return class-string
+ */
+function formBodyOracleClass(): string
+{
+    static $class = null;
+    if ($class !== null) {
+        return $class;
+    }
+
+    $document = [
+        'openapi' => '3.0.3',
+        'info' => ['title' => 'FormBodyOracle', 'version' => '1.0.0'],
+        'paths' => [
+            '/things' => [
+                'post' => [
+                    'operationId' => 'createFormThing',
+                    'requestBody' => [
+                        'content' => ['application/x-www-form-urlencoded' => ['schema' => [
+                            'type' => 'object',
+                            'required' => ['name'],
+                            'additionalProperties' => false,
+                            'properties' => [
+                                'name' => ['type' => 'string', 'minLength' => 2, 'maxLength' => 10],
+                                'count' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 100],
+                                'sort' => ['type' => 'string', 'enum' => ['asc', 'desc']],
+                            ],
+                        ]]],
+                    ],
+                    'responses' => ['201' => ['description' => 'created']],
+                ],
+            ],
+        ],
+    ];
+
+    $decoded = json_decode((string) json_encode($document), true);
+    $spec = (new OpenApiReader)->read($decoded);
+
+    $namespace = 'FormBodyOracle\\Models';
+    $generator = new ModelGenerator(new GeneratorOptions($namespace));
+    $files = $generator->generate($spec);
+    (new OperationCollector(new ServerOptions(dataNamespace: $namespace), $generator->registry(), null, $generator))->collect($spec);
+
+    $dir = sys_get_temp_dir().'/oal_form_body_oracle_'.getmypid();
+    if (! is_dir($dir)) {
+        mkdir($dir, 0777, true);
+    }
+    loadGeneratedFiles($dir, [
+        ...array_values($generator->supportFiles()),
+        ...array_values($files),
+        ...array_values($generator->bodyFiles()),
+    ]);
+
+    /** @var class-string $class */
+    $class = $namespace.'\\Untagged\\CreateFormThingRequestData';
+    expect(class_exists($class))->toBeTrue('the form-urlencoded-body oracle class was not generated');
+
+    return $class;
+}
+
+/**
+ * @param  array<string, mixed>  $payload
+ */
+function formBodyOracleOutcome(array $payload): string
+{
+    try {
+        /** @var callable $validator */
+        $validator = [formBodyOracleClass(), 'validate'];
+        $validator($payload);
+
+        return 'accept';
+    } catch (ValidationException) {
+        return 'reject';
+    } catch (Throwable $e) {
+        return 'error:'.$e->getMessage();
+    }
+}
+
+dataset('spec_valid_form_bodies', [
+    'all fields valid' => [['name' => 'ab', 'count' => 50, 'sort' => 'asc']],
+    'only the required field' => [['name' => 'ab']],
+    'integer at the lower bound' => [['name' => 'ab', 'count' => 1]],
+    'enum second member' => [['name' => 'ab', 'sort' => 'desc']],
+]);
+
+dataset('spec_invalid_form_bodies', [
+    'missing required name' => [[]],
+    'string below minLength' => [['name' => 'a']],
+    'integer above maximum' => [['name' => 'ab', 'count' => 101]],
+    'enum value outside the set' => [['name' => 'ab', 'sort' => 'upward']],
+    'unknown key on the closed object' => [['name' => 'ab', 'extra' => 1]],
+]);
+
+it('accepts every spec-valid form-urlencoded body payload through the real validator', function (array $payload) {
+    expect(formBodyOracleOutcome($payload))->toBe('accept');
+})->with('spec_valid_form_bodies');
+
+it('rejects every spec-invalid form-urlencoded body payload through the real validator', function (array $payload) {
+    expect(formBodyOracleOutcome($payload))->toBe('reject');
+})->with('spec_invalid_form_bodies');

@@ -952,6 +952,78 @@ const READER_BASELINE_REBASELINED_NESTED_READONLY = [
     'xero.json' => 'transitive nested-readOnly write split',
 ];
 
+/*
+ * INTENTIONAL post-freeze rebaseline (GitHub issue #130, form-urlencoded
+ * object request bodies): the 37 specs in READER_BASELINE_REBASELINED_130
+ * carry a post-fix hash because they declare at least one
+ * application/x-www-form-urlencoded OBJECT request body, which the generator
+ * now synthesizes as a typed `<Operation>RequestData` class (the same
+ * JSON-object pipeline of issue #76, since urlencoded input arrives in
+ * `$request->all()` exactly like JSON) and types the controller param against,
+ * instead of the previous warned Request fallback. The divergence is therefore
+ * a strict improvement (a typed body param plus the new Data class file,
+ * sometimes nested inline classes too) plus the changed wording of the generic
+ * "declares no application/json, multipart/form-data, or
+ * application/x-www-form-urlencoded schema" fallback warning (a third media
+ * type joined the list). A spec present in an earlier rebaseline list
+ * accumulates the changes; every spec outside the rebaseline lists stays the
+ * frozen v0.11.0 freeze, byte for byte.
+ *
+ * A form-urlencoded body that is NOT an object (array, scalar, union, enum,
+ * free-form map) does NOT shift: it keeps the warned Request fallback, exactly
+ * like the non-object JSON case.
+ */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-issue-#130
+ * output (a form-urlencoded object request body now synthesizes a typed
+ * RequestData class), keyed by spec basename. The per-spec test below still
+ * compares against the JSON baseline, which now holds these specs' post-#130
+ * hashes; the coverage test pins that every listed name exists on disk and in
+ * the baseline, so the list cannot rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_130 = [
+    'aws_cloudformation.json' => 'form-urlencoded object body synthesizes RequestData',
+    'aws_iam.json' => 'form-urlencoded object body synthesizes RequestData',
+    'aws_rds.json' => 'form-urlencoded object body synthesizes RequestData',
+    'aws_s3.json' => 'form-urlencoded object body synthesizes RequestData',
+    'aws_sns.json' => 'form-urlencoded object body synthesizes RequestData',
+    'aws_sqs.json' => 'form-urlencoded object body synthesizes RequestData',
+    'box.json' => 'form-urlencoded object body synthesizes RequestData',
+    'brex.json' => 'form-urlencoded object body synthesizes RequestData',
+    'clevercloud.json' => 'form-urlencoded object body synthesizes RequestData',
+    'docker.json' => 'form-urlencoded object body synthesizes RequestData',
+    'docusign.json' => 'form-urlencoded object body synthesizes RequestData',
+    'gettyimages.json' => 'form-urlencoded object body synthesizes RequestData',
+    'github.json' => 'form-urlencoded object body synthesizes RequestData',
+    'google_bigquery.json' => 'form-urlencoded object body synthesizes RequestData',
+    'google_drive.json' => 'form-urlencoded object body synthesizes RequestData',
+    'google_gmail.json' => 'form-urlencoded object body synthesizes RequestData',
+    'here_tracking.json' => 'form-urlencoded object body synthesizes RequestData',
+    'jira.json' => 'form-urlencoded object body synthesizes RequestData',
+    'linode.json' => 'form-urlencoded object body synthesizes RequestData',
+    'notion.json' => 'form-urlencoded object body synthesizes RequestData',
+    'okta.json' => 'form-urlencoded object body synthesizes RequestData',
+    'petstore-3.0.yaml' => 'form-urlencoded object body synthesizes RequestData',
+    'postman.json' => 'form-urlencoded object body synthesizes RequestData',
+    'slack.json' => 'form-urlencoded object body synthesizes RequestData',
+    'soundcloud.json' => 'form-urlencoded object body synthesizes RequestData',
+    'spotify.yaml' => 'form-urlencoded object body synthesizes RequestData',
+    'stripe.json' => 'form-urlencoded object body synthesizes RequestData',
+    'traccar.json' => 'form-urlencoded object body synthesizes RequestData',
+    'twilio_api_v2010.json' => 'form-urlencoded object body synthesizes RequestData',
+    'twilio_messaging.json' => 'form-urlencoded object body synthesizes RequestData',
+    'twilio_verify.json' => 'form-urlencoded object body synthesizes RequestData',
+    'twilio_video.json' => 'form-urlencoded object body synthesizes RequestData',
+    'twilio.json' => 'form-urlencoded object body synthesizes RequestData',
+    'vercel.json' => 'form-urlencoded object body synthesizes RequestData',
+    'xero.json' => 'form-urlencoded object body synthesizes RequestData',
+    'youtube.json' => 'form-urlencoded object body synthesizes RequestData',
+    'zuora.json' => 'form-urlencoded object body synthesizes RequestData',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -1025,7 +1097,7 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
     // still exist on disk and carry a hash in the baseline (it is an update, not
     // an exemption): a renamed or deleted spec would make the documented
     // rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY)] as $spec) {
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY), ...array_keys(READER_BASELINE_REBASELINED_130)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }
