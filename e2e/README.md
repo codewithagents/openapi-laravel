@@ -441,6 +441,52 @@ runtime behavior:
   contract uses the PHP-native bracket form `?tags[]=a&tags[]=b` (active, green);
   the repeated-key ideal is parked as a clearly-labeled `.fixme`.
 
+### Bug-hunt tier: negative-path and multi-axis interaction probes
+
+Unlike the residual pins, these assert the CORRECT behavior. A spec is untrusted
+input AND so is the client request: a broken/empty/wrong-shape body, a mislabeled
+Content-Type, or a malformed path segment must all degrade to a clean 4xx, never
+a 500. The assertions are written to FAIL loudly on a 500. All are raw-HTTP via
+the request fixture.
+
+| Probe | Request | Observed behavior | Status |
+|---|---|---|---|
+| C1 broken JSON body | `POST /pet` and `POST /lab/numeric` with `Content-Type: application/json` and a truncated body `{"name":` | clean 422 (required-field error bag); no 500. The decode path treats an unparseable body as absent input and validation fires | proven (correct) |
+| C1 empty JSON body | same ops, EMPTY body | clean 422 (required fields), no 500 | proven (correct) |
+| C1 JSON array where object expected | same ops, body `[1,2,3]` | clean 422 (required fields), no 500: a wrong-shape top-level array does not TypeError the hydrator | proven (correct) |
+| C2 valid JSON sent as `text/plain` | `POST /pet` and `POST /lab/numeric`, spec-valid JSON bytes mislabeled `text/plain` | clean 422: Laravel does not JSON-decode a `text/plain` body, so the typed fields are absent and required-field validation 422s. No 415, no 500. (The content-type seam: JSON wins only when the body is actually labeled JSON; the form/xml branches stay dead in this e2e) | proven (pinned) |
+| C2 valid JSON sent as `x-www-form-urlencoded` | same ops, JSON bytes mislabeled form-urlencoded | clean 422: a raw JSON string is not valid form syntax, so the fields still do not materialize. No 500 | proven (pinned) |
+| B1 multi-axis upload, valid + query | `POST /pet/{petId}/uploadImage?additionalMetadata=foo` with a valid PNG multipart body | 201; the response message echoes both the multipart `caption` AND the query `additionalMetadata`, proving path + query + multipart body validate on separate axes without bleeding into one another. The query is read via the generated `UploadFileQueryData::fromQuery($request)` (consumer glue honoring the generator's docblock instruction) | proven (correct) |
+| B1 multi-axis upload, malformed petId | `POST /pet/not-an-int/uploadImage` (non-integer path segment) | **REAL BUG: 500**. Expected a clean 4xx. Parked `test.fixme` holding the correct assertion (see below) | bug (parked `.fixme`) |
+
+#### REAL BUG found: a non-integer `petId` path segment 500s on `uploadFile`
+
+`POST /pet/not-an-int/uploadImage` returns `500 {"message":"Server Error"}`.
+`laravel.log`:
+
+```
+TypeError: PetController::uploadFile(): Argument #2 ($petId) must be of type int,
+string given, called in .../Routing/ControllerDispatcher.php on line 46
+```
+
+Root cause (generator-shaped, NOT e2e glue, so OUT OF SCOPE to fix here): the
+generated abstract types the method parameter `int $petId`, and the generated
+route carries NO numeric constraint (no `->whereNumber('petId')`). With
+`strict_types=1`, Laravel's `ControllerDispatcher` binds the untrusted route
+segment `not-an-int` to the `int` parameter and PHP throws a TypeError BEFORE the
+controller body runs. The generated `UploadFilePathData::fromRoute()` guard,
+which exists precisely to 422 a bad segment via its `integer` rule, is therefore
+UNREACHABLE: the dispatcher cannot even assemble the argument list to enter the
+method, so the path class never gets a chance to validate. (Contrast `/lab/path`,
+whose `score` path param is also typed `int` but only ever receives numeric
+segments in the tests, so the TypeError is not exercised there.)
+
+Possible generator fixes (any one): emit `->whereNumber('petId')` on the route
+for numeric path params (a non-numeric segment then 404s before dispatch), OR
+type the abstract param `int|string` / accept the raw `Request` so `fromRoute()`
+runs and 422s cleanly. The `test.fixme` keeps the suite runnable while holding
+the correct assertion (a clean 4xx, never a 500) so the bug stays documented.
+
 ### #77 security middleware matrix (AND / OR / public), end-to-end
 
 The single `security middleware (#77)` row above proves the simplest case (one

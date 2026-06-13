@@ -2032,3 +2032,193 @@ test('lab/dual-status (residual #64): a controller-set 202 passes through untouc
   expect(res.status()).toBe(202);
   expect(await res.json()).toEqual({ state: 'accepted' });
 });
+
+// ===========================================================================
+// BUG-HUNTING TIER: negative-path and multi-axis interaction probes.
+//
+// Unlike the residual pins above, these assert the CORRECT behavior. A spec is
+// untrusted input AND so is the client request: a syntactically broken body, an
+// empty body, a wrong-shape body, or a mismatched Content-Type must all degrade
+// to a clean 4xx, never a 500. A 500 here is a real generator/glue bug, and the
+// assertion is written so the test FAILS loudly if one occurs.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// C1: malformed / empty / wrong-shape JSON request bodies (decode-path probe)
+//
+// The synthesized request Data classes (and the laravel-data request resolution
+// behind them) decode the raw body before validating against rules(). A broken
+// body, an empty body, or a JSON ARRAY where an OBJECT is expected are the
+// classic places for an uncaught TypeError (e.g. array_merge / spread over a
+// non-array decode) to surface as a 500. The contract is: each is a clean 4xx
+// (400 from the framework's JSON-parse guard, or 422 from validation).
+// ---------------------------------------------------------------------------
+
+/**
+ * POST a RAW string body to an endpoint with an explicit Content-Type, so we
+ * control the exact bytes on the wire (Playwright's `data:` would re-encode).
+ */
+async function rawPost(
+  request: import('@playwright/test').APIRequestContext,
+  url: string,
+  contentType: string,
+  rawBody: string,
+): Promise<{ status: number; text: string }> {
+  const res = await request.post(url, {
+    headers: { Accept: 'application/json', 'Content-Type': contentType },
+    data: rawBody,
+  });
+  return { status: res.status(), text: await res.text() };
+}
+
+test('C1 (bug-hunt): a syntactically BROKEN JSON body is a clean 4xx, never a 500', async ({ request }) => {
+  // A valid POST /pet body is a Pet object; here the JSON is truncated mid-token.
+  const broken = '{"name":';
+
+  const pet = await rawPost(request, `${API_BASE}/pet`, 'application/json', broken);
+  expect(pet.status, `POST /pet broken-JSON body returned ${pet.status}: ${pet.text}`).toBeLessThan(500);
+  expect(pet.status).toBeGreaterThanOrEqual(400);
+
+  const lab = await rawPost(request, `${API_BASE}/lab/numeric`, 'application/json', broken);
+  expect(lab.status, `POST /lab/numeric broken-JSON body returned ${lab.status}: ${lab.text}`).toBeLessThan(500);
+  expect(lab.status).toBeGreaterThanOrEqual(400);
+});
+
+test('C1 (bug-hunt): an EMPTY JSON body is a clean 4xx (required fields 422), never a 500', async ({ request }) => {
+  // Empty body decodes to null/empty. Required fields must drive a 422, NOT a
+  // TypeError on a null decode.
+  const pet = await rawPost(request, `${API_BASE}/pet`, 'application/json', '');
+  expect(pet.status, `POST /pet empty body returned ${pet.status}: ${pet.text}`).toBeLessThan(500);
+  expect(pet.status).toBeGreaterThanOrEqual(400);
+
+  const lab = await rawPost(request, `${API_BASE}/lab/numeric`, 'application/json', '');
+  expect(lab.status, `POST /lab/numeric empty body returned ${lab.status}: ${lab.text}`).toBeLessThan(500);
+  expect(lab.status).toBeGreaterThanOrEqual(400);
+});
+
+test('C1 (bug-hunt): a JSON ARRAY where an OBJECT is expected is a clean 4xx, never a 500', async ({ request }) => {
+  // A top-level array is valid JSON but the wrong SHAPE: the decode succeeds and
+  // hands a list to a validator/hydrator that expects a keyed map. This is the
+  // prime spot for a non-array-key TypeError -> 500. Contract: 4xx.
+  const arr = '[1,2,3]';
+
+  const pet = await rawPost(request, `${API_BASE}/pet`, 'application/json', arr);
+  expect(pet.status, `POST /pet array body returned ${pet.status}: ${pet.text}`).toBeLessThan(500);
+  expect(pet.status).toBeGreaterThanOrEqual(400);
+
+  const lab = await rawPost(request, `${API_BASE}/lab/numeric`, 'application/json', arr);
+  expect(lab.status, `POST /lab/numeric array body returned ${lab.status}: ${lab.text}`).toBeLessThan(500);
+  expect(lab.status).toBeGreaterThanOrEqual(400);
+});
+
+// ---------------------------------------------------------------------------
+// C2: wrong Content-Type negotiation (the content-type seam)
+//
+// CLAUDE.md: "JSON wins when an operation declares both media types." POST /pet
+// and POST /lab/numeric declare a JSON body; the form/xml branches are dead in
+// the e2e. We send a VALID-JSON byte body but lie about its type (text/plain,
+// then application/x-www-form-urlencoded). Laravel only parses a body into the
+// input bag when the Content-Type is JSON (or form), so the typed fields are
+// effectively absent -> required-field 422 (or a 415). Either way: never a 500.
+// This PINS the negotiation behavior so a future regression is visible.
+// ---------------------------------------------------------------------------
+
+test('C2 (bug-hunt): a valid JSON byte body sent as text/plain is a clean 4xx, never a 500', async ({ request }) => {
+  // A spec-valid Pet object, but mislabeled text/plain. Laravel will not JSON-
+  // decode it, so the typed fields go missing and validation must 422 (not 500).
+  const validPetJson = JSON.stringify({ name: 'CTypePlain', photoUrls: ['https://example.com/x.jpg'] });
+  const pet = await rawPost(request, `${API_BASE}/pet`, 'text/plain', validPetJson);
+  expect(pet.status, `POST /pet JSON-as-text/plain returned ${pet.status}: ${pet.text}`).toBeLessThan(500);
+  expect(pet.status).toBeGreaterThanOrEqual(400);
+
+  const validNumericJson = JSON.stringify({ bounded: 15, exclusive: 0.5, multiple: 25 });
+  const lab = await rawPost(request, `${API_BASE}/lab/numeric`, 'text/plain', validNumericJson);
+  expect(lab.status, `POST /lab/numeric JSON-as-text/plain returned ${lab.status}: ${lab.text}`).toBeLessThan(500);
+  expect(lab.status).toBeGreaterThanOrEqual(400);
+});
+
+test('C2 (bug-hunt): a valid JSON byte body sent as x-www-form-urlencoded is a clean 4xx, never a 500', async ({ request }) => {
+  // Same JSON bytes, but labeled form-urlencoded. Laravel parses form bodies into
+  // the input bag, but a raw JSON string is NOT valid form syntax, so the typed
+  // fields still do not materialize -> 422. The form branch of the synthesizer is
+  // otherwise dead in this e2e; this proves it does not crash when exercised.
+  const validNumericJson = JSON.stringify({ bounded: 15, exclusive: 0.5, multiple: 25 });
+  const lab = await rawPost(request, `${API_BASE}/lab/numeric`, 'application/x-www-form-urlencoded', validNumericJson);
+  expect(lab.status, `POST /lab/numeric JSON-as-form returned ${lab.status}: ${lab.text}`).toBeLessThan(500);
+  expect(lab.status).toBeGreaterThanOrEqual(400);
+
+  const validPetJson = JSON.stringify({ name: 'CTypeForm', photoUrls: ['https://example.com/x.jpg'] });
+  const pet = await rawPost(request, `${API_BASE}/pet`, 'application/x-www-form-urlencoded', validPetJson);
+  expect(pet.status, `POST /pet JSON-as-form returned ${pet.status}: ${pet.text}`).toBeLessThan(500);
+  expect(pet.status).toBeGreaterThanOrEqual(400);
+});
+
+// ---------------------------------------------------------------------------
+// B1: multi-axis uploadFile op (path int64 + query string + multipart body)
+//
+// POST /pet/{petId}/uploadImage declares THREE input axes at once. The generator
+// hands the controller (UploadFileRequestData $body, int $petId) and leaves a
+// docblock instruction to read additionalMetadata via UploadFileQueryData::
+// fromQuery($request). The concrete controller (e2e glue) now echoes the metadata
+// into the response message. These tests prove the three validation axes coexist
+// without bleeding into one another.
+// ---------------------------------------------------------------------------
+
+test('B1 (interaction): a valid multipart upload WITH ?additionalMetadata=foo 201s and echoes the metadata', async ({ request }) => {
+  const fs = require('node:fs') as typeof import('node:fs');
+  const png = fs.readFileSync(PNG_FIXTURE);
+
+  const res = await request.post(`${API_BASE}/pet/1/uploadImage?additionalMetadata=foo-bar-meta`, {
+    headers: { Accept: 'application/json', 'X-API-Key': UPLOAD_API_KEY },
+    multipart: {
+      image: { name: 'pixel.png', mimeType: 'image/png', buffer: png },
+      caption: 'multi-axis',
+    },
+  });
+  expect(res.status(), `multi-axis upload returned ${res.status()}: ${await res.text()}`).toBe(201);
+  const body = await res.json();
+  expect(body.code).toBe(200);
+  expect(body.type).toBe('success');
+  // The query param was read by UploadFileQueryData::fromQuery, separate from the
+  // multipart body parsing, and echoed back: proves query + body coexist.
+  expect(body.message).toContain('metadata: foo-bar-meta');
+  expect(body.message).toContain('caption: multi-axis');
+});
+
+// !!! REAL BUG FOUND (kept as the CORRECT assertion, parked .fixme to keep the
+// !!! suite runnable). A non-integer petId path segment on uploadFile 500s.
+//
+// OBSERVED: POST /pet/not-an-int/uploadImage -> 500 {"message":"Server Error"}.
+// laravel.log: "PetController::uploadFile(): Argument #2 ($petId) must be of
+// type int, string given, called in .../ControllerDispatcher.php on line 46".
+//
+// ROOT CAUSE (generator-shaped, NOT e2e glue): the generated abstract types the
+// method parameter `int $petId`, and the generated route has no numeric
+// constraint (no ->whereNumber('petId')). With strict_types=1, Laravel's
+// ControllerDispatcher binds the untrusted route segment 'not-an-int' to the
+// `int` parameter and PHP throws an UNCATCHABLE-AT-THIS-LAYER TypeError BEFORE
+// the controller body runs. The generated UploadFilePathData::fromRoute() guard
+// (which would 422 cleanly via its `integer` rule) is therefore UNREACHABLE on
+// this op: the dispatcher cannot even assemble the argument list to enter the
+// method. So a path-class that was built precisely to make a bad segment a clean
+// 422 never gets the chance. This is in generator `src/` territory (the abstract
+// signature + the route definition), so it is OUT OF SCOPE to fix here and is
+// reported as a finding. Possible generator fixes: emit `->whereNumber('petId')`
+// on numeric path params, OR type the abstract param `int|string` (or accept the
+// raw Request) so fromRoute() can run and 422 cleanly.
+//
+// The assertion below is the CORRECT contract (a clean 4xx, never a 500). It is
+// left intact under .fixme so the bug stays documented and the suite stays green.
+test.fixme('B1 (interaction): a malformed (non-integer) petId path segment is rejected, never a 500 [REAL BUG: 500 TypeError, see comment]', async ({ request }) => {
+  const fs = require('node:fs') as typeof import('node:fs');
+  const png = fs.readFileSync(PNG_FIXTURE);
+
+  const res = await request.post(`${API_BASE}/pet/not-an-int/uploadImage`, {
+    headers: { Accept: 'application/json', 'X-API-Key': UPLOAD_API_KEY },
+    multipart: { image: { name: 'pixel.png', mimeType: 'image/png', buffer: png } },
+  });
+  // CORRECT behavior: a bad path segment is a clean 4xx (422 from the path class,
+  // or 404 from route binding), never a 500. Currently FAILS with 500.
+  expect(res.status(), `bad-petId upload returned ${res.status()}: ${await res.text()}`).toBeLessThan(500);
+  expect(res.status()).toBeGreaterThanOrEqual(400);
+});

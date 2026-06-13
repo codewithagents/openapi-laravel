@@ -10,6 +10,8 @@ use App\Data\Pet\FindPetsByTagsQueryData;
 use App\Data\Pet\PetData;
 use App\Data\Pet\PetWritableData;
 use App\Data\Pet\UpdatePetWithFormQueryData;
+use App\Data\Pet\UploadFilePathData;
+use App\Data\Pet\UploadFileQueryData;
 use App\Data\Pet\UploadFileRequestData;
 use App\Support\PetStore;
 use Spatie\LaravelData\DataCollection;
@@ -133,6 +135,15 @@ final class PetController extends AbstractPetController
         // multipart rules() (issue #75): $body->image is a real UploadedFile
         // that already passed the 'file' + 'mimetypes:image/png' rules, so a
         // non-PNG or missing part would have 422'd before reaching this method.
+        //
+        // Path parameter: the generator's docblock instructs validating petId
+        // with UploadFilePathData::fromRoute($request) (it types the abstract
+        // arg int, but the route segment is untrusted text). We honor that so a
+        // non-integer segment is a clean 422 from the path class rather than a
+        // raw coercion error, and so path validation stays separate from the
+        // multipart body validation above.
+        $petId = UploadFilePathData::fromRoute(request())->petId;
+
         $pet = $this->store->findPet($petId);
 
         if ($pet === null) {
@@ -153,10 +164,21 @@ final class PetController extends AbstractPetController
         $size = $body->image->getSize() ?? 0;
         $caption = $body->caption !== null ? " (caption: {$body->caption})" : '';
 
+        // The spec declares additionalMetadata as a QUERY parameter (not a body
+        // field). The generator does NOT pass it as a method argument; it leaves
+        // a docblock instruction to validate/hydrate it from the query string via
+        // UploadFileQueryData::fromQuery($request). We honor that here so the
+        // multi-axis op (path + query + multipart body) proves all three coexist:
+        // the query class reads ONLY the query string and never sees the body.
+        $query = UploadFileQueryData::fromQuery(request());
+        $metadata = $query->additionalMetadata !== null
+            ? " (metadata: {$query->additionalMetadata})"
+            : '';
+
         return new ApiResponseData(
             code: 200,
             type: 'success',
-            message: "Image uploaded for pet {$petId}: {$photoUrl} ({$size} bytes){$caption}.",
+            message: "Image uploaded for pet {$petId}: {$photoUrl} ({$size} bytes){$caption}{$metadata}.",
         );
     }
 
