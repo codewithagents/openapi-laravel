@@ -138,6 +138,15 @@ final readonly class ControllerGenerator
             $doc[] = '     *';
             $doc[] = '     * '.$this->docblockSafe($operation->summary);
         }
+        if ($operation->deprecated) {
+            // The spec marks the operation `deprecated: true`. Emit a plain
+            // `@deprecated` tag, symmetric with the tag a deprecated schema
+            // gives its generated Data class (SchemaFacts::deprecationTag).
+            // OpenAPI's operation `deprecated` is a bare boolean with no reason
+            // field, so there is no text to attach.
+            $doc[] = '     *';
+            $doc[] = '     * @deprecated';
+        }
         if ($operation->queryParam !== null && ! $operation->queryParam['injected']) {
             // The query class is NOT injected here, for one of two reasons: the
             // request body occupies the payload and container resolution would

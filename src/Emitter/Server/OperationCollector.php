@@ -419,6 +419,7 @@ final class OperationCollector
             returnType: $returnType,
             returnDoc: $returnDoc,
             summary: $this->summary($operation),
+            deprecated: $operation->deprecated === true,
             imports: $imports,
             queryParam: $queryParam,
             pathDataParam: $pathDataParam,
