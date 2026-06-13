@@ -749,9 +749,12 @@ body, out of the box (see
 [server scaffold](/guides/server-scaffold#response-status-codes)). The residuals:
 
 **Other declared 2xx responses are not modeled.** An operation declaring both a 200 and a 202 is
-typed and enforced against the 200. Producing the 202 (or any other alternative status) is your
-code's responsibility: return a response object with the status set explicitly. The middleware
-only rewrites an exactly-200 response, so it never overrides a status you set yourself.
+typed and enforced against the 200, and an operation whose smallest 2xx is 200 carries no status
+middleware at all, so producing an alternative status is your code's responsibility: return a
+response object with the status set explicitly. The middleware is only attached when the selected
+success status is non-200, and it normalizes the framework-default success status (any 2xx) to the
+declared one; an error response (4xx/5xx) or a redirect (3xx) you set yourself always passes
+through untouched.
 
 **A spec-violating 204 body is dropped.** RFC 9110 forbids content on a 204, so a 204 operation's
 abstract method returns `void` even if the spec (incorrectly) declares a response schema on it,

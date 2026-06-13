@@ -487,9 +487,12 @@ Route::post('/pets', [PetController::class, 'createPet'])->name('createPet')->mi
 Your concrete controller keeps returning the plain Data object; no `response()` helpers, no status
 constants. `RespondsWithStatus` is inlined into your own `<output>/Support/` directory alongside
 the rule classes, so the generated output stays self-contained with no runtime dependency on the
-generator. The middleware only rewrites an exactly-200 response, which is Laravel's default for a
-returned Data object: an error response (404, 422, 500, ...) passes through untouched, and a
-handler that explicitly set its own non-200 status keeps it.
+generator. The middleware rewrites the framework-default success status (any 2xx) to the declared
+one. That default is not always 200: spatie/laravel-data serializes a Data object returned from a
+POST as 201 Created, so a declared 202 (or any other non-201 success) on a mutating Data-returning
+operation is honored even though the framework produced a 201. An error response (404, 422, 500,
+...) or a redirect passes through untouched, and a handler that explicitly set its own non-2xx
+status keeps it.
 
 **204 No Content** gets dedicated treatment. A 204 must not carry a body (RFC 9110), so the
 abstract method for an operation whose selected success response is a 204 is typed `void`: the

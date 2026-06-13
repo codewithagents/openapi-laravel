@@ -181,8 +181,8 @@ Why the pieces are what they are:
   routes. In an API-only app you can drop the guard, or scope with `$request->is('api/*')`
   instead.
 - **The generated status middleware does not interfere.** The scaffold's `RespondsWithStatus`
-  middleware only rewrites an exactly-200 response, so the renderer's 422 (or 400) passes through
-  untouched.
+  middleware only rewrites a framework-default success status (any 2xx), so the renderer's 422 (or
+  400) passes through untouched.
 
 <Aside type="note" title="Data classes serialize directly">
   A generated Data class implements `JsonSerializable`, `Arrayable`, and `Responsable`, so
