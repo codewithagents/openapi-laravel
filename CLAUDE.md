@@ -57,7 +57,12 @@ with a `fromQuery(Request)` factory. A non-exploded delimited array query param 
 `fromQuery()` on its declared delimiter before the array rules run: `style: form, explode: false`
 splits on comma, `spaceDelimited` on space, `pipeDelimited` on pipe; the `form`+`explode: true`
 repeated-key form (the query default) is unchanged, a missing key stays absent (not an empty array),
-and an empty string splits to a single empty element. Path parameters (#113) synthesize a per-operation `<Operation>PathData`
+and an empty string splits to a single empty element. A QueryData class that carries any such
+delimited-array param is forced ADDITIVE (not container-injected, the same mechanism as path and
+header params): container injection would make spatie validate the RAW unsplit string before
+`fromQuery()` runs, 422-ing a body-less GET delimited filter before the split, so the abstract method
+takes no injected query param and carries a `::fromQuery($request)` docblock pointer instead. A
+QueryData with no delimited-array param stays injected on body-less ops as before. Path parameters (#113) synthesize a per-operation `<Operation>PathData`
 class with a `fromRoute(Request)` factory reading `$request->route()->parameters()`, so a path
 segment's min/max/pattern/enum/format constraints are validated at runtime instead of silently
 dropped (a bad value is a 422, not a 200). An `integer` path parameter also gets a
