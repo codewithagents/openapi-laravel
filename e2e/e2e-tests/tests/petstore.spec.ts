@@ -1454,6 +1454,90 @@ test('lab/query: constrained query params (enum + min/max + pattern) round-trip 
 });
 
 // ---------------------------------------------------------------------------
+// Stage 1A2: NON-EXPLODED DELIMITED ARRAY QUERY PARAMS (#132). A non-exploded
+// delimited array query param arrives as ONE joined string, not the repeated/
+// bracket per-item shape the `array` rule expects. The generator SPLITS it in
+// the generated fromQuery() factory on its style's delimiter BEFORE the array
+// rules run, one delimiter per style:
+//   - form + explode:false  -> COMMA  (?csv=1,2,3)
+//   - spaceDelimited         -> SPACE  (?ssv=a b c, encoded as %20)
+//   - pipeDelimited          -> PIPE   (?psv=a|b|c, encoded as %7C)
+// /lab/delimited-query declares all three (csv as integers min:1 max:100). It is
+// a POST with a trivial body ON PURPOSE: a body makes the generated query class
+// ADDITIVE (reached via fromQuery($request), the uploadFile precedent), so the
+// generated split is the runtime-live path. On a body-less GET the generator
+// auto-injects the query class and spatie validates the UNSPLIT joined string
+// before fromQuery() can split, shadowing it (proven on GET /lab/styles `ids`
+// below). The echo proves the split happened (the response carries real arrays),
+// and the csv per-item bounds prove the split values feed validation, not get
+// dropped. This is the explicit-delimited counterpart to the explode:true
+// repeated-key PHP residual parked as a .fixme on findByTags (#63) further down.
+//
+// NOTE on status: spatie serializes a Data object returned from a POST as 201
+// (a framework default, documented in the README), so this echo responds 201.
+// ---------------------------------------------------------------------------
+
+// POST /lab/delimited-query with the three delimited query params in the URL and
+// a trivial JSON body. Returns { status, body }.
+async function labDelimited(
+  request: import('@playwright/test').APIRequestContext,
+  query: string,
+  note = 'hello',
+): Promise<{ status: number; body: any }> {
+  const res = await request.post(`${API_BASE}/lab/delimited-query?${query}`, {
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    data: { note },
+  });
+  let body: any = null;
+  try {
+    body = await res.json();
+  } catch {
+    body = null;
+  }
+  return { status: res.status(), body };
+}
+
+test('lab/delimited-query (#132): non-exploded delimited arrays are split per style and validated', async ({ request }) => {
+  // Happy path: each style's joined value is split into the right array.
+  //   csv (comma):  1,2,3        -> ['1','2','3']
+  //   ssv (space):  a b c        -> ['a','b','c']
+  //   psv (pipe):   x|y|z        -> ['x','y','z']
+  // The split is the load-bearing assertion: a 1-element array would mean the
+  // string was NOT split. The csv items echo back as STRINGS, not ints: explode()
+  // yields strings and laravel-data does not cast individual array elements (the
+  // `integer` rule VALIDATES integer-ness, proven by the negative cases below,
+  // but does not coerce the type). So we assert the split shape, with the csv
+  // values as the strings they arrive as.
+  const ok = await labDelimited(request, 'csv=1,2,3&ssv=a%20b%20c&psv=x%7Cy%7Cz');
+  expect(ok.status).toBe(201);
+  expect(ok.body).toEqual({ note: 'hello', csv: ['1', '2', '3'], ssv: ['a', 'b', 'c'], psv: ['x', 'y', 'z'] });
+
+  // A single-item value still splits into a one-element array (no special case).
+  const single = await labDelimited(request, 'csv=42&ssv=solo&psv=only');
+  expect(single.status).toBe(201);
+  expect(single.body).toEqual({ note: 'hello', csv: ['42'], ssv: ['solo'], psv: ['only'] });
+
+  // Negative: an OUT-OF-RANGE csv item 422s through the generated per-item rule
+  // (csv items are integer min:1 max:100). 201 here would prove the split values
+  // are NOT validated; 422 proves they are. The error bag keys the bad item.
+  // The error-bag key is the literal flat string "csv.N" (Laravel keys array
+  // item errors that way), so it is passed to toHaveProperty as a single-element
+  // array to stop the dot being read as a nested path.
+  const tooHigh = await labDelimited(request, 'csv=1,9999,3&ssv=a&psv=b');
+  expect(tooHigh.status).toBe(422);
+  expect(tooHigh.body.errors).toHaveProperty(['csv.1']);
+
+  const tooLow = await labDelimited(request, 'csv=0,2&ssv=a&psv=b');
+  expect(tooLow.status).toBe(422);
+  expect(tooLow.body.errors).toHaveProperty(['csv.0']);
+
+  // A required delimited param missing entirely 422s (the array rule is required).
+  const missing = await labDelimited(request, 'ssv=a&psv=b');
+  expect(missing.status).toBe(422);
+  expect(missing.body.errors).toHaveProperty('csv');
+});
+
+// ---------------------------------------------------------------------------
 // Stage 1B: PATH PARAM constraint (#113, now shipped). The generator emits
 // LabPathPathData with a fromRoute() factory; the concrete controller calls it,
 // so the path-segment min/max is enforced at runtime: an in-range value
@@ -2111,26 +2195,35 @@ test.fixme('findByTags (#63): the OpenAPI explode repeated-key form reflects BOT
 // The generate.sh warnings captured at generation time (verified verbatim):
 //   - GET /lab/styles: query parameter "filter" was skipped: style "deepObject"
 //     is not supported yet.
-//   - GET /lab/styles: query parameter "ids" was skipped: style "pipeDelimited"
-//     serializes the array into a single delimited value, which the generated
-//     array rules cannot validate.
 //   - GET /lab/cookie: cookie parameter(s) "session_hint" are not generated
 //     (cookie parameters are not supported yet).
 //   - Schema "LabLooseUnion": a oneOf/anyOf member is not a plain scalar or a
 //     $ref to a generated Data class; the union degrades to mixed with
 //     presence-only validation.
+//
+// NOTE (#132): the `ids` pipeDelimited array param on /lab/styles is NO LONGER
+// skipped at generation time: the generator now generates it (its pipeDelimited
+// skip warning is gone) and splits non-exploded delimited arrays in fromQuery().
+// But /lab/styles is a body-less GET, so the generator AUTO-INJECTS the query
+// class and spatie validates it against the RAW request, BYPASSING fromQuery():
+// the injected `ids` is judged as the unsplit pipe-joined STRING and fails the
+// `array` rule, so any `ids` value 422s on this GET. The runtime-live split
+// proof therefore lives on POST /lab/delimited-query above (additive query class
+// reached via fromQuery()); here we pin the GET-injection interaction honestly.
+// The deepObject `filter` object remains the only generation-time skipped param.
 // ===========================================================================
 
-// 1. NON-STANDARD QUERY STYLES are skipped + warned (RequestDataSynthesizer
-// querySkipReason). The deepObject `filter` object and the pipeDelimited `ids`
-// array were dropped at generation time and never reach the generated query
-// Data class (which carries ONLY `page`). Proof over HTTP: arbitrary/garbage
-// values for those params do NOT gate the request, because no validation exists
-// for them. The supported `page` param is still validated.
-test('lab/styles (residual): deepObject + pipeDelimited query params are skipped, not validated', async ({ request }) => {
-  // Garbage values for the skipped styles do not matter: the op still 200s,
-  // because filter/ids are absent from the generated query class entirely.
-  const ok = await labGet(request, 'styles?filter[category]=!!!&filter[minPrice]=notanumber&ids=99|abc|7&page=3');
+// 1. NON-STANDARD QUERY STYLES: the deepObject `filter` object is STILL skipped +
+// warned at generation time (RequestDataSynthesizer querySkipReason) and never
+// reaches the generated query Data class. The pipeDelimited `ids` array is no
+// longer skipped (#132), but on this body-less GET it is auto-injected and spatie
+// validates the UNSPLIT joined string, so any `ids` 422s (the split is shadowed).
+// Proof over HTTP: a garbage `filter` value does not gate the request (no
+// validation exists for it); a request that wants a 200 must OMIT `ids`.
+test('lab/styles (residual): deepObject filter is skipped; on a GET, injected ids 422s unsplit (#132)', async ({ request }) => {
+  // A garbage `filter` value does not matter (deepObject is still skipped). With
+  // `ids` OMITTED the op 200s and echoes the validated `page`.
+  const ok = await labGet(request, 'styles?filter[category]=!!!&filter[minPrice]=notanumber&page=3');
   expect(ok.status).toBe(200);
   expect(ok.body).toEqual({ page: 3 });
 
@@ -2139,8 +2232,16 @@ test('lab/styles (residual): deepObject + pipeDelimited query params are skipped
   expect(bare.status).toBe(200);
   expect(bare.body).toEqual({ page: 0 });
 
-  // The ONE param that WAS generated is still validated (page min:1 max:50):
-  // proves the op is not just blanket-accepting everything.
+  // `ids` is now a generated, validated property (#132), but on this GET it is
+  // container-injected and validated as the unsplit joined STRING, so it fails
+  // the `array` rule. Both a "valid-looking" and a non-integer `ids` 422 here:
+  // the split never runs on the injected path. (The split IS live on the
+  // additive POST /lab/delimited-query above.)
+  expect((await labGet(request, 'styles?ids=99%7C7&page=3')).status).toBe(422);
+  expect((await labGet(request, 'styles?ids=99%7Cabc%7C7&page=3')).status).toBe(422);
+
+  // The `page` param is still validated (min:1 max:50): proves the op is not
+  // just blanket-accepting everything.
   expect((await labGet(request, 'styles?page=0')).status).toBe(422);
   expect((await labGet(request, 'styles?page=999')).status).toBe(422);
 });

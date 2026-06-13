@@ -1105,6 +1105,76 @@ paths:
                 $ref: '#/components/schemas/LabQueryEcho'
         '422':
           description: Validation exception
+  /lab/delimited-query:
+    post:
+      tags:
+        - lab
+      summary: >-
+        Echo NON-EXPLODED DELIMITED array query parameters (#132). The generator
+        splits each delimited array in the generated fromQuery() factory BEFORE
+        the array rules run, one delimiter per style: form+explode:false on
+        COMMA (?csv=1,2,3), spaceDelimited on SPACE (?ssv=a b c), pipeDelimited
+        on PIPE (?psv=a|b|c). The csv items carry minimum:1 maximum:100, so an
+        out-of-range item 422s through the generated per-item rules, proving the
+        split values really feed validation rather than being dropped. The op is
+        a POST with a (trivial) request body ON PURPOSE: a body makes the
+        generated query class ADDITIVE (the body param is injected, the query
+        class is reached via fromQuery($request)), so the generated split is the
+        runtime-live path. On a body-less GET the generator would auto-inject the
+        query class and spatie would validate the UNSPLIT joined string before
+        fromQuery() could run, shadowing the split (see GET /lab/styles `ids`).
+      operationId: labDelimitedQuery
+      parameters:
+        - name: csv
+          in: query
+          required: true
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: integer
+              minimum: 1
+              maximum: 100
+        - name: ssv
+          in: query
+          required: true
+          style: spaceDelimited
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+        - name: psv
+          in: query
+          required: true
+          style: pipeDelimited
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - note
+              properties:
+                note:
+                  type: string
+                  minLength: 1
+      responses:
+        '200':
+          description: echoed delimited query parameters (split into arrays)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabDelimitedEcho'
+        '422':
+          description: Validation exception
   /lab/path/{score}:
     get:
       tags:
@@ -2202,6 +2272,28 @@ components:
           type: integer
         code:
           type: string
+    LabDelimitedEcho:
+      type: object
+      required:
+        - note
+        - csv
+        - ssv
+        - psv
+      properties:
+        note:
+          type: string
+        csv:
+          type: array
+          items:
+            type: integer
+        ssv:
+          type: array
+          items:
+            type: string
+        psv:
+          type: array
+          items:
+            type: string
     LabPathEcho:
       type: object
       required:

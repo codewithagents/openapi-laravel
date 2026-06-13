@@ -13,6 +13,9 @@ use App\Data\Lab\LabCircleData;
 use App\Data\Lab\LabClosedData;
 use App\Data\Lab\LabClosedNestData;
 use App\Data\Lab\LabCookieEchoData;
+use App\Data\Lab\LabDelimitedEchoData;
+use App\Data\Lab\LabDelimitedQueryQueryData;
+use App\Data\Lab\LabDelimitedQueryRequestData;
 use App\Data\Lab\LabEnumConstData;
 use App\Data\Lab\LabFormatsData;
 use App\Data\Lab\LabFormBodyRequestData;
@@ -215,6 +218,34 @@ final class LabController extends AbstractLabController
         );
     }
 
+    public function labDelimitedQuery(LabDelimitedQueryRequestData $body): LabDelimitedEchoData
+    {
+        // Non-exploded DELIMITED array query params (#132). The generated query
+        // class LabDelimitedQueryQueryData is ADDITIVE here (this op has a body, so
+        // the generator injects the body and leaves a docblock pointing at
+        // fromQuery($request)). We honor that, the same way uploadFile does for its
+        // query class: the generated fromQuery() factory splits each delimited
+        // query string on its style's delimiter (csv on comma, ssv on space, psv
+        // on pipe) BEFORE the array rules run, validates the per-item bounds (csv
+        // items min:1 max:100, so an out-of-range item 422s), and returns the
+        // typed arrays. This is the runtime-live path for the generated split:
+        // because the query class is reached via fromQuery() and not container
+        // injection, the split runs before validation instead of being shadowed by
+        // spatie validating the unsplit joined string (the body-less-GET hazard,
+        // see GET /lab/styles `ids`). The injected $body proves the multipart-free
+        // axes coexist: the body validates separately and never bleeds into the
+        // query split. Echoing the split arrays back proves the split happened
+        // (e.g. ?csv=1,2,3 -> [1,2,3]).
+        $query = LabDelimitedQueryQueryData::fromQuery(request());
+
+        return new LabDelimitedEchoData(
+            note: $body->note,
+            csv: $query->csv,
+            ssv: $query->ssv,
+            psv: $query->psv,
+        );
+    }
+
     public function show(int $score): LabPathEchoData
     {
         // Path-param min/max validation (#113): the generator emits
@@ -410,14 +441,19 @@ final class LabController extends AbstractLabController
 
     public function labStyles(LabStylesQueryData $query): LabStylesEchoData
     {
-        // Non-standard query styles residual: the deepObject `filter` object and
-        // the pipeDelimited `ids` array were SKIPPED with a warning at generation
-        // time, so they are absent from LabStylesQueryData and never validated.
-        // Only the supported `page` param survives, validated against rules()
-        // (min:1 max:50). We echo the validated page so the test can prove the
-        // skipped params do not gate the request: any garbage filter/ids value
-        // still reaches a 200. A page default keeps the echo well-typed when the
-        // optional param is omitted.
+        // Query styles, post-#132. The deepObject `filter` object is STILL skipped
+        // with a warning at generation time, so it is absent from
+        // LabStylesQueryData and never validated. The pipeDelimited `ids` array is
+        // NO LONGER skipped (#132): it is now a generated, validated integer-array
+        // property. This op is a body-less GET, so the generator INJECTS the query
+        // class and spatie validates it against the RAW request. Container
+        // injection bypasses the generated fromQuery() split, so the injected
+        // `ids` is validated as the unsplit pipe-joined STRING and fails the
+        // `array` rule: any `ids` value 422s on this GET (the split path is only
+        // live where the query class is additive, see POST /lab/delimited-query).
+        // So we read only the validated `page`; a request that wants a 200 must
+        // omit `ids` entirely. A page default keeps the echo well-typed, and a
+        // garbage `filter` value never gates the request (deepObject is skipped).
         return new LabStylesEchoData(page: $query->page ?? 0);
     }
 
