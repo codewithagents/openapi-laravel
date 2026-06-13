@@ -1522,6 +1522,64 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LabDualStatusEcho'
+  /lab/empty-map:
+    get:
+      tags:
+        - lab
+      summary: >-
+        Empty-map RESPONSE serialization. Returns a LabMap whose typed
+        additionalProperties map (counts) is empty. Pins that the generated
+        MapObjectTransformer forces JSON object encoding on the RESPONSE side:
+        an empty map serializes as {} not []. The request side is already
+        covered by /lab/map and POST /pet attributes.
+      operationId: labEmptyMap
+      responses:
+        '200':
+          description: a LabMap with an empty counts map
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabMap'
+  /lab/nested-binary:
+    post:
+      tags:
+        - lab
+      summary: >-
+        Multipart with a binary field NESTED below the multipart root (#75
+        residual). Only ROOT-level format:binary parts become UploadedFile; a
+        binary string nested inside an object property stays a plain string with
+        no file handling. Pins that wrapper.payload is validated/echoed as a
+        plain string, not treated as an uploaded file.
+      operationId: labNestedBinary
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - wrapper
+              properties:
+                caption:
+                  type: string
+                wrapper:
+                  type: object
+                  required:
+                    - payload
+                  properties:
+                    payload:
+                      type: string
+                      format: binary
+                      contentMediaType: image/png
+      responses:
+        '200':
+          description: echoed nested-binary handling
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '422':
+          description: Validation exception
 components:
   schemas:
     Order:

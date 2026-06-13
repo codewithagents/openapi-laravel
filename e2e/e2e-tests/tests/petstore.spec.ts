@@ -812,6 +812,80 @@ test('POST /pet read/write split: writeOnly absent, readOnly server-set, MapName
   expect((await request.delete(`${API_BASE}/pet/${pet.id}`, { headers: { Accept: 'application/json' } })).status()).toBe(204);
 });
 
+// ---------------------------------------------------------------------------
+// PUT /pet writable-variant contract: full replace, NOT merge, and readOnly is
+// preserved server-side. PetWritableData is the write variant (no readOnly
+// created_at). PetController::updatePet rebuilds the read model field-by-field
+// from the write variant, so an OMITTED optional field on the PUT body becomes
+// null on the stored PetData (full replace). created_at is readOnly, absent
+// from the write variant, and re-sourced from the existing pet, so it is
+// PRESERVED across the update.
+// ---------------------------------------------------------------------------
+
+test('PUT /pet full-replaces (omitted optionals null out) and PRESERVES the readOnly created_at', async ({ request }) => {
+  const json = { Accept: 'application/json', 'Content-Type': 'application/json' };
+  const name = `E2E-PUT-${Date.now()}`;
+
+  // 1. Create a pet with the optional fields POPULATED (attributes map + the
+  //    nullable weight_kg + a microchip id). created_at is server-set (readOnly).
+  const created = await request.post(`${API_BASE}/pet`, {
+    headers: json,
+    data: {
+      name,
+      photoUrls: ['https://example.com/put-before.png'],
+      status: 'available',
+      microchip_id: 'chip-put-before',
+      weight_kg: 9.5,
+      attributes: { color: 'black', size: 'large' },
+      external_id: 'ext-put-before',
+    },
+  });
+  expect(created.status()).toBe(201);
+  const before = await created.json();
+  const id = before.id as number;
+  expect(before.attributes).toEqual({ color: 'black', size: 'large' });
+  expect(before.weight_kg).toBe(9.5);
+  expect(before.microchip_id).toBe('chip-put-before');
+  const originalCreatedAt = before.created_at as string;
+  expect(originalCreatedAt).toBeDefined();
+
+  // 2. PUT /pet with the SAME id but OMITTING attributes, weight_kg, and
+  //    microchip_id (and only the required fields plus a new status).
+  const put = await request.put(`${API_BASE}/pet`, {
+    headers: json,
+    data: {
+      id,
+      name: `${name}-renamed`,
+      photoUrls: ['https://example.com/put-after.png'],
+      status: 'sold',
+    },
+  });
+  expect(put.status()).toBe(200);
+
+  // 3. Read it back and assert FULL REPLACE: the omitted optional fields are now
+  //    null/absent, not carried over from the create (no merge).
+  const after = await request.get(`${API_BASE}/pet/${id}`, { headers: { Accept: 'application/json' } });
+  expect(after.status()).toBe(200);
+  const pet = await after.json();
+
+  expect(pet.name).toBe(`${name}-renamed`);
+  expect(pet.status).toBe('sold');
+  expect(pet.photoUrls).toEqual(['https://example.com/put-after.png']);
+
+  // Omitted optionals replaced with null (NOT the create-time values).
+  expect(pet.weight_kg).toBeNull();
+  expect(pet.microchip_id ?? null).toBeNull();
+  // The attributes map was omitted: it must NOT retain the create-time entries.
+  expect(pet.attributes ?? {}).toEqual({});
+
+  // 4. readOnly created_at is PRESERVED, unchanged from the create. The client
+  //    never sent it (it is not on the write variant); the server re-sourced it.
+  expect(pet.created_at).toBe(originalCreatedAt);
+
+  // clean up the throwaway pet.
+  expect((await request.delete(`${API_BASE}/pet/${id}`, { headers: { Accept: 'application/json' } })).status()).toBe(204);
+});
+
 test('POST /pet attributes map round-trips intact, and an empty map serializes as {} not []', async ({ request }) => {
   // Non-empty map round-trips key-for-key.
   const withAttrs = await request.post(`${API_BASE}/pet`, {
@@ -1155,6 +1229,25 @@ test('lab/map: typed additionalProperties map round-trips, and an empty map seri
 
   // a non-integer map value 422s.
   expect((await labPost(request, 'map', { label: 'x', counts: { a: 'bad' } })).status).toBe(422);
+});
+
+test('lab/empty-map: an EMPTY map RESPONSE serializes as {} not [] (response side of map serialization)', async ({ request }) => {
+  // GET /lab/empty-map returns a LabMap whose typed additionalProperties map
+  // (counts) is empty server-side. The generated MapObjectTransformer forces
+  // JSON object encoding on the RESPONSE, so the empty map is {} not []. We
+  // check the raw text so [] vs {} is unambiguous. This pins the RESPONSE side
+  // (the request side is covered by /lab/map and POST /pet attributes above).
+  const res = await request.get(`${API_BASE}/lab/empty-map`, {
+    headers: { Accept: 'application/json' },
+  });
+  expect(res.status()).toBe(200);
+  const text = await res.text();
+  expect(text).toContain('"counts":{}');
+  expect(text).not.toContain('"counts":[]');
+  const body = await res.json();
+  expect(body.label).toBe('empty');
+  expect(body.counts).toEqual({});
+  expect(Array.isArray(body.counts)).toBe(false);
 });
 
 test('lab/union: oneOf scalar union hydrates BOTH variants without coercion', async ({ request }) => {
@@ -1637,6 +1730,37 @@ test('lab/gallery (#75 edge): a multipart array of binary files validates per-fi
     },
   });
   expect(bad.status()).toBe(422);
+});
+
+test('lab/nested-binary (#75 residual): a binary field NESTED below the multipart root stays a plain string, not an UploadedFile', async ({ request }) => {
+  // The spec declares wrapper.payload as format:binary, but it sits inside the
+  // `wrapper` object, BELOW the multipart root. Only ROOT-level binary parts
+  // become UploadedFile (file + mimetypes rules); a nested binary string is
+  // typed `string` with a plain 'string' rule and gets NO file handling. So a
+  // plain-text value is ACCEPTED here (it would 422 on a root-level file part)
+  // and is echoed back verbatim as a string.
+  const ok = await request.post(`${API_BASE}/lab/nested-binary`, {
+    headers: { Accept: 'application/json' },
+    multipart: {
+      caption: 'nested',
+      'wrapper[payload]': 'just-plain-text-not-a-file',
+    },
+  });
+  expect(ok.status()).toBe(201);
+  const body = await ok.json();
+  // The nested payload was treated as a plain string: it is echoed verbatim,
+  // typed as a string, with its plain-text length. An UploadedFile part would
+  // never have made it past validation as plain text.
+  expect(body.message).toContain('echoed as a string');
+  expect(body.message).toContain('just-plain-text-not-a-file');
+  expect(body.message).toContain('(caption: nested)');
+
+  // wrapper is required: omitting it 422s on the generated 'required' rule.
+  const missing = await request.post(`${API_BASE}/lab/nested-binary`, {
+    headers: { Accept: 'application/json' },
+    multipart: { caption: 'nope' },
+  });
+  expect(missing.status()).toBe(422);
 });
 
 test('lab/tuple (#82): prefixItems validate per position (and the value round-trips)', async ({ request }) => {

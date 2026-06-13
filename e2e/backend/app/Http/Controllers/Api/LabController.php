@@ -22,6 +22,7 @@ use App\Data\Lab\LabInlineShapeData;
 use App\Data\Lab\LabInt64Data;
 use App\Data\Lab\LabLooseUnionData;
 use App\Data\Lab\LabMapData;
+use App\Data\Lab\LabNestedBinaryRequestData;
 use App\Data\Lab\LabNestedData;
 use App\Data\Lab\LabNumericData;
 use App\Data\Lab\LabPathEchoData;
@@ -110,6 +111,17 @@ final class LabController extends AbstractLabController
     public function labMap(LabMapData $labMap): LabMapData
     {
         return $labMap;
+    }
+
+    public function labEmptyMap(): LabMapData
+    {
+        // Empty-map RESPONSE serialization: return a LabMap whose typed
+        // additionalProperties map (counts) is EMPTY. The generated
+        // MapObjectTransformer forces JSON object encoding, so the empty map
+        // serializes as {} not []. This pins the response side of map
+        // serialization (the request side is covered by /lab/map and the
+        // POST /pet attributes map).
+        return new LabMapData(label: 'empty', counts: []);
     }
 
     public function labUnion(LabUnionData $labUnion): LabUnionData
@@ -268,6 +280,28 @@ final class LabController extends AbstractLabController
             code: 200,
             type: 'success',
             message: "Received {$count} photo(s){$album}.",
+        );
+    }
+
+    public function labNestedBinary(LabNestedBinaryRequestData $body): ApiResponseData
+    {
+        // Nested-binary multipart residual (#75): the `wrapper.payload` field is
+        // declared format:binary, but it sits BELOW the multipart root inside the
+        // `wrapper` object. Only ROOT-level binary parts become UploadedFile; a
+        // nested binary string stays a PLAIN STRING (no file handling, validated
+        // with a 'string' rule, not 'file'/'mimetypes:'). So $body->wrapper->payload
+        // is a string here, never an UploadedFile. We echo it back as text to
+        // prove it round-trips as a plain string. A real PNG byte buffer would
+        // arrive as that string verbatim, but the test sends plain text to keep
+        // the assertion legible: a non-file value is accepted, which it would not
+        // be for a root-level UploadedFile part.
+        $payload = $body->wrapper->payload;
+        $caption = $body->caption !== null ? " (caption: {$body->caption})" : '';
+
+        return new ApiResponseData(
+            code: 200,
+            type: 'success',
+            message: 'Nested payload echoed as a '.gettype($payload).' of length '.strlen($payload).": {$payload}{$caption}.",
         );
     }
 
