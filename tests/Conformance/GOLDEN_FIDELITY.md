@@ -1,7 +1,7 @@
 # Golden conformance fidelity
 
 Harness: tests/Conformance/GoldenSpecFidelityTest.php.
-Generated: 2026-06-12.
+Generated: 2026-06-13.
 
 This is the measured runtime answer to "how much of the comprehensive golden
 conformance contract does the generated wrapper actually honor". Every row is a

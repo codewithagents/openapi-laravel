@@ -390,6 +390,7 @@ final class OperationCollector
         $this->warnCallbacks($operation, $label);
         $queryParam = $this->queryParam($method, $path, $operation, $parameters, $bodyParam, $bodyRequiresRequest, $pathParams, $imports);
         $pathDataParam = $this->pathDataParam($method, $path, $operation, $parameters);
+        $headerDataParam = $this->headerDataParam($method, $path, $operation, $parameters);
 
         sort($imports);
         $imports = array_values(array_unique($imports));
@@ -419,6 +420,7 @@ final class OperationCollector
             imports: $imports,
             queryParam: $queryParam,
             pathDataParam: $pathDataParam,
+            headerDataParam: $headerDataParam,
             successStatus: $successStatus,
             securityMiddleware: $security->middlewareFor($label, $operation->security),
         );
@@ -467,6 +469,59 @@ final class OperationCollector
         // (issue #93) can place the path class in its operation's tag group;
         // the flat layout ignores it.
         $class = $this->models->generatePathData($baseName, $label, $pathParameters, $this->firstTag($operation));
+        if ($class === null) {
+            return null;
+        }
+
+        // The FQCN is spelled out for the docblock pointer: under the grouped
+        // layout (issue #93) the class may live in a tag subnamespace, and
+        // only the collector knows which. Not imported (it never appears in
+        // the signature), so no `use` goes unused.
+        return $this->dataFqcn($class);
+    }
+
+    /**
+     * Resolve the operation's `in: header` parameters into a generated header
+     * Data class FQCN (issue #121), or null when there is nothing to generate
+     * (no header params, no model generator wired in, or every header was
+     * skipped as reserved/framework-owned). Like the path param, this is NEVER
+     * injected into the signature (it would otherwise shadow a body/query
+     * container resolution); the controller carries a docblock pointer to
+     * (`\Fqcn::fromHeaders($request)`), the same non-injected precedent.
+     *
+     * The class name derives from the operationId-or-fallback, so `getWidget`
+     * yields GetWidgetHeaderData. Deliberately NOT the conventional method name
+     * (issue #94), like the query, path, and body classes: Data classes live in
+     * the global Data namespace, where a per-controller `ShowHeaderData` would
+     * clash across controllers while GetWidgetHeaderData stays unique.
+     *
+     * @param  list<ParameterNode>  $parameters
+     */
+    private function headerDataParam(string $method, string $path, OperationNode $operation, array $parameters): ?string
+    {
+        if ($this->models === null) {
+            return null;
+        }
+
+        $headerParameters = [];
+        foreach ($parameters as $parameter) {
+            if ($parameter->in === 'header') {
+                $headerParameters[] = $parameter;
+            }
+        }
+
+        if ($headerParameters === []) {
+            return null;
+        }
+
+        $baseName = PhpIdentifier::toClassName($this->methodName($operation, $method, $path));
+        $label = strtoupper($method).' '.$path;
+
+        // The operation's first tag rides along so the grouped data layout
+        // (issue #93) can place the header class in its operation's tag group;
+        // the flat layout ignores it. The generator returns null (and warns)
+        // when every declared header is reserved/framework-owned.
+        $class = $this->models->generateHeaderData($baseName, $label, $headerParameters, $this->firstTag($operation));
         if ($class === null) {
             return null;
         }
@@ -581,35 +636,37 @@ final class OperationCollector
     }
 
     /**
-     * Record a warning for each `in: header` / `in: cookie` parameter group on
-     * an operation: the scaffold does not generate typing or validation for
-     * those locations yet (issue #63 scoped them out), and silence would hide
-     * the information loss. One warning per location kind per operation, with
-     * the parameter names listed, so a spec-wide trace header does not flood
-     * the channel.
+     * Record a warning for each `in: cookie` parameter group on an operation:
+     * the scaffold does not generate typing or validation for cookie
+     * parameters yet (issue #63 scoped them out, issue #121 left them out of
+     * scope), and silence would hide the information loss. One warning per
+     * operation with the parameter names listed, so a spec-wide cookie does
+     * not flood the channel.
+     *
+     * `in: header` parameters are no longer warned here (issue #121): a custom
+     * header is now synthesized into a per-operation `<Operation>HeaderData`
+     * class with spec-derived rules() through {@see headerDataParam()}, and a
+     * reserved/framework-owned standard header is skipped with its own,
+     * narrower warning from the synthesizer's {@see RequestDataSynthesizer::headerSkipReason()}.
      *
      * @param  list<ParameterNode>  $parameters
      */
     private function warnUnsupportedParameterLocations(string $method, string $path, array $parameters): void
     {
-        foreach (['header', 'cookie'] as $kind) {
-            $names = [];
-            foreach ($parameters as $parameter) {
-                if ($parameter->in === $kind && $parameter->name !== '') {
-                    $names[] = '"'.$parameter->name.'"';
-                }
+        $names = [];
+        foreach ($parameters as $parameter) {
+            if ($parameter->in === 'cookie' && $parameter->name !== '') {
+                $names[] = '"'.$parameter->name.'"';
             }
+        }
 
-            if ($names !== []) {
-                $this->warnings[sprintf(
-                    'Operation %s %s: %s parameter(s) %s are not generated (%s parameters are not supported yet).',
-                    strtoupper($method),
-                    $path,
-                    $kind,
-                    implode(', ', $names),
-                    $kind,
-                )] = true;
-            }
+        if ($names !== []) {
+            $this->warnings[sprintf(
+                'Operation %s %s: cookie parameter(s) %s are not generated (cookie parameters are not supported yet).',
+                strtoupper($method),
+                $path,
+                implode(', ', $names),
+            )] = true;
         }
     }
 

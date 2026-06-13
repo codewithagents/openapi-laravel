@@ -1,0 +1,57 @@
+openapi: 3.0.3
+info:
+  title: Constrained Header Parameters
+  version: 1.0.0
+paths:
+  /widgets:
+    get:
+      tags:
+        - widget
+      operationId: listWidgets
+      parameters:
+        - name: X-Request-Id
+          in: header
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-f0-9]{8}$'
+        - name: X-Page-Size
+          in: header
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: X-Status
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/WidgetStatus'
+        - name: Accept
+          in: header
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+  /flags:
+    get:
+      tags:
+        - widget
+      operationId: getFlags
+      parameters:
+        - name: X-Debug
+          in: header
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: ok
+components:
+  schemas:
+    WidgetStatus:
+      type: string
+      enum: [open, closed, archived]

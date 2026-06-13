@@ -342,9 +342,11 @@ final class ClassRenderer
      * @param  array<string, list<string>>  $rules
      * @param  list<string>  $classDoc  class-level docblock lines, in emit order; empty means no docblock
      * @param  list<string>|null  $fromQueryBooleans  non-null emits the query-only fromQuery() factory (per-operation query classes, issue #63); the list holds the wire names of boolean parameters that need true/false literal mapping
-     * @param  list<string>|null  $fromRouteBooleans  non-null emits the route-only fromRoute() factory (per-operation path classes, issue #113); the list holds the wire names of boolean parameters that need true/false literal mapping. At most one of $fromQueryBooleans / $fromRouteBooleans is non-null.
+     * @param  list<string>|null  $fromRouteBooleans  non-null emits the route-only fromRoute() factory (per-operation path classes, issue #113); the list holds the wire names of boolean parameters that need true/false literal mapping. At most one of $fromQueryBooleans / $fromRouteBooleans / $fromHeaderNames is non-null.
+     * @param  list<string>|null  $fromHeaderNames  non-null emits the header-only fromHeaders() factory (per-operation header classes, issue #121); the list holds EVERY header's lowercased wire name, so the factory pulls the first value of each declared header before validating
+     * @param  list<string>  $fromHeaderBooleans  the subset of $fromHeaderNames that are boolean and need true/false literal mapping; ignored unless $fromHeaderNames is non-null
      */
-    public function renderDataClass(string $className, array $params, array $imports, array $rules, array $classDoc = [], ?array $fromQueryBooleans = null, ?array $fromRouteBooleans = null): string
+    public function renderDataClass(string $className, array $params, array $imports, array $rules, array $classDoc = [], ?array $fromQueryBooleans = null, ?array $fromRouteBooleans = null, ?array $fromHeaderNames = null, array $fromHeaderBooleans = []): string
     {
         [$imports, $traitUse] = $this->applyValidationTrait($className, $imports);
 
@@ -400,6 +402,7 @@ final class ClassRenderer
         $factory = match (true) {
             $fromQueryBooleans !== null => "\n\n".$this->renderFromQuery($fromQueryBooleans),
             $fromRouteBooleans !== null => "\n\n".$this->renderFromRoute($fromRouteBooleans),
+            $fromHeaderNames !== null => "\n\n".$this->renderFromHeaders($fromHeaderNames, $fromHeaderBooleans),
             default => '',
         };
 
@@ -526,6 +529,90 @@ final class ClassRenderer
             .'        }'."\n"
             ."\n"
             .'        return self::validateAndCreate($parameters);'."\n"
+            .'    }';
+    }
+
+    /**
+     * The header-only creation factory every per-operation header Data class
+     * carries (issue #121). It validates against rules() and hydrates from the
+     * request HEADERS only, so a constrained custom header (min/max/pattern/
+     * enum/format) is enforced at runtime instead of silently dropped: a bad
+     * value is a 422, not a 200. Like the path class it is NOT auto-injected
+     * (it would otherwise shadow a body/query container resolution), so the
+     * implementer calls it explicitly.
+     *
+     * Two header-specific wire facts shape the factory: Symfony lowercases
+     * every key in `$request->headers->all()` and returns each value as an
+     * array-of-strings, so the factory pulls the FIRST value of each declared
+     * (lowercased) header into a flat map keyed by the same lowercased names
+     * the rules() use. Absent headers are simply not added, so a missing
+     * REQUIRED header is rejected by its rule and an optional one stays unset.
+     * Boolean headers get the same true/false literal mapping fromQuery()
+     * applies.
+     *
+     * @param  list<string>  $headerNames  every header's lowercased wire name, in spec order
+     * @param  list<string>  $booleanNames  the subset of $headerNames that are boolean
+     */
+    private function renderFromHeaders(array $headerNames, array $booleanNames): string
+    {
+        $names = implode(', ', array_map(
+            fn (string $name): string => "'".PhpLiteral::escapeSingleQuoted($name)."'",
+            $headerNames,
+        ));
+
+        $doc = '    /**'."\n"
+            .'     * Validate against rules() and hydrate from the request headers only, so'."\n"
+            .'     * a constrained custom header is enforced at runtime (a bad value is a 422,'."\n"
+            .'     * not a silent 200). HTTP header names are case-insensitive (read'."\n"
+            .'     * lowercased) and each value is an array, so the first value of each'."\n"
+            .'     * declared header is taken before validation.'."\n";
+
+        // The shared extraction prologue: pull the first value of each declared
+        // header (lowercased keys, array values) into a flat map.
+        $prologue = '        $all = $request->headers->all();'."\n"
+            .'        $headers = [];'."\n"
+            ."\n"
+            .'        foreach (['.$names.'] as $name) {'."\n"
+            .'            if (isset($all[$name]) && $all[$name] !== []) {'."\n"
+            .'                $headers[$name] = $all[$name][0];'."\n"
+            .'            }'."\n"
+            .'        }'."\n";
+
+        if ($booleanNames === []) {
+            return $doc
+                .'     */'."\n"
+                .'    public static function fromHeaders(Request $request): static'."\n"
+                ."    {\n"
+                .$prologue
+                ."\n"
+                .'        return self::validateAndCreate($headers);'."\n"
+                .'    }';
+        }
+
+        $boolNames = implode(', ', array_map(
+            fn (string $name): string => "'".PhpLiteral::escapeSingleQuoted($name)."'",
+            $booleanNames,
+        ));
+
+        return $doc
+            .'     * Boolean parameters arrive as the form-style literals true / false,'."\n"
+            .'     * which are mapped to 1 / 0 before validation.'."\n"
+            .'     */'."\n"
+            .'    public static function fromHeaders(Request $request): static'."\n"
+            ."    {\n"
+            .$prologue
+            ."\n"
+            .'        foreach (['.$boolNames.'] as $name) {'."\n"
+            .'            if (array_key_exists($name, $headers)) {'."\n"
+            .'                $headers[$name] = match ($headers[$name]) {'."\n"
+            ."                    'true' => '1',"."\n"
+            ."                    'false' => '0',"."\n"
+            .'                    default => $headers[$name],'."\n"
+            .'                };'."\n"
+            .'            }'."\n"
+            .'        }'."\n"
+            ."\n"
+            .'        return self::validateAndCreate($headers);'."\n"
             .'    }';
     }
 

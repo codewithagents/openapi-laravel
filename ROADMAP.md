@@ -116,9 +116,18 @@ components (#66). Query parameters (#63) generate a per-operation query Data cla
 so a path segment's min/max/pattern/enum/format constraints are enforced at runtime (a bad value is
 a 422, not a silent 200). It is the additive runtime-validation seam: the positional scalar path
 arguments still fill the controller signature, and the abstract method carries a docblock pointer to
-`::fromRoute($request)` rather than injecting the class. The query and path synthesis share one
-location-parameterized core in RequestDataSynthesizer (the seam a future `in: header` class, #121,
-extends). An inline JSON
+`::fromRoute($request)` rather than injecting the class. Header parameters (#121) generate a
+per-operation header Data class (`<Operation>HeaderData`) the same way, with a
+`fromHeaders(Request)` factory validating and hydrating from the request headers only, so a
+constrained custom header's min/max/pattern/enum/format is enforced at runtime instead of silently
+dropped. Two header-specific wrinkles: HTTP header names are case-insensitive, so the wire key (the
+`#[MapName]` and the rules() key) is the LOWERCASED spec name matching Symfony's
+`$request->headers->all()`, and each header value is an array-of-strings, so the factory takes the
+FIRST value of each header before validation; reserved/framework-owned standard headers (Accept,
+Content-Type, Authorization, Host, User-Agent, Cookie, ...) are skipped with a warning so the
+framework keeps managing them. Like the path class it is NOT injected: the abstract method carries a
+docblock pointer to `::fromHeaders($request)`. The query, path, and header synthesis share one
+location-parameterized core in RequestDataSynthesizer. An inline JSON
 object request body (#76) synthesizes a per-operation Data class (`<Operation>RequestData`, named
 from the operationId like the query class, collision-safe through the shared allocator) through the
 exact component-class pipeline (full `rules()`, nested objects, closed-object enforcement, the
@@ -216,7 +225,14 @@ collisions failing loudly.
   (#107), so a catastrophic-backtracking pattern in the spec becomes a potential ReDoS at runtime in
   the generated app. PHP's `pcre.backtrack_limit` is the only backstop, turning a hang into a failed
   match rather than preventing the CPU burn.
-- `in: header` / `in: cookie` parameters are not generated (warned per operation, #63 scoped them out).
+- `in: header` parameters are now validated (#121): a per-operation `<Operation>HeaderData` class
+  with spec-derived rules() and a `fromHeaders(Request)` factory enforces a constrained custom
+  header at runtime (a bad value is a 422, not a silent 200). The wire key is the LOWERCASED spec
+  name (HTTP headers are case-insensitive; Symfony lowercases them) and the factory takes the first
+  value of each header's array. Reserved/framework-owned standard headers (Accept, Content-Type,
+  Authorization, Host, ...) are skipped with a warning, and a non-scalar/non-enum header schema
+  degrades to a warned presence-only `mixed`. `in: cookie` parameters are still not generated
+  (warned per operation, deliberately out of scope).
 - Response headers are not generated (warned per operation, #114). Only the SELECTED success
   response warns: it is the one response the generator consumes, so headers on error responses (or
   bypassed success alternatives) stay silent by design.

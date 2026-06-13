@@ -72,6 +72,18 @@ final readonly class OperationDescriptor
          */
         public ?string $pathDataParam = null,
         /*
+         * The fully-qualified name of the operation's generated header Data
+         * class (issue #121), or null when the operation declares no validatable
+         * `in: header` parameters (none, or all reserved/framework-owned). NEVER
+         * injected into the signature: it would otherwise shadow a body/query
+         * container resolution, so this is a separate, additive
+         * runtime-validation seam the controller carries a docblock pointer to
+         * (`\Fqcn::fromHeaders($request)`). Under the tag-grouped data layout
+         * (issue #93) it may sit in a tag subnamespace, which the pointer spells
+         * out from here.
+         */
+        public ?string $headerDataParam = null,
+        /*
          * The numeric status code of the SELECTED success response (issue
          * #64): the same smallest-2xx pick that drives the return type. Null
          * when the selection fell through to `default` or to a non-2xx first

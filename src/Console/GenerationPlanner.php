@@ -141,11 +141,11 @@ final readonly class GenerationPlanner
         [$serverFiles, $serverWarnings] = $this->planServer($request, $document, $generator, $closure);
 
         // The per-operation query Data classes (issue #63), path Data classes
-        // (issue #113), inline request-body Data classes (issue #76), and
-        // shared component-response Data classes (issue #116) live next to the
-        // model Data classes: same namespace, same output directory, same
-        // drift-checked CATEGORY_DATA bucket.
-        foreach ([...$generator->queryFiles(), ...$generator->pathFiles(), ...$generator->bodyFiles(), ...$generator->responseFiles()] as $operationFile) {
+        // (issue #113), header Data classes (issue #121), inline request-body
+        // Data classes (issue #76), and shared component-response Data classes
+        // (issue #116) live next to the model Data classes: same namespace,
+        // same output directory, same drift-checked CATEGORY_DATA bucket.
+        foreach ([...$generator->queryFiles(), ...$generator->pathFiles(), ...$generator->headerFiles(), ...$generator->bodyFiles(), ...$generator->responseFiles()] as $operationFile) {
             $files[] = new PlannedFile(
                 $target.'/'.$operationFile->filename(),
                 $operationFile->code,
@@ -260,11 +260,12 @@ final readonly class GenerationPlanner
     /**
      * Plan the server scaffold (controllers + routes). The model generator is
      * handed through so the operation collector can emit the per-operation
-     * query Data classes (issue #63), path Data classes (issue #113), inline
-     * request-body Data classes (issue #76), and shared component-response
-     * Data classes (issue #116) with the exact rules pipeline the model
-     * classes used; the planner collects those files via queryFiles() /
-     * pathFiles() / bodyFiles() / responseFiles() after this returns.
+     * query Data classes (issue #63), path Data classes (issue #113), header
+     * Data classes (issue #121), inline request-body Data classes (issue #76),
+     * and shared component-response Data classes (issue #116) with the exact
+     * rules pipeline the model classes used; the planner collects those files
+     * via queryFiles() / pathFiles() / headerFiles() / bodyFiles() /
+     * responseFiles() after this returns.
      *
      * The collector runs even when controllers AND routes are both disabled:
      * the query and body Data classes are data-layer output (CATEGORY_DATA,

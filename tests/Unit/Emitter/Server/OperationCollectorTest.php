@@ -350,6 +350,79 @@ it('emits the fromRoute docblock pointer on the abstract method (issue #113)', f
         ->and($code)->toContain('\\App\\Data\\Widget\\GetWidgetPathData::fromRoute($request).');
 });
 
+/**
+ * Collect the header-parameters fixture WITH the model generator wired in
+ * (issue #121), so the header-class assertions can read the generated files.
+ * The fixture's GET /widgets operation carries custom + reserved header
+ * parameters; GET /flags carries one boolean custom header.
+ *
+ * @return array{0: list<OperationDescriptor>, 1: ModelGenerator}
+ */
+function collectWithHeaderClasses(): array
+{
+    $parser104 = new SpecParser;
+    $doc = $parser104->parseFileToDocument(__DIR__.'/../../../Fixtures/server/header-parameter-constraints.yaml');
+    $generator = new ModelGenerator;
+    $generator->generate($doc);
+
+    $collector = new OperationCollector(new ServerOptions, $generator->registry(), null, $generator);
+
+    return [$collector->collect($doc), $generator];
+}
+
+it('surfaces a non-injected header Data class pointer for an operation with custom header parameters (issue #121)', function () {
+    [$descriptors, $generator] = collectWithHeaderClasses();
+    $get = descriptorFor($descriptors, 'get', '/widgets');
+
+    // The FQCN is a docblock pointer only, never injected, and never imported.
+    expect($get->headerDataParam)->toBe('App\\Data\\Widget\\ListWidgetsHeaderData')
+        ->and($get->imports)->not->toContain('App\\Data\\Widget\\ListWidgetsHeaderData')
+        ->and($generator->headerFiles())->toHaveKey('ListWidgetsHeaderData');
+});
+
+it('leaves headerDataParam null for an operation without header parameters (issue #121)', function () {
+    $parser = new SpecParser;
+    $doc = $parser->parseFileToDocument(__DIR__.'/../../../Fixtures/server/path-parameter-constraints.yaml');
+    $generator = new ModelGenerator;
+    $generator->generate($doc);
+    $descriptors = (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($doc);
+
+    expect(descriptorFor($descriptors, 'get', '/plain/{id}')->headerDataParam)->toBeNull();
+});
+
+it('skips reserved framework-owned standard headers with a warning, validating only custom headers (issue #121)', function () {
+    [$descriptors, $generator] = collectWithHeaderClasses();
+
+    // The custom headers (X-Request-Id, X-Page-Size, X-Status) are validated;
+    // Accept and Authorization are reserved and skipped, never reaching rules().
+    $code = $generator->headerFiles()['ListWidgetsHeaderData']->code;
+    expect($code)->toContain("'x-request-id' =>")
+        ->and($code)->toContain("'x-page-size' =>")
+        ->and($code)->toContain("'x-status' =>")
+        ->and($code)->not->toContain("'accept'")
+        ->and($code)->not->toContain("'authorization'");
+
+    $warnings = implode("\n", $generator->warnings());
+    expect($warnings)->toContain('header parameter "Accept" was skipped: it is a reserved, framework-owned standard header')
+        ->and($warnings)->toContain('header parameter "Authorization" was skipped: it is a reserved, framework-owned standard header');
+});
+
+it('does not warn that header parameters are unsupported (issue #121 removed the drop warning)', function () {
+    [, $generator] = collectWithHeaderClasses();
+
+    $warnings = implode("\n", $generator->warnings());
+    expect($warnings)->not->toContain('header parameters are not supported yet');
+});
+
+it('emits the fromHeaders docblock pointer on the abstract method (issue #121)', function () {
+    [$descriptors] = collectWithHeaderClasses();
+    $controllers = (new ControllerGenerator(new ServerOptions))->generate($descriptors);
+    $code = $controllers['AbstractWidgetController']->code;
+
+    expect($code)->toContain('Header parameters: validate them with')
+        ->and($code)->toContain('\\App\\Data\\Widget\\ListWidgetsHeaderData::fromHeaders($request).');
+});
+
 it('leaves queryParam null when every query parameter is un-serializable, with one warning each', function () {
     [$descriptors, $generator] = collectQueryParameters();
 
@@ -363,12 +436,14 @@ it('leaves queryParam null when every query parameter is un-serializable, with o
         ->and($warnings)->toContain('query parameter "payload" was skipped: it declares no schema');
 });
 
-it('warns about header and cookie parameters instead of silently dropping them', function () {
+it('warns about cookie parameters instead of silently dropping them, but validates custom headers (issue #121)', function () {
     [, , $collector] = collectQueryParameters();
 
+    // The header X-Trace-Id is now synthesized into a GetWidgetHeaderData class
+    // (issue #121), so the old "header parameters are not supported yet"
+    // warning is gone. The cookie parameter stays out of scope and warned.
     expect($collector->warnings())->toBe([
         'Operation GET /widgets/{widgetId}: cookie parameter(s) "session" are not generated (cookie parameters are not supported yet).',
-        'Operation GET /widgets/{widgetId}: header parameter(s) "X-Trace-Id" are not generated (header parameters are not supported yet).',
         // The octet-stream body on POST /untyped falls back to Request, which
         // also warns since issue #67 (no silent degradation).
         'Operation POST /untyped: the request body declares no application/json or multipart/form-data schema; no body validation is generated and the controller method falls back to Illuminate\Http\Request.',

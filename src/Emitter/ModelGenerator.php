@@ -359,6 +359,21 @@ final class ModelGenerator
     }
 
     /**
+     * Emit a per-operation header Data class (issue #121) for an operation's
+     * `in: header` parameters. Must be called AFTER generate(); see
+     * {@see RequestDataSynthesizer::generateHeaderData()} for the full
+     * contract. Kept on the generator so the server scaffold keeps one entry
+     * point into the model pipeline, exactly like generateQueryData().
+     *
+     * @param  list<ParameterNode>  $parameters  the operation's `in: header` parameters, in spec order
+     * @return string|null the reserved header class name, or null when there are no validatable header parameters
+     */
+    public function generateHeaderData(string $baseName, string $operationLabel, array $parameters, ?string $tag = null): ?string
+    {
+        return $this->bodies->generateHeaderData($baseName, $operationLabel, $parameters, $tag);
+    }
+
+    /**
      * Emit a per-operation request-body Data class (issue #76) for an inline
      * JSON request-body schema. Must be called AFTER generate(); see
      * {@see RequestDataSynthesizer::generateBodyData()} for the full contract.
@@ -449,6 +464,22 @@ final class ModelGenerator
     public function pathFiles(): array
     {
         $files = $this->state->pathFiles;
+        ksort($files);
+
+        return $files;
+    }
+
+    /**
+     * The per-operation header Data classes emitted since the last generate()
+     * run (issue #121), keyed and ordered by class name. Exposed as a getter,
+     * mirroring pathFiles(): generate() already returned its file set when
+     * the server scaffold asks for these.
+     *
+     * @return array<string, GeneratedFile>
+     */
+    public function headerFiles(): array
+    {
+        $files = $this->state->headerFiles;
         ksort($files);
 
         return $files;

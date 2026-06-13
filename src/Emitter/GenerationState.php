@@ -122,6 +122,19 @@ final class GenerationState
     public array $pathFiles = [];
 
     /**
+     * Per-operation header Data classes (issue #121), emitted on demand AFTER
+     * generate() ran, keyed by class name. Each carries spec-derived rules()
+     * for the operation's `in: header` parameters plus a `fromHeaders()`
+     * factory, so a constrained custom header is validated at runtime instead
+     * of being silently dropped. Kept apart from $files for the same reason as
+     * $queryFiles: generate() already returned its file set when the server
+     * scaffold asks for these.
+     *
+     * @var array<string, GeneratedFile>
+     */
+    public array $headerFiles = [];
+
+    /**
      * Per-operation request-body Data classes (issue #76), emitted on demand
      * AFTER generate() ran, keyed by class name. The bucket also holds every
      * nested class an inline body spawned (a nested object property becomes

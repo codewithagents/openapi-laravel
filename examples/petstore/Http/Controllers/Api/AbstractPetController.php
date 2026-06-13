@@ -74,6 +74,9 @@ abstract class AbstractPetController
      *
      * Path parameters: validate them with
      * \CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Pet\DeletePetPathData::fromRoute($request).
+     *
+     * Header parameters: validate them with
+     * \CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Pet\DeletePetHeaderData::fromHeaders($request).
      */
     abstract public function destroy(int $petId): JsonResponse;
 

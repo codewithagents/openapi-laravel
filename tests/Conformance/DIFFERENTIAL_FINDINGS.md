@@ -1,7 +1,7 @@
 # Differential validation findings
 
 Oracle: tests/Conformance/DifferentialValidationTest.php (issue #23).
-Generated: 2026-06-12.
+Generated: 2026-06-13.
 
 Each row is a payload whose generated-validator outcome disagrees with the spec.
 `expected=reject, actual=accept` means the generated rules SILENTLY ACCEPT data the spec forbids (severity High).

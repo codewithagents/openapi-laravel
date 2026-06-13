@@ -151,18 +151,60 @@ final class RequestDataSynthesizer
     }
 
     /**
-     * The shared core behind {@see generateQueryData()} (issue #63) and
-     * {@see generatePathData()} (issue #113): synthesize a per-operation Data
-     * class from the parameters of ONE `in:` location, through the exact
-     * rules/type pipeline a body class uses. Parameterized by `$in` so a
-     * future header location (issue #121) can reuse it as-is. The two callers
-     * differ only in the location filter, the class-name suffix, the docblock
-     * wording, the factory the class carries (fromQuery vs fromRoute), and the
-     * skip machinery: query skips un-serializable shapes (styles, arrays of
-     * objects), while path has none of those forms and only degrades a
-     * non-scalar/non-enum schema to presence-only `mixed`.
+     * Emit a per-operation header Data class (issue #121) for an operation's
+     * `in: header` parameters, reusing the EXACT rules/type pipeline the query
+     * and path Data classes go through, so a constrained custom header
+     * (min/max/pattern/enum/format) is validated at runtime instead of being
+     * silently dropped: a bad value is a 422, not a 200.
      *
-     * @param  'query'|'path'  $in
+     * Must be called AFTER generate(): the pipeline resolves `$ref` parameters
+     * against the run's component registry and alias caches. The collected
+     * files are exposed via {@see headerFiles()}; the class name is reserved in
+     * the run's allocator so a header class can never collide with a component,
+     * query, path, or body class (a clash suffixes deterministically).
+     *
+     * Each header class carries a `fromHeaders(Request $request)` factory that
+     * validates and hydrates from the request headers ONLY. It is never
+     * auto-injected (it would otherwise shadow a body/query container
+     * resolution), so the implementer calls it explicitly; the controller
+     * carries a docblock pointer to it.
+     *
+     * Two header-specific wrinkles handle the wire shape (issue #121): HTTP
+     * header names are case-insensitive, so the wire key is the LOWERCASED spec
+     * name (matching Symfony's `$request->headers->all()` keys), and each
+     * header value is an array-of-strings, so the factory takes the FIRST
+     * value of each header before validation. Reserved/framework-owned
+     * standard headers (Accept, Content-Type, Authorization, Host, ...) are
+     * skipped with a warning so the generator never validates headers the
+     * framework manages; see {@see headerSkipReason()}. A non-scalar/non-enum
+     * schema degrades to a warned `mixed` presence-only property, like path.
+     *
+     * @param  string  $baseName  StudlyCaps operation context (operationId or the method+path fallback), without suffix
+     * @param  string  $operationLabel  "GET /pets", for warning messages
+     * @param  list<ParameterNode>  $parameters  the operation's `in: header` parameters, in spec order
+     * @param  ?string  $tag  the operation's first tag (or the 'Untagged' fallback), so the grouped layout (issue #93) can place the class in its operation's tag group; ignored in the flat layout
+     * @return string|null the reserved header class name, or null when every parameter was skipped
+     */
+    public function generateHeaderData(string $baseName, string $operationLabel, array $parameters, ?string $tag = null): ?string
+    {
+        return $this->generateParamData('header', $baseName, $operationLabel, $parameters, $tag);
+    }
+
+    /**
+     * The shared core behind {@see generateQueryData()} (issue #63),
+     * {@see generatePathData()} (issue #113), and {@see generateHeaderData()}
+     * (issue #121): synthesize a per-operation Data class from the parameters
+     * of ONE `in:` location, through the exact rules/type pipeline a body class
+     * uses. Parameterized by `$in`. The callers differ only in the location
+     * filter, the class-name suffix, the docblock wording, the factory the
+     * class carries (fromQuery / fromRoute / fromHeaders), the wire-name
+     * normalization (header lowercases), and the skip machinery: query skips
+     * un-serializable shapes (styles, arrays of objects), path has none of
+     * those forms and only degrades a non-scalar/non-enum schema to
+     * presence-only `mixed`, and header additionally skips the reserved
+     * framework-owned standard headers.
+     *
+     * @param  'query'|'path'|'header'  $in
      * @param  list<ParameterNode>  $parameters
      */
     private function generateParamData(string $in, string $baseName, string $operationLabel, array $parameters, ?string $tag): ?string
@@ -216,13 +258,23 @@ final class RequestDataSynthesizer
         $rules = [];
         $usesRule = false;
         $booleanNames = [];
+        $headerNames = [];
 
         foreach ($supported as $parameter) {
-            $wireName = $parameter->name;
+            // HTTP header names are case-insensitive and Symfony lowercases
+            // every key in $request->headers->all() (issue #121), so a header
+            // parameter's wire key (the #[MapName] AND the rules() key) is the
+            // LOWERCASED spec name; the factory reads the same lowercased key.
+            // Query and path keep the spec name verbatim.
+            $wireName = $in === 'header' ? strtolower($parameter->name) : $parameter->name;
             $schema = $parameter->schema;
             if ($schema === null) {
                 // The skip check guarantees a schema; defensive for PHPStan.
                 continue;
+            }
+
+            if ($in === 'header') {
+                $headerNames[] = $wireName;
             }
 
             // Distinct wire names can collapse to the same identifier
@@ -277,7 +329,7 @@ final class RequestDataSynthesizer
             return null;
         }
 
-        // The fromQuery / fromRoute factory references Request by short name.
+        // The fromQuery / fromRoute / fromHeaders factory references Request by short name.
         $imports = $this->renderer->collectImports($params, $usesRule, $rules);
         $imports[] = 'Illuminate\\Http\\Request';
         $imports = array_values(array_unique($imports));
@@ -291,9 +343,11 @@ final class RequestDataSynthesizer
             $config['docPrefix'].' of '.PhpLiteral::docblockSafe($operationLabel).'.',
         ];
 
-        $rendered = $in === 'path'
-            ? $this->renderer->renderDataClass($className, $params, $imports, $rules, $classDoc, fromRouteBooleans: $booleanNames)
-            : $this->renderer->renderDataClass($className, $params, $imports, $rules, $classDoc, fromQueryBooleans: $booleanNames);
+        $rendered = match ($in) {
+            'path' => $this->renderer->renderDataClass($className, $params, $imports, $rules, $classDoc, fromRouteBooleans: $booleanNames),
+            'header' => $this->renderer->renderDataClass($className, $params, $imports, $rules, $classDoc, fromHeaderNames: $headerNames, fromHeaderBooleans: $booleanNames),
+            default => $this->renderer->renderDataClass($className, $params, $imports, $rules, $classDoc, fromQueryBooleans: $booleanNames),
+        };
 
         $file = new GeneratedFile(
             $className,
@@ -301,11 +355,11 @@ final class RequestDataSynthesizer
             $this->state->fileGroups[$className] ?? null,
         );
 
-        if ($in === 'path') {
-            $this->state->pathFiles[$className] = $file;
-        } else {
-            $this->state->queryFiles[$className] = $file;
-        }
+        match ($in) {
+            'path' => $this->state->pathFiles[$className] = $file,
+            'header' => $this->state->headerFiles[$className] = $file,
+            default => $this->state->queryFiles[$className] = $file,
+        };
 
         return $className;
     }
@@ -314,10 +368,10 @@ final class RequestDataSynthesizer
      * The per-location knobs the shared {@see generateParamData()} core needs:
      * the class-name suffix, the class docblock prefix, the warning-context
      * label, and the skip-reason callback. Keeping them here (rather than in
-     * the core) keeps the core location-agnostic, the seam #121 (header) will
-     * extend by adding one more arm.
+     * the core) keeps the core location-agnostic; the header arm (issue #121)
+     * is the third location, alongside query (#63) and path (#113).
      *
-     * @param  'query'|'path'  $in
+     * @param  'query'|'path'|'header'  $in
      * @return array{suffix: string, docPrefix: string, warningContext: string, skipReason: Closure(ParameterNode): ?string}
      */
     private function paramLocationConfig(string $in): array
@@ -331,12 +385,92 @@ final class RequestDataSynthesizer
             ];
         }
 
+        if ($in === 'header') {
+            return [
+                'suffix' => 'Header',
+                'docPrefix' => 'Header parameters',
+                'warningContext' => 'Header parameters',
+                'skipReason' => fn (ParameterNode $parameter): ?string => $this->headerSkipReason($parameter),
+            ];
+        }
+
         return [
             'suffix' => 'Query',
             'docPrefix' => 'Query parameters',
             'warningContext' => 'Query parameters',
             'skipReason' => fn (ParameterNode $parameter): ?string => $this->querySkipReason($parameter),
         ];
+    }
+
+    /**
+     * Standard HTTP headers the framework owns or that carry transport
+     * semantics the generator must not validate (issue #121), matched
+     * case-insensitively (stored lowercased). Validating these would either
+     * collide with Laravel's own handling (Content-Type negotiation, auth
+     * middleware, host routing) or generate rules for headers the client never
+     * sets through the spec parameter. Only spec-declared CUSTOM headers get a
+     * generated rule; a declared reserved header is skipped with a warning so
+     * the drop is visible at generation time.
+     *
+     * @var array<string, true>
+     */
+    private const RESERVED_HEADER_NAMES = [
+        'accept' => true,
+        'accept-charset' => true,
+        'accept-encoding' => true,
+        'accept-language' => true,
+        'authorization' => true,
+        'cache-control' => true,
+        'connection' => true,
+        'content-disposition' => true,
+        'content-encoding' => true,
+        'content-language' => true,
+        'content-length' => true,
+        'content-type' => true,
+        'cookie' => true,
+        'date' => true,
+        'expect' => true,
+        'forwarded' => true,
+        'from' => true,
+        'host' => true,
+        'origin' => true,
+        'proxy-authorization' => true,
+        'range' => true,
+        'referer' => true,
+        'te' => true,
+        'trailer' => true,
+        'transfer-encoding' => true,
+        'upgrade' => true,
+        'user-agent' => true,
+        'via' => true,
+    ];
+
+    /**
+     * Why a header parameter cannot become a typed, validated property, or null
+     * when it can (issue #121). Like the path bar, a header parameter has no
+     * `style`/`explode` serialization complexity (the OpenAPI default `simple`
+     * style is a single comma-joined or scalar value), so the only hard skips
+     * are a missing name, a missing schema, and a reserved/framework-owned
+     * standard header (Accept, Content-Type, Authorization, ...). A scalar or
+     * enum becomes a fully validated property; a non-scalar/non-enum schema
+     * degrades to a `mixed` presence-only property through the body pipeline,
+     * mirroring how path handles an unusual shape.
+     */
+    private function headerSkipReason(ParameterNode $parameter): ?string
+    {
+        if ($parameter->name === '') {
+            return 'it has no usable name';
+        }
+
+        if (isset(self::RESERVED_HEADER_NAMES[strtolower($parameter->name)])) {
+            return 'it is a reserved, framework-owned standard header (the framework manages it; only custom headers are validated)';
+        }
+
+        if ($parameter->schema === null) {
+            return 'it declares no schema (content-typed header parameters are not supported yet)';
+        }
+
+        return null;
     }
 
     /**

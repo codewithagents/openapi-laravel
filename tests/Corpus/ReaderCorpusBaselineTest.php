@@ -592,6 +592,88 @@ const READER_BASELINE_REBASELINED_113 = [
     'zuora.json' => 'path parameter validation classes generated',
 ];
 
+/*
+ * INTENTIONAL post-freeze rebaseline (#121): the 42 specs in
+ * READER_BASELINE_REBASELINED_121 carry a post-#121 hash because they declare
+ * `in: header` parameters, which v0.11.0 dropped in total silence beyond one
+ * "header parameters are not supported yet" warning per operation: a
+ * constrained custom header (min/max/pattern/enum/format) was never validated,
+ * so a bad value returned 200 instead of 422. Issue #121 synthesizes a
+ * per-operation `<Operation>HeaderData` class with spec-derived rules() plus a
+ * `fromHeaders(Request)` factory (the same location-parameterized pipeline the
+ * query class of #63 and the path class of #113 use), and the abstract
+ * controller method gains a docblock pointer to `::fromHeaders($request)`. The
+ * header Data class is NOT in the readerBaselinePipeline file set (it is
+ * exercised end-to-end by the #121 round-trip and differential tests, exactly
+ * like the #113 path class is excluded), so the ONLY divergences in each of
+ * these hashes are strictly ADDITIVE: the added controller docblock pointer
+ * lines, the REMOVAL of the now-obsolete per-operation header-drop warnings,
+ * and (for specs that declare a reserved/framework-owned standard header such
+ * as Accept or Authorization) the narrower per-header reserved-skip warning
+ * the synthesizer emits in their place. Verified per spec: no existing file is
+ * dropped or retyped, and every inserted line is a header docblock pointer.
+ * The `in: cookie` warning is unchanged (cookie support stays out of scope).
+ * A spec also present in an earlier rebaseline list accumulates the changes;
+ * every spec outside the rebaseline lists stays the frozen v0.11.0 freeze,
+ * byte for byte.
+ */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-#121 output
+ * (header parameter validation classes generated, controller docblock pointers
+ * added, the header-drop warning removed in favor of typed classes and a
+ * narrower reserved-header skip warning), keyed by spec basename. The per-spec
+ * test below still compares against the JSON baseline, which now holds these
+ * specs' post-#121 hashes; the coverage test pins that every listed name
+ * exists on disk and in the baseline, so the list cannot rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_121 = [
+    'ably.json' => 'header parameter validation classes generated',
+    'adyen-checkout.yaml' => 'header parameter validation classes generated',
+    'adyen-legal-entity.yaml' => 'header parameter validation classes generated',
+    'amadeus.json' => 'header parameter validation classes generated',
+    'aws_apigateway.json' => 'header parameter validation classes generated',
+    'aws_cloudformation.json' => 'header parameter validation classes generated',
+    'aws_cognito.json' => 'header parameter validation classes generated',
+    'aws_dynamodb.json' => 'header parameter validation classes generated',
+    'aws_iam.json' => 'header parameter validation classes generated',
+    'aws_lambda.json' => 'header parameter validation classes generated',
+    'aws_rds.json' => 'header parameter validation classes generated',
+    'aws_s3.json' => 'header parameter validation classes generated',
+    'aws_sns.json' => 'header parameter validation classes generated',
+    'aws_sqs.json' => 'header parameter validation classes generated',
+    'box.json' => 'header parameter validation classes generated',
+    'brex.json' => 'header parameter validation classes generated',
+    'bunq.json' => 'header parameter validation classes generated',
+    'circleci.json' => 'header parameter validation classes generated',
+    'clevercloud.json' => 'header parameter validation classes generated',
+    'configcat.json' => 'header parameter validation classes generated',
+    'digitalocean.json' => 'header parameter validation classes generated',
+    'discourse.json' => 'header parameter validation classes generated',
+    'docker.json' => 'header parameter validation classes generated',
+    'dracoon.json' => 'header parameter validation classes generated',
+    'elevenlabs.json' => 'header parameter validation classes generated',
+    'gettyimages.json' => 'header parameter validation classes generated',
+    'here_positioning.json' => 'header parameter validation classes generated',
+    'here_tracking.json' => 'header parameter validation classes generated',
+    'jira.json' => 'header parameter validation classes generated',
+    'lufthansa.json' => 'header parameter validation classes generated',
+    'notion.json' => 'header parameter validation classes generated',
+    'openbanking.json' => 'header parameter validation classes generated',
+    'petstore-3.0.yaml' => 'header parameter validation classes generated',
+    'resend.json' => 'header parameter validation classes generated',
+    'sendgrid.json' => 'header parameter validation classes generated',
+    'shutterstock.json' => 'header parameter validation classes generated',
+    'slack.json' => 'header parameter validation classes generated',
+    'vercel.json' => 'header parameter validation classes generated',
+    'webflow.json' => 'header parameter validation classes generated',
+    'xero.json' => 'header parameter validation classes generated',
+    'xero_assets.json' => 'header parameter validation classes generated',
+    'zuora.json' => 'header parameter validation classes generated',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -660,11 +742,11 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
             ->and(READER_BASELINE_POST_FREEZE_SPECS)->not->toHaveKey($rebaselined);
     }
 
-    // Every spec rebaselined for #110, #116, #120, #122, #124, #125, #126, or
-    // #113 must still exist on disk and carry a hash in the baseline (it is an
-    // update, not an exemption): a renamed or deleted spec would make the
-    // documented rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113)] as $spec) {
+    // Every spec rebaselined for #110, #116, #120, #122, #124, #125, #126,
+    // #113, or #121 must still exist on disk and carry a hash in the baseline
+    // (it is an update, not an exemption): a renamed or deleted spec would make
+    // the documented rebaseline lists rot silently.
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }

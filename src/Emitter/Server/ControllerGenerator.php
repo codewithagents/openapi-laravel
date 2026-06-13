@@ -163,6 +163,19 @@ final readonly class ControllerGenerator
             $doc[] = '     * Path parameters: validate them with';
             $doc[] = '     * \\'.$operation->pathDataParam.'::fromRoute($request).';
         }
+        if ($operation->headerDataParam !== null) {
+            // The header Data class is NOT injected: it would otherwise shadow
+            // a body/query container resolution. The class is a separate,
+            // additive runtime-validation seam (issue #121) the implementer
+            // calls explicitly to enforce the spec-declared custom-header
+            // constraints. The FQCN is spelled out as prose, not imported, so
+            // no `use` goes unused; the collector resolved it, because under
+            // the grouped data layout (issue #93) the class may live in a tag
+            // subnamespace.
+            $doc[] = '     *';
+            $doc[] = '     * Header parameters: validate them with';
+            $doc[] = '     * \\'.$operation->headerDataParam.'::fromHeaders($request).';
+        }
         if ($operation->needsStatusMiddleware()) {
             // The spec declares a non-200 success status; the generated route
             // enforces it via the RespondsWithStatus middleware (issue #64),

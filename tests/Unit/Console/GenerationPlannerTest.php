@@ -140,22 +140,24 @@ it('keeps a written model-only plan in sync with the drift check, query classes 
     }
 });
 
-it('emits query-skip warnings in a model-only run but keeps the scaffold header/cookie warnings out', function () use ($querySpec, $tempOut, $request) {
+it('emits query-skip warnings in a model-only run but keeps the scaffold cookie warning out', function () use ($querySpec, $tempOut, $request) {
     $out = $tempOut();
     $planner = new GenerationPlanner;
 
     // Model-only: the data-layer diagnostics (skipped query parameters) are
-    // kept, the scaffold-only diagnostics (header/cookie parameters the
-    // controllers would not type) stay out, unchanged from before.
+    // kept, the scaffold-only diagnostics (the cookie parameter the controllers
+    // would not type) stay out, unchanged from before.
     $modelOnly = implode("\n", $planner->plan($request($querySpec(), $out))->warnings);
     expect($modelOnly)->toContain('query parameter "filter" was skipped')
-        ->and($modelOnly)->not->toContain('header parameter(s)')
         ->and($modelOnly)->not->toContain('cookie parameter(s)');
 
-    // With the scaffold enabled the collector warnings are merged in as before.
+    // With the scaffold enabled the cookie warning is merged in as before. The
+    // custom header X-Trace-Id is now validated into a GetWidgetHeaderData
+    // class (issue #121), so it is NO LONGER warned as unsupported.
     $full = implode("\n", $planner->plan($request($querySpec(), $out, true, $out.'/Http', $out.'/routes/api.generated.php'))->warnings);
-    expect($full)->toContain('header parameter(s) "X-Trace-Id" are not generated')
-        ->and($full)->toContain('cookie parameter(s) "session" are not generated');
+    expect($full)->toContain('cookie parameter(s) "session" are not generated')
+        ->and($full)->not->toContain('header parameters are not supported yet')
+        ->and($full)->not->toContain('header parameter(s) "X-Trace-Id"');
 });
 
 it('honors security.middleware_map in the planned routes file and surfaces the unmapped-scheme warning (#77)', function () use ($tempOut) {
