@@ -6,7 +6,7 @@ open questions. Do not re-litigate decided items without new information.
 
 ## Status
 
-**0.10.0 on Packagist; 0.11.0 queued** (release-please PR open). A plain `php artisan openapi:generate`
+**0.12.0 on Packagist; 0.13.0 queued** (release-please PR open). A plain `php artisan openapi:generate`
 (or the framework-free `vendor/bin/openapi-laravel`) generates the full slice out of the box: Data
 model classes with spec-derived `rules()`, native backed enums, one abstract controller per tag, and
 a routes file. `--no-controllers` / `--no-routes` opt out; settings resolve with strict precedence

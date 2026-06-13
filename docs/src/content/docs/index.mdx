@@ -137,8 +137,9 @@ The whole loop is proven end to end: one petstore spec drives a generated Larave
     minimum, maximum, enum), not guessed from property types at runtime.
   </Card>
   <Card title="Server scaffold, out of the box" icon="right-arrow">
-    The default run already emits abstract controllers per tag and a routes file. The routing table
-    derives from the spec, so path-level drift is structurally impossible. Opt out with
+    The default run already emits abstract controllers per tag and a routes file, with typed and
+    validated query, path, and header parameters and typed request and response bodies. The routing
+    table derives from the spec, so path-level drift is structurally impossible. Opt out with
     `--no-controllers` / `--no-routes`.
   </Card>
   <Card title="Drift gate for CI" icon="approve-check-circle">

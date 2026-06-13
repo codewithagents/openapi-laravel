@@ -5,7 +5,7 @@ description: What the generator emits today (models, validation rules, controlle
 
 import { Aside } from '@astrojs/starlight/components'
 
-**The current release is `0.10.0`** on Packagist. One command generates the full slice out of the box: models, spec-derived validation, enums, abstract controllers, and routes, with full composition support (`allOf`, `additionalProperties`, `oneOf` / `anyOf` including discriminated object unions), the drift gate (`openapi:check`), the differential validation oracle, and the security pass. The version deliberately stays in `0.x` while the generated output format is still evolving, and tags `1.0.0` (the output-stability promise, see the [versioning policy](/guides/versioning-policy)) only when the format settles. This page is the honest account of what shipped when, what is deliberately basic, and what is planned next.
+**The current release is `0.12.0`** on Packagist (`0.13.0` is queued in an open release PR). One command generates the full slice out of the box: models, spec-derived validation, enums, abstract controllers, and routes, with full composition support (`allOf`, `additionalProperties`, `oneOf` / `anyOf` including discriminated object unions), typed and validated query, path, and header parameters, typed request and response bodies, the drift gate (`openapi:check`), the differential validation oracle, and the security pass. The version deliberately stays in `0.x` while the generated output format is still evolving, and tags `1.0.0` (the output-stability promise, see the [versioning policy](/guides/versioning-policy)) only when the format settles. This page is the honest account of what shipped when, what is deliberately basic, and what is planned next.
 
 ## Models and validation rules
 
@@ -131,7 +131,7 @@ page](/guides/limitations) has examples, the fallback rules, and the object-unio
 - **0.9.0:** **subset generation** (#44): `--only-tags` / `--only-schemas` restrict a run to a
   slice of the spec, with the transitive dependency closure computed automatically. See the
   [subset generation guide](/guides/subset-generation).
-- **0.10.0 (current):** **the remaining discriminator forms** (#38): the inline-union form
+- **0.10.0:** **the remaining discriminator forms** (#38): the inline-union form
   (variant classes synthesized from discriminator values) and the allOf-inheritance form (the base
   becomes the abstract morphable parent) are validated and hydrated like the named-component form.
   `additionalProperties: false` enforcement flipped to **on by default** (#30, opt out with
@@ -139,16 +139,36 @@ page](/guides/limitations) has examples, the fallback rules, and the object-unio
   into the consumer's own `Support` namespace, so generated code has no runtime dependency on the
   generator package. Plus Pint-idempotent output (#60) and PHPStan-max-clean generated array
   generics (#62).
-- **Scaffold typing pass (shipped):** the server scaffold now types far more of the contract. Query,
-  path, and header parameters generate per-operation `<Operation>QueryData` / `PathData` / `HeaderData`
-  classes with spec-derived rules and `fromQuery` / `fromRoute` / `fromHeaders` factories (#63, #113,
-  #121); spec response status codes are honored via `RespondsWithStatus` middleware (#64). Object
-  request bodies are typed across inline JSON (#76), multipart (#75), form-urlencoded (#130), and
-  component `$ref` (#110) forms. Responses are typed for both component `$ref` (#116) and inline
-  object schemas (#129). Non-exploded delimited array query parameters are split in `fromQuery`
-  (#132) and `deepObject` object query parameters are synthesized as nested object properties (#131).
-  A non-JSON-only success response is typed as the base Symfony `Response` with a warning (#118);
-  callbacks and webhooks warn rather than scaffold (#115).
+- **0.11.0:** the scaffold typing wave and two output-shape changes locked in (both **breaking**, see
+  the [versioning policy](/guides/versioning-policy)). Typed and validated **query parameters** via
+  per-operation `<Operation>QueryData` classes with a `fromQuery` factory (#63); typed **inline JSON
+  request bodies** (#76) and **multipart/form-data** bodies with `UploadedFile` rules (#75); spec
+  **response status codes** honored via `RespondsWithStatus` middleware (#64); **security schemes**
+  mapped to route middleware (#77); deterministic route `->name()`s plus `routes.middleware` /
+  `routes.prefix` group config (#71); the `openapi:scaffold` command for one-time concrete controller
+  stubs (#78); a configurable `controllers.base_class` plus the validation-trait extension pattern
+  (#83); a stderr **warning on every silent degradation** to `mixed` or `Request` (#67). The two
+  breaking output changes: **Laravel-convention controller and route names** (`getPetById` becomes
+  `show`) become the only naming, and the **tag-grouped data layout** (`data/Pet/PetData.php`) becomes
+  the only layout. Also: Laravel 13 support (#68), tuple `prefixItems` rules (#82), `dependentRequired`
+  (#81), `minProperties` / `maxProperties` (#72), and best-effort OpenAPI 3.2 with loud warnings (#103).
+- **0.12.0 (current):** typed and validated **path parameters** (#113, with a `whereNumber` route
+  constraint on integer segments so a bad value is a clean 404/422, never an uncatchable TypeError 500)
+  and **header parameters** (#121), each via a per-operation `<Operation>PathData` / `HeaderData` class
+  with a `fromRoute` / `fromHeaders` factory. Component `$ref` **request bodies** (#110) and
+  **responses** (#116) resolve to typed Data params and returns. A non-JSON-only success response is
+  typed as the base Symfony `Response` with a warning (#120); response headers, callbacks, and webhooks
+  warn rather than silently drop (#122). An **unknown or missing discriminator value** is now a clean
+  422 on every consumption path instead of a 500 (#124, #126). Internally, the parser became our own
+  `OpenApiReader` over a typed spec value-object graph (#104), proven byte-identical against the frozen
+  corpus baseline.
+- **0.13.0 (queued):** **inline (non-`$ref`) object response schemas** synthesize a typed
+  `<Operation>ResponseData` return (#129), symmetric with inline request bodies; an
+  **`application/x-www-form-urlencoded` object body** routes through the same synthesizer as inline
+  JSON (#130); a **`deepObject` object query parameter** (Stripe's `?filter[gte]=10&filter[lte]=20`)
+  is synthesized as a nested object property with dotted nested rules (#131); and a **non-exploded
+  delimited array query parameter** (`form`+`explode: false`, `spaceDelimited`, `pipeDelimited`) is
+  split on its delimiter in `fromQuery` before the array rules run (#132).
 
 ## Drift check: keeping generated code in sync
 

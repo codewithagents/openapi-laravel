@@ -14,7 +14,7 @@ history, and the open questions. Do not re-litigate decided items without new in
 
 ## Current state
 
-**Current release: `0.9.0`** on Packagist (`0.10.0` queued in an open release-please PR). One coherent generator: a plain
+**Current release: `0.12.0`** on Packagist (`0.13.0` queued in an open release-please PR). One coherent generator: a plain
 `php artisan openapi:generate` (or the framework-free `vendor/bin/openapi-laravel`) emits the full
 slice out of the box, with no flags: laravel-data model classes with spec-derived `rules()`, backed
 enums, one abstract controller per tag, and a routes file. `--no-controllers` / `--no-routes` opt

@@ -7,7 +7,7 @@ import { Aside, Card, CardGrid } from '@astrojs/starlight/components'
 
 Hand-written DTOs, validation rules, and controllers drift from the API contract silently. Nobody notices the missing `nullable`, the renamed wire field, or the new enum case until production rejects a valid payload, or a consumer files the bug for you. The spec already states every one of those shapes; the drift exists only because humans re-type them.
 
-`openapi-laravel` makes the spec the source of truth and regeneration the sync mechanism. It reads an OpenAPI 3.0 or 3.1 document and, out of the box, generates [spatie/laravel-data](https://github.com/spatie/laravel-data) classes with explicit, spec-derived `rules()` methods, native PHP enums, one abstract controller per tag, and a routes file. The output is readable, deterministic PHP that lives in your repo and looks like code you would have written yourself.
+`openapi-laravel` makes the spec the source of truth and regeneration the sync mechanism. It reads an OpenAPI 3.0 or 3.1 document (3.2 generates on a best-effort path with loud warnings, see [supported versions](/guides/openapi-versions)) and, out of the box, generates [spatie/laravel-data](https://github.com/spatie/laravel-data) classes with explicit, spec-derived `rules()` methods, native PHP enums, one abstract controller per tag, and a routes file, with typed and validated query, path, and header parameters and typed request and response bodies. The output is readable, deterministic PHP that lives in your repo and looks like code you would have written yourself.
 
 ## Spec-first, not code-first
 
@@ -40,6 +40,7 @@ The same run also produces, by default:
 
 - **One abstract controller per tag**, with one abstract method per operation typed by the Data classes. An unimplemented operation is a PHP fatal, not silent drift.
 - **A routes file** (`routes/api.generated.php`): one `Route::` entry per operation, pointing at the concrete controller you extend.
+- **Typed, validated inputs and outputs**: per-operation `QueryData` / `PathData` / `HeaderData` classes enforce a parameter's spec constraints at runtime (a bad value is a 422, not a silent 200), request bodies (inline JSON, multipart, form-urlencoded, and component `$ref`) are typed Data params, and object response schemas become typed returns. See the [server scaffold guide](/guides/server-scaffold).
 
 Want models only? Opt out with `--no-controllers --no-routes` or via `controllers.enabled` / `routes.enabled` in the config. See the [server scaffold guide](/guides/server-scaffold) for the full walkthrough.
 
