@@ -57,7 +57,7 @@ with a `fromQuery(Request)` factory, and path parameters (#113) a per-operation 
 class with a `fromRoute(Request)` factory reading `$request->route()->parameters()`, so a path
 segment's min/max/pattern/enum/format constraints are validated at runtime instead of silently
 dropped (a bad value is a 422, not a 200). An `integer` path parameter also gets a
-`->whereNumber('<token>')` route constraint (#129): the abstract method types it `int`, so under
+`->whereNumber('<token>')` route constraint: the abstract method types it `int`, so under
 strict_types a non-numeric segment would otherwise bind to the typed `int` and throw an uncatchable
 TypeError 500 in the ControllerDispatcher before the #113 `fromRoute()` guard runs. With the
 constraint the status semantics are clean: a non-numeric integer-path segment is a 404 (route miss),
@@ -88,6 +88,12 @@ a wrapped schema $ref reuses the existing Data class as the return type, an inli
 emits ONE shared `<Component>ResponseData` class (READ variant: readOnly stays, writeOnly drops)
 with the same tag-group placement, the #64 status semantics are unchanged (a 204 $ref stays `void`
 with no resolution attempt), and a non-object shape keeps the warned JsonResponse fallback.
+An INLINE (non-component) object success response schema synthesizes a per-operation
+`<Operation>ResponseData` class through the same model pipeline (#129), symmetric with the inline
+request body story (#76): READ variant (readOnly stays, writeOnly drops), the operation's tag-group
+placement, deterministic collision-suffixed names, and the #64 status semantics preserved (an inline
+204 stays `void`); an inline non-object response (array, scalar, union, enum, free-form map) still
+keeps the warned JsonResponse fallback.
 A `oneOf`/`anyOf`-of-Data-class response is typed as a union return. Every
 route carries a deterministic `->name()` from its operationId (globally unique, `_2` suffix on
 cross-controller clashes), and the config-only `routes.middleware` / `routes.prefix` keys wrap the
@@ -148,8 +154,10 @@ multipart/form-data OBJECT bodies too (#75), but a body that is not an object sh
 union, enum, free-form map, whole-body binary multipart) keeps the warned Request fallback.
 Component `$ref` responses resolve to typed returns (#116); a component response whose JSON schema
 is not an object shape keeps the warned JsonResponse fallback, an unresolvable response $ref
-(external, `#/paths/...`, missing, ref-to-ref) keeps it too, and an inline (non-component) object
-response schema is still not synthesized. Multipart residuals (#75):
+(external, `#/paths/...`, missing, ref-to-ref) keeps it too. An inline (non-component) object
+success response schema now synthesizes a typed `<Operation>ResponseData` return (#129); only an
+inline NON-object response (array, scalar, union, enum, free-form map) still keeps the warned
+JsonResponse fallback. Multipart residuals (#75):
 no file-size rule (OpenAPI has no standard byte-size
 keyword), `encoding.contentType` is not read (only `contentMediaType` feeds `mimetypes:`), and a
 binary string nested below the multipart root stays a plain string; tuple `prefixItems` validates
