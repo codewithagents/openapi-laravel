@@ -51,3 +51,40 @@ exclude:
   # and couple two otherwise self-contained rules, which breaks the inlining
   # story. The duplication is the price of keeping each rule self-contained.
   - name: DuplicatedCode
+  # The remaining `(string) ...` casts the emitter keeps are load-bearing, not
+  # redundant: `(string) $name` restores the string-key invariant after PHP
+  # coerces a numeric-string array key (e.g. "200") to int at runtime (the same
+  # rationale as PhpCastIsUnnecessaryInspection above), and
+  # `(string) json_encode(...)` collapses json_encode's `string|false` return to
+  # a string so the `%s` sprintf argument is well-typed. Both guard real
+  # behaviour, so this inspection is a false positive here.
+  - name: PhpUnnecessaryStringCast
+  # PhpSameParameterValue fires on the framework-free CLI's general-purpose
+  # helpers `repeatedOption()` (StandaloneApplication) and `resolveRepeatable()`
+  # (CommandRequestFactory). Each is a deliberate, named, reusable seam (parse a
+  # repeatable --flag from argv; resolve a repeatable flag against its config
+  # key); they happen to have a single repeatable flag today. Inlining the flag
+  # name would couple a generic parser to one option and hurt readability, so
+  # the seam is intentional, not dead generality.
+  - name: PhpSameParameterValue
+    paths:
+      - src/Console/StandaloneApplication.php
+      - src/Console/CommandRequestFactory.php
+  # bin/openapi-laravel is the package's own framework-free entry point and the
+  # legitimate first-party consumer of StandaloneApplication. The class is
+  # @internal by design (#69: the whole PHP class API is internal; the supported
+  # interface is the CLI and the artisan command, not direct class use), so the
+  # bin script using it is correct, not a violation.
+  - name: PhpInternalEntityUsed
+    paths:
+      - bin/openapi-laravel
+  # The Clover report fed to Qodana (#89) comes from the FAST suite only
+  # (--exclude-group=slow), so the slow corpus gate (ReaderCorpusBaselineTest
+  # runs the parser/emitter over all 135 specs) never contributes coverage to
+  # the report. The lines that gate alone exercises then show up as
+  # "uncovered" in Qodana even though the full `composer test` run hits them
+  # and the dedicated 100% line-coverage gate (`composer test:type`) enforces
+  # them. Running the full slow suite under coverage in this informational
+  # workflow would roughly triple its runtime for no signal we do not already
+  # have, so this inspection is pure noise here.
+  - name: PhpCoverageInspection
