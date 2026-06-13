@@ -277,6 +277,46 @@ it('describes a body-less operation with an injected query Data param (issue #63
         ->and($get->imports)->toContain('App\\Data\\Widget\\ListWidgetsQueryData');
 });
 
+it('forces a body-less query class ADDITIVE when it carries a delimited-array param (issue #132)', function () {
+    [$descriptors] = collectQueryParameters();
+
+    // GET /search and GET /filter are body-less but carry non-exploded
+    // delimited-array params. Container injection would make spatie validate the
+    // RAW request before the fromQuery() split runs, so the class must stay
+    // additive: NOT injected, NO import, reachable only via ::fromQuery($request)
+    // (the split path). This mirrors the path (#113) / header (#121) precedent.
+    $search = descriptorFor($descriptors, 'get', '/search');
+    expect($search->queryParam)->toBe(['name' => 'query', 'type' => 'SearchWidgetsQueryData', 'injected' => false, 'fqcn' => 'App\\Data\\Widget\\SearchWidgetsQueryData'])
+        ->and($search->imports)->not->toContain('App\\Data\\Widget\\SearchWidgetsQueryData');
+
+    $filter = descriptorFor($descriptors, 'get', '/filter');
+    expect($filter->queryParam)->toBe(['name' => 'query', 'type' => 'FilterWidgetsQueryData', 'injected' => false, 'fqcn' => 'App\\Data\\Widget\\FilterWidgetsQueryData'])
+        ->and($filter->imports)->not->toContain('App\\Data\\Widget\\FilterWidgetsQueryData');
+});
+
+it('keeps a body-less query class INJECTED when it has no delimited-array param (issue #132 unchanged path)', function () {
+    [$descriptors] = collectQueryParameters();
+
+    // GET /widgets has only normal query params (a repeated-key array, scalars):
+    // the existing body-less injection behavior is unchanged.
+    $get = descriptorFor($descriptors, 'get', '/widgets');
+    expect($get->queryParam['injected'])->toBeTrue()
+        ->and($get->imports)->toContain('App\\Data\\Widget\\ListWidgetsQueryData');
+});
+
+it('emits the fromQuery docblock pointer and no injected param for a delimited-array GET (issue #132)', function () {
+    [$descriptors] = collectQueryParameters();
+    $controllers = (new ControllerGenerator(new ServerOptions))->generate($descriptors);
+    $code = $controllers['AbstractWidgetController']->code;
+
+    // The additive delimited GET carries the same docblock-pointer convention as
+    // path/header, and its abstract method takes no injected query param.
+    expect($code)->toContain('\\App\\Data\\Widget\\SearchWidgetsQueryData::fromQuery($request).')
+        ->and($code)->toContain('abstract public function searchWidgets(): JsonResponse;')
+        // The non-delimited GET still injects its query class into the signature.
+        ->and($code)->toContain('abstract public function listWidgets(ListWidgetsQueryData $query): JsonResponse;');
+});
+
 it('marks the query class non-injected when the operation has a typed body param', function () {
     [$descriptors] = collectQueryParameters();
     $post = descriptorFor($descriptors, 'post', '/widgets');

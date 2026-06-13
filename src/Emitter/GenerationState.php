@@ -109,6 +109,20 @@ final class GenerationState
     public array $queryFiles = [];
 
     /**
+     * The subset of $queryFiles class names whose query Data class contains at
+     * least one non-exploded delimited-array parameter (issue #132). Such a
+     * class must be ADDITIVE rather than container-injected: spatie laravel-data
+     * validates the RAW request before the fromQuery() factory runs, so an
+     * injected class would 422 on the unsplit delimited string before the split
+     * ever happens. The collector forces these additive (the abstract method
+     * carries a `::fromQuery($request)` docblock pointer instead of injecting),
+     * exactly as path (issue #113) and header (issue #121) classes already are.
+     *
+     * @var array<string, true>
+     */
+    public array $delimitedQueryClasses = [];
+
+    /**
      * Per-operation path Data classes (issue #113), emitted on demand AFTER
      * generate() ran, keyed by class name. Each carries spec-derived rules()
      * for the operation's `in: path` parameters plus a `fromRoute()` factory,

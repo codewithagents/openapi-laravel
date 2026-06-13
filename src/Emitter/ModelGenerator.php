@@ -487,6 +487,20 @@ final class ModelGenerator
     }
 
     /**
+     * Whether the named query Data class contains at least one non-exploded
+     * delimited-array parameter (issue #132). Such a class must be ADDITIVE
+     * rather than container-injected: spatie laravel-data validates the RAW
+     * request before the fromQuery() factory runs, so an injected class would
+     * 422 on the unsplit delimited string before the split ever happens. The
+     * collector consults this to force the class additive, exactly as path
+     * (issue #113) and header (issue #121) classes already are.
+     */
+    public function queryClassHasDelimitedArray(string $class): bool
+    {
+        return isset($this->state->delimitedQueryClasses[$class]);
+    }
+
+    /**
      * The per-operation path Data classes emitted since the last generate()
      * run (issue #113), keyed and ordered by class name. Exposed as a getter,
      * mirroring queryFiles(): generate() already returned its file set when

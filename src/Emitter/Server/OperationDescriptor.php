@@ -24,9 +24,12 @@ final readonly class OperationDescriptor
      * class, or null when the operation has no usable `in: query` parameters.
      * `injected` is true when the class is type-hinted into the method
      * signature (body-less operations, where container injection is safe);
-     * false when the implementer must call `::fromQuery($request)` explicitly
-     * (operations with a request body, where auto-injection would validate
-     * the query class against the merged body + query input). `fqcn` is the
+     * false when the implementer must call `::fromQuery($request)` explicitly:
+     * either the operation has a request body (auto-injection would validate
+     * the query class against the merged body + query input), OR the class
+     * carries a non-exploded delimited-array param (issue #132) whose
+     * fromQuery() split must run before validation, which container injection
+     * would shadow (spatie validates the raw request first). `fqcn` is the
      * class's fully-qualified name, which under the tag-grouped data layout
      * (issue #93) may sit in a tag subnamespace; the non-injected docblock
      * pointer spells it out from here.

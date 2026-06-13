@@ -376,6 +376,13 @@ final class RequestDataSynthesizer
             default => $this->state->queryFiles[$className] = $file,
         };
 
+        // A query class carrying a delimited-array param must be additive, not
+        // injected (issue #132): record it so the collector skips injection and
+        // points at ::fromQuery($request) instead, the same as path/header.
+        if ($in === 'query' && $delimitedArrayNames !== []) {
+            $this->state->delimitedQueryClasses[$className] = true;
+        }
+
         return $className;
     }
 

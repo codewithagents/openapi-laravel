@@ -614,7 +614,17 @@ final class OperationCollector
             return null;
         }
 
-        $injected = $bodyParam === null && ! $bodyRequiresRequest;
+        // A body-less operation normally gets the query class injected (the
+        // container resolves it and fromQuery() hydrates query-only). But a
+        // class carrying a non-exploded delimited-array param MUST stay additive
+        // (issue #132): spatie laravel-data validates the RAW request before the
+        // fromQuery() split runs, so an injected class would 422 on the unsplit
+        // "a,b,c" string before ever splitting. Forcing it additive makes
+        // ::fromQuery($request) (with its split) the live path, exactly the
+        // path (issue #113) and header (issue #121) precedent.
+        $injected = $bodyParam === null
+            && ! $bodyRequiresRequest
+            && ! $this->models->queryClassHasDelimitedArray($class);
         if ($injected) {
             $imports[] = $this->dataFqcn($class);
         }

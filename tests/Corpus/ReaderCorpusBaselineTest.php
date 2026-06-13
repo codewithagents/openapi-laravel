@@ -1032,9 +1032,16 @@ const READER_BASELINE_REBASELINED_130 = [
  * Such a parameter used to be skipped with a warning; it is now synthesized
  * into the operation's query class and its fromQuery() factory splits the
  * single joined string on the delimiter before the array rules validate, so
- * the generated query class (and the dropped skip warning) changed. A spec
- * present in an earlier rebaseline list accumulates the changes; every spec
- * outside the rebaseline lists stays the frozen v0.11.0 freeze, byte for byte.
+ * the generated query class (and the dropped skip warning) changed. The
+ * follow-up fix also makes such a query class ADDITIVE on a body-less operation
+ * (not container-injected): spatie laravel-data validates the raw request
+ * before the fromQuery() split runs, so an injected class would 422 on the
+ * unsplit string. The abstract controller therefore carries a
+ * `::fromQuery($request)` docblock pointer instead of an injected param for
+ * those operations, exactly as path (#113) / header (#121) do, which shifts the
+ * controller output too. A spec present in an earlier rebaseline list
+ * accumulates the changes; every spec outside the rebaseline lists stays the
+ * frozen v0.11.0 freeze, byte for byte.
  *
  * @var array<string, string>
  */
