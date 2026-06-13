@@ -783,6 +783,81 @@ final class RequestDataSynthesizer
     }
 
     /**
+     * Emit a per-operation response Data class (issue #129) for an INLINE
+     * (non-`$ref`) JSON success-response object schema, the symmetric twin of
+     * {@see generateBodyData()} (the inline-request path, issue #76) on the
+     * response side and the inline counterpart of
+     * {@see generateComponentResponseData()} (the component-response path,
+     * issue #116). It reuses the EXACT emission pipeline the component Data
+     * classes go through (emitData: properties, rules(), nested inline classes,
+     * closed-object enforcement, defaults), so an inline response is typed with
+     * the same fidelity as a `$ref` response.
+     *
+     * Must be called AFTER generate(): the pipeline resolves `$ref` properties
+     * against the run's component registry and alias caches. The collected
+     * files (the response class plus any nested classes it spawned) are exposed
+     * via {@see responseFiles()}, the same bucket the component-response path
+     * drains into; the class name is reserved in the run's allocator so it can
+     * never collide with a component class, a body class, or a query class (a
+     * clash suffixes deterministically, e.g. `..._2`).
+     *
+     * Like the request twin, only an OBJECT schema synthesizes a class: a
+     * non-object inline schema (array, scalar, union, enum, free-form map)
+     * returns null with a warning, and the caller keeps the established
+     * JsonResponse fallback.
+     *
+     * A response is server OUTPUT, so a schema that splits fields with
+     * readOnly/writeOnly emits the READ shape (writeOnly properties dropped,
+     * readOnly kept), the same variant a component `$ref` response is typed
+     * against and the opposite of the write variant a request body takes.
+     *
+     * @param  string  $baseName  StudlyCaps operation context (operationId or the method+path fallback), without suffix
+     * @param  string  $operationLabel  "GET /pets", for warning messages
+     * @param  ?string  $tag  the operation's first tag (or the 'Untagged' fallback), so the grouped layout (issue #93) can place the class (and its nested classes) in its operation's tag group; ignored in the flat layout
+     * @return string|null the reserved response class name, or null when the schema cannot type a response
+     */
+    public function generateInlineResponseData(string $baseName, string $operationLabel, SchemaNode $schema, ?string $tag = null): ?string
+    {
+        // Degradation warnings inside the response pipeline name the
+        // operation, not a schema: an inline response schema is
+        // operation-owned, exactly like generateBodyData().
+        $this->state->warningContext = sprintf('Response of operation %s', $operationLabel);
+
+        $reason = $this->bodySkipReason($schema);
+        if ($reason !== null) {
+            $this->state->warnings[sprintf(
+                'Operation %s: the inline response schema was not generated as a typed Data class (%s); the return type falls back to JsonResponse.',
+                $operationLabel,
+                $reason,
+            )] = true;
+
+            return null;
+        }
+
+        $className = $this->state->names->reserve($this->state->options->withSuffix($baseName.'Response'));
+
+        // A per-operation class belongs unambiguously to its operation's tag
+        // group (issue #93); nested classes it spawns follow it through the
+        // emission scope. Null in the flat layout.
+        $this->state->fileGroups[$className] = $this->groupForTag($tag);
+
+        // Same bucket discipline as generateComponentResponseData(): emit into
+        // a clean bucket and collect into $responseFiles for the planner.
+        $mainFiles = $this->state->files;
+        $this->state->files = [];
+
+        $variant = ($this->hasReadWriteFlags)($schema) ? 'read' : 'all';
+        ($this->emitData)($className, $schema, 0, $variant, ['Response of '.PhpLiteral::docblockSafe($operationLabel).'.']);
+
+        foreach ($this->state->files as $name => $file) {
+            $this->state->responseFiles[$name] = $file;
+        }
+        $this->state->files = $mainFiles;
+
+        return $className;
+    }
+
+    /**
      * Emit the SHARED Data class of a component request body (issue #110)
      * whose content is multipart/form-data, mirroring
      * {@see generateComponentBodyData()} exactly but through the multipart

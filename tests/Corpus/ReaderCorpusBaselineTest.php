@@ -743,6 +743,97 @@ const READER_BASELINE_REBASELINED_129 = [
 ];
 
 /*
+ * INTENTIONAL post-freeze rebaseline (GitHub issue #129, inline object
+ * responses): the 51 specs in READER_BASELINE_REBASELINED_129_INLINE_RESPONSES
+ * carry a post-fix hash because they declare at least one inline (non-$ref) 2xx
+ * JSON OBJECT response schema, which the generator now synthesizes as a typed
+ * `<Operation>ResponseData` class (READ variant: readOnly kept, writeOnly
+ * dropped) and types the abstract method against, instead of the previous
+ * silent JsonResponse fallback. The divergence is therefore a strict
+ * improvement (a typed return plus the new Data class file, sometimes nested
+ * inline classes too); the prior fallback was silent, so no warning text
+ * changed for the object case.
+ *
+ * NOTE ON THE NUMBER: the constant above (READER_BASELINE_REBASELINED_129) was
+ * created by the `->whereNumber()` route-constraint work, whose COMMIT mis-cited
+ * "#129" even though GitHub issue #129 is THIS feature (inline object response
+ * synthesis). Both lists are kept distinct and auditable rather than renaming
+ * the older one: the suffix `_INLINE_RESPONSES` disambiguates the real issue
+ * #129 from the mislabeled commit. A spec present in an earlier rebaseline list
+ * (incl. the whereNumber `_129` list) accumulates the changes; every spec
+ * outside the rebaseline lists stays the frozen v0.11.0 freeze, byte for byte.
+ *
+ * Inline ARRAY, scalar, union, enum, and free-form-map responses do NOT shift:
+ * they keep the JsonResponse fallback (now with a per-operation warning naming
+ * the operation), and a component-$ref response was already typed by issue #116.
+ */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-issue-#129
+ * output (an inline object 2xx response now synthesizes a typed ResponseData
+ * class), keyed by spec basename. The per-spec test below still compares
+ * against the JSON baseline, which now holds these specs' post-#129 hashes;
+ * the coverage test pins that every listed name exists on disk and in the
+ * baseline, so the list cannot rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_129_INLINE_RESPONSES = [
+    '1password-connect.yaml' => 'inline object response synthesizes ResponseData',
+    'airflow.json' => 'inline object response synthesizes ResponseData',
+    'apisguru.json' => 'inline object response synthesizes ResponseData',
+    'asana.json' => 'inline object response synthesizes ResponseData',
+    'box.json' => 'inline object response synthesizes ResponseData',
+    'brex.json' => 'inline object response synthesizes ResponseData',
+    'canada_holidays.json' => 'inline object response synthesizes ResponseData',
+    'circleci.json' => 'inline object response synthesizes ResponseData',
+    'clevercloud.json' => 'inline object response synthesizes ResponseData',
+    'codat_accounting.json' => 'inline object response synthesizes ResponseData',
+    'devto.json' => 'inline object response synthesizes ResponseData',
+    'digitalocean.json' => 'inline object response synthesizes ResponseData',
+    'discourse.json' => 'inline object response synthesizes ResponseData',
+    'dnd5e.json' => 'inline object response synthesizes ResponseData',
+    'docker.json' => 'inline object response synthesizes ResponseData',
+    'ebay_fulfillment.json' => 'inline object response synthesizes ResponseData',
+    'ebay_marketing.json' => 'inline object response synthesizes ResponseData',
+    'elevenlabs.json' => 'inline object response synthesizes ResponseData',
+    'exchangerate.json' => 'inline object response synthesizes ResponseData',
+    'flickr.json' => 'inline object response synthesizes ResponseData',
+    'giphy.json' => 'inline object response synthesizes ResponseData',
+    'github.json' => 'inline object response synthesizes ResponseData',
+    'here_tracking.json' => 'inline object response synthesizes ResponseData',
+    'jira.json' => 'inline object response synthesizes ResponseData',
+    'linode.json' => 'inline object response synthesizes ResponseData',
+    'lufthansa.json' => 'inline object response synthesizes ResponseData',
+    'medium.json' => 'inline object response synthesizes ResponseData',
+    'nasa_apod.json' => 'inline object response synthesizes ResponseData',
+    'notion.json' => 'inline object response synthesizes ResponseData',
+    'nytimes.json' => 'inline object response synthesizes ResponseData',
+    'open-meteo.yaml' => 'inline object response synthesizes ResponseData',
+    'openai.yaml' => 'inline object response synthesizes ResponseData',
+    'openbanking.json' => 'inline object response synthesizes ResponseData',
+    'petstore-3.0.yaml' => 'inline object response synthesizes ResponseData',
+    'postman.json' => 'inline object response synthesizes ResponseData',
+    'rawg.json' => 'inline object response synthesizes ResponseData',
+    'sendgrid.json' => 'inline object response synthesizes ResponseData',
+    'sentry.json' => 'inline object response synthesizes ResponseData',
+    'slack.json' => 'inline object response synthesizes ResponseData',
+    'snyk.json' => 'inline object response synthesizes ResponseData',
+    'stripe.json' => 'inline object response synthesizes ResponseData',
+    'telegram.json' => 'inline object response synthesizes ResponseData',
+    'twilio_api_v2010.json' => 'inline object response synthesizes ResponseData',
+    'twilio_messaging.json' => 'inline object response synthesizes ResponseData',
+    'twilio_verify.json' => 'inline object response synthesizes ResponseData',
+    'twilio_video.json' => 'inline object response synthesizes ResponseData',
+    'twilio.json' => 'inline object response synthesizes ResponseData',
+    'twitter.json' => 'inline object response synthesizes ResponseData',
+    'vercel.json' => 'inline object response synthesizes ResponseData',
+    'zoom.json' => 'inline object response synthesizes ResponseData',
+    'zuora.json' => 'inline object response synthesizes ResponseData',
+
+];
+
+/*
  * INTENTIONAL post-freeze rebaseline (#30 nested-recursion fix): the
  * twenty-three specs in READER_BASELINE_REBASELINED_30 carry a post-fix hash
  * because they reference the inlined NoUnknownPropertiesRule (closed-object
@@ -934,7 +1025,7 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
     // still exist on disk and carry a hash in the baseline (it is an update, not
     // an exemption): a renamed or deleted spec would make the documented
     // rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY)] as $spec) {
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }

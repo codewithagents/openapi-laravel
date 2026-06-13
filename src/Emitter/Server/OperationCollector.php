@@ -384,7 +384,7 @@ final class OperationCollector
         $bodyBaseName = PhpIdentifier::toClassName($this->methodName($operation, $method, $path));
 
         [$bodyParam, $bodyRequiresRequest] = $this->requestBody($operation, $imports, $label, $bodyBaseName, $pathParams);
-        [$returnType, $returnDoc, $successStatus] = $this->responseType($operation, $imports, $label);
+        [$returnType, $returnDoc, $successStatus] = $this->responseType($operation, $imports, $label, $bodyBaseName);
 
         $this->warnUnsupportedParameterLocations($method, $path, $parameters);
         $this->warnCallbacks($operation, $label);
@@ -1359,11 +1359,21 @@ final class OperationCollector
      * fallback: the spec says nothing about the body, so the established
      * default stands rather than widening every schema-less response.
      *
+     * An inline (non-component) JSON object success schema (issue #129)
+     * synthesizes a per-operation `<Operation>ResponseData` class, the
+     * symmetric twin of the inline request body (issue #76): the same base
+     * name as `<Operation>RequestData`, the READ variant (readOnly kept,
+     * writeOnly dropped), and the operation's first tag for grouped placement.
+     * Only an object shape produces a class; an inline array, scalar, union,
+     * enum, or free-form map returns null with a warning and keeps the
+     * JsonResponse fallback.
+     *
      * @param  list<string>  $imports
      * @param  string  $label  "GET /pets", for warning messages
+     * @param  string  $baseName  StudlyCaps operation context for the synthesized inline response class name (the same source the inline request body uses)
      * @return array{0: string, 1: ?string, 2: ?int} returnType, returnDoc, successStatus
      */
-    private function responseType(OperationNode $operation, array &$imports, string $label): array
+    private function responseType(OperationNode $operation, array &$imports, string $label, string $baseName): array
     {
         [$response, $status, $componentName] = $this->successResponse($operation->responses, $label);
 
@@ -1446,6 +1456,28 @@ final class OperationCollector
             // the documented silent fallback: nothing names a shared class.
             if ($componentName !== null && $this->models !== null) {
                 $class = $this->models->generateComponentResponseData($componentName, $label, $schema, $this->componentResponseTags[$componentName] ?? null);
+
+                if ($class !== null) {
+                    $imports[] = $this->dataFqcn($class);
+
+                    return [$class, null, $status];
+                }
+            }
+
+            // An inline (non-component) JSON object success schema (issue
+            // #129) synthesizes a per-operation `<Operation>ResponseData`
+            // class through the model generator's emission pipeline, the
+            // symmetric twin of the inline request body (issue #76). Only an
+            // object shape produces a class; a non-object inline schema (an
+            // array, scalar, union, enum, or free-form map) returns null with
+            // a warning through the generator's channel and keeps the
+            // JsonResponse fallback below. The operation's first tag rides
+            // along so the grouped data layout (issue #93) can place the
+            // response class (and its nested classes) in its operation's tag
+            // group; the flat layout ignores it. A component response (issue
+            // #116) was already handled above with ONE shared class.
+            if ($componentName === null && $this->models !== null) {
+                $class = $this->models->generateInlineResponseData($baseName, $label, $schema, $this->firstTag($operation));
 
                 if ($class !== null) {
                     $imports[] = $this->dataFqcn($class);

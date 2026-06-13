@@ -458,6 +458,19 @@ final class ModelGenerator
     }
 
     /**
+     * Emit a per-operation response Data class (issue #129) for an inline
+     * (non-`$ref`) JSON success-response object schema. Must be called AFTER
+     * generate(); see {@see RequestDataSynthesizer::generateInlineResponseData()}
+     * for the full contract.
+     *
+     * @return string|null the reserved response class name, or null when the schema cannot type a response
+     */
+    public function generateInlineResponseData(string $baseName, string $operationLabel, SchemaNode $schema, ?string $tag = null): ?string
+    {
+        return $this->bodies->generateInlineResponseData($baseName, $operationLabel, $schema, $tag);
+    }
+
+    /**
      * The per-operation query Data classes emitted since the last generate()
      * run (issue #63), keyed and ordered by class name. Exposed as a getter,
      * mirroring supportFiles(): generate() already returned its file set when

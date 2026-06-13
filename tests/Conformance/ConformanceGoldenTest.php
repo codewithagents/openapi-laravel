@@ -736,13 +736,40 @@ it('synthesizes the shared component-response class through the full rules pipel
     [, $generator] = conformance31Server();
 
     $files = $generator->responseFiles();
-    expect(array_keys($files))->toBe(['GizmoSummaryResponseData']);
+    expect($files)->toHaveKey('GizmoSummaryResponseData');
 
     $code = $files['GizmoSummaryResponseData']->code;
     expect($code)->toContain('Response component "GizmoSummary".')
         ->and($code)->toContain('final class GizmoSummaryResponseData extends Data')
         ->and($code)->toContain("'total' => ['required', 'integer', 'min:0'],")
         ->and($code)->toContain("'newestName' => ['sometimes', 'string'],");
+});
+
+// --- Inline (non-$ref) object responses (#129) ------------------------------
+
+it('synthesizes a per-operation ResponseData class for inline object responses (#129)', function () {
+    [$controllers, $generator] = conformance31Server();
+
+    // The fixture's inline 200 object responses now synthesize per-operation
+    // classes through the same pipeline the component response (#116) uses:
+    // /pingless (no operationId, multi-tag) and the two duplicateOp collision
+    // operations, whose names collide and suffix deterministically (`..._2`).
+    $files = $generator->responseFiles();
+    expect($files)->toHaveKey('GetPinglessResponseData')
+        ->and($files)->toHaveKey('DuplicateOpResponseData')
+        ->and($files)->toHaveKey('DuplicateOpResponseData_2');
+
+    expect($files['GetPinglessResponseData']->code)
+        ->toContain('Response of GET /pingless.')
+        ->toContain('final class GetPinglessResponseData extends Data')
+        ->toContain("'ok' => ['sometimes', 'boolean'],");
+
+    // The collision operations carry the misc tag, so their classes land in
+    // the Misc group and the controller imports them from there.
+    expect($controllers)->toHaveKey('AbstractMiscController');
+    expect($controllers['AbstractMiscController']->code)
+        ->toContain('use App\Data\Misc\DuplicateOpResponseData;')
+        ->toContain('use App\Data\Misc\DuplicateOpResponseData_2;');
 });
 
 // --- Non-JSON responses typed as the base Response (#117/#118) --------------
