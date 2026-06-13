@@ -1037,21 +1037,37 @@ final class OperationCollector
                     continue;
                 }
 
-                $tag = $this->firstTag($operation);
-                $group = TagGroups::forTag($tag);
-
-                if (! array_key_exists($name, $groups)) {
-                    $groups[$name] = $group;
-                    $tags[$name] = $tag;
-                } elseif ($groups[$name] !== $group) {
-                    // A second referencing operation in a DIFFERENT tag group:
-                    // the shared class belongs to no single group, flat root.
-                    $tags[$name] = null;
-                }
+                $this->attributeComponentTag($name, $operation, $groups, $tags);
             }
         }
 
         return $tags;
+    }
+
+    /**
+     * The shared first-tag/group attribution both component-tag walks apply
+     * (issues #110 and #116). The FIRST referencing operation seeds the
+     * component's representative tag and its group; a later operation in a
+     * DIFFERENT group flips the tag to null (the shared class spans groups, so
+     * it lands at the flat root). Comparison is by GROUP, so tag spellings that
+     * normalize together agree.
+     *
+     * @param  array<string, ?string>  $groups  group seen per component, by reference
+     * @param  array<string, ?string>  $tags  representative tag per component, by reference
+     */
+    private function attributeComponentTag(string $name, OperationNode $operation, array &$groups, array &$tags): void
+    {
+        $tag = $this->firstTag($operation);
+        $group = TagGroups::forTag($tag);
+
+        if (! array_key_exists($name, $groups)) {
+            $groups[$name] = $group;
+            $tags[$name] = $tag;
+        } elseif ($groups[$name] !== $group) {
+            // A second referencing operation in a DIFFERENT tag group: the
+            // shared class belongs to no single group, flat root.
+            $tags[$name] = null;
+        }
     }
 
     /**
@@ -1119,18 +1135,7 @@ final class OperationCollector
                         continue;
                     }
 
-                    $tag = $this->firstTag($operation);
-                    $group = TagGroups::forTag($tag);
-
-                    if (! array_key_exists($name, $groups)) {
-                        $groups[$name] = $group;
-                        $tags[$name] = $tag;
-                    } elseif ($groups[$name] !== $group) {
-                        // A second referencing operation in a DIFFERENT tag
-                        // group: the shared class belongs to no single group,
-                        // flat root.
-                        $tags[$name] = null;
-                    }
+                    $this->attributeComponentTag($name, $operation, $groups, $tags);
                 }
             }
         }
