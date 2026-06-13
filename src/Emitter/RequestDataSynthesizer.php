@@ -617,17 +617,9 @@ final class RequestDataSynthesizer
         // $files, which generate() already returned to its caller. Emit into a
         // clean bucket and collect the run's output into $bodyFiles, so the
         // planner picks the body classes up via bodyFiles() exactly like the
-        // query classes.
-        $mainFiles = $this->state->files;
-        $this->state->files = [];
-
+        // query classes (see emitIntoBucket()).
         $variant = ($this->hasReadWriteFlags)($schema) ? 'write' : 'all';
-        ($this->emitData)($className, $schema, 0, $variant, ['Request body of '.PhpLiteral::docblockSafe($operationLabel).'.']);
-
-        foreach ($this->state->files as $name => $file) {
-            $this->state->bodyFiles[$name] = $file;
-        }
-        $this->state->files = $mainFiles;
+        $this->emitIntoBucket($className, $schema, $variant, ['Request body of '.PhpLiteral::docblockSafe($operationLabel).'.'], toResponseFiles: false);
 
         return $className;
     }
@@ -693,20 +685,10 @@ final class RequestDataSynthesizer
         // it spawns follow it through the emission scope. Null when flat.
         $this->state->fileGroups[$className] = $this->groupForTag($tag);
 
-        // Same bucket discipline as generateBodyData(): emit into a clean
-        // bucket and collect into $bodyFiles for the planner.
-        $mainFiles = $this->state->files;
-        $this->state->files = [];
-        $this->state->multipartBody = true;
-
+        // Same bucket discipline as generateBodyData(), with the multipart
+        // flag toggled across the emission (see emitIntoBucket()).
         $variant = ($this->hasReadWriteFlags)($schema) ? 'write' : 'all';
-        ($this->emitData)($className, $schema, 0, $variant, ['Multipart request body of '.PhpLiteral::docblockSafe($operationLabel).'.']);
-
-        $this->state->multipartBody = false;
-        foreach ($this->state->files as $name => $file) {
-            $this->state->bodyFiles[$name] = $file;
-        }
-        $this->state->files = $mainFiles;
+        $this->emitIntoBucket($className, $schema, $variant, ['Multipart request body of '.PhpLiteral::docblockSafe($operationLabel).'.'], toResponseFiles: false, multipart: true);
 
         return $className;
     }
@@ -762,18 +744,9 @@ final class RequestDataSynthesizer
         );
         $this->state->fileGroups[$className] = $this->groupForTag($tag);
 
-        // Same bucket discipline as generateBodyData(): emit into a clean
-        // bucket and collect into $bodyFiles for the planner.
-        $mainFiles = $this->state->files;
-        $this->state->files = [];
-
+        // Same bucket discipline as generateBodyData() (see emitIntoBucket()).
         $variant = ($this->hasReadWriteFlags)($schema) ? 'write' : 'all';
-        ($this->emitData)($className, $schema, 0, $variant, ['Request body component "'.PhpLiteral::docblockSafe($componentName).'".']);
-
-        foreach ($this->state->files as $name => $file) {
-            $this->state->bodyFiles[$name] = $file;
-        }
-        $this->state->files = $mainFiles;
+        $this->emitIntoBucket($className, $schema, $variant, ['Request body component "'.PhpLiteral::docblockSafe($componentName).'".'], toResponseFiles: false);
 
         return $this->componentBodyClasses[$componentName] = $className;
     }
@@ -828,18 +801,10 @@ final class RequestDataSynthesizer
         );
         $this->state->fileGroups[$className] = $this->groupForTag($tag);
 
-        // Same bucket discipline as generateComponentBodyData(): emit into a
-        // clean bucket and collect into $responseFiles for the planner.
-        $mainFiles = $this->state->files;
-        $this->state->files = [];
-
+        // Same bucket discipline as generateComponentBodyData(), drained into
+        // $responseFiles (see emitIntoBucket()).
         $variant = ($this->hasReadWriteFlags)($schema) ? 'read' : 'all';
-        ($this->emitData)($className, $schema, 0, $variant, ['Response component "'.PhpLiteral::docblockSafe($componentName).'".']);
-
-        foreach ($this->state->files as $name => $file) {
-            $this->state->responseFiles[$name] = $file;
-        }
-        $this->state->files = $mainFiles;
+        $this->emitIntoBucket($className, $schema, $variant, ['Response component "'.PhpLiteral::docblockSafe($componentName).'".'], toResponseFiles: true);
 
         return $this->componentResponseClasses[$componentName] = $className;
     }
@@ -903,18 +868,10 @@ final class RequestDataSynthesizer
         // emission scope. Null in the flat layout.
         $this->state->fileGroups[$className] = $this->groupForTag($tag);
 
-        // Same bucket discipline as generateComponentResponseData(): emit into
-        // a clean bucket and collect into $responseFiles for the planner.
-        $mainFiles = $this->state->files;
-        $this->state->files = [];
-
+        // Same bucket discipline as generateComponentResponseData(), drained
+        // into $responseFiles (see emitIntoBucket()).
         $variant = ($this->hasReadWriteFlags)($schema) ? 'read' : 'all';
-        ($this->emitData)($className, $schema, 0, $variant, ['Response of '.PhpLiteral::docblockSafe($operationLabel).'.']);
-
-        foreach ($this->state->files as $name => $file) {
-            $this->state->responseFiles[$name] = $file;
-        }
-        $this->state->files = $mainFiles;
+        $this->emitIntoBucket($className, $schema, $variant, ['Response of '.PhpLiteral::docblockSafe($operationLabel).'.'], toResponseFiles: true);
 
         return $className;
     }
@@ -976,20 +933,52 @@ final class RequestDataSynthesizer
         );
         $this->state->fileGroups[$className] = $this->groupForTag($tag);
 
-        $mainFiles = $this->state->files;
-        $this->state->files = [];
-        $this->state->multipartBody = true;
-
+        // Same multipart bucket discipline as generateMultipartBodyData()
+        // (see emitIntoBucket()).
         $variant = ($this->hasReadWriteFlags)($schema) ? 'write' : 'all';
-        ($this->emitData)($className, $schema, 0, $variant, ['Multipart request body component "'.PhpLiteral::docblockSafe($componentName).'".']);
-
-        $this->state->multipartBody = false;
-        foreach ($this->state->files as $name => $file) {
-            $this->state->bodyFiles[$name] = $file;
-        }
-        $this->state->files = $mainFiles;
+        $this->emitIntoBucket($className, $schema, $variant, ['Multipart request body component "'.PhpLiteral::docblockSafe($componentName).'".'], toResponseFiles: false, multipart: true);
 
         return $this->componentBodyClasses[$componentName] = $className;
+    }
+
+    /**
+     * The shared bucket discipline every synthesized body/response class uses.
+     *
+     * emitData() writes the class (and every nested class it spawns) into
+     * $state->files, the same array generate() already returned to its caller.
+     * To keep these per-operation and component classes out of that returned
+     * set and route them to the planner's dedicated bucket instead, this emits
+     * into a clean $files, drains the run's output into the target bucket
+     * (bodyFiles or responseFiles), then restores the original $files. The
+     * swap, the drain order, and the multipart toggle are identical across
+     * every caller, so centralizing them here is behavior-preserving.
+     *
+     * @param  string  $variant  the emitData read/write/all variant selector
+     * @param  list<string>  $docIntro  the class docblock intro lines passed to emitData
+     * @param  bool  $toResponseFiles  drain into $responseFiles (true) or $bodyFiles (false)
+     * @param  bool  $multipart  toggle $state->multipartBody across the emission (binary parts type UploadedFile)
+     */
+    private function emitIntoBucket(string $className, SchemaNode $schema, string $variant, array $docIntro, bool $toResponseFiles, bool $multipart = false): void
+    {
+        $mainFiles = $this->state->files;
+        $this->state->files = [];
+        if ($multipart) {
+            $this->state->multipartBody = true;
+        }
+
+        ($this->emitData)($className, $schema, 0, $variant, $docIntro);
+
+        if ($multipart) {
+            $this->state->multipartBody = false;
+        }
+        foreach ($this->state->files as $name => $file) {
+            if ($toResponseFiles) {
+                $this->state->responseFiles[$name] = $file;
+            } else {
+                $this->state->bodyFiles[$name] = $file;
+            }
+        }
+        $this->state->files = $mainFiles;
     }
 
     /**
