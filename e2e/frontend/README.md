@@ -50,7 +50,8 @@ The backend (e2e/backend) serves on port 8088 by default.
 openapi-zod-ts --input ../spec/petstore.yaml --output src/api
 ```
 
-Output files in `src/api/` (committed as proof artifact):
+Output files in `src/api/` (NOT committed: the whole client is generated output,
+regenerated from the spec on every run by `pnpm gen` / `e2e/generate.sh`):
 
 | File | Contents |
 |---|---|

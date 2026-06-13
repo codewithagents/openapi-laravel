@@ -36,9 +36,22 @@ e2e/
     config/cors.php           Permissive CORS, DEMO ONLY (for the later SPA).
 ```
 
-Generated files are committed on purpose: they are the proof artifact. The
-Laravel `vendor/` directory and the runtime store file
-(`storage/app/petstore.json`) are gitignored.
+Generated files are NOT committed. This demo behaves like a real consumer of
+the generators: the business logic (concrete controllers, middleware, the store,
+models, providers) is versioned, the mechanical layer (`app/Data/**`, the
+`Abstract*Controller` classes, `routes/api.generated.php`, and the frontend's
+`src/api/**`) is gitignored and regenerated from the spec on every run by
+`e2e/generate.sh`. CI runs that script, then builds and drives the stack, so the
+demo is a real regression gate on the generator output. The Laravel `vendor/`
+directory and the runtime store file (`storage/app/petstore.json`) are gitignored
+too.
+
+Regenerate the full mechanical layer (backend and frontend) at any time:
+
+```bash
+cd e2e
+./generate.sh
+```
 
 ## The petstore-plus seams
 
@@ -141,19 +154,24 @@ endpoints are real HTTP routes. `php artisan route:list` shows them all.
 
 ## Run the whole stack in Docker
 
-One command brings up the generated backend and the SPA together, reachable so a
-real browser can drive the SPA which calls the backend over real HTTP:
+Generate first, then bring up the generated backend and the SPA together,
+reachable so a real browser can drive the SPA which calls the backend over real
+HTTP:
 
 ```bash
+e2e/generate.sh                                       # regenerate from the spec
 docker compose -f e2e/docker-compose.yml up -d --build
 # backend:  http://localhost:8088   (API under /api, health at /up)
 # frontend: http://localhost:8080   (the built SPA)
 docker compose -f e2e/docker-compose.yml down
 ```
 
-Both services run the committed code as-is: the containers do NOT regenerate the
-backend Data classes or the frontend client. The generated artifacts that ship
-in the repo are the proof, and the images just boot them.
+The containers do NOT regenerate: the Docker build contexts (`./backend`,
+`./frontend`) do not include the spec or the path-repo generator, so generation
+cannot happen inside the Dockerfiles. It runs on the host (or in CI) via
+`generate.sh` BEFORE the build, and the images then COPY the freshly generated
+output in. `e2e/e2e-tests/run.sh` runs `generate.sh` automatically before the
+compose build (set `SKIP_GEN=1` to reuse existing generated files).
 
 ### How the path-repo problem is solved (backend)
 
@@ -187,9 +205,10 @@ byte-identical output.
   database server: the demo is fully file-backed via `storage/app/petstore.json`)
   and seeds the deterministic store (`petstore:reset`) on container start.
 - `frontend/Dockerfile`: multi-stage. Node 20 + pnpm to `pnpm install
-  --frozen-lockfile` and `pnpm build` (the generated client in `src/api` is
-  committed, so the build only typechecks and bundles it), then nginx serves the
-  static `dist/`.
+  --frozen-lockfile` and `pnpm build` (the generated client in `src/api` was
+  written to disk by `generate.sh` before the build, so the build only typechecks
+  and bundles committed glue plus generated client), then nginx serves the static
+  `dist/`.
 - `docker-compose.yml`: `backend` (host `8088`) and `frontend` (host `8080`) on a
   shared bridge network, each with a healthcheck; the frontend waits for the
   backend to be healthy.

@@ -24,10 +24,24 @@ return Application::configure(basePath: dirname(__DIR__))
         // all error responses JSON regardless of what the client advertised.
         //
         // CreatedResponse promotes successful create operations to 201.
+        //
+        // The routes file is GENERATED (not committed) and written by
+        // ../generate.sh before the stack builds. Guard the require so the
+        // framework can still boot in a clean checkout where it does not exist
+        // yet: without this, `composer install` (which boots artisan via
+        // package:discover) and `openapi:generate` itself both fatal on the
+        // missing require before generation ever runs. Once generated, the
+        // routes load normally.
         then: function (): void {
+            $generatedRoutes = __DIR__.'/../routes/api.generated.php';
+
+            if (! file_exists($generatedRoutes)) {
+                return;
+            }
+
             Route::prefix('api')
                 ->middleware([ForceJsonAccept::class, CreatedResponse::class])
-                ->group(__DIR__.'/../routes/api.generated.php');
+                ->group($generatedRoutes);
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
