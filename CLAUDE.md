@@ -62,7 +62,13 @@ delimited-array param is forced ADDITIVE (not container-injected, the same mecha
 header params): container injection would make spatie validate the RAW unsplit string before
 `fromQuery()` runs, 422-ing a body-less GET delimited filter before the split, so the abstract method
 takes no injected query param and carries a `::fromQuery($request)` docblock pointer instead. A
-QueryData with no delimited-array param stays injected on body-less ops as before. Path parameters (#113) synthesize a per-operation `<Operation>PathData`
+QueryData with no delimited-array param stays injected on body-less ops as before. A `style: deepObject`
+OBJECT query param (#131, Stripe-style `?filter[gte]=10&filter[lte]=20`) is synthesized into the
+QueryData as a nested object property with dotted nested rules (`filter.gte`, ...), reusing the body
+nested-object pipeline; PHP parses the bracketed keys natively into a nested array, so no manual
+splitting is needed and the param stays container-injectable on a body-less GET (the parsed nested
+array validates fine, unlike a delimited array). A non-object deepObject schema, or `deepObject` +
+`explode: false`, keeps the skip-and-warn. Path parameters (#113) synthesize a per-operation `<Operation>PathData`
 class with a `fromRoute(Request)` factory reading `$request->route()->parameters()`, so a path
 segment's min/max/pattern/enum/format constraints are validated at runtime instead of silently
 dropped (a bad value is a 422, not a 200). An `integer` path parameter also gets a
