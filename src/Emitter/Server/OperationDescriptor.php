@@ -31,7 +31,7 @@ final readonly class OperationDescriptor
      * (issue #93) may sit in a tag subnamespace; the non-injected docblock
      * pointer spells it out from here.
      *
-     * @param  list<array{name: string, phpType: string}>  $pathParams
+     * @param  list<array{name: string, phpType: string, token: string}>  $pathParams
      * @param  array{name: string, type: string}|null  $bodyParam
      * @param  list<string>  $imports  FQCNs the controller file must `use`
      * @param  array{name: string, type: string, injected: bool, fqcn: string}|null  $queryParam

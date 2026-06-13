@@ -116,7 +116,16 @@ components (#66). Query parameters (#63) generate a per-operation query Data cla
 so a path segment's min/max/pattern/enum/format constraints are enforced at runtime (a bad value is
 a 422, not a silent 200). It is the additive runtime-validation seam: the positional scalar path
 arguments still fill the controller signature, and the abstract method carries a docblock pointer to
-`::fromRoute($request)` rather than injecting the class. Header parameters (#121) generate a
+`::fromRoute($request)` rather than injecting the class. An `integer` path parameter additionally
+carries a `->whereNumber('<token>')` route constraint (#129): the abstract method types it `int`, so
+under strict_types a non-numeric segment would otherwise bind to the typed `int` parameter and throw
+an uncatchable TypeError 500 in Laravel's ControllerDispatcher BEFORE the controller body (and the
+#113 `fromRoute()` guard) could run. The constraint makes a non-numeric segment fail to MATCH the
+route, so the resulting status semantics are clean: a non-numeric integer-path segment is a 404
+(route miss, before dispatch), and a numeric-but-out-of-range value still reaches the controller and
+is a 422 through the #113 PathData guard. The constraint is keyed by the raw spec token (the wire
+name Laravel matches), emitted in path order for byte-stable output; `number`/float path parameters
+are typed `string` and stay unconstrained (no regression, no float matcher). Header parameters (#121) generate a
 per-operation header Data class (`<Operation>HeaderData`) the same way, with a
 `fromHeaders(Request)` factory validating and hydrating from the request headers only, so a
 constrained custom header's min/max/pattern/enum/format is enforced at runtime instead of silently

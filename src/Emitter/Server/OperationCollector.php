@@ -574,7 +574,7 @@ final class OperationCollector
      *
      * @param  list<ParameterNode>  $parameters
      * @param  array{name: string, type: string}|null  $bodyParam
-     * @param  list<array{name: string, phpType: string}>  $pathParams
+     * @param  list<array{name: string, phpType: string, token: string}>  $pathParams
      * @param  list<string>  $imports
      * @return array{name: string, type: string, injected: bool, fqcn: string}|null
      */
@@ -799,7 +799,7 @@ final class OperationCollector
 
     /**
      * @param  list<ParameterNode>  $parameters
-     * @return list<array{name: string, phpType: string}>
+     * @return list<array{name: string, phpType: string, token: string}>
      */
     private function pathParams(string $path, array $parameters): array
     {
@@ -815,8 +815,12 @@ final class OperationCollector
             }
             $seen[$token] = true;
 
+            // The RAW spec token (the `{token}` segment name) rides along
+            // beside the PHP property name: the route constraint (issue #129)
+            // is keyed by the wire token Laravel matches in the URI, which may
+            // differ from the StudlyCaps property name (`pet-id` -> `petId`).
             $phpType = ($types[$token] ?? null) === 'integer' ? 'int' : 'string';
-            $params[] = ['name' => PhpIdentifier::toPropertyName($token), 'phpType' => $phpType];
+            $params[] = ['name' => PhpIdentifier::toPropertyName($token), 'phpType' => $phpType, 'token' => $token];
         }
 
         return $params;
@@ -1147,7 +1151,7 @@ final class OperationCollector
      * @param  list<string>  $imports
      * @param  string  $label  "GET /pets", for warning messages
      * @param  string  $bodyBaseName  StudlyCaps operation context for the synthesized body class name
-     * @param  list<array{name: string, phpType: string}>  $pathParams
+     * @param  list<array{name: string, phpType: string, token: string}>  $pathParams
      * @return array{0: array{name: string, type: string}|null, 1: bool}
      */
     private function requestBody(OperationNode $operation, array &$imports, string $label, string $bodyBaseName, array $pathParams): array
@@ -1319,7 +1323,7 @@ final class OperationCollector
      * suffixed deterministically when a path parameter already claimed the
      * name (a `/things/{body}` path would otherwise collide in the signature).
      *
-     * @param  list<array{name: string, phpType: string}>  $pathParams
+     * @param  list<array{name: string, phpType: string, token: string}>  $pathParams
      */
     private function bodyParamName(array $pathParams): string
     {

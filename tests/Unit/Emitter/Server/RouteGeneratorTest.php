@@ -51,8 +51,8 @@ it('emits one named Route line per operation pointing at the concrete controller
     // suffixes the later one (/health sorts before /pets).
     expect($code)->toContain("Route::get('/pets', [PetController::class, 'index'])->name('index_2');")
         ->and($code)->toContain("Route::post('/pets', [PetController::class, 'store'])->name('store')->middleware(RespondsWithStatus::class.':201');")
-        ->and($code)->toContain("Route::get('/pets/{petId}', [PetController::class, 'show'])->name('show');")
-        ->and($code)->toContain("Route::delete('/pets/{petId}', [PetController::class, 'destroy'])->name('destroy')->middleware(RespondsWithStatus::class.':204');")
+        ->and($code)->toContain("Route::get('/pets/{petId}', [PetController::class, 'show'])->name('show')->whereNumber('petId');")
+        ->and($code)->toContain("Route::delete('/pets/{petId}', [PetController::class, 'destroy'])->name('destroy')->whereNumber('petId')->middleware(RespondsWithStatus::class.':204');")
         ->and($code)->toContain("Route::get('/health', [UntaggedController::class, 'index'])->name('index');");
 });
 
@@ -168,4 +168,122 @@ it('suffixes route names to stay unique when method names collide across control
     // status-enforcing middleware (issue #64).
     expect($code)->toContain("Route::get('/a', [AlphaController::class, 'index'])->name('index')->middleware(RespondsWithStatus::class.':204');")
         ->and($code)->toContain("Route::get('/b', [BetaController::class, 'index'])->name('index_2')->middleware(RespondsWithStatus::class.':204');");
+});
+
+/**
+ * Build a routes file from an inline document, so a test can pin the exact
+ * path-param schema types that drive the integer route constraint (issue #129).
+ *
+ * @param  array<string, mixed>  $document
+ */
+function routesFromDocument(array $document): string
+{
+    $spec = (new OpenApiReader)->read($document);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
+
+    $generator = new ModelGenerator;
+    $generator->generate($spec);
+    $options = new ServerOptions;
+    $descriptors = (new OperationCollector($options, $generator->registry()))->collect($spec);
+
+    return (new RouteGenerator($options))->generate($descriptors)->code;
+}
+
+it('constrains an integer path parameter with whereNumber so a non-numeric segment 404s instead of a TypeError 500 (#129)', function () {
+    $code = routesFromDocument([
+        'openapi' => '3.0.3',
+        'info' => ['title' => 'Test', 'version' => '1.0.0'],
+        'paths' => [
+            '/widgets/{id}' => [
+                'get' => [
+                    'tags' => ['Widget'],
+                    'operationId' => 'getWidget',
+                    'parameters' => [[
+                        'name' => 'id',
+                        'in' => 'path',
+                        'required' => true,
+                        'schema' => ['type' => 'integer'],
+                    ]],
+                    'responses' => ['200' => ['description' => 'OK']],
+                ],
+            ],
+        ],
+    ]);
+
+    expect($code)->toContain("Route::get('/widgets/{id}', [WidgetController::class, 'show'])->name('show')->whereNumber('id');")
+        ->and(fn () => token_get_all($code, TOKEN_PARSE))->not->toThrow(Throwable::class);
+});
+
+it('emits no constraint for a string path parameter (#129)', function () {
+    $code = routesFromDocument([
+        'openapi' => '3.0.3',
+        'info' => ['title' => 'Test', 'version' => '1.0.0'],
+        'paths' => [
+            '/widgets/{slug}' => [
+                'get' => [
+                    'tags' => ['Widget'],
+                    'operationId' => 'getWidget',
+                    'parameters' => [[
+                        'name' => 'slug',
+                        'in' => 'path',
+                        'required' => true,
+                        'schema' => ['type' => 'string'],
+                    ]],
+                    'responses' => ['200' => ['description' => 'OK']],
+                ],
+            ],
+        ],
+    ]);
+
+    expect($code)->toContain("Route::get('/widgets/{slug}', [WidgetController::class, 'show'])->name('show');")
+        ->and($code)->not->toContain('whereNumber');
+});
+
+it('keys whereNumber on the RAW spec token, not the StudlyCaps property name (#129)', function () {
+    // `pet-id` is a legal wire token but maps to the `petId` PHP property; the
+    // route constraint must use the token Laravel matches in the URI.
+    $code = routesFromDocument([
+        'openapi' => '3.0.3',
+        'info' => ['title' => 'Test', 'version' => '1.0.0'],
+        'paths' => [
+            '/pets/{pet-id}' => [
+                'get' => [
+                    'tags' => ['Pet'],
+                    'operationId' => 'getPet',
+                    'parameters' => [[
+                        'name' => 'pet-id',
+                        'in' => 'path',
+                        'required' => true,
+                        'schema' => ['type' => 'integer'],
+                    ]],
+                    'responses' => ['200' => ['description' => 'OK']],
+                ],
+            ],
+        ],
+    ]);
+
+    expect($code)->toContain("->whereNumber('pet-id');")
+        ->and($code)->not->toContain("->whereNumber('petId')");
+});
+
+it('constrains every integer segment of a multi-parameter path, in path order (#129)', function () {
+    $code = routesFromDocument([
+        'openapi' => '3.0.3',
+        'info' => ['title' => 'Test', 'version' => '1.0.0'],
+        'paths' => [
+            '/stores/{storeId}/items/{itemId}' => [
+                'get' => [
+                    'tags' => ['Store'],
+                    'operationId' => 'getItem',
+                    'parameters' => [
+                        ['name' => 'storeId', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'integer']],
+                        ['name' => 'itemId', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'integer']],
+                    ],
+                    'responses' => ['200' => ['description' => 'OK']],
+                ],
+            ],
+        ],
+    ]);
+
+    expect($code)->toContain("->name('show')->whereNumber('storeId')->whereNumber('itemId');");
 });

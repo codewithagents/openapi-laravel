@@ -167,7 +167,7 @@ it('renames the body param when a path parameter already claimed $body', functio
     ]);
 
     expect($descriptors[0]->bodyParam)->toBe(['name' => 'body_2', 'type' => 'CreateThingRequestData'])
-        ->and($descriptors[0]->pathParams)->toBe([['name' => 'body', 'phpType' => 'string']]);
+        ->and($descriptors[0]->pathParams)->toBe([['name' => 'body', 'phpType' => 'string', 'token' => 'body']]);
 });
 
 it('merges an inline allOf body (a $ref member plus inline properties) into one typed class', function () {

@@ -12,4 +12,4 @@ use CodeWithAgents\OpenApiLaravel\Tests\Feature\Example\Writable\Http\WidgetsCon
 use Illuminate\Support\Facades\Route;
 
 Route::post('/widgets', [WidgetsController::class, 'store'])->name('store')->middleware(RespondsWithStatus::class.':201');
-Route::get('/widgets/{widgetId}', [WidgetsController::class, 'show'])->name('show');
+Route::get('/widgets/{widgetId}', [WidgetsController::class, 'show'])->name('show')->whereNumber('widgetId');

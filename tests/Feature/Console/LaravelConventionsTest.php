@@ -48,7 +48,7 @@ it('names clean CRUD methods conventionally by default, route names following', 
         ->and($routes)->toContain("Route::get('/health', [UntaggedController::class, 'index'])->name('index');")
         ->and($routes)->toContain("Route::get('/pets', [PetController::class, 'index'])->name('index_2');")
         ->and($routes)->toContain("Route::post('/pets', [PetController::class, 'store'])")
-        ->and($routes)->toContain("Route::get('/pets/{petId}', [PetController::class, 'show'])->name('show');")
+        ->and($routes)->toContain("Route::get('/pets/{petId}', [PetController::class, 'show'])->name('show')->whereNumber('petId');")
         ->and($routes)->toContain("Route::delete('/pets/{petId}', [PetController::class, 'destroy'])")
         ->and($routes)->not->toContain('listPets');
 });

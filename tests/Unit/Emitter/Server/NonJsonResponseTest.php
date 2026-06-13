@@ -205,6 +205,6 @@ it('preserves the #64 status enforcement for a non-200 non-JSON response, end to
 
     expect($routes->code)->toContain('use App\Data\Support\RespondsWithStatus;')
         ->and($routes->code)->toContain(
-            "Route::get('/things/{thingId}', [ThingController::class, 'show'])->name('show')->middleware(RespondsWithStatus::class.':201');",
+            "Route::get('/things/{thingId}', [ThingController::class, 'show'])->name('show')->whereNumber('thingId')->middleware(RespondsWithStatus::class.':201');",
         );
 });

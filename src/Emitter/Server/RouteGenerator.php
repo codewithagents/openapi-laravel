@@ -71,6 +71,23 @@ final readonly class RouteGenerator
                 .$descriptor->controllerClass."::class, '".$this->escape($descriptor->methodName)."'])"
                 ."->name('".$this->escape($descriptor->routeName)."')";
 
+            // Integer path parameters get a `->whereNumber('token')` (Laravel's
+            // [0-9]+ matcher) so a non-numeric segment fails to MATCH the route
+            // (a clean 404 route-miss) instead of binding to the abstract
+            // method's `int $param` and throwing an uncatchable TypeError 500
+            // under strict_types before the controller body (and the #113
+            // PathData::fromRoute() guard) can run (issue #129). An in-shape
+            // numeric value still reaches the controller, where the #113 guard
+            // enforces min/max/etc and answers a clean 422 on a range
+            // violation. The constraint is keyed by the RAW spec token (the
+            // wire name Laravel matches in the URI), in path order, so the
+            // output stays byte-stable.
+            foreach ($descriptor->pathParams as $pathParam) {
+                if ($pathParam['phpType'] === 'int') {
+                    $line .= "->whereNumber('".$this->escape($pathParam['token'])."')";
+                }
+            }
+
             if ($descriptor->securityMiddleware === []) {
                 // No security middleware: the historical single-argument form,
                 // byte-identical to the pre-#77 output.

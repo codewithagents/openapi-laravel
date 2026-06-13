@@ -674,6 +674,74 @@ const READER_BASELINE_REBASELINED_121 = [
     'zuora.json' => 'header parameter validation classes generated',
 ];
 
+/*
+ * INTENTIONAL post-freeze rebaseline (#129): the 34 specs in
+ * READER_BASELINE_REBASELINED_129 carry a post-#129 hash because they declare
+ * at least one `integer`-typed `in: path` parameter, and #129 adds a
+ * `->whereNumber('<token>')` constraint to each such parameter's generated
+ * route. The bug: the abstract controller method types an integer path param
+ * `int`, so under strict_types Laravel's ControllerDispatcher bound an
+ * untrusted NON-numeric path segment straight onto the typed `int` parameter
+ * and PHP threw an uncatchable TypeError 500 BEFORE the controller body (and
+ * the #113 `fromRoute()` validation guard) could run. The fix constrains the
+ * route so a non-numeric segment fails to MATCH (a clean 404 route-miss); an
+ * in-shape numeric value still reaches the controller, where the #113 PathData
+ * guard enforces min/max/etc and answers a clean 422 on a range violation. The
+ * ONLY divergence in each of these hashes is the added `->whereNumber('...')`
+ * call(s) on the routes file (keyed by the raw spec token, in path order);
+ * no Data class, controller, or warning changed, and a `number`/float path
+ * param stays typed `string` and unconstrained. A spec also present in an
+ * earlier rebaseline list accumulates the changes; every spec outside the
+ * rebaseline lists stays the frozen v0.11.0 freeze, byte for byte.
+ */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-#129 output (an
+ * integer path parameter now carries a `->whereNumber()` route constraint),
+ * keyed by spec basename. The per-spec test below still compares against the
+ * JSON baseline, which now holds these specs' post-#129 hashes; the coverage
+ * test pins that every listed name exists on disk and in the baseline, so the
+ * list cannot rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_129 = [
+    'airflow.json' => 'integer path parameter constrained with whereNumber',
+    'aws_lambda.json' => 'integer path parameter constrained with whereNumber',
+    'aws_sqs.json' => 'integer path parameter constrained with whereNumber',
+    'bikewise.json' => 'integer path parameter constrained with whereNumber',
+    'bitbucket.json' => 'integer path parameter constrained with whereNumber',
+    'bungie.json' => 'integer path parameter constrained with whereNumber',
+    'bunq.json' => 'integer path parameter constrained with whereNumber',
+    'canada_holidays.json' => 'integer path parameter constrained with whereNumber',
+    'circleci.json' => 'integer path parameter constrained with whereNumber',
+    'configcat.json' => 'integer path parameter constrained with whereNumber',
+    'devto.json' => 'integer path parameter constrained with whereNumber',
+    'digitalocean.json' => 'integer path parameter constrained with whereNumber',
+    'discourse.json' => 'integer path parameter constrained with whereNumber',
+    'dnd5e.json' => 'integer path parameter constrained with whereNumber',
+    'dracoon.json' => 'integer path parameter constrained with whereNumber',
+    'gettyimages.json' => 'integer path parameter constrained with whereNumber',
+    'giphy.json' => 'integer path parameter constrained with whereNumber',
+    'github.json' => 'integer path parameter constrained with whereNumber',
+    'google_sheets.json' => 'integer path parameter constrained with whereNumber',
+    'here_tracking.json' => 'integer path parameter constrained with whereNumber',
+    'jira.json' => 'integer path parameter constrained with whereNumber',
+    'linode.json' => 'integer path parameter constrained with whereNumber',
+    'petstore-3.0.yaml' => 'integer path parameter constrained with whereNumber',
+    'rawg.json' => 'integer path parameter constrained with whereNumber',
+    'sendgrid.json' => 'integer path parameter constrained with whereNumber',
+    'sentry.json' => 'integer path parameter constrained with whereNumber',
+    'shutterstock.json' => 'integer path parameter constrained with whereNumber',
+    'soundcloud.json' => 'integer path parameter constrained with whereNumber',
+    'stackexchange.json' => 'integer path parameter constrained with whereNumber',
+    'tomtom_maps.json' => 'integer path parameter constrained with whereNumber',
+    'tomtom_routing.json' => 'integer path parameter constrained with whereNumber',
+    'traccar.json' => 'integer path parameter constrained with whereNumber',
+    'zoom.json' => 'integer path parameter constrained with whereNumber',
+    'zuora.json' => 'integer path parameter constrained with whereNumber',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -743,10 +811,10 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
     }
 
     // Every spec rebaselined for #110, #116, #120, #122, #124, #125, #126,
-    // #113, or #121 must still exist on disk and carry a hash in the baseline
-    // (it is an update, not an exemption): a renamed or deleted spec would make
-    // the documented rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121)] as $spec) {
+    // #113, #121, or #129 must still exist on disk and carry a hash in the
+    // baseline (it is an update, not an exemption): a renamed or deleted spec
+    // would make the documented rebaseline lists rot silently.
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }

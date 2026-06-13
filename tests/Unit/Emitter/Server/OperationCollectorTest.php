@@ -83,13 +83,13 @@ it('derives a deterministic conventional name when operationId is absent', funct
 it('types integer path params as int and others as string', function () {
     $get = descriptorFor(collectPetstore(), 'get', '/pets/{petId}');
 
-    expect($get->pathParams)->toBe([['name' => 'petId', 'phpType' => 'int']]);
+    expect($get->pathParams)->toBe([['name' => 'petId', 'phpType' => 'int', 'token' => 'petId']]);
 });
 
 it('types a PathItem-level integer path param as int (issue #66)', function () {
     $get = descriptorFor(collectPathParameters(), 'get', '/users/{userId}');
 
-    expect($get->pathParams)->toBe([['name' => 'userId', 'phpType' => 'int']]);
+    expect($get->pathParams)->toBe([['name' => 'userId', 'phpType' => 'int', 'token' => 'userId']]);
 });
 
 it('lets an operation-level parameter override a PathItem-level one with the same name and location', function () {
@@ -97,25 +97,25 @@ it('lets an operation-level parameter override a PathItem-level one with the sam
     // it as string: per OpenAPI precedence the operation wins.
     $put = descriptorFor(collectPathParameters(), 'put', '/users/{userId}');
 
-    expect($put->pathParams)->toBe([['name' => 'userId', 'phpType' => 'string']]);
+    expect($put->pathParams)->toBe([['name' => 'userId', 'phpType' => 'string', 'token' => 'userId']]);
 });
 
 it('resolves a PathItem-level $ref parameter into components.parameters', function () {
     $get = descriptorFor(collectPathParameters(), 'get', '/orders/{orderId}');
 
-    expect($get->pathParams)->toBe([['name' => 'orderId', 'phpType' => 'int']]);
+    expect($get->pathParams)->toBe([['name' => 'orderId', 'phpType' => 'int', 'token' => 'orderId']]);
 });
 
 it('resolves an operation-level $ref parameter into components.parameters', function () {
     $get = descriptorFor(collectPathParameters(), 'get', '/reports/{reportId}');
 
-    expect($get->pathParams)->toBe([['name' => 'reportId', 'phpType' => 'int']]);
+    expect($get->pathParams)->toBe([['name' => 'reportId', 'phpType' => 'int', 'token' => 'reportId']]);
 });
 
 it('degrades an unresolvable parameter $ref to the string fallback without fataling', function () {
     $get = descriptorFor(collectPathParameters(), 'get', '/legacy/{legacyId}');
 
-    expect($get->pathParams)->toBe([['name' => 'legacyId', 'phpType' => 'string']]);
+    expect($get->pathParams)->toBe([['name' => 'legacyId', 'phpType' => 'string', 'token' => 'legacyId']]);
 });
 
 it('types a $ref request body against the writable variant class', function () {
