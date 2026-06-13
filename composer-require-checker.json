@@ -4,6 +4,7 @@
         "config_path",
         "Illuminate\\Console\\Command",
         "Illuminate\\Support\\ServiceProvider",
+        "Illuminate\\Support\\Arr",
         "Illuminate\\Contracts\\Validation\\ValidationRule",
         "Illuminate\\Contracts\\Validation\\DataAwareRule",
         "Illuminate\\Http\\Request",
