@@ -222,15 +222,34 @@ What the generator handles today:
 - **Query parameters** → a per-operation query Data class with spec-derived `rules()` (enums, bounds,
   array element rules, defaults). Type-hinted into body-less controller methods (validated on
   injection); operations with a request body call `<Operation>QueryData::fromQuery($request)`, which
-  validates and hydrates from the query string only. Header/cookie and deepObject-style parameters
-  are skipped with a generator warning, not silently dropped
+  validates and hydrates from the query string only. A non-exploded delimited array
+  (`style: form, explode: false`, `spaceDelimited`, `pipeDelimited`) is split on its declared
+  delimiter in `fromQuery()` before the array rules run, and a `style: deepObject` object parameter
+  (Stripe's `?filter[gte]=10`) is synthesized as a nested object property with dotted nested rules.
+  Only `in: cookie` parameters remain unsupported, skipped with a generator warning, not silently
+  dropped
+- **Path and header parameters** → a per-operation `<Operation>PathData` / `<Operation>HeaderData`
+  class with spec-derived `rules()`, validated and hydrated through `::fromRoute($request)` /
+  `::fromHeaders($request)` so a path segment's or custom header's min/max/pattern/enum/format is
+  enforced at runtime (a bad value is a 422, not a silent 200). An `integer` path parameter also gets
+  a `->whereNumber()` route constraint so a non-numeric segment is a clean 404. Reserved standard
+  headers (Accept, Content-Type, Authorization, ...) are skipped with a warning; `in: cookie`
+  parameters stay unsupported
 - **Inline request bodies** → an operation whose JSON request body is an inline object schema (not a
   `$ref`) gets a synthesized per-operation Data class (`<Operation>RequestData`) with the full
   `rules()` pipeline and a typed controller param, exactly like a `$ref` body
+- **Inline object responses** → an operation whose selected 2xx response is an inline object schema
+  (not a `$ref`) gets a synthesized per-operation `<Operation>ResponseData` class typed as the
+  controller return (READ variant: readOnly stays, writeOnly drops), symmetric with inline request
+  bodies and the component `$ref` response resolution
 - **Multipart file uploads** → a `multipart/form-data` object body gets the same per-operation Data
   class with `format: binary` parts typed `UploadedFile` (`file` rule, plus `mimetypes:` from
   `contentMediaType`), arrays of binary as `UploadedFile` lists, and every non-binary part validated
-  like a JSON field; JSON wins when an operation declares both
+  like a JSON field
+- **Form-urlencoded bodies** → an `application/x-www-form-urlencoded` object body routes through the
+  same `<Operation>RequestData` synthesizer (inline, schema-`$ref`, or component-`$ref`), validated
+  by the same spec-derived rules; media-type precedence is JSON > multipart > form-urlencoded, so
+  JSON wins when an operation declares several
 - **Spec response status codes** → an operation whose success response declares a non-200 status
   (201, 202, 204, ...) produces that status out of the box: the generated route attaches an inlined
   `RespondsWithStatus` middleware, your controller keeps returning the plain Data object, and a 204
@@ -279,11 +298,11 @@ neither enforced nor auto-hydrated. Add a `discriminator` to the spec and the ge
 morphable base and variants, with full per-variant validation and hydration in all three
 discriminator forms: named-component, inline-union, and allOf-inheritance (issue #38). A
 `$ref`-valued `additionalProperties` map is typed in the docblock but not auto-hydrated into Data
-objects at runtime, a request body referencing a component request body
-(`$ref: '#/components/requestBodies/...'`) or an inline or multipart body that is not an object
-shape (an array, scalar, or whole-body binary schema) falls back to `Illuminate\Http\Request`
-instead of a typed Data param, and int64 literal bounds and non-JSON responses are represented
-loosely. A generated multipart body derives no file-size rule (OpenAPI has no standard keyword for
+objects at runtime. Object request bodies are typed across every form, inline JSON, multipart, and
+form-urlencoded objects, plus component `$ref` bodies; the warned `Illuminate\Http\Request` fallback
+is reserved for a body that is not an object shape (an array, scalar, union, enum, or free-form map,
+in any media type) and for a whole-body raw binary (octet-stream) body. An inline non-object success
+response and int64 literal bounds are represented loosely. A generated multipart body derives no file-size rule (OpenAPI has no standard keyword for
 one) and reads only the schema-level `contentMediaType`, not the `encoding.contentType` map. A tuple (`prefixItems`) is validated per position (`field.0`,
 `field.1`, ... rules, plus a length cap for the closed `items: false` form) but typed loosely as
 `array<int, mixed>`. A non-standard per-property `required: true` key (a boolean set inside an
@@ -589,25 +608,23 @@ full feature set described above ships today: models, spec-derived validation, e
 and routes out of the box; the drift gate (`openapi:check`); the differential validation oracle;
 discriminated object-union validation and hydration in all three forms (named-component,
 inline-union, allOf-inheritance, issue #38); default `additionalProperties: false` enforcement
-(opt out with `--no-enforce-closed-objects`); subset generation (`--only-tags` / `--only-schemas`
-with dependency closure, issue #44, plus the repeatable `--exclude-path-prefix` exclusion filter,
-issue #96); self-contained output (the support classes inlined into the
-consumer's own namespace, so generated code has no runtime dependency on the generator package,
-issue #40); and the config surfaces (`config/openapi-laravel.php` and the standalone
-`openapi-laravel.json`).
+(opt out with `--no-enforce-closed-objects`); query, path, and header parameters (issues #63, #113,
+#121); inline object responses (issue #129) and component `$ref` responses (issue #116) typed as
+the controller return; inline JSON, multipart, form-urlencoded, and component `$ref` object request
+bodies (issues #76, #75, #130, #110); non-exploded delimited and `deepObject` query parameters
+(issues #132, #131); spec response status codes honored in the scaffold (issue #64); subset
+generation (`--only-tags` / `--only-schemas` with dependency closure, issue #44, plus the repeatable
+`--exclude-path-prefix` exclusion filter, issue #96); self-contained output (the support classes
+inlined into the consumer's own namespace, so generated code has no runtime dependency on the
+generator package, issue #40); and the config surfaces (`config/openapi-laravel.php` and the
+standalone `openapi-laravel.json`).
 
-Next up (the pre-1.0 milestone):
+Open before 1.0:
 
-- **Typed and validated query parameters** (issue #63): `in: query` parameters currently produce
-  no typing, no rules, and no warning.
-- **Spec response status codes in the scaffold** (issue #64): a `201`/`202` declared in the spec
-  should come back from the scaffold without a hand-written workaround.
-- **Warnings for every silent degradation** (issue #67): every fallback to `mixed` or
-  `Illuminate\Http\Request` hits the warnings channel.
-- **`@internal` PHP class API** (issue #69): the CLI is the public surface, the classes are not.
-- **`minProperties` / `maxProperties` and dead normalization** (issue #72).
-- **Visible empty Data classes** (issue #95): a TODO marker and a build warning instead of a
-  silently empty class.
+- **Whole-body raw binary request bodies** (issue #119): an `application/octet-stream` body still
+  falls back to `Illuminate\Http\Request` (low priority).
+- **OpenAPI 3.2** (issue #102): full support is a post-1.0 item; 3.2 specs generate today on a
+  best-effort path with loud warnings.
 
 The version stays in `0.x` while the generated output format is still evolving, and tags `1.0.0`
 (the output-stability promise described in the

@@ -117,14 +117,28 @@ the config-only `routes.middleware` / `routes.prefix` keys wrap the routes in on
 PathItem-level parameters merge into every operation, and `$ref` parameters resolve through
 components (#66). Query parameters (#63) generate a per-operation query Data class
 (`<Operation>QueryData`) with spec-derived `rules()` through the exact body-class pipeline, plus a
-`fromQuery(Request)` factory that validates and hydrates from the query string only. Path parameters
+`fromQuery(Request)` factory that validates and hydrates from the query string only. A non-exploded
+delimited array query param (#132) is split in `fromQuery()` on its declared delimiter BEFORE the
+array rules run (`style: form, explode: false` on comma, `spaceDelimited` on space, `pipeDelimited`
+on pipe); the `form` + `explode: true` repeated-key default (`?tags=a&tags=b`) is unchanged and
+stays a known limitation. A QueryData carrying ANY such delimited-array param is forced ADDITIVE (it
+is NOT container-injected; the abstract method takes no injected query param and carries a
+`::fromQuery($request)` docblock pointer, the same mechanism path (#113) and header (#121) params
+use), because container injection would make spatie laravel-data validate the RAW unsplit string
+before the split runs and 422 a body-less GET filter; a QueryData with no delimited-array param
+stays container-injected on body-less ops as before. A `style: deepObject` OBJECT query param (#131,
+Stripe's `?filter[gte]=10&filter[lte]=20`) is synthesized as a NESTED object property with dotted
+nested rules (`filter.gte`, `filter.lte`, ...) through the same nested-object pipeline a body object
+property uses; PHP parses the bracketed keys natively into a nested array, so no manual splitting is
+needed and the param STAYS container-injectable on a body-less GET (a non-object deepObject schema,
+or `deepObject` + `explode: false`, keeps the skip-and-warn). Path parameters
 (#113) generate a per-operation path Data class (`<Operation>PathData`) the same way, with a
 `fromRoute(Request)` factory validating and hydrating from `$request->route()->parameters()` only,
 so a path segment's min/max/pattern/enum/format constraints are enforced at runtime (a bad value is
 a 422, not a silent 200). It is the additive runtime-validation seam: the positional scalar path
 arguments still fill the controller signature, and the abstract method carries a docblock pointer to
 `::fromRoute($request)` rather than injecting the class. An `integer` path parameter additionally
-carries a `->whereNumber('<token>')` route constraint (#129): the abstract method types it `int`, so
+carries a `->whereNumber('<token>')` route constraint: the abstract method types it `int`, so
 under strict_types a non-numeric segment would otherwise bind to the typed `int` parameter and throw
 an uncatchable TypeError 500 in Laravel's ControllerDispatcher BEFORE the controller body (and the
 #113 `fromRoute()` guard) could run. The constraint makes a non-numeric segment fail to MATCH the
@@ -161,13 +175,24 @@ content-type logic: a wrapped schema `$ref` types the param with that component 
 Data class (write variant when split), an inline object schema synthesizes ONE shared
 `<Component>RequestData` class reused by every referencing operation (placed in the single tag
 group they share, or the flat root when they span groups), and a non-object shape keeps the warned
-Request fallback. A selected success response that is a `$ref` to `#/components/responses/<Name>`
+Request fallback. An `application/x-www-form-urlencoded` OBJECT body (#130) routes through the SAME
+`<Operation>RequestData` synthesizer as inline JSON (Laravel parses urlencoded input into
+`$request->all()` exactly like JSON, validated by the same spec-derived rules), for inline,
+schema-`$ref`, and component-`$ref` bodies; media-type precedence is JSON > multipart >
+form-urlencoded (JSON always wins when several are declared), and a non-object urlencoded body keeps
+the warned Request fallback. A selected success response that is a `$ref` to `#/components/responses/<Name>`
 (#116) resolves the same way on the output side: a wrapped schema `$ref` types the return with that
 component schema's existing Data class, an inline object schema synthesizes ONE shared
 `<Component>ResponseData` class (READ variant: responses are server output, so readOnly fields stay
 and writeOnly fields drop) with the same tag-group placement rule, the #64 status semantics are
 preserved unchanged (smallest 2xx, `RespondsWithStatus` middleware, a 204 `$ref` stays `void`
-without any resolution attempt), and a non-object shape keeps the warned JsonResponse fallback. Hybrid
+without any resolution attempt), and a non-object shape keeps the warned JsonResponse fallback. An
+INLINE (non-`$ref`) 2xx object response schema (#129) synthesizes a per-operation
+`<Operation>ResponseData` class typed as the controller return (READ variant: readOnly stays,
+writeOnly drops), symmetric with the inline request body (#76); the #64 status semantics are
+preserved (an inline 204 stays `void`, a non-200 success keeps its status middleware), and an inline
+NON-object success response (array, scalar, oneOf/anyOf union, enum, free-form map) keeps the warned
+JsonResponse fallback. Hybrid
 injection: body-less operations get the class type-hinted into the signature (laravel-data routes
 container injection through `fromQuery`); operations with a request body get a docblock pointer to
 `::fromQuery($request)` instead, so body and query inputs never bleed into each other. Boolean
@@ -215,19 +240,20 @@ collisions failing loudly.
   too, where a non-null literal default could be a real mapping key); the `Required` attribute keeps
   the spec-required contract, and the variants are untouched (they forward a non-null value into the
   nullable parameter, so a valid payload hydrates the right variant with its real value).
-- Component `$ref` request bodies resolve to typed Data params (#110); only a body that is NOT an
-  object shape (an array, scalar, union, enum, free-form map, or a whole-body binary multipart
-  schema) keeps the warned `Illuminate\Http\Request` fallback, whether it arrives inline (#76),
-  as multipart (#75), or through a component requestBody (#110). Component `$ref` responses resolve
-  to typed returns the same way (#116); a component response whose JSON schema is NOT an object
-  shape keeps the warned JsonResponse fallback, an unresolvable response `$ref` (external,
-  `#/paths/...`, missing, or ref-to-ref) keeps it too, and an INLINE (non-component) object
-  response schema is still not synthesized (nothing names a shared class; JsonResponse, silent).
+- Object request bodies resolve to typed Data params across every form, inline JSON (#76), multipart
+  (#75), form-urlencoded (#130), and component `$ref` (#110); only a body that is NOT an object shape
+  (an array, scalar, union, enum, or free-form map, in any media type) or a whole-body raw binary
+  (octet-stream, #119) keeps the warned `Illuminate\Http\Request` fallback. Responses resolve to
+  typed returns the same way: inline (#129) and component `$ref` (#116) object response schemas both
+  synthesize a typed return; an inline NON-object success response (array, scalar, oneOf/anyOf union,
+  enum, free-form map) keeps the warned JsonResponse fallback, a component response whose JSON schema
+  is NOT an object shape keeps it too, and an unresolvable response `$ref` (external, `#/paths/...`,
+  missing, or ref-to-ref) keeps it as well.
 - Multipart residuals (#75): no file-size rule is derived (OpenAPI has no standard byte-size
   keyword; `maxLength` is a string bound and Laravel's file `max:` counts kilobytes, no clean
   mapping), the `encoding.contentType` map is not read (only schema-level `contentMediaType` feeds
-  `mimetypes:`), a binary string nested BELOW the body root stays a plain string (it sits in a
-  JSON-serialized part), and form-urlencoded bodies keep the Request fallback.
+  `mimetypes:`), and a binary string nested BELOW the body root stays a plain string (it sits in a
+  JSON-serialized part).
 - Tuple `prefixItems` validates per position (#82: `field.0`, `field.1`, ... rules through the
   shared constraint mapping, plus a `max:` length cap for the closed `items: false` form) but the
   TYPING still degrades to `array<int, mixed>`; a post-prefix `items` schema stays unenforced (a
@@ -255,9 +281,12 @@ collisions failing loudly.
 - Operation `callbacks` (warned per operation) and root `webhooks` (one document-level warning)
   are not generated (#115); callback/webhook handler scaffolding is a separate decision,
   deliberately out of scope for now.
-- Query parameters without a flat `key=value` / `key[]=value` form are skipped with a warning:
-  `deepObject` (Stripe's filter objects), `spaceDelimited`/`pipeDelimited`, non-exploded arrays,
-  object-shaped and content-typed parameters.
+- The `form` + `explode: true` repeated-key query array (`?tags=a&tags=b`, the OpenAPI default) is a
+  known limitation: PHP collapses repeated query keys, so only the last value survives. Non-exploded
+  delimited arrays (#132, `form`+`explode: false`, `spaceDelimited`, `pipeDelimited`) ARE split in
+  `fromQuery()`, and `deepObject` OBJECT params (#131) ARE synthesized as nested object properties; a
+  non-object deepObject schema, a `deepObject` + `explode: false`, an object-shaped (non-deepObject)
+  param, and a content-typed param are still skipped with a warning.
 - Array query parameters validate their elements against the spec type but hydrate them as the raw
   query strings (PHP query parsing produces strings; top-level scalars hydrate typed).
 - Only the SELECTED success response (smallest 2xx) is typed and status-enforced (#64); alternative
