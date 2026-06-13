@@ -43,7 +43,10 @@ function regenerateWritable(): array
     $routeFile = (new RouteGenerator($serverOptions))->generate($descriptors);
 
     return [
-        'data' => $dataFiles,
+        // The query, path, inline-body, and component-response classes live
+        // next to the model Data classes, same namespace and directory,
+        // exactly as the planner writes them.
+        'data' => [...$dataFiles, ...$modelGenerator->queryFiles(), ...$modelGenerator->pathFiles(), ...$modelGenerator->bodyFiles(), ...$modelGenerator->responseFiles()],
         'support' => $modelGenerator->supportFiles(),
         'controllers' => $controllerFiles,
         'routes' => $routeFile,

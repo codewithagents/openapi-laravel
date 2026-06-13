@@ -109,19 +109,84 @@ final class RequestDataSynthesizer
      */
     public function generateQueryData(string $baseName, string $operationLabel, array $parameters, ?string $tag = null): ?string
     {
-        // Degradation warnings inside the query pipeline name the operation,
-        // not a schema: the parameters being resolved are operation-owned.
-        $this->state->warningContext = sprintf('Query parameters of operation %s', $operationLabel);
+        return $this->generateParamData('query', $baseName, $operationLabel, $parameters, $tag);
+    }
+
+    /**
+     * Emit a per-operation path Data class (issue #113) for an operation's
+     * `in: path` parameters, reusing the EXACT rules/type pipeline the query
+     * and body Data classes go through, so a path constraint
+     * (min/max/pattern/enum/format) is enforced at runtime instead of being
+     * silently dropped: a bad path value is a 422, not a 200. The class is the
+     * runtime validation seam, separate from and additive to the positional
+     * scalar path arguments the route still binds into the controller method
+     * signature.
+     *
+     * Must be called AFTER generate(): the pipeline resolves `$ref` parameters
+     * against the run's component registry and alias caches. The collected
+     * files are exposed via {@see pathFiles()}; the class name is reserved in
+     * the run's allocator so a path class can never collide with a component,
+     * query, or body class (a clash suffixes deterministically, e.g. `..._2`).
+     *
+     * Each path class carries a `fromRoute(Request $request)` factory that
+     * validates and hydrates from `$request->route()->parameters()` ONLY. It
+     * is never auto-injected (the positional path scalars already fill the
+     * signature), so the implementer calls it explicitly; the controller
+     * carries a docblock pointer to it.
+     *
+     * Path parameters are always single scalars or enums per the OpenAPI spec
+     * (no styles, no arrays, no objects), so the query skip machinery mostly
+     * collapses here; a non-scalar/non-enum schema degrades to a warned `mixed`
+     * presence-only property, mirroring how query handles an unknown shape.
+     *
+     * @param  string  $baseName  StudlyCaps operation context (operationId or the method+path fallback), without suffix
+     * @param  string  $operationLabel  "GET /pets/{petId}", for warning messages
+     * @param  list<ParameterNode>  $parameters  the operation's `in: path` parameters, in spec order
+     * @param  ?string  $tag  the operation's first tag (or the 'Untagged' fallback), so the grouped layout (issue #93) can place the class in its operation's tag group; ignored in the flat layout
+     * @return string|null the reserved path class name, or null when there are no path parameters
+     */
+    public function generatePathData(string $baseName, string $operationLabel, array $parameters, ?string $tag = null): ?string
+    {
+        return $this->generateParamData('path', $baseName, $operationLabel, $parameters, $tag);
+    }
+
+    /**
+     * The shared core behind {@see generateQueryData()} (issue #63) and
+     * {@see generatePathData()} (issue #113): synthesize a per-operation Data
+     * class from the parameters of ONE `in:` location, through the exact
+     * rules/type pipeline a body class uses. Parameterized by `$in` so a
+     * future header location (issue #121) can reuse it as-is. The two callers
+     * differ only in the location filter, the class-name suffix, the docblock
+     * wording, the factory the class carries (fromQuery vs fromRoute), and the
+     * skip machinery: query skips un-serializable shapes (styles, arrays of
+     * objects), while path has none of those forms and only degrades a
+     * non-scalar/non-enum schema to presence-only `mixed`.
+     *
+     * @param  'query'|'path'  $in
+     * @param  list<ParameterNode>  $parameters
+     */
+    private function generateParamData(string $in, string $baseName, string $operationLabel, array $parameters, ?string $tag): ?string
+    {
+        $config = $this->paramLocationConfig($in);
+
+        // Degradation warnings inside the pipeline name the operation, not a
+        // schema: the parameters being resolved are operation-owned.
+        $this->state->warningContext = sprintf('%s of operation %s', $config['warningContext'], $operationLabel);
 
         $supported = [];
         foreach ($parameters as $parameter) {
-            $reason = $this->querySkipReason($parameter);
+            if ($parameter->in !== $in) {
+                continue;
+            }
+
+            $reason = ($config['skipReason'])($parameter);
 
             if ($reason !== null) {
                 $name = $parameter->name === '' ? '(unnamed)' : $parameter->name;
                 $this->state->warnings[sprintf(
-                    'Operation %s: query parameter "%s" was skipped: %s.',
+                    'Operation %s: %s parameter "%s" was skipped: %s.',
                     $operationLabel,
+                    $in,
                     $name,
                     $reason,
                 )] = true;
@@ -136,7 +201,7 @@ final class RequestDataSynthesizer
             return null;
         }
 
-        $className = $this->state->names->reserve($this->state->options->withSuffix($baseName.'Query'));
+        $className = $this->state->names->reserve($this->state->options->withSuffix($baseName.$config['suffix']));
 
         // A per-operation class belongs unambiguously to its operation's tag
         // group (issue #93); in the flat layout the group is null.
@@ -156,7 +221,7 @@ final class RequestDataSynthesizer
             $wireName = $parameter->name;
             $schema = $parameter->schema;
             if ($schema === null) {
-                // querySkipReason() guarantees a schema; defensive for PHPStan.
+                // The skip check guarantees a schema; defensive for PHPStan.
                 continue;
             }
 
@@ -166,10 +231,10 @@ final class RequestDataSynthesizer
             $type = $this->types->resolveType($schema, $base.PhpIdentifier::toClassName($wireName), 1);
             $this->state->noteClassRef(...$type->classRefs);
 
-            // The form style serializes a boolean as ?flag=true / ?flag=false,
+            // The form style serializes a boolean as flag=true / flag=false,
             // but Laravel's `boolean` rule only understands 1/0 (and PHP's
             // coercive bool cast would turn the string "false" into TRUE), so
-            // fromQuery() maps the literals to '1'/'0' before validating.
+            // the factory maps the literals to '1'/'0' before validating.
             if ($type->declaration === 'bool') {
                 $booleanNames[] = $wireName;
             }
@@ -212,7 +277,7 @@ final class RequestDataSynthesizer
             return null;
         }
 
-        // The fromQuery factory references Request by short name.
+        // The fromQuery / fromRoute factory references Request by short name.
         $imports = $this->renderer->collectImports($params, $usesRule, $rules);
         $imports[] = 'Illuminate\\Http\\Request';
         $imports = array_values(array_unique($imports));
@@ -223,16 +288,79 @@ final class RequestDataSynthesizer
         $imports = $this->state->withCrossGroupImports($className, $imports, $this->state->popRefScope());
 
         $classDoc = [
-            'Query parameters of '.PhpLiteral::docblockSafe($operationLabel).'.',
+            $config['docPrefix'].' of '.PhpLiteral::docblockSafe($operationLabel).'.',
         ];
 
-        $this->state->queryFiles[$className] = new GeneratedFile(
+        $rendered = $in === 'path'
+            ? $this->renderer->renderDataClass($className, $params, $imports, $rules, $classDoc, fromRouteBooleans: $booleanNames)
+            : $this->renderer->renderDataClass($className, $params, $imports, $rules, $classDoc, fromQueryBooleans: $booleanNames);
+
+        $file = new GeneratedFile(
             $className,
-            $this->renderer->renderDataClass($className, $params, $imports, $rules, $classDoc, fromQueryBooleans: $booleanNames),
+            $rendered,
             $this->state->fileGroups[$className] ?? null,
         );
 
+        if ($in === 'path') {
+            $this->state->pathFiles[$className] = $file;
+        } else {
+            $this->state->queryFiles[$className] = $file;
+        }
+
         return $className;
+    }
+
+    /**
+     * The per-location knobs the shared {@see generateParamData()} core needs:
+     * the class-name suffix, the class docblock prefix, the warning-context
+     * label, and the skip-reason callback. Keeping them here (rather than in
+     * the core) keeps the core location-agnostic, the seam #121 (header) will
+     * extend by adding one more arm.
+     *
+     * @param  'query'|'path'  $in
+     * @return array{suffix: string, docPrefix: string, warningContext: string, skipReason: Closure(ParameterNode): ?string}
+     */
+    private function paramLocationConfig(string $in): array
+    {
+        if ($in === 'path') {
+            return [
+                'suffix' => 'Path',
+                'docPrefix' => 'Path parameters',
+                'warningContext' => 'Path parameters',
+                'skipReason' => fn (ParameterNode $parameter): ?string => $this->pathSkipReason($parameter),
+            ];
+        }
+
+        return [
+            'suffix' => 'Query',
+            'docPrefix' => 'Query parameters',
+            'warningContext' => 'Query parameters',
+            'skipReason' => fn (ParameterNode $parameter): ?string => $this->querySkipReason($parameter),
+        ];
+    }
+
+    /**
+     * Why a path parameter cannot become a typed, validated property, or null
+     * when it can. The bar is far looser than the query bar (issue #113): a
+     * path parameter has no `style`/`explode` serialization forms and is a
+     * single path segment, so the only hard skip is a missing name. Anything
+     * with a schema is kept: a scalar or enum becomes a fully validated
+     * property, and a non-scalar/non-enum schema (an object or array, which is
+     * unusual but legal in the spec) degrades through the body pipeline to a
+     * `mixed` presence-only property, mirroring how a query parameter degrades
+     * an unknown component to presence-only `mixed`.
+     */
+    private function pathSkipReason(ParameterNode $parameter): ?string
+    {
+        if ($parameter->name === '') {
+            return 'it has no usable name';
+        }
+
+        if ($parameter->schema === null) {
+            return 'it declares no schema (content-typed path parameters are not supported yet)';
+        }
+
+        return null;
     }
 
     /**

@@ -302,6 +302,54 @@ it('leaves queryParam null for an operation without query parameters', function 
     expect(descriptorFor($descriptors, 'get', '/widgets/{widgetId}')->queryParam)->toBeNull();
 });
 
+/**
+ * Collect the query-parameters fixture WITH the model generator wired in, then
+ * also surface it so path-class assertions can read generated files (issue
+ * #113). The fixture's /widgets/{widgetId} operation carries a path parameter.
+ *
+ * @return array{0: list<OperationDescriptor>, 1: ModelGenerator}
+ */
+function collectWithPathClasses(): array
+{
+    $parser104 = new SpecParser;
+    $doc = $parser104->parseFileToDocument(__DIR__.'/../../../Fixtures/server/query-parameters.yaml');
+    $generator = new ModelGenerator;
+    $generator->generate($doc);
+
+    $collector = new OperationCollector(new ServerOptions, $generator->registry(), null, $generator);
+
+    return [$collector->collect($doc), $generator];
+}
+
+it('surfaces a non-injected path Data class pointer for an operation with path parameters (issue #113)', function () {
+    [$descriptors, $generator] = collectWithPathClasses();
+    $get = descriptorFor($descriptors, 'get', '/widgets/{widgetId}');
+
+    // The FQCN is a docblock pointer only, never injected, and never imported.
+    expect($get->pathDataParam)->toBe('App\\Data\\Widget\\GetWidgetPathData')
+        ->and($get->imports)->not->toContain('App\\Data\\Widget\\GetWidgetPathData')
+        ->and($generator->pathFiles())->toHaveKey('GetWidgetPathData');
+
+    // The positional scalar path argument still occupies the signature, the
+    // path class is additive validation on top of it.
+    expect($get->parameterDeclarations())->toBe(['int $widgetId']);
+});
+
+it('leaves pathDataParam null for an operation without path parameters (issue #113)', function () {
+    [$descriptors] = collectWithPathClasses();
+
+    expect(descriptorFor($descriptors, 'get', '/widgets')->pathDataParam)->toBeNull();
+});
+
+it('emits the fromRoute docblock pointer on the abstract method (issue #113)', function () {
+    [$descriptors] = collectWithPathClasses();
+    $controllers = (new ControllerGenerator(new ServerOptions))->generate($descriptors);
+    $code = $controllers['AbstractWidgetController']->code;
+
+    expect($code)->toContain('Path parameters: validate them with')
+        ->and($code)->toContain('\\App\\Data\\Widget\\GetWidgetPathData::fromRoute($request).');
+});
+
 it('leaves queryParam null when every query parameter is un-serializable, with one warning each', function () {
     [$descriptors, $generator] = collectQueryParameters();
 

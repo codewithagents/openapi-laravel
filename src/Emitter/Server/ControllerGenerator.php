@@ -150,6 +150,19 @@ final readonly class ControllerGenerator
             $doc[] = '     * Query parameters: validate and hydrate them with';
             $doc[] = '     * \\'.$operation->queryParam['fqcn'].'::fromQuery($request).';
         }
+        if ($operation->pathDataParam !== null) {
+            // The path Data class is NOT injected: the positional scalar path
+            // arguments already occupy the signature slots, and the route
+            // binds the raw segment values into them. The class is a separate,
+            // additive runtime-validation seam (issue #113) the implementer
+            // calls explicitly to enforce the spec-declared path constraints.
+            // The FQCN is spelled out as prose, not imported, so no `use` goes
+            // unused; the collector resolved it, because under the grouped
+            // data layout (issue #93) the class may live in a tag subnamespace.
+            $doc[] = '     *';
+            $doc[] = '     * Path parameters: validate them with';
+            $doc[] = '     * \\'.$operation->pathDataParam.'::fromRoute($request).';
+        }
         if ($operation->needsStatusMiddleware()) {
             // The spec declares a non-200 success status; the generated route
             // enforces it via the RespondsWithStatus middleware (issue #64),

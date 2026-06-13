@@ -109,6 +109,19 @@ final class GenerationState
     public array $queryFiles = [];
 
     /**
+     * Per-operation path Data classes (issue #113), emitted on demand AFTER
+     * generate() ran, keyed by class name. Each carries spec-derived rules()
+     * for the operation's `in: path` parameters plus a `fromRoute()` factory,
+     * so a constrained path segment is validated at runtime instead of being
+     * silently dropped. Kept apart from $files for the same reason as
+     * $queryFiles: generate() already returned its file set when the server
+     * scaffold asks for these.
+     *
+     * @var array<string, GeneratedFile>
+     */
+    public array $pathFiles = [];
+
+    /**
      * Per-operation request-body Data classes (issue #76), emitted on demand
      * AFTER generate() ran, keyed by class name. The bucket also holds every
      * nested class an inline body spawned (a nested object property becomes

@@ -110,7 +110,15 @@ the config-only `routes.middleware` / `routes.prefix` keys wrap the routes in on
 PathItem-level parameters merge into every operation, and `$ref` parameters resolve through
 components (#66). Query parameters (#63) generate a per-operation query Data class
 (`<Operation>QueryData`) with spec-derived `rules()` through the exact body-class pipeline, plus a
-`fromQuery(Request)` factory that validates and hydrates from the query string only. An inline JSON
+`fromQuery(Request)` factory that validates and hydrates from the query string only. Path parameters
+(#113) generate a per-operation path Data class (`<Operation>PathData`) the same way, with a
+`fromRoute(Request)` factory validating and hydrating from `$request->route()->parameters()` only,
+so a path segment's min/max/pattern/enum/format constraints are enforced at runtime (a bad value is
+a 422, not a silent 200). It is the additive runtime-validation seam: the positional scalar path
+arguments still fill the controller signature, and the abstract method carries a docblock pointer to
+`::fromRoute($request)` rather than injecting the class. The query and path synthesis share one
+location-parameterized core in RequestDataSynthesizer (the seam a future `in: header` class, #121,
+extends). An inline JSON
 object request body (#76) synthesizes a per-operation Data class (`<Operation>RequestData`, named
 from the operationId like the query class, collision-safe through the shared allocator) through the
 exact component-class pipeline (full `rules()`, nested objects, closed-object enforcement, the

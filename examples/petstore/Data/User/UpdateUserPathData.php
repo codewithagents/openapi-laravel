@@ -1,0 +1,38 @@
+<?php
+
+declare(strict_types=1);
+
+namespace CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\User;
+
+use Illuminate\Http\Request;
+use Spatie\LaravelData\Data;
+
+/**
+ * Path parameters of PUT /user/{username}.
+ */
+final class UpdateUserPathData extends Data
+{
+    public function __construct(
+        public readonly string $username,
+    ) {}
+
+    /**
+     * Validate against rules() and hydrate from the resolved route parameters
+     * only, so path-segment constraints are enforced at runtime (a bad value
+     * is a 422, not a silent 200).
+     */
+    public static function fromRoute(Request $request): static
+    {
+        return self::validateAndCreate($request->route()->parameters());
+    }
+
+    /**
+     * @return array<array-key, list<string|object>>
+     */
+    public static function rules(): array
+    {
+        return [
+            'username' => ['required', 'string'],
+        ];
+    }
+}

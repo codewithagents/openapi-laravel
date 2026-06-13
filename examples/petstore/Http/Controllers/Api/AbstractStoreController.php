@@ -27,6 +27,9 @@ abstract class AbstractStoreController
      * GET /store/order/{orderId}
      *
      * Find purchase order by ID.
+     *
+     * Path parameters: validate them with
+     * \CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Store\GetOrderByIdPathData::fromRoute($request).
      */
     abstract public function show(int $orderId): OrderData;
 
@@ -34,6 +37,9 @@ abstract class AbstractStoreController
      * DELETE /store/order/{orderId}
      *
      * Delete purchase order by identifier.
+     *
+     * Path parameters: validate them with
+     * \CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Store\DeleteOrderPathData::fromRoute($request).
      */
     abstract public function destroy(int $orderId): JsonResponse;
 }

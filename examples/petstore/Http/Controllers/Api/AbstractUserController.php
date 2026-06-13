@@ -43,6 +43,9 @@ abstract class AbstractUserController
      * GET /user/{username}
      *
      * Get user by user name.
+     *
+     * Path parameters: validate them with
+     * \CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\User\GetUserByNamePathData::fromRoute($request).
      */
     abstract public function show(string $username): UserData;
 
@@ -50,6 +53,9 @@ abstract class AbstractUserController
      * PUT /user/{username}
      *
      * Update user resource.
+     *
+     * Path parameters: validate them with
+     * \CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\User\UpdateUserPathData::fromRoute($request).
      */
     abstract public function update(UserData $user, string $username): JsonResponse;
 
@@ -57,6 +63,9 @@ abstract class AbstractUserController
      * DELETE /user/{username}
      *
      * Delete user resource.
+     *
+     * Path parameters: validate them with
+     * \CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\User\DeleteUserPathData::fromRoute($request).
      */
     abstract public function destroy(string $username): JsonResponse;
 }

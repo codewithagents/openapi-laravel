@@ -51,6 +51,9 @@ abstract class AbstractPetController
      * GET /pet/{petId}
      *
      * Find pet by ID.
+     *
+     * Path parameters: validate them with
+     * \CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Pet\GetPetByIdPathData::fromRoute($request).
      */
     abstract public function show(int $petId): PetData;
 
@@ -58,6 +61,9 @@ abstract class AbstractPetController
      * POST /pet/{petId}
      *
      * Updates a pet in the store with form data.
+     *
+     * Path parameters: validate them with
+     * \CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Pet\UpdatePetWithFormPathData::fromRoute($request).
      */
     abstract public function updatePetWithForm(UpdatePetWithFormQueryData $query, int $petId): PetData;
 
@@ -65,6 +71,9 @@ abstract class AbstractPetController
      * DELETE /pet/{petId}
      *
      * Deletes a pet.
+     *
+     * Path parameters: validate them with
+     * \CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Pet\DeletePetPathData::fromRoute($request).
      */
     abstract public function destroy(int $petId): JsonResponse;
 
@@ -75,6 +84,9 @@ abstract class AbstractPetController
      *
      * Query parameters: validate and hydrate them with
      * \CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Pet\UploadFileQueryData::fromQuery($request).
+     *
+     * Path parameters: validate them with
+     * \CodeWithAgents\OpenApiLaravel\Examples\Petstore\Data\Pet\UploadFilePathData::fromRoute($request).
      */
     abstract public function uploadFile(Request $request, int $petId): ApiResponseData;
 }

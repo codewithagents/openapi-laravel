@@ -342,8 +342,9 @@ final class ClassRenderer
      * @param  array<string, list<string>>  $rules
      * @param  list<string>  $classDoc  class-level docblock lines, in emit order; empty means no docblock
      * @param  list<string>|null  $fromQueryBooleans  non-null emits the query-only fromQuery() factory (per-operation query classes, issue #63); the list holds the wire names of boolean parameters that need true/false literal mapping
+     * @param  list<string>|null  $fromRouteBooleans  non-null emits the route-only fromRoute() factory (per-operation path classes, issue #113); the list holds the wire names of boolean parameters that need true/false literal mapping. At most one of $fromQueryBooleans / $fromRouteBooleans is non-null.
      */
-    public function renderDataClass(string $className, array $params, array $imports, array $rules, array $classDoc = [], ?array $fromQueryBooleans = null): string
+    public function renderDataClass(string $className, array $params, array $imports, array $rules, array $classDoc = [], ?array $fromQueryBooleans = null, ?array $fromRouteBooleans = null): string
     {
         [$imports, $traitUse] = $this->applyValidationTrait($className, $imports);
 
@@ -396,7 +397,11 @@ final class ClassRenderer
         $body = implode("\n", array_map(static fn (array $p): string => $p['code'], $params));
         $constructor = "    public function __construct(\n".$body."\n    ) {}";
 
-        $factory = $fromQueryBooleans !== null ? "\n\n".$this->renderFromQuery($fromQueryBooleans) : '';
+        $factory = match (true) {
+            $fromQueryBooleans !== null => "\n\n".$this->renderFromQuery($fromQueryBooleans),
+            $fromRouteBooleans !== null => "\n\n".$this->renderFromRoute($fromRouteBooleans),
+            default => '',
+        };
 
         $traitBlock = $traitUse !== '' ? $traitUse."\n\n" : '';
 
@@ -460,6 +465,67 @@ final class ClassRenderer
             .'        }'."\n"
             ."\n"
             .'        return self::validateAndCreate($query);'."\n"
+            .'    }';
+    }
+
+    /**
+     * The route-only creation factory every per-operation path Data class
+     * carries (issue #113). It validates against rules() and hydrates from the
+     * request's resolved ROUTE parameters only (`$request->route()->parameters()`),
+     * so path constraints (min/max/pattern/enum/format) declared in the spec
+     * are enforced at runtime instead of silently dropped: a bad path value is
+     * a 422, not a 200. Unlike the query class this is NOT auto-injected: the
+     * positional scalar path arguments already occupy the controller signature,
+     * so the class is a separate, additive validation seam the implementer
+     * calls explicitly.
+     *
+     * Boolean parameters get the same true/false literal mapping fromQuery()
+     * applies, so a `{flag}` path segment carrying the form-style literals
+     * validates and hydrates correctly. Path booleans are rare, but the
+     * machinery is shared with the query path for parity.
+     *
+     * @param  list<string>  $booleanNames  wire names of the class's boolean parameters, in spec order
+     */
+    private function renderFromRoute(array $booleanNames): string
+    {
+        $doc = '    /**'."\n"
+            .'     * Validate against rules() and hydrate from the resolved route parameters'."\n"
+            .'     * only, so path-segment constraints are enforced at runtime (a bad value'."\n"
+            .'     * is a 422, not a silent 200).'."\n";
+
+        if ($booleanNames === []) {
+            return $doc
+                .'     */'."\n"
+                .'    public static function fromRoute(Request $request): static'."\n"
+                ."    {\n"
+                .'        return self::validateAndCreate($request->route()->parameters());'."\n"
+                .'    }';
+        }
+
+        $names = implode(', ', array_map(
+            fn (string $name): string => "'".PhpLiteral::escapeSingleQuoted($name)."'",
+            $booleanNames,
+        ));
+
+        return $doc
+            .'     * Boolean parameters arrive as the form-style literals true / false,'."\n"
+            .'     * which are mapped to 1 / 0 before validation.'."\n"
+            .'     */'."\n"
+            .'    public static function fromRoute(Request $request): static'."\n"
+            ."    {\n"
+            .'        $parameters = $request->route()->parameters();'."\n"
+            ."\n"
+            .'        foreach (['.$names.'] as $name) {'."\n"
+            .'            if (array_key_exists($name, $parameters)) {'."\n"
+            .'                $parameters[$name] = match ($parameters[$name]) {'."\n"
+            ."                    'true' => '1',"."\n"
+            ."                    'false' => '0',"."\n"
+            .'                    default => $parameters[$name],'."\n"
+            .'                };'."\n"
+            .'            }'."\n"
+            .'        }'."\n"
+            ."\n"
+            .'        return self::validateAndCreate($parameters);'."\n"
             .'    }';
     }
 

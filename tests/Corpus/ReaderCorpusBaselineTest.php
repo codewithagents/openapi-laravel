@@ -455,6 +455,143 @@ const READER_BASELINE_REBASELINED_126 = [
     'twitter.json' => '2 discriminated-union bases: missing discriminator now a 422',
 ];
 
+/*
+ * INTENTIONAL post-freeze rebaseline (#113): the 106 specs in
+ * READER_BASELINE_REBASELINED_113 carry a post-#113 hash because they declare
+ * `in: path` parameters, which v0.11.0 typed as positional scalar controller
+ * arguments WITHOUT runtime validation: a path segment's min/max/pattern/enum/
+ * format constraints were silently dropped, so a bad value returned 200 instead
+ * of 422. Issue #113 synthesizes a per-operation `<Operation>PathData` class
+ * with spec-derived rules() plus a `fromRoute(Request)` factory (the same
+ * pipeline the query class of #63 uses), and the abstract controller method
+ * gains a docblock pointer to `::fromRoute($request)`. The path Data class is
+ * NOT in the readerBaselinePipeline file set (it is exercised end-to-end by the
+ * #113 round-trip and differential tests), so the ONLY change in each of these
+ * hashes is the added controller docblock pointer lines: a strict, additive
+ * documentation improvement, no existing file dropped, retyped, or reworded,
+ * and the warning lists are byte-identical. Every spec outside the rebaseline
+ * lists stays the frozen v0.11.0 freeze, byte for byte.
+ */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-#113 output
+ * (path parameter validation classes generated, controller docblock pointers
+ * added), keyed by spec basename. The per-spec test below still compares
+ * against the JSON baseline, which now holds these specs' post-#113 hashes;
+ * the coverage test pins that every listed name exists on disk and in the
+ * baseline, so the list cannot rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_113 = [
+    '1password-connect.yaml' => 'path parameter validation classes generated',
+    'ably.json' => 'path parameter validation classes generated',
+    'ably_control.json' => 'path parameter validation classes generated',
+    'adyen-checkout.yaml' => 'path parameter validation classes generated',
+    'adyen-legal-entity.yaml' => 'path parameter validation classes generated',
+    'airflow.json' => 'path parameter validation classes generated',
+    'apisguru.json' => 'path parameter validation classes generated',
+    'apple_appstore.json' => 'path parameter validation classes generated',
+    'appwrite.json' => 'path parameter validation classes generated',
+    'asana.json' => 'path parameter validation classes generated',
+    'aws_apigateway.json' => 'path parameter validation classes generated',
+    'aws_lambda.json' => 'path parameter validation classes generated',
+    'aws_s3.json' => 'path parameter validation classes generated',
+    'aws_sqs.json' => 'path parameter validation classes generated',
+    'bbc.json' => 'path parameter validation classes generated',
+    'bikewise.json' => 'path parameter validation classes generated',
+    'bitbucket.json' => 'path parameter validation classes generated',
+    'box.json' => 'path parameter validation classes generated',
+    'brex.json' => 'path parameter validation classes generated',
+    'bungie.json' => 'path parameter validation classes generated',
+    'bunq.json' => 'path parameter validation classes generated',
+    'canada_holidays.json' => 'path parameter validation classes generated',
+    'circleci.json' => 'path parameter validation classes generated',
+    'clevercloud.json' => 'path parameter validation classes generated',
+    'clicksend.json' => 'path parameter validation classes generated',
+    'codat_accounting.json' => 'path parameter validation classes generated',
+    'codat_banking.json' => 'path parameter validation classes generated',
+    'configcat.json' => 'path parameter validation classes generated',
+    'devto.json' => 'path parameter validation classes generated',
+    'digitalocean.json' => 'path parameter validation classes generated',
+    'discourse.json' => 'path parameter validation classes generated',
+    'dnd5e.json' => 'path parameter validation classes generated',
+    'docker.json' => 'path parameter validation classes generated',
+    'docusign.json' => 'path parameter validation classes generated',
+    'dracoon.json' => 'path parameter validation classes generated',
+    'ebay_fulfillment.json' => 'path parameter validation classes generated',
+    'ebay_marketing.json' => 'path parameter validation classes generated',
+    'elevenlabs.json' => 'path parameter validation classes generated',
+    'exchangerate.json' => 'path parameter validation classes generated',
+    'gettyimages.json' => 'path parameter validation classes generated',
+    'giphy.json' => 'path parameter validation classes generated',
+    'github.json' => 'path parameter validation classes generated',
+    'google_bigquery.json' => 'path parameter validation classes generated',
+    'google_calendar.json' => 'path parameter validation classes generated',
+    'google_cloudrun.json' => 'path parameter validation classes generated',
+    'google_compute.json' => 'path parameter validation classes generated',
+    'google_docs.json' => 'path parameter validation classes generated',
+    'google_drive.json' => 'path parameter validation classes generated',
+    'google_functions.json' => 'path parameter validation classes generated',
+    'google_gke.json' => 'path parameter validation classes generated',
+    'google_gmail.json' => 'path parameter validation classes generated',
+    'google_logging.json' => 'path parameter validation classes generated',
+    'google_monitoring.json' => 'path parameter validation classes generated',
+    'google_pubsub.json' => 'path parameter validation classes generated',
+    'google_sheets.json' => 'path parameter validation classes generated',
+    'google_speech.json' => 'path parameter validation classes generated',
+    'google_translate.json' => 'path parameter validation classes generated',
+    'google_tts.json' => 'path parameter validation classes generated',
+    'google_vision.json' => 'path parameter validation classes generated',
+    'here_tracking.json' => 'path parameter validation classes generated',
+    'jira.json' => 'path parameter validation classes generated',
+    'klarna.json' => 'path parameter validation classes generated',
+    'linode.json' => 'path parameter validation classes generated',
+    'lufthansa.json' => 'path parameter validation classes generated',
+    'medium.json' => 'path parameter validation classes generated',
+    'notion.json' => 'path parameter validation classes generated',
+    'okta.json' => 'path parameter validation classes generated',
+    'openai.yaml' => 'path parameter validation classes generated',
+    'petstore-3.0.yaml' => 'path parameter validation classes generated',
+    'pinecone.json' => 'path parameter validation classes generated',
+    'postman.json' => 'path parameter validation classes generated',
+    'rawg.json' => 'path parameter validation classes generated',
+    'redocly-museum.yaml' => 'path parameter validation classes generated',
+    'resend.json' => 'path parameter validation classes generated',
+    'reverb.json' => 'path parameter validation classes generated',
+    'sendgrid.json' => 'path parameter validation classes generated',
+    'sentry.json' => 'path parameter validation classes generated',
+    'shutterstock.json' => 'path parameter validation classes generated',
+    'snyk.json' => 'path parameter validation classes generated',
+    'soundcloud.json' => 'path parameter validation classes generated',
+    'spotify.yaml' => 'path parameter validation classes generated',
+    'square.json' => 'path parameter validation classes generated',
+    'stackexchange.json' => 'path parameter validation classes generated',
+    'stripe.json' => 'path parameter validation classes generated',
+    'tomtom_maps.json' => 'path parameter validation classes generated',
+    'tomtom_routing.json' => 'path parameter validation classes generated',
+    'traccar.json' => 'path parameter validation classes generated',
+    'trello.json' => 'path parameter validation classes generated',
+    'twilio.json' => 'path parameter validation classes generated',
+    'twilio_api_v2010.json' => 'path parameter validation classes generated',
+    'twilio_messaging.json' => 'path parameter validation classes generated',
+    'twilio_verify.json' => 'path parameter validation classes generated',
+    'twilio_video.json' => 'path parameter validation classes generated',
+    'twitter.json' => 'path parameter validation classes generated',
+    'vercel.json' => 'path parameter validation classes generated',
+    'vimeo.json' => 'path parameter validation classes generated',
+    'vonage.json' => 'path parameter validation classes generated',
+    'weather_visual.json' => 'path parameter validation classes generated',
+    'webflow.json' => 'path parameter validation classes generated',
+    'wordnik.json' => 'path parameter validation classes generated',
+    'worldtime.json' => 'path parameter validation classes generated',
+    'xero.json' => 'path parameter validation classes generated',
+    'xero_assets.json' => 'path parameter validation classes generated',
+    'youtube.json' => 'path parameter validation classes generated',
+    'zoom.json' => 'path parameter validation classes generated',
+    'zuora.json' => 'path parameter validation classes generated',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -523,11 +660,11 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
             ->and(READER_BASELINE_POST_FREEZE_SPECS)->not->toHaveKey($rebaselined);
     }
 
-    // Every spec rebaselined for #110, #116, #120, #122, #124, #125, or #126
-    // must still exist on disk and carry a hash in the baseline (it is an
+    // Every spec rebaselined for #110, #116, #120, #122, #124, #125, #126, or
+    // #113 must still exist on disk and carry a hash in the baseline (it is an
     // update, not an exemption): a renamed or deleted spec would make the
     // documented rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126)] as $spec) {
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }

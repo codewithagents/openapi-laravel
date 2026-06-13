@@ -389,6 +389,7 @@ final class OperationCollector
         $this->warnUnsupportedParameterLocations($method, $path, $parameters);
         $this->warnCallbacks($operation, $label);
         $queryParam = $this->queryParam($method, $path, $operation, $parameters, $bodyParam, $bodyRequiresRequest, $pathParams, $imports);
+        $pathDataParam = $this->pathDataParam($method, $path, $operation, $parameters);
 
         sort($imports);
         $imports = array_values(array_unique($imports));
@@ -417,9 +418,64 @@ final class OperationCollector
             summary: $this->summary($operation),
             imports: $imports,
             queryParam: $queryParam,
+            pathDataParam: $pathDataParam,
             successStatus: $successStatus,
             securityMiddleware: $security->middlewareFor($label, $operation->security),
         );
+    }
+
+    /**
+     * Resolve the operation's `in: path` parameters into a generated path Data
+     * class FQCN (issue #113), or null when there is nothing to generate (no
+     * path params, or no model generator wired in). Unlike the query param,
+     * this is NEVER injected into the signature: the positional scalar path
+     * arguments ({@see pathParams()}) already occupy those slots, and the
+     * route binds the raw segment values into them. The path Data class is a
+     * SEPARATE, additive runtime-validation seam the controller carries a
+     * docblock pointer to (`\Fqcn::fromRoute($request)`), exactly the
+     * non-injected query precedent.
+     *
+     * The class name derives from the operationId-or-fallback, so
+     * `getWidget` yields GetWidgetPathData. Deliberately NOT the conventional
+     * method name (issue #94), like the query and body classes: Data classes
+     * live in the global Data namespace, where a per-controller `ShowPathData`
+     * would clash across controllers while GetWidgetPathData stays unique.
+     *
+     * @param  list<ParameterNode>  $parameters
+     */
+    private function pathDataParam(string $method, string $path, OperationNode $operation, array $parameters): ?string
+    {
+        if ($this->models === null) {
+            return null;
+        }
+
+        $pathParameters = [];
+        foreach ($parameters as $parameter) {
+            if ($parameter->in === 'path') {
+                $pathParameters[] = $parameter;
+            }
+        }
+
+        if ($pathParameters === []) {
+            return null;
+        }
+
+        $baseName = PhpIdentifier::toClassName($this->methodName($operation, $method, $path));
+        $label = strtoupper($method).' '.$path;
+
+        // The operation's first tag rides along so the grouped data layout
+        // (issue #93) can place the path class in its operation's tag group;
+        // the flat layout ignores it.
+        $class = $this->models->generatePathData($baseName, $label, $pathParameters, $this->firstTag($operation));
+        if ($class === null) {
+            return null;
+        }
+
+        // The FQCN is spelled out for the docblock pointer: under the grouped
+        // layout (issue #93) the class may live in a tag subnamespace, and
+        // only the collector knows which. Not imported (it never appears in
+        // the signature), so no `use` goes unused.
+        return $this->dataFqcn($class);
     }
 
     /**

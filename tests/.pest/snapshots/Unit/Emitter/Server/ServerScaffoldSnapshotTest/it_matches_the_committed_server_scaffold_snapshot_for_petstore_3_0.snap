@@ -51,6 +51,9 @@ abstract class AbstractPetController
      * GET /pet/{petId}
      *
      * Find pet by ID.
+     *
+     * Path parameters: validate them with
+     * \App\Data\Pet\GetPetByIdPathData::fromRoute($request).
      */
     abstract public function show(int $petId): PetData;
 
@@ -58,6 +61,9 @@ abstract class AbstractPetController
      * POST /pet/{petId}
      *
      * Updates a pet in the store with form data.
+     *
+     * Path parameters: validate them with
+     * \App\Data\Pet\UpdatePetWithFormPathData::fromRoute($request).
      */
     abstract public function updatePetWithForm(UpdatePetWithFormQueryData $query, int $petId): PetData;
 
@@ -65,6 +71,9 @@ abstract class AbstractPetController
      * DELETE /pet/{petId}
      *
      * Deletes a pet.
+     *
+     * Path parameters: validate them with
+     * \App\Data\Pet\DeletePetPathData::fromRoute($request).
      */
     abstract public function destroy(int $petId): JsonResponse;
 
@@ -75,6 +84,9 @@ abstract class AbstractPetController
      *
      * Query parameters: validate and hydrate them with
      * \App\Data\Pet\UploadFileQueryData::fromQuery($request).
+     *
+     * Path parameters: validate them with
+     * \App\Data\Pet\UploadFilePathData::fromRoute($request).
      */
     abstract public function uploadFile(Request $request, int $petId): ApiResponseData;
 }
@@ -108,6 +120,9 @@ abstract class AbstractStoreController
      * GET /store/order/{orderId}
      *
      * Find purchase order by ID.
+     *
+     * Path parameters: validate them with
+     * \App\Data\Store\GetOrderByIdPathData::fromRoute($request).
      */
     abstract public function show(int $orderId): OrderData;
 
@@ -115,6 +130,9 @@ abstract class AbstractStoreController
      * DELETE /store/order/{orderId}
      *
      * Delete purchase order by identifier.
+     *
+     * Path parameters: validate them with
+     * \App\Data\Store\DeleteOrderPathData::fromRoute($request).
      */
     abstract public function destroy(int $orderId): JsonResponse;
 }
@@ -164,6 +182,9 @@ abstract class AbstractUserController
      * GET /user/{username}
      *
      * Get user by user name.
+     *
+     * Path parameters: validate them with
+     * \App\Data\User\GetUserByNamePathData::fromRoute($request).
      */
     abstract public function show(string $username): UserData;
 
@@ -171,6 +192,9 @@ abstract class AbstractUserController
      * PUT /user/{username}
      *
      * Update user resource.
+     *
+     * Path parameters: validate them with
+     * \App\Data\User\UpdateUserPathData::fromRoute($request).
      */
     abstract public function update(UserData $user, string $username): JsonResponse;
 
@@ -178,6 +202,9 @@ abstract class AbstractUserController
      * DELETE /user/{username}
      *
      * Delete user resource.
+     *
+     * Path parameters: validate them with
+     * \App\Data\User\DeleteUserPathData::fromRoute($request).
      */
     abstract public function destroy(string $username): JsonResponse;
 }
@@ -375,6 +402,357 @@ final class UploadFileQueryData extends Data
     {
         return [
             'additionalMetadata' => ['sometimes', 'string'],
+        ];
+    }
+}
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data\Store;
+
+use Illuminate\Http\Request;
+use Spatie\LaravelData\Data;
+
+/**
+ * Path parameters of DELETE /store/order/{orderId}.
+ */
+final class DeleteOrderPathData extends Data
+{
+    public function __construct(
+        public readonly int $orderId,
+    ) {}
+
+    /**
+     * Validate against rules() and hydrate from the resolved route parameters
+     * only, so path-segment constraints are enforced at runtime (a bad value
+     * is a 422, not a silent 200).
+     */
+    public static function fromRoute(Request $request): static
+    {
+        return self::validateAndCreate($request->route()->parameters());
+    }
+
+    /**
+     * @return array<array-key, list<string|object>>
+     */
+    public static function rules(): array
+    {
+        return [
+            'orderId' => ['required', 'integer'],
+        ];
+    }
+}
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data\Pet;
+
+use Illuminate\Http\Request;
+use Spatie\LaravelData\Data;
+
+/**
+ * Path parameters of DELETE /pet/{petId}.
+ */
+final class DeletePetPathData extends Data
+{
+    public function __construct(
+        public readonly int $petId,
+    ) {}
+
+    /**
+     * Validate against rules() and hydrate from the resolved route parameters
+     * only, so path-segment constraints are enforced at runtime (a bad value
+     * is a 422, not a silent 200).
+     */
+    public static function fromRoute(Request $request): static
+    {
+        return self::validateAndCreate($request->route()->parameters());
+    }
+
+    /**
+     * @return array<array-key, list<string|object>>
+     */
+    public static function rules(): array
+    {
+        return [
+            'petId' => ['required', 'integer'],
+        ];
+    }
+}
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data\User;
+
+use Illuminate\Http\Request;
+use Spatie\LaravelData\Data;
+
+/**
+ * Path parameters of DELETE /user/{username}.
+ */
+final class DeleteUserPathData extends Data
+{
+    public function __construct(
+        public readonly string $username,
+    ) {}
+
+    /**
+     * Validate against rules() and hydrate from the resolved route parameters
+     * only, so path-segment constraints are enforced at runtime (a bad value
+     * is a 422, not a silent 200).
+     */
+    public static function fromRoute(Request $request): static
+    {
+        return self::validateAndCreate($request->route()->parameters());
+    }
+
+    /**
+     * @return array<array-key, list<string|object>>
+     */
+    public static function rules(): array
+    {
+        return [
+            'username' => ['required', 'string'],
+        ];
+    }
+}
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data\Store;
+
+use Illuminate\Http\Request;
+use Spatie\LaravelData\Data;
+
+/**
+ * Path parameters of GET /store/order/{orderId}.
+ */
+final class GetOrderByIdPathData extends Data
+{
+    public function __construct(
+        public readonly int $orderId,
+    ) {}
+
+    /**
+     * Validate against rules() and hydrate from the resolved route parameters
+     * only, so path-segment constraints are enforced at runtime (a bad value
+     * is a 422, not a silent 200).
+     */
+    public static function fromRoute(Request $request): static
+    {
+        return self::validateAndCreate($request->route()->parameters());
+    }
+
+    /**
+     * @return array<array-key, list<string|object>>
+     */
+    public static function rules(): array
+    {
+        return [
+            'orderId' => ['required', 'integer'],
+        ];
+    }
+}
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data\Pet;
+
+use Illuminate\Http\Request;
+use Spatie\LaravelData\Data;
+
+/**
+ * Path parameters of GET /pet/{petId}.
+ */
+final class GetPetByIdPathData extends Data
+{
+    public function __construct(
+        public readonly int $petId,
+    ) {}
+
+    /**
+     * Validate against rules() and hydrate from the resolved route parameters
+     * only, so path-segment constraints are enforced at runtime (a bad value
+     * is a 422, not a silent 200).
+     */
+    public static function fromRoute(Request $request): static
+    {
+        return self::validateAndCreate($request->route()->parameters());
+    }
+
+    /**
+     * @return array<array-key, list<string|object>>
+     */
+    public static function rules(): array
+    {
+        return [
+            'petId' => ['required', 'integer'],
+        ];
+    }
+}
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data\User;
+
+use Illuminate\Http\Request;
+use Spatie\LaravelData\Data;
+
+/**
+ * Path parameters of GET /user/{username}.
+ */
+final class GetUserByNamePathData extends Data
+{
+    public function __construct(
+        public readonly string $username,
+    ) {}
+
+    /**
+     * Validate against rules() and hydrate from the resolved route parameters
+     * only, so path-segment constraints are enforced at runtime (a bad value
+     * is a 422, not a silent 200).
+     */
+    public static function fromRoute(Request $request): static
+    {
+        return self::validateAndCreate($request->route()->parameters());
+    }
+
+    /**
+     * @return array<array-key, list<string|object>>
+     */
+    public static function rules(): array
+    {
+        return [
+            'username' => ['required', 'string'],
+        ];
+    }
+}
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data\Pet;
+
+use Illuminate\Http\Request;
+use Spatie\LaravelData\Data;
+
+/**
+ * Path parameters of POST /pet/{petId}.
+ */
+final class UpdatePetWithFormPathData extends Data
+{
+    public function __construct(
+        public readonly int $petId,
+    ) {}
+
+    /**
+     * Validate against rules() and hydrate from the resolved route parameters
+     * only, so path-segment constraints are enforced at runtime (a bad value
+     * is a 422, not a silent 200).
+     */
+    public static function fromRoute(Request $request): static
+    {
+        return self::validateAndCreate($request->route()->parameters());
+    }
+
+    /**
+     * @return array<array-key, list<string|object>>
+     */
+    public static function rules(): array
+    {
+        return [
+            'petId' => ['required', 'integer'],
+        ];
+    }
+}
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data\User;
+
+use Illuminate\Http\Request;
+use Spatie\LaravelData\Data;
+
+/**
+ * Path parameters of PUT /user/{username}.
+ */
+final class UpdateUserPathData extends Data
+{
+    public function __construct(
+        public readonly string $username,
+    ) {}
+
+    /**
+     * Validate against rules() and hydrate from the resolved route parameters
+     * only, so path-segment constraints are enforced at runtime (a bad value
+     * is a 422, not a silent 200).
+     */
+    public static function fromRoute(Request $request): static
+    {
+        return self::validateAndCreate($request->route()->parameters());
+    }
+
+    /**
+     * @return array<array-key, list<string|object>>
+     */
+    public static function rules(): array
+    {
+        return [
+            'username' => ['required', 'string'],
+        ];
+    }
+}
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data\Pet;
+
+use Illuminate\Http\Request;
+use Spatie\LaravelData\Data;
+
+/**
+ * Path parameters of POST /pet/{petId}/uploadImage.
+ */
+final class UploadFilePathData extends Data
+{
+    public function __construct(
+        public readonly int $petId,
+    ) {}
+
+    /**
+     * Validate against rules() and hydrate from the resolved route parameters
+     * only, so path-segment constraints are enforced at runtime (a bad value
+     * is a 422, not a silent 200).
+     */
+    public static function fromRoute(Request $request): static
+    {
+        return self::validateAndCreate($request->route()->parameters());
+    }
+
+    /**
+     * @return array<array-key, list<string|object>>
+     */
+    public static function rules(): array
+    {
+        return [
+            'petId' => ['required', 'integer'],
         ];
     }
 }

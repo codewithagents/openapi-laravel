@@ -1,0 +1,66 @@
+openapi: 3.0.3
+info:
+  title: Constrained Path Parameters
+  version: 1.0.0
+paths:
+  /widgets/{widgetId}/parts/{partCode}:
+    get:
+      tags:
+        - widget
+      operationId: getWidgetPart
+      parameters:
+        - name: widgetId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+        - name: partCode
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-z]{3}$'
+      responses:
+        '200':
+          description: ok
+  /reports/{reportId}/{status}:
+    get:
+      tags:
+        - widget
+      operationId: getReport
+      parameters:
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/ReportStatus'
+      responses:
+        '200':
+          description: ok
+  /plain/{id}:
+    get:
+      tags:
+        - widget
+      operationId: getPlain
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: ok
+components:
+  schemas:
+    ReportStatus:
+      type: string
+      enum: [open, closed, archived]

@@ -22,6 +22,9 @@ abstract class AbstractWidgetsController
      * GET /widgets/{widgetId}
      *
      * Get a widget by id.
+     *
+     * Path parameters: validate them with
+     * \CodeWithAgents\OpenApiLaravel\Tests\Feature\Example\Writable\Data\Widgets\GetWidgetByIdPathData::fromRoute($request).
      */
     abstract public function show(int $widgetId): WidgetData;
 }

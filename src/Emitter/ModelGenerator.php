@@ -344,6 +344,21 @@ final class ModelGenerator
     }
 
     /**
+     * Emit a per-operation path Data class (issue #113) for an operation's
+     * `in: path` parameters. Must be called AFTER generate(); see
+     * {@see RequestDataSynthesizer::generatePathData()} for the full
+     * contract. Kept on the generator so the server scaffold keeps one
+     * entry point into the model pipeline, exactly like generateQueryData().
+     *
+     * @param  list<ParameterNode>  $parameters  the operation's `in: path` parameters, in spec order
+     * @return string|null the reserved path class name, or null when there are no path parameters
+     */
+    public function generatePathData(string $baseName, string $operationLabel, array $parameters, ?string $tag = null): ?string
+    {
+        return $this->bodies->generatePathData($baseName, $operationLabel, $parameters, $tag);
+    }
+
+    /**
      * Emit a per-operation request-body Data class (issue #76) for an inline
      * JSON request-body schema. Must be called AFTER generate(); see
      * {@see RequestDataSynthesizer::generateBodyData()} for the full contract.
@@ -418,6 +433,22 @@ final class ModelGenerator
     public function queryFiles(): array
     {
         $files = $this->state->queryFiles;
+        ksort($files);
+
+        return $files;
+    }
+
+    /**
+     * The per-operation path Data classes emitted since the last generate()
+     * run (issue #113), keyed and ordered by class name. Exposed as a getter,
+     * mirroring queryFiles(): generate() already returned its file set when
+     * the server scaffold asks for these.
+     *
+     * @return array<string, GeneratedFile>
+     */
+    public function pathFiles(): array
+    {
+        $files = $this->state->pathFiles;
         ksort($files);
 
         return $files;
