@@ -11,6 +11,7 @@ use App\Data\Lab\LabArrayData;
 use App\Data\Lab\LabBackedEnumData;
 use App\Data\Lab\LabCircleData;
 use App\Data\Lab\LabClosedData;
+use App\Data\Lab\LabCookieEchoData;
 use App\Data\Lab\LabEnumConstData;
 use App\Data\Lab\LabFormatsData;
 use App\Data\Lab\LabGalleryRequestData;
@@ -18,6 +19,8 @@ use App\Data\Lab\LabHeaderEchoData;
 use App\Data\Lab\LabHeaderHeaderData;
 use App\Data\Lab\LabInlineBodyRequestData;
 use App\Data\Lab\LabInlineShapeData;
+use App\Data\Lab\LabInt64Data;
+use App\Data\Lab\LabLooseUnionData;
 use App\Data\Lab\LabMapData;
 use App\Data\Lab\LabNestedData;
 use App\Data\Lab\LabNumericData;
@@ -32,6 +35,8 @@ use App\Data\Lab\LabSharedBodyRequestData;
 use App\Data\Lab\LabSharedResponseResponseData;
 use App\Data\Lab\LabSquareData;
 use App\Data\Lab\LabStringData;
+use App\Data\Lab\LabStylesEchoData;
+use App\Data\Lab\LabStylesQueryData;
 use App\Data\Lab\LabTraitCheckData;
 use App\Data\Lab\LabTupleData;
 use App\Data\Lab\LabUnionData;
@@ -292,5 +297,63 @@ final class LabController extends AbstractLabController
     public function labSecurePublic(): LabSecureEchoData
     {
         return new LabSecureEchoData(ok: true, op: 'secure-public');
+    }
+
+    // --- Stage 5: documented residual pins ----------------------------------
+
+    public function labStyles(LabStylesQueryData $query): LabStylesEchoData
+    {
+        // Non-standard query styles residual: the deepObject `filter` object and
+        // the pipeDelimited `ids` array were SKIPPED with a warning at generation
+        // time, so they are absent from LabStylesQueryData and never validated.
+        // Only the supported `page` param survives, validated against rules()
+        // (min:1 max:50). We echo the validated page so the test can prove the
+        // skipped params do not gate the request: any garbage filter/ids value
+        // still reaches a 200. A page default keeps the echo well-typed when the
+        // optional param is omitted.
+        return new LabStylesEchoData(page: $query->page ?? 0);
+    }
+
+    public function labCookie(): LabCookieEchoData
+    {
+        // Cookie-parameter residual: the spec declares a required in:cookie
+        // `session_hint`, but the scaffold DROPS cookie params with a warning and
+        // generates no typing or validation. The abstract method therefore takes
+        // NO argument for it. We always return ok:true so the test can prove the
+        // cookie is never validated: the op returns 200 regardless of (or
+        // entirely without) the cookie.
+        return new LabCookieEchoData(ok: true);
+    }
+
+    public function labInt64(LabInt64Data $labInt64): LabInt64Data
+    {
+        // int64 bounds residual: `ledger` is type:integer format:int64 with
+        // min:1 max:9_000_000_000_000_000_000. Both bounds fit PHP's 64-bit int,
+        // so the generator emitted real min:/max: rules (NOT a docblock-only
+        // degradation). A normal in-range value round-trips; the test documents
+        // that these particular bounds ARE enforced on this platform.
+        return $labInt64;
+    }
+
+    public function labLooseUnion(LabLooseUnionData $labLooseUnion): LabLooseUnionData
+    {
+        // Undiscriminated object union residual (#31): `payload` is a oneOf of
+        // two object schemas with NO discriminator, so the generator typed it as
+        // `mixed` with a presence-only `required` rule. Either variant shape (or
+        // a shape that belongs to neither) is ACCEPTED: there is no
+        // variant-specific hydration or validation. We echo the raw payload back
+        // so the test can prove it round-trips untouched.
+        return $labLooseUnion;
+    }
+
+    public function labDualStatus(): JsonResponse
+    {
+        // Alternative-2xx pass-through residual (#64): /lab/dual-status declares
+        // BOTH 200 and 202. The generator selects the smallest 2xx (200) as the
+        // success status and emits NO RespondsWithStatus middleware, so a
+        // controller-set status is NOT rewritten. The 200 declares no body, so
+        // the return is typed JsonResponse, letting us set 202 explicitly. The
+        // test pins that the controller-set 202 stays 202 (not clobbered to 200).
+        return new JsonResponse(['state' => 'accepted'], 202);
     }
 }

@@ -1772,3 +1772,139 @@ test.fixme('findByTags (#63): the OpenAPI explode repeated-key form reflects BOT
   expect(text).toContain('alpha');
   expect(text).toContain('beta');
 });
+
+// ===========================================================================
+// E. RESIDUAL PINS over real HTTP
+// ---------------------------------------------------------------------------
+// These tests encode DOCUMENTED honest fallback behavior (CLAUDE.md "Honest
+// residuals", ROADMAP.md) so a regression that silently makes the generator
+// behave WORSE than documented is caught. Each test is reconciled to the
+// documented residual with a citing comment. None weaken the contract: if a
+// residual ever behaves worse than documented (a crash, a 500, silent
+// acceptance where rejection is promised), the test would fail loudly rather
+// than be quietly relaxed.
+//
+// The generate.sh warnings captured at generation time (verified verbatim):
+//   - GET /lab/styles: query parameter "filter" was skipped: style "deepObject"
+//     is not supported yet.
+//   - GET /lab/styles: query parameter "ids" was skipped: style "pipeDelimited"
+//     serializes the array into a single delimited value, which the generated
+//     array rules cannot validate.
+//   - GET /lab/cookie: cookie parameter(s) "session_hint" are not generated
+//     (cookie parameters are not supported yet).
+//   - Schema "LabLooseUnion": a oneOf/anyOf member is not a plain scalar or a
+//     $ref to a generated Data class; the union degrades to mixed with
+//     presence-only validation.
+// ===========================================================================
+
+// 1. NON-STANDARD QUERY STYLES are skipped + warned (RequestDataSynthesizer
+// querySkipReason). The deepObject `filter` object and the pipeDelimited `ids`
+// array were dropped at generation time and never reach the generated query
+// Data class (which carries ONLY `page`). Proof over HTTP: arbitrary/garbage
+// values for those params do NOT gate the request, because no validation exists
+// for them. The supported `page` param is still validated.
+test('lab/styles (residual): deepObject + pipeDelimited query params are skipped, not validated', async ({ request }) => {
+  // Garbage values for the skipped styles do not matter: the op still 200s,
+  // because filter/ids are absent from the generated query class entirely.
+  const ok = await labGet(request, 'styles?filter[category]=!!!&filter[minPrice]=notanumber&ids=99|abc|7&page=3');
+  expect(ok.status).toBe(200);
+  expect(ok.body).toEqual({ page: 3 });
+
+  // With no params at all the optional page falls back to the controller's 0.
+  const bare = await labGet(request, 'styles');
+  expect(bare.status).toBe(200);
+  expect(bare.body).toEqual({ page: 0 });
+
+  // The ONE param that WAS generated is still validated (page min:1 max:50):
+  // proves the op is not just blanket-accepting everything.
+  expect((await labGet(request, 'styles?page=0')).status).toBe(422);
+  expect((await labGet(request, 'styles?page=999')).status).toBe(422);
+});
+
+// 2. COOKIE PARAMETER is dropped + warned (the scaffold keeps `cookie` in the
+// unsupported-locations set). The required in:cookie `session_hint` is never
+// typed or validated. Proof over HTTP: the op 200s regardless of the cookie
+// value, and even with NO cookie at all, despite the spec marking it required.
+test('lab/cookie (residual): an in:cookie param is dropped, never validated', async ({ request }) => {
+  // No cookie supplied at all: the spec says required, but the generator dropped
+  // it, so there is no validation and the op still returns 200.
+  const noCookie = await labGet(request, 'cookie');
+  expect(noCookie.status).toBe(200);
+  expect(noCookie.body).toEqual({ ok: true });
+
+  // A garbage cookie value (violates the spec pattern ^sess-[0-9]{4}$) is equally
+  // ignored: still 200, never a 422.
+  const garbage = await labGet(request, 'cookie', { Cookie: 'session_hint=totally-bogus' });
+  expect(garbage.status).toBe(200);
+  expect(garbage.body).toEqual({ ok: true });
+});
+
+// 3. int64 BOUNDS degrade gracefully (no crash). `ledger` is integer/int64 with
+// min:1 max:9_000_000_000_000_000_000. On this 64-bit platform BOTH bounds fit
+// PHP_INT_MAX (9223372036854775807), so the generator emitted REAL min:/max:
+// rules rather than a docblock-only degradation. This test documents the ACTUAL
+// current behavior: a normal in-range value round-trips, and the large bounds
+// ARE enforced here (a value above the max 422s, below the min 422s).
+test('lab/int64 (residual): int64 bounds do not crash; in-range round-trips and the emitted bounds are enforced', async ({ request }) => {
+  // Normal in-range value round-trips. (JSON numbers up to 2^53 are safe in JS;
+  // we stay well under that for the value itself.)
+  const ok = await labPost(request, 'int64', { ledger: 123456 });
+  expect(ok.status).toBe(LAB_OK);
+  expect(ok.body).toEqual({ ledger: 123456 });
+
+  // min:1 is enforced (0 is below it).
+  expect((await labPost(request, 'int64', { ledger: 0 })).status).toBe(422);
+
+  // The max:9_000_000_000_000_000_000 rule was emitted and is enforced here:
+  // a value above it 422s. Sent as a raw JSON integer literal so PHP sees the
+  // full magnitude (well within PHP's 64-bit int range). Documents that on a
+  // 64-bit platform these int64 bounds are NOT degraded to docblock-only.
+  const tooBig = await request.post(`${API_BASE}/lab/int64`, {
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    data: '{"ledger": 9100000000000000000}',
+  });
+  expect(tooBig.status()).toBe(422);
+});
+
+// 4. UNDISCRIMINATED OBJECT UNION -> mixed, presence-only (#31). `payload` is a
+// oneOf of two object schemas with NO discriminator, so the generator typed it
+// `mixed` with a presence-only `required` rule. Proof over HTTP: a body matching
+// EITHER variant is accepted, AND there is NO variant-specific validation: a
+// field that belongs to the "wrong" variant (or to neither) is NOT rejected.
+// This is the documented #31 behavior, not a bug.
+test('lab/loose-union (residual #31): undiscriminated object union is mixed + presence-only', async ({ request }) => {
+  // Variant A shape ({alpha}) is accepted and round-trips untouched.
+  const a = await labPost(request, 'loose-union', { payload: { alpha: 'hello' } });
+  expect(a.status).toBe(LAB_OK);
+  expect(a.body).toEqual({ payload: { alpha: 'hello' } });
+
+  // Variant B shape ({beta}) is also accepted and round-trips.
+  const b = await labPost(request, 'loose-union', { payload: { beta: 42 } });
+  expect(b.status).toBe(LAB_OK);
+  expect(b.body).toEqual({ payload: { beta: 42 } });
+
+  // No variant-specific hydration/validation: a payload that matches NEITHER
+  // variant's required field is STILL accepted (presence-only on `payload`).
+  // A discriminated union would 422 this; #31 by design does not.
+  const neither = await labPost(request, 'loose-union', { payload: { gamma: true } });
+  expect(neither.status).toBe(LAB_OK);
+  expect(neither.body).toEqual({ payload: { gamma: true } });
+
+  // The ONLY rule is presence: a missing payload IS rejected (proves the
+  // required rule fires and the op is not blanket-accepting an empty body).
+  expect((await labPost(request, 'loose-union', {})).status).toBe(422);
+});
+
+// 5. ALTERNATIVE-2xx PASS-THROUGH (#64). /lab/dual-status declares BOTH 200 and
+// 202. The generator selects the smallest 2xx (200) as the success status and
+// emits NO RespondsWithStatus middleware on the route (only an exactly declared
+// NON-200 selected success is rewritten). The 200 declares no body, so the
+// method is typed JsonResponse; the concrete controller sets 202 explicitly.
+// Proof over HTTP: the controller-set 202 stays 202, NOT clobbered to 200.
+test('lab/dual-status (residual #64): a controller-set 202 passes through untouched (200 selected, no rewrite)', async ({ request }) => {
+  const res = await request.get(`${API_BASE}/lab/dual-status`, {
+    headers: { Accept: 'application/json' },
+  });
+  expect(res.status()).toBe(202);
+  expect(await res.json()).toEqual({ state: 'accepted' });
+});

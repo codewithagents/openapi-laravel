@@ -504,6 +504,32 @@ via `method_exists()` and feeds it to the Laravel validator, so the 422 body's
 that one field so enabling the trait globally (it is woven into EVERY Data class)
 does not change the message text any other test asserts on.
 
+## Residual pins (documented fallbacks, pinned over HTTP)
+
+The generator has a set of HONEST RESIDUALS: spec constructs it does not fully
+support, where it falls back to a documented, narrower behavior instead of
+guessing. These are NOT bugs, they are deliberate, documented limitations (see
+the root `CLAUDE.md` "Honest residuals" section and `ROADMAP.md`). The risk is
+that a future change silently makes one behave WORSE than documented, e.g. a
+crash, a 500, or silently accepting clearly-invalid input where the doc implies
+rejection. These tests encode the CURRENT documented behavior over real HTTP so
+any such regression fails loudly. None of them weaken the contract: where a
+residual ever behaves worse than its promise, the test is left at the promised
+behavior and parked `test.fixme` with a reported finding (none were needed here,
+all five behave as documented).
+
+Each pin adds a minimal `/lab/*` operation, a concrete echo in `LabController`,
+and a strict raw-HTTP test. The generate-time warnings below were captured
+verbatim from `./generate.sh`.
+
+| Construct | Documented behavior | What the test proves | generate.sh warning |
+|---|---|---|---|
+| `GET /lab/styles`: a `deepObject` exploded object query param (`filter`) + a `pipeDelimited` array query param (`ids`), alongside a normal `page` int param | Non-standard query styles are SKIPPED with a warning and never appear in the generated query Data class (no validation); the supported `page` param is still validated | The op 200s with arbitrary/garbage `filter`/`ids` values (they do not gate the request), and `page` is still validated (min:1/max:50 reject out of range). The generated `LabStylesQueryData` carries ONLY `page`. | `query parameter "filter" was skipped: style "deepObject" is not supported yet.` and `query parameter "ids" was skipped: style "pipeDelimited" serializes the array into a single delimited value, which the generated array rules cannot validate.` |
+| `GET /lab/cookie`: a required `in: cookie` param (`session_hint`) | The cookie param is DROPPED with a warning and never typed or validated; the abstract method takes no argument for it | The op 200s with NO cookie at all (despite `required: true`) AND with a garbage cookie value that violates the spec pattern, so it is provably never validated. | `cookie parameter(s) "session_hint" are not generated (cookie parameters are not supported yet).` |
+| `POST /lab/int64`: an `integer` `format: int64` field (`ledger`) with `minimum: 1`, `maximum: 9000000000000000000` | int64 bounds degrade gracefully (no crash) | A normal in-range value round-trips 201. On this 64-bit platform BOTH bounds fit `PHP_INT_MAX`, so the generator emitted REAL `min:`/`max:` rules (not docblock-only): the test documents that these particular bounds ARE enforced here (a value above the max 422s, below the min 422s). | none (the bounds are emitted as ordinary rules) |
+| `POST /lab/loose-union`: a `oneOf` of two OBJECT schemas with NO discriminator (`payload`) (#31) | Typed `mixed`, presence-only; NOT hydrated into a specific variant | A body matching EITHER variant is accepted and round-trips untouched, AND a payload matching NEITHER variant's required field is STILL accepted (no variant-specific validation). The only rule is presence: a missing `payload` 422s. | `Schema "LabLooseUnion": a oneOf/anyOf member is not a plain scalar or a $ref to a generated Data class; the union degrades to mixed with presence-only validation.` |
+| `GET /lab/dual-status`: declares BOTH `200` and `202`, where the concrete controller explicitly returns 202 (#64) | The selected success status is the smallest 2xx (200); only an exactly declared NON-200 selected success gets `RespondsWithStatus`, so a controller-set 202 passes through untouched | The controller-set 202 stays 202, not clobbered to 200. The route carries NO `RespondsWithStatus` middleware; the 200 declares no body (typed `JsonResponse`), so the controller is free to set its own status and the generator does not rewrite it. | none (no-content 200 keeps the JsonResponse default silently) |
+
 ## CORS
 
 `config/cors.php` is fully permissive (`paths: api/*`, origins/methods/headers
