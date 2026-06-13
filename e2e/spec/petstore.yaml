@@ -1163,6 +1163,55 @@ paths:
                 $ref: '#/components/schemas/LabDelimitedEcho'
         '422':
           description: Validation exception
+  /lab/deep-filter:
+    get:
+      tags:
+        - lab
+      summary: >-
+        Echo a style: deepObject OBJECT query parameter on a body-less GET
+        (#131, the real-world Stripe-style ?filter[gte]=10&filter[lte]=20 case).
+        The generator synthesizes the deepObject `filter` object into the
+        generated LabDeepFilterQueryData class as a NESTED object property with
+        DOTTED nested rules (filter.gte min:0, filter.lte max:100,
+        filter.color enum). PHP parses the bracketed query keys natively into a
+        nested array, so unlike the #132 delimited-array case no split is needed
+        and the param stays container-INJECTABLE on a body-less GET. Proves both
+        that valid nested values hydrate and round-trip and that an out-of-range
+        nested value 422s keyed on the dotted path (filter.gte).
+      operationId: labDeepFilter
+      parameters:
+        - name: filter
+          in: query
+          required: true
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            required:
+              - gte
+              - lte
+            properties:
+              gte:
+                type: integer
+                minimum: 0
+              lte:
+                type: integer
+                maximum: 100
+              color:
+                type: string
+                enum:
+                  - red
+                  - green
+                  - blue
+      responses:
+        '200':
+          description: echoed deepObject query parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabDeepFilterEcho'
+        '422':
+          description: Validation exception
   /lab/path/{score}:
     get:
       tags:
@@ -2279,6 +2328,18 @@ components:
           type: array
           items:
             type: string
+    LabDeepFilterEcho:
+      type: object
+      required:
+        - gte
+        - lte
+      properties:
+        gte:
+          type: integer
+        lte:
+          type: integer
+        color:
+          type: string
     LabPathEcho:
       type: object
       required:

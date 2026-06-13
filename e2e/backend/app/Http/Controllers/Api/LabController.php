@@ -13,6 +13,8 @@ use App\Data\Lab\LabCircleData;
 use App\Data\Lab\LabClosedData;
 use App\Data\Lab\LabClosedNestData;
 use App\Data\Lab\LabCookieEchoData;
+use App\Data\Lab\LabDeepFilterEchoData;
+use App\Data\Lab\LabDeepFilterQueryData;
 use App\Data\Lab\LabDelimitedEchoData;
 use App\Data\Lab\LabDelimitedQueryQueryData;
 use App\Data\Lab\LabEnumConstData;
@@ -214,6 +216,25 @@ final class LabController extends AbstractLabController
             tier: $query->tier,
             count: $query->count,
             code: $query->code,
+        );
+    }
+
+    public function labDeepFilter(LabDeepFilterQueryData $query): LabDeepFilterEchoData
+    {
+        // deepObject OBJECT query param on a body-less GET (#131, the real-world
+        // Stripe-style ?filter[gte]=10&filter[lte]=20 case). Unlike the #132
+        // delimited-array case, this param stays container-INJECTABLE: PHP parses
+        // the bracketed query keys (filter[gte], filter[lte], filter[color])
+        // natively into a nested array, so spatie hydrates the nested
+        // LabDeepFilterQueryFilterData and validates its dotted nested rules
+        // (filter.gte min:0, filter.lte max:100, filter.color enum) BEFORE this
+        // body runs. A bad nested value 422s keyed on the dotted path
+        // (e.g. filter.gte) before reaching here, so we just echo the validated
+        // nested values back to prove they hydrated.
+        return new LabDeepFilterEchoData(
+            gte: $query->filter->gte,
+            lte: $query->filter->lte,
+            color: $query->filter->color,
         );
     }
 
@@ -437,20 +458,20 @@ final class LabController extends AbstractLabController
 
     public function labStyles(): LabStylesEchoData
     {
-        // Query styles, post-#132 additive fix. The deepObject `filter` object is
-        // STILL skipped with a warning at generation time, so it is absent from
-        // LabStylesQueryData and never validated. The pipeDelimited `ids` array,
-        // by contrast, is now a generated, validated integer-array property that
-        // SPLITS correctly even on this body-less GET: a delimited-array query
-        // class is now ADDITIVE (the abstract takes no injected param and points
-        // at fromQuery($request)), so calling fromQuery() ourselves runs the pipe
-        // split BEFORE the integer-array rules. Previously this op was forced to
-        // ignore `ids` because container injection validated the unsplit string
-        // and 422'd; now `ids=99|7` round-trips as [99, 7] and a non-integer item
-        // (ids=99|abc|7) 422s on the per-item rule. We echo the validated `page`
-        // (min:1 max:50) and the split `ids` so the test can assert both. A page
-        // default keeps the echo well-typed, and a garbage `filter` value never
-        // gates the request (deepObject is skipped).
+        // Query styles, both now SUPPORTED. The pipeDelimited `ids` array (#132)
+        // is a generated, validated integer-array property that SPLITS correctly
+        // on this body-less GET: a delimited-array query class is ADDITIVE (the
+        // abstract takes no injected param and points at fromQuery($request)), so
+        // calling fromQuery() ourselves runs the pipe split BEFORE the
+        // integer-array rules (ids=99|7 -> [99, 7]; a non-integer item 422s). The
+        // deepObject `filter` object (#131) is NO LONGER a residual either: it is
+        // now generated as a nested optional LabStylesQueryFilterData and
+        // VALIDATED by the same fromQuery() call (PHP parses the bracketed keys
+        // natively, so a non-integer filter.minPrice 422s). We do not echo the
+        // filter values here (the dedicated /lab/deep-filter op proves the echo
+        // round-trip for #131); we echo the validated `page` (min:1 max:50) and
+        // the split `ids` so the test can assert both, while filter validation is
+        // proven by a negative case in the styles test.
         $query = LabStylesQueryData::fromQuery(request());
 
         return new LabStylesEchoData(page: $query->page ?? 0, ids: $query->ids);

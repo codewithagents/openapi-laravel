@@ -1517,6 +1517,57 @@ test('lab/delimited-query (#132): non-exploded delimited arrays split per style 
 });
 
 // ---------------------------------------------------------------------------
+// Stage 1A3: deepObject OBJECT QUERY PARAM on a body-less GET (#131, the
+// real-world Stripe-style ?filter[gte]=10&filter[lte]=20 case). The generator
+// synthesizes the deepObject `filter` object into the generated
+// LabDeepFilterQueryData class as a NESTED object property (a nested
+// LabDeepFilterQueryFilterData with its own rules()), which laravel-data expands
+// into DOTTED nested rules (filter.gte min:0, filter.lte max:100, filter.color
+// enum). Unlike the #132 delimited-array case, no split is needed and no
+// fromQuery() pointer: PHP parses the bracketed query keys (filter[gte], ...)
+// NATIVELY into a nested array, so the param stays container-INJECTABLE on a
+// body-less GET. The abstract therefore INJECTS LabDeepFilterQueryData directly
+// (confirmed in the generated AbstractLabController). The bracket characters are
+// URL-encoded (%5B = '[', %5D = ']') so the query string is well-formed.
+// ---------------------------------------------------------------------------
+
+test('lab/deep-filter (#131): a deepObject query param hydrates nested values and validates', async ({ request }) => {
+  // Happy path: filter[gte]=10, filter[lte]=20, filter[color]=red all hydrate
+  // into the nested filter object and echo back. PHP parses the bracketed keys
+  // into a nested array, so the integers arrive typed and the optional enum
+  // color is present.
+  const ok = await labGet(request, 'deep-filter?filter%5Bgte%5D=10&filter%5Blte%5D=20&filter%5Bcolor%5D=red');
+  expect(ok.status).toBe(200);
+  expect(ok.body).toEqual({ gte: 10, lte: 20, color: 'red' });
+
+  // The optional color may be omitted: gte/lte still hydrate, color is absent.
+  const noColor = await labGet(request, 'deep-filter?filter%5Bgte%5D=0&filter%5Blte%5D=100');
+  expect(noColor.status).toBe(200);
+  expect(noColor.body).toMatchObject({ gte: 0, lte: 100 });
+
+  // Negative: a nested value below its min 422s keyed on the DOTTED nested path
+  // (filter.gte), proving the nested rules really fire. The key is passed as a
+  // single-element array to stop the dot being read as a nested traversal.
+  const tooLow = await labGet(request, 'deep-filter?filter%5Bgte%5D=-1&filter%5Blte%5D=20');
+  expect(tooLow.status).toBe(422);
+  expect(tooLow.body.errors).toHaveProperty(['filter.gte']);
+
+  // Negative: a nested value above its max 422s keyed on filter.lte.
+  const tooHigh = await labGet(request, 'deep-filter?filter%5Bgte%5D=10&filter%5Blte%5D=999');
+  expect(tooHigh.status).toBe(422);
+  expect(tooHigh.body.errors).toHaveProperty(['filter.lte']);
+
+  // Negative: an out-of-enum nested color 422s keyed on filter.color.
+  const badColor = await labGet(request, 'deep-filter?filter%5Bgte%5D=10&filter%5Blte%5D=20&filter%5Bcolor%5D=purple');
+  expect(badColor.status).toBe(422);
+  expect(badColor.body.errors).toHaveProperty(['filter.color']);
+
+  // A missing required filter object 422s.
+  const missing = await labGet(request, 'deep-filter');
+  expect(missing.status).toBe(422);
+});
+
+// ---------------------------------------------------------------------------
 // Stage 1B: PATH PARAM constraint (#113, now shipped). The generator emits
 // LabPathPathData with a fromRoute() factory; the concrete controller calls it,
 // so the path-segment min/max is enforced at runtime: an in-range value
@@ -2172,36 +2223,40 @@ test.fixme('findByTags (#63): the OpenAPI explode repeated-key form reflects BOT
 // than be quietly relaxed.
 //
 // The generate.sh warnings captured at generation time (verified verbatim):
-//   - GET /lab/styles: query parameter "filter" was skipped: style "deepObject"
-//     is not supported yet.
 //   - GET /lab/cookie: cookie parameter(s) "session_hint" are not generated
 //     (cookie parameters are not supported yet).
 //   - Schema "LabLooseUnion": a oneOf/anyOf member is not a plain scalar or a
 //     $ref to a generated Data class; the union degrades to mixed with
 //     presence-only validation.
 //
-// NOTE (#132): the `ids` pipeDelimited array param on /lab/styles is NO LONGER
-// skipped at generation time (its pipeDelimited skip warning is gone), AND it now
-// SPLITS correctly on this body-less GET. A delimited-array query class is now
-// ADDITIVE (the abstract takes no injected param and points at fromQuery()), so
-// the concrete controller calls fromQuery() and the pipe split runs BEFORE the
-// integer-array rules. This was previously a parked residual (the injected GET
-// path validated the unsplit string and 422'd); the additive fix flips it green.
-// The deepObject `filter` object remains the only generation-time skipped param.
+// NOTE (#131 + #132): /lab/styles used to pin TWO query-style residuals: the
+// deepObject `filter` object AND the pipeDelimited `ids` array were both skipped
+// + warned. Both have since been implemented and the skip warnings are GONE:
+//   - #132 (delimited arrays): `ids` is now generated and SPLITS on its pipe
+//     delimiter on this body-less GET (the query class is ADDITIVE: the abstract
+//     takes no injected param and points at fromQuery(), so the split runs before
+//     the integer-array rules instead of spatie validating the unsplit string).
+//   - #131 (deepObject objects): `filter` is now generated as a NESTED optional
+//     object (LabStylesQueryFilterData with category string + minPrice integer)
+//     and is VALIDATED. PHP parses the bracketed keys natively, so it stays
+//     container-injectable; here the op already uses fromQuery for `ids`, so the
+//     same call validates `filter` too. So /lab/styles is no longer a residual at
+//     all: it is now a second proof of the #131/#132 flips alongside the dedicated
+//     /lab/deep-filter (#131) and /lab/delimited-query (#132) ops.
 // ===========================================================================
 
-// 1. NON-STANDARD QUERY STYLES: the deepObject `filter` object is STILL skipped +
-// warned at generation time (RequestDataSynthesizer querySkipReason) and never
-// reaches the generated query Data class. The pipeDelimited `ids` array, by
-// contrast, is now generated AND split on this GET (#132 additive fix), so it is
-// validated as an integer array. Proof over HTTP: a garbage `filter` value does
-// not gate the request (no validation exists for it); a valid `ids` round-trips
-// as a split array; a non-integer `ids` item 422s; `page` is still validated.
-test('lab/styles (residual flipped #132): deepObject filter skipped; pipeDelimited ids splits + validates on a GET', async ({ request }) => {
-  // A garbage `filter` value does not matter (deepObject is still skipped), and a
-  // valid pipeDelimited `ids` SPLITS on the pipe and round-trips as an array.
-  // The csv-style note about array elements applies: ids items echo as strings.
-  const ok = await labGet(request, 'styles?filter[category]=!!!&filter[minPrice]=notanumber&ids=99%7C7&page=3');
+// 1. NON-STANDARD QUERY STYLES, both now SUPPORTED: the deepObject `filter` object
+// (#131) is generated and validated as a nested object, and the pipeDelimited
+// `ids` array (#132) is generated and split. Proof over HTTP: a valid `filter`
+// hydrates and validates (a non-integer filter.minPrice 422s keyed filter.minPrice);
+// a valid `ids` round-trips as a split array; a non-integer `ids` item 422s; `page`
+// is still validated.
+test('lab/styles (residuals flipped #131/#132): deepObject filter + pipeDelimited ids both generated and validated on a GET', async ({ request }) => {
+  // A valid deepObject `filter` hydrates (its values are not echoed by the
+  // controller, but it must PASS validation), and a valid pipeDelimited `ids`
+  // SPLITS on the pipe and round-trips as an array. The csv-style note about
+  // array elements applies: ids items echo as strings.
+  const ok = await labGet(request, 'styles?filter%5Bcategory%5D=toys&filter%5BminPrice%5D=10&ids=99%7C7&page=3');
   expect(ok.status).toBe(200);
   expect(ok.body).toEqual({ page: 3, ids: ['99', '7'] });
 
@@ -2211,10 +2266,14 @@ test('lab/styles (residual flipped #132): deepObject filter skipped; pipeDelimit
   expect(bare.status).toBe(200);
   expect(bare.body).toEqual({ page: 0, ids: null });
 
-  // `ids` is now genuinely validated as an integer array after the split (#132):
-  // a non-integer item 422s on the per-item rule, where the residual used to
-  // either drop it (pre-#132 skip) or 422 on the unsplit string (the injected GET
-  // hazard, now fixed). The error bag keys the bad item index.
+  // The deepObject `filter` is now VALIDATED (#131, no longer skipped): a
+  // non-integer filter.minPrice 422s keyed on the dotted nested path.
+  const badFilter = await labGet(request, 'styles?filter%5BminPrice%5D=notanumber&page=3');
+  expect(badFilter.status).toBe(422);
+  expect(badFilter.body.errors).toHaveProperty(['filter.minPrice']);
+
+  // `ids` is genuinely validated as an integer array after the split (#132):
+  // a non-integer item 422s on the per-item rule. The error bag keys the index.
   const badItem = await labGet(request, 'styles?ids=99%7Cabc%7C7&page=3');
   expect(badItem.status).toBe(422);
   expect(badItem.body.errors).toHaveProperty(['ids.1']);
