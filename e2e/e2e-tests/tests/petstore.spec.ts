@@ -918,17 +918,13 @@ test('lab/shape: discriminated object union hydrates each variant by its discrim
   expect((await labPost(request, 'shape', { kind: 'circle' })).status).toBe(422);
 });
 
-// DISCOVERED BUG (see final report): an UNKNOWN discriminator value on a
-// named-component discriminated union returns HTTP 500, not 422. The generated
-// morph() returns null for an unmapped `kind`, and laravel-data then throws
-// CannotCreateAbstractClass during hydration (before validation runs), which
-// surfaces as a 500 Server Error. The promised contract is that spec-invalid
-// input is rejected with 422 (#38 says these unions "validate and hydrate via an
-// abstract morphable base"). This is an UNDOCUMENTED divergence, so the strict
-// assertion is left at the promised 422 and the test is skipped via .fixme.
-test.fixme('lab/shape: an unknown discriminator value should be a 422, not a 500', async ({ request }) => {
+// An UNKNOWN discriminator value on a named-component discriminated union is
+// rejected with 422 (fixed in #124 / PR #127: the generated morph() now throws a
+// ValidationException on an unmapped `kind` instead of returning null, so the
+// spec-invalid value is a clean 422 on every consumption path, not a 500).
+test('lab/shape: an unknown discriminator value is rejected with a 422', async ({ request }) => {
   const unknown = await labPost(request, 'shape', { kind: 'triangle', radius: 1 });
-  expect(unknown.status).toBe(422); // ACTUAL: 500 (CannotCreateAbstractClass from the morph layer)
+  expect(unknown.status).toBe(422);
 });
 
 test('lab/ref-body: a component $ref request body (#110) and $ref response (#116) round-trip with a typed Data class', async ({ request }) => {
@@ -944,21 +940,16 @@ test('lab/ref-body: a component $ref request body (#110) and $ref response (#116
   expect((await labPost(request, 'ref-body', { note: '', amount: 5 })).status).toBe(422);
 });
 
-// DISCOVERED DIVERGENCE (see final report): the spec declares 202 for
-// labAccepted and the generator stamps RespondsWithStatus:202 on the route, but
-// the live response is 201, not 202. Root cause: spatie/laravel-data serializes
-// a Data object returned from a POST as 201, and RespondsWithStatus only
-// rewrites an EXACTLY-200 response (#64: "only an exactly-200 response is ever
-// rewritten"). So for a POST returning a Data object, the 201 default pre-empts
-// the declared non-200 success status and RespondsWithStatus never fires. The
-// 204 DELETE path works because that handler returns void (a 200 the middleware
-// can rewrite). Strict assertion left at the promised 202, marked .fixme.
-test.fixme('lab/accepted: a 202 success status should be honored by RespondsWithStatus', async ({ request }) => {
+// A spec-declared 202 success status on a POST returning a Data object is
+// honored (fixed in #125 / PR #128: RespondsWithStatus now normalizes any
+// framework-default 2xx to the declared status, so laravel-data's 201-on-POST
+// default no longer pre-empts the declared 202).
+test('lab/accepted: a 202 success status is honored by RespondsWithStatus', async ({ request }) => {
   const res = await request.post(`${API_BASE}/lab/accepted`, {
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     data: { baseField: 'b', extraField: 7 },
   });
-  expect(res.status()).toBe(202); // ACTUAL: 201 (laravel-data POST default pre-empts the rewrite)
+  expect(res.status()).toBe(202);
 });
 
 // ---------------------------------------------------------------------------

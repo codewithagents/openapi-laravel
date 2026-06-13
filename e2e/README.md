@@ -387,15 +387,17 @@ not 200. That is a laravel-data framework default, not a generator choice.
 | backed enum | named string `enum` component | round-trips; out-of-enum 422 | generated backed `enum` class + `Rule::enum(...)` | proven |
 | allOf merged-flat | `allOf: [$ref base, inline object]` | both branches round-trip; a missing field from either branch 422 | generated flat-merged Data | proven |
 | discriminated union | `oneOf` + `discriminator` (named-component) | each variant hydrates to its own shape by `kind`; a variant-specific rule still fires after morph | generated morphable abstract base + `morph()` | proven |
-| discriminated union, UNKNOWN discriminator | same | an unmapped `kind` SHOULD be 422 | generated `morph()` returns null | RESIDUAL/BUG: returns 500 (laravel-data `CannotCreateAbstractClass` thrown during hydration, before validation). Test is `.fixme` at the promised 422. |
+| discriminated union, UNKNOWN discriminator | same | an unmapped `kind` is rejected with 422 | generated `morph()` throws `ValidationException` on an unmapped value | proven (was a 500; fixed in #124 / PR #127) |
 | component $ref request body (#110) + $ref response (#116) | `requestBody.$ref -> requestBodies/...` wrapping a schema `$ref`, and `response.$ref -> responses/...` wrapping the same | typed round-trip; the resolved component's rules 422 on violation | generated: both resolved to one typed `LabRefPayloadData` param + return | proven |
-| non-200 success (#64), POST + Data | `202` declared on a POST returning a Data object | SHOULD respond 202 | generated `RespondsWithStatus:202` | DIVERGENCE: responds 201. laravel-data's POST=201 default pre-empts the rewrite (RespondsWithStatus only rewrites an exactly-200 response). The 204 DELETE works because that handler returns void (a 200 the middleware can rewrite). Test is `.fixme` at the promised 202. |
+| non-200 success (#64), POST + Data | `202` declared on a POST returning a Data object | responds 202 | generated `RespondsWithStatus:202` (now normalizes any 2xx) | proven (was 201; fixed in #125 / PR #128) |
 
-Two rows are skipped via `test.fixme` because real behavior diverges from the
-promised contract and the divergence is NOT a documented residual: the unknown
-discriminator 500 and the 202-on-POST status. They are kept at the promised
-assertion (422 / 202) so they flip green the moment the generator or the demo
-wiring is fixed. See the suite comments for the full root-cause writeups.
+Every row above is an active assertion. Two of them (the unknown discriminator
+and the 202-on-POST status) were first shipped as `test.fixme` holding the
+promised assertion because real behavior diverged; the e2e suite surfaced both
+as bugs, they were fixed in the generator (#124 / PR #127 and #125 / PR #128),
+and the assertions are now active and green. This is the suite working as
+intended: strict assertions that encode the promised contract and fail until the
+contract actually holds.
 
 ## CORS
 
