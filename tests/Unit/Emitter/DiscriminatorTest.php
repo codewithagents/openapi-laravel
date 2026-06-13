@@ -83,14 +83,22 @@ it('emits an abstract PropertyMorphableData base with the morph discriminator pr
         ->and($code)->not->toContain('public static function rules');
 });
 
-it('emits a morph() match with one arm per mapping value and a null default', function () {
+it('emits a morph() match with one arm per mapping value and a throwing default (#124)', function () {
     $code = generateDiscriminatorSchemas(petUnionSchemas())['PetData']->code;
 
+    // The default arm throws a ValidationException so an unmapped discriminator
+    // value is a 422 on every consumption path, not the uncatchable
+    // CannotCreateAbstractClass the from()/validateAndCreate() creation path
+    // raises before validation runs (#124). The morph guard still covers a
+    // MISSING discriminator on the validate() path; this covers an UNKNOWN value.
     expect($code)->toContain('public static function morph(array $properties): ?string')
         ->and($code)->toContain("return match (\$properties['petType'] ?? null) {")
         ->and($code)->toContain("'cat' => CatData::class,")
         ->and($code)->toContain("'dog' => DogData::class,")
-        ->and($code)->toContain('default => null,');
+        ->and($code)->toContain('default => throw ValidationException::withMessages([')
+        ->and($code)->toContain("'petType' => 'The selected petType is invalid.',")
+        ->and($code)->toContain('use Illuminate\Validation\ValidationException;')
+        ->and($code)->not->toContain('default => null,');
 });
 
 it('orders the morph() arms deterministically by discriminator value', function () {

@@ -724,6 +724,12 @@ final class ModelGenerator
             'Spatie\\LaravelData\\Data',
             'Spatie\\LaravelData\\Contracts\\PropertyMorphableData',
             'Spatie\\LaravelData\\Attributes\\PropertyForMorph',
+            // The morph() default arm throws this so an unmapped discriminator
+            // value is a clean 422 (#124), not the uncatchable
+            // CannotCreateAbstractClass the morph-then-validate creation path
+            // (from() / validateAndCreate() / container injection) would
+            // otherwise raise BEFORE validation ever runs.
+            'Illuminate\\Validation\\ValidationException',
         ], $validationImports);
 
         $mapName = '';
@@ -736,11 +742,20 @@ final class ModelGenerator
         sort($imports);
 
         // match() arm per discriminator value -> variant Data class, sorted by
-        // value for determinism, with a `default => null` so an unmapped value
-        // stays abstract and is rejected by spatie's morph guard. The arm literal
-        // is typed by the discriminator: for an int discriminator the payload
-        // value arrives as an int, and match is strict, so the arm must be an int
-        // literal (1 not '1') or it would never compare equal.
+        // value for determinism. The arm literal is typed by the discriminator:
+        // for an int discriminator the payload value arrives as an int, and
+        // match is strict, so the arm must be an int literal (1 not '1') or it
+        // would never compare equal.
+        //
+        // The default arm THROWS a ValidationException rather than returning
+        // null (#124). spatie's validate() path runs the morph guard
+        // (EnsurePropertyMorphable) and would reject a null morph cleanly, but
+        // the creation paths (from() / validateAndCreate() / container
+        // injection) resolve the morph class BEFORE validation runs: a null
+        // there raises CannotCreateAbstractClass, an uncatchable 500 for what is
+        // really spec-invalid input. Throwing here makes every consumption path
+        // surface a 422 for an unknown discriminator value. The message names
+        // the discriminator wire key so the error bag matches the property.
         $arms = [];
         foreach ($this->state->discriminators->valueToVariant($baseName) as $value => $variantSchemaName) {
             $variantClass = $this->state->registry[$variantSchemaName]['class'] ?? null;
@@ -750,7 +765,9 @@ final class ModelGenerator
             $this->state->noteClassRef($variantClass);
             $arms[] = '            '.$this->discriminatorValueLiteral((string) $value, $type).' => '.$variantClass.'::class,';
         }
-        $arms[] = '            default => null,';
+        $arms[] = '            default => throw ValidationException::withMessages([';
+        $arms[] = "                '".PhpLiteral::escapeSingleQuoted($wireName)."' => 'The selected ".PhpLiteral::escapeSingleQuoted($wireName)." is invalid.',";
+        $arms[] = '            ]),';
 
         // A deprecated discriminated base carries a class-level `@deprecated`.
         $baseSchema = $this->state->registry[$baseName]['schema'] ?? null;

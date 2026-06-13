@@ -571,7 +571,10 @@ it('emits a morphable base plus synthesized variants for the INLINE-union discri
         ->and($base)->toContain('public readonly string $shapeKind')
         ->and($base)->toContain("'circle' => InlineDiscriminatedUnionCircleData::class,")
         ->and($base)->toContain("'square' => InlineDiscriminatedUnionSquareData::class,")
-        ->and($base)->toContain('default => null,');
+        // The default arm throws so an unmapped discriminator value is a 422,
+        // not an uncatchable CannotCreateAbstractClass 500 (#124).
+        ->and($base)->toContain('default => throw ValidationException::withMessages([')
+        ->and($base)->toContain("'shapeKind' => 'The selected shapeKind is invalid.',");
 
     // A variant extends the base, forwards the discriminator, and pins its own
     // discriminator value (const) plus declares its own required field.

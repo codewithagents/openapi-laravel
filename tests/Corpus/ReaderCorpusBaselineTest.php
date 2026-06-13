@@ -291,6 +291,42 @@ const READER_BASELINE_REBASELINED_122 = [
     'zuora.json' => '428 response-header warnings',
 ];
 
+/*
+ * INTENTIONAL post-freeze rebaseline (#124): the seven specs in
+ * READER_BASELINE_REBASELINED_124 carry a post-#124 hash, because they declare
+ * a named-component discriminated union (#38). v0.11.0 emitted the morphable
+ * base's morph() with a `default => null` arm: an UNKNOWN discriminator value
+ * morphed to null and surfaced as the uncatchable CannotCreateAbstractClass (a
+ * 500) on the creation paths (from() / validateAndCreate() / container
+ * injection), which resolve the morph class BEFORE validation runs. #124
+ * changes that one arm to `default => throw ValidationException::withMessages(
+ * [<discriminator> => ...])` and adds the matching `use` import, so an unknown
+ * value is a clean 422 on every path. The divergence is exactly that arm plus
+ * the import on each discriminated-union base; nothing else moves. Every spec
+ * outside the rebaseline lists stays the frozen v0.11.0 freeze, byte for byte.
+ */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-#124 output (the
+ * morph() default arm throws a ValidationException for an unknown discriminator
+ * value), keyed by spec basename, with the count of discriminated-union bases
+ * affected for auditability. The per-spec test below still compares against the
+ * JSON baseline, which now holds these specs' post-#124 hashes; the coverage
+ * test pins that every listed name exists on disk and in the baseline, so the
+ * list cannot rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_124 = [
+    'ably_control.json' => '2 discriminated-union bases: unknown discriminator value now a 422',
+    'adyen-checkout.yaml' => '1 discriminated-union base: unknown discriminator value now a 422',
+    'airflow.json' => '1 discriminated-union base: unknown discriminator value now a 422',
+    'bitbucket.json' => '1 discriminated-union base: unknown discriminator value now a 422',
+    'jira.json' => '3 discriminated-union bases: unknown discriminator value now a 422',
+    'openai.yaml' => '26 discriminated-union bases: unknown discriminator value now a 422',
+    'twitter.json' => '2 discriminated-union bases: unknown discriminator value now a 422',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -359,11 +395,11 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
             ->and(READER_BASELINE_POST_FREEZE_SPECS)->not->toHaveKey($rebaselined);
     }
 
-    // Every spec rebaselined for #110, #116, #120, or #122 must still exist
-    // on disk and carry a hash in the baseline (it is an update, not an
+    // Every spec rebaselined for #110, #116, #120, #122, or #124 must still
+    // exist on disk and carry a hash in the baseline (it is an update, not an
     // exemption): a renamed or deleted spec would make the documented
     // rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122)] as $spec) {
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }
