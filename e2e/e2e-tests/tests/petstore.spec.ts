@@ -7,8 +7,11 @@ const TXT_FIXTURE = path.join(__dirname, 'fixtures', 'not-an-image.txt');
 
 // The backend API base, host-reachable, for tests that assert raw HTTP status
 // codes / headers directly (the generated client abstracts those away). The SPA
-// itself talks to this same origin from the browser.
-const API_BASE = process.env['API_BASE'] ?? 'http://localhost:8088/api';
+// itself talks to this same origin from the browser. The /v1 segment is the
+// generated route-group prefix (routes.prefix, #71); the server ORIGIN (for
+// static assets like uploaded images) strips both /api and /v1.
+const API_BASE = process.env['API_BASE'] ?? 'http://localhost:8088/api/v1';
+const SERVER_ORIGIN = API_BASE.replace(/\/api(\/v1)?$/, '');
 const UPLOAD_API_KEY = 'demo-upload-key';
 
 /**
@@ -609,17 +612,24 @@ test('upload is rejected with 401 when the API key is missing, and accepted with
     multipart,
     headers: { Accept: 'application/json', 'X-API-Key': UPLOAD_API_KEY },
   });
-  expect(withKey.ok()).toBe(true);
   expect(withKey.status()).toBe(201);
   const bodyJson = await withKey.json();
   expect(bodyJson.message).toContain('Image uploaded');
 
+  // A WRONG key is rejected too (not just a missing one).
+  const wrongKey = await request.post(`${API_BASE}/pet/1/uploadImage`, {
+    multipart,
+    headers: { Accept: 'application/json', 'X-API-Key': 'not-the-key' },
+  });
+  expect(wrongKey.status()).toBe(401);
+
   // And the same X-API-Key path works through the SPA (the generated client
-  // forwards the per-call apiKey config as the X-API-Key header).
+  // forwards the per-call apiKey config as the X-API-Key header). Assert the
+  // success message actually appears, not merely that the element is visible.
   await createPetAndOpenDetail(page, 'E2E-UploadAuth');
   await page.setInputFiles('[data-testid="upload-file-input"]', PNG_FIXTURE);
   await page.click('[data-testid="upload-submit"]');
-  await expect(page.locator('[data-testid="upload-status"]')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-testid="upload-status"]')).toContainText('Image uploaded', { timeout: 10_000 });
 });
 
 // ---------------------------------------------------------------------------
@@ -647,6 +657,13 @@ test('DELETE pet returns a 204 No Content with an empty body', async ({ request 
   });
   expect(del.status()).toBe(204);
   expect((await del.body()).length).toBe(0);
+
+  // Deleting it again (now gone) is a 404, proving the 204 was a real delete and
+  // the not-found path is distinct from the success path.
+  const again = await request.delete(`${API_BASE}/pet/${id}`, {
+    headers: { Accept: 'application/json' },
+  });
+  expect(again.status()).toBe(404);
 });
 
 // ---------------------------------------------------------------------------
@@ -965,7 +982,7 @@ test('uploaded image is fetchable at its /storage URL and matches the uploaded p
     headers: { Accept: 'application/json', 'X-API-Key': UPLOAD_API_KEY },
     multipart: { image: { name: 'pixel.png', mimeType: 'image/png', buffer: png } },
   });
-  expect(upload.ok()).toBe(true);
+  expect(upload.status()).toBe(201); // laravel-data POST returns 201
   const message: string = (await upload.json()).message;
 
   // Pull the recorded /storage/uploads/<file>.png URL out of the echoed message.
@@ -975,11 +992,281 @@ test('uploaded image is fetchable at its /storage URL and matches the uploaded p
 
   // The public storage symlink (php artisan storage:link, run at container
   // start) makes that URL serve the actual bytes.
-  const origin = API_BASE.replace(/\/api$/, '');
-  const img = await request.get(`${origin}${storedUrl}`);
+  const img = await request.get(`${SERVER_ORIGIN}${storedUrl}`);
   expect(img.status()).toBe(200);
   expect(img.headers()['content-type']).toContain('image/png');
   const served = await img.body();
   expect(served.length).toBe(png.length); // non-empty, same size as the uploaded pixel
   expect(Buffer.compare(served, png)).toBe(0); // byte-identical to what we uploaded
+});
+
+// ===========================================================================
+// PASS 4: parameter axis, more composition forms, server surfaces.
+// All API-contract tier (raw HTTP via the request fixture).
+// ===========================================================================
+
+/** GET a /lab endpoint and return { status, body, headers }. */
+async function labGet(
+  request: import('@playwright/test').APIRequestContext,
+  pathAndQuery: string,
+  extraHeaders: Record<string, string> = {},
+): Promise<{ status: number; body: any; headers: Record<string, string> }> {
+  const res = await request.get(`${API_BASE}/lab/${pathAndQuery}`, {
+    headers: { Accept: 'application/json', ...extraHeaders },
+  });
+  let body: any = null;
+  try {
+    body = await res.json();
+  } catch {
+    body = null;
+  }
+  return { status: res.status(), body, headers: res.headers() };
+}
+
+// ---------------------------------------------------------------------------
+// Stage 0 / 1A: QUERY PARAMS. Stage 0 probe RESULT: query validation FIRES at
+// runtime (a bad enum/range/pattern 422s). These tests lock that in.
+// ---------------------------------------------------------------------------
+
+test('lab/query: constrained query params (enum + min/max + pattern) round-trip and reject', async ({ request }) => {
+  const ok = await labGet(request, 'query?tier=gold&count=50&code=ABC');
+  expect(ok.status).toBe(200);
+  expect(ok.body).toEqual({ tier: 'gold', count: 50, code: 'ABC' });
+
+  expect((await labGet(request, 'query?tier=platinum&count=50&code=ABC')).status).toBe(422); // enum
+  expect((await labGet(request, 'query?tier=gold&count=0&code=ABC')).status).toBe(422); // min:1
+  expect((await labGet(request, 'query?tier=gold&count=999&code=ABC')).status).toBe(422); // max:100
+  expect((await labGet(request, 'query?tier=gold&count=50&code=abcd')).status).toBe(422); // pattern ^[A-Z]{3}$
+  // a missing required query param 422s.
+  expect((await labGet(request, 'query?count=50&code=ABC')).status).toBe(422);
+});
+
+// ---------------------------------------------------------------------------
+// Stage 1B: PATH PARAM constraint. DISCOVERED RESIDUAL #113: path-param
+// min/max constraints are typed but NOT validated, so an out-of-range path
+// value is accepted (200) instead of the promised 422. Kept at the promised
+// behavior as .fixme so it flips green when #113 ships.
+// ---------------------------------------------------------------------------
+
+test('lab/path: a valid in-range path param round-trips', async ({ request }) => {
+  const ok = await labGet(request, 'path/15'); // 10 <= 15 <= 20
+  expect(ok.status).toBe(200);
+  expect(ok.body).toEqual({ score: 15 });
+});
+
+test.fixme('lab/path: an out-of-range path param should be rejected with 422 (#113)', async ({ request }) => {
+  // ACTUAL today: 200 (the generated path param is typed int but the min/max
+  // from the spec is dropped, issue #113). Promised: 422.
+  expect((await labGet(request, 'path/99')).status).toBe(422); // > max 20
+  expect((await labGet(request, 'path/5')).status).toBe(422); // < min 10
+});
+
+// ---------------------------------------------------------------------------
+// Stage 1C: HEADER PARAM constraint. NOT BUILT YET (#121 pending): typed/
+// validated request header params are not generated, so a bad header value is
+// accepted (200). Documented as .fixme citing #121-pending so it flips green
+// when #121 ships. We do NOT assert it works today.
+// ---------------------------------------------------------------------------
+
+test('lab/header: the endpoint echoes the header (validation not yet generated, #121)', async ({ request }) => {
+  // Today the header is simply read and echoed; no validation. This asserts the
+  // current (un-validated) reality so the suite documents the gap without lying.
+  const ok = await labGet(request, 'header', { 'X-Lab-Token': 'tok-1234' });
+  expect(ok.status).toBe(200);
+  expect(ok.body).toEqual({ token: 'tok-1234' });
+});
+
+test.fixme('lab/header: a bad constrained header value should be rejected with 422 (#121 pending)', async ({ request }) => {
+  // ACTUAL today: 200 (header-param validation is not generated, #121). Promised
+  // once #121 ships: a value violating the header pattern ^tok-[0-9]{4}$ is 422.
+  expect((await labGet(request, 'header', { 'X-Lab-Token': 'garbage' })).status).toBe(422);
+  expect((await labGet(request, 'header')).status).toBe(422); // missing required header
+});
+
+// ---------------------------------------------------------------------------
+// Stage 1D: routes.prefix + routes.middleware (#71). The generated routes are
+// wrapped in one Route::group with prefix v1 and the route-group-marker
+// middleware. Proven over real HTTP: only /api/v1 is reachable, and the group
+// middleware stamps X-Route-Group on the response.
+// ---------------------------------------------------------------------------
+
+test('routes group (#71): prefix /v1 is applied and the group middleware runs', async ({ request }) => {
+  // The prefix is applied: the un-prefixed path is NOT routed.
+  const unprefixed = await request.get('http://localhost:8088/api/pet/findByStatus?status=available', {
+    headers: { Accept: 'application/json' },
+  });
+  expect(unprefixed.status()).toBe(404);
+
+  // The prefixed path is routed AND carries the group middleware's marker header.
+  const prefixed = await request.get(`${API_BASE}/pet/findByStatus?status=available`, {
+    headers: { Accept: 'application/json' },
+  });
+  expect(prefixed.status()).toBe(200);
+  expect(prefixed.headers()['x-route-group']).toBe('v1');
+});
+
+// ---------------------------------------------------------------------------
+// Stage 2: COMPOSITION FORMS
+// ---------------------------------------------------------------------------
+
+test('lab/inline-body (#76): an INLINE object request body is synthesized, validates, and round-trips', async ({ request }) => {
+  // labInlineBody returns a JsonResponse (not a Data object), so the success
+  // status is 200, not the laravel-data 201.
+  const ok = await labPost(request, 'inline-body', { title: 'hello', rank: 3 });
+  expect(ok.status).toBe(200);
+  expect(ok.body).toEqual({ title: 'hello', rank: 3 });
+
+  expect((await labPost(request, 'inline-body', { title: 'x', rank: 3 })).status).toBe(422); // minLength:2
+  expect((await labPost(request, 'inline-body', { title: 'hello', rank: 9 })).status).toBe(422); // max:5
+  expect((await labPost(request, 'inline-body', { title: 'hello' })).status).toBe(422); // required rank
+});
+
+test('lab/shared-one + shared-two (#110/#116): two ops share ONE inline-object component class', async ({ request }) => {
+  const one = await labPost(request, 'shared-one', { sku: 'SKU-123', qty: 2 });
+  expect(one.status).toBe(LAB_OK);
+  expect(one.body).toEqual({ sku: 'SKU-123', qty: 2 });
+
+  const two = await labPost(request, 'shared-two', { sku: 'SKU-999', qty: 5 });
+  expect(two.status).toBe(LAB_OK);
+  expect(two.body).toEqual({ sku: 'SKU-999', qty: 5 });
+
+  // The shared component's rules() fire identically on both ops.
+  expect((await labPost(request, 'shared-one', { sku: 'BAD', qty: 2 })).status).toBe(422); // sku pattern
+  expect((await labPost(request, 'shared-two', { sku: 'SKU-123', qty: 0 })).status).toBe(422); // qty min:1
+});
+
+test('lab/inline-shape (#38 inline-union): variants hydrate by discriminator with synthesized names', async ({ request }) => {
+  const dog = await labPost(request, 'inline-shape', { petType: 'dog', bark: 'woof' });
+  expect(dog.status).toBe(LAB_OK);
+  expect(dog.body.petType).toBe('dog');
+  expect(dog.body.bark).toBe('woof');
+  expect(dog.body.meow).toBeUndefined(); // hydrated to the dog variant, not cat
+
+  const cat = await labPost(request, 'inline-shape', { petType: 'cat', meow: 'mrr' });
+  expect(cat.status).toBe(LAB_OK);
+  expect(cat.body.petType).toBe('cat');
+  expect(cat.body.meow).toBe('mrr');
+  expect(cat.body.bark).toBeUndefined();
+
+  // an UNKNOWN discriminator value is a clean 422 (the #124 fix applies here too).
+  expect((await labPost(request, 'inline-shape', { petType: 'fish', bark: 'x' })).status).toBe(422);
+});
+
+test('lab/inherit-shape (#38 allOf-inheritance): variants hydrate and the variant rule fires', async ({ request }) => {
+  const car = await labPost(request, 'inherit-shape', { vehicleType: 'car', wheels: 4 });
+  expect(car.status).toBe(LAB_OK);
+  expect(car.body.vehicleType).toBe('car');
+  expect(car.body.wheels).toBe(4);
+  expect(car.body.draft).toBeUndefined();
+
+  const boat = await labPost(request, 'inherit-shape', { vehicleType: 'boat', draft: 1.5 });
+  expect(boat.status).toBe(LAB_OK);
+  expect(boat.body.vehicleType).toBe('boat');
+  expect(boat.body.draft).toBe(1.5);
+  expect(boat.body.wheels).toBeUndefined();
+
+  // the variant-specific rule fires after the morph (car.wheels min:3).
+  expect((await labPost(request, 'inherit-shape', { vehicleType: 'car', wheels: 2 })).status).toBe(422);
+  // an UNKNOWN discriminator value is a clean 422 (#124).
+  expect((await labPost(request, 'inherit-shape', { vehicleType: 'plane', wheels: 4 })).status).toBe(422);
+});
+
+// DISCOVERED RESIDUAL: a MISSING discriminator (the property absent entirely)
+// returns HTTP 500, not 422. The #124 fix made an UNKNOWN (present but unmapped)
+// value a clean 422, but when the discriminator property is absent the raw
+// laravel-data from() path still throws before validation. Kept at the promised
+// 422 as .fixme. Covers BOTH discriminated forms reachable here.
+test.fixme('lab/shape: a MISSING discriminator should be 422, not 500 (residual)', async ({ request }) => {
+  // ACTUAL today: 500. Promised: 422.
+  expect((await labPost(request, 'inline-shape', { bark: 'woof' })).status).toBe(422);
+  expect((await labPost(request, 'inherit-shape', { wheels: 4 })).status).toBe(422);
+});
+
+test('lab/response-union (#116): a oneOf-of-Data-class response returns each shape correctly', async ({ request }) => {
+  const circle = await labPost(request, 'response-union', { want: 'circle' });
+  expect(circle.status).toBe(LAB_OK);
+  expect(circle.body.kind).toBe('circle');
+  expect(circle.body.radius).toBe(1.5);
+  expect(circle.body.side).toBeUndefined();
+
+  const square = await labPost(request, 'response-union', { want: 'square' });
+  expect(square.status).toBe(LAB_OK);
+  expect(square.body.kind).toBe('square');
+  expect(square.body.side).toBe(4);
+  expect(square.body.radius).toBeUndefined();
+
+  // the selector enum is validated.
+  expect((await labPost(request, 'response-union', { want: 'hexagon' })).status).toBe(422);
+});
+
+test('lab/anyof-union: an anyOf scalar union hydrates BOTH variants without coercion', async ({ request }) => {
+  const asBool = await labPost(request, 'anyof-union', { value: true });
+  expect(asBool.status).toBe(LAB_OK);
+  expect(asBool.body.value).toBe(true);
+  expect(typeof asBool.body.value).toBe('boolean');
+
+  const asInt = await labPost(request, 'anyof-union', { value: 7 });
+  expect(asInt.status).toBe(LAB_OK);
+  expect(asInt.body.value).toBe(7);
+  expect(typeof asInt.body.value).toBe('number');
+});
+
+// ---------------------------------------------------------------------------
+// Stage 3: SERVER / RESPONSE SURFACES
+// ---------------------------------------------------------------------------
+
+test('lab/plain-text (#117/#118): a text/plain response serves the right content-type and body', async ({ request }) => {
+  // The generator types a non-JSON response as the base Response and warns; the
+  // body is consumer-written. We assert the runtime serves it correctly.
+  const res = await request.get(`${API_BASE}/lab/plain-text`);
+  expect(res.status()).toBe(200);
+  expect(res.headers()['content-type']).toContain('text/plain');
+  expect(await res.text()).toBe('lab plain text body');
+});
+
+test('lab/download (#117/#118): a binary response serves octet-stream bytes', async ({ request }) => {
+  const res = await request.get(`${API_BASE}/lab/download`);
+  expect(res.status()).toBe(200);
+  expect(res.headers()['content-type']).toContain('application/octet-stream');
+  const body = await res.body();
+  expect(body.length).toBeGreaterThan(0);
+  expect(body.toString('latin1')).toContain('LABDOWNLOAD');
+});
+
+test('lab/gallery (#75 edge): a multipart array of binary files validates per-file and round-trips the count', async ({ request }) => {
+  const fs = require('node:fs') as typeof import('node:fs');
+  const png = fs.readFileSync(PNG_FIXTURE);
+  const txt = fs.readFileSync(TXT_FIXTURE);
+
+  // Two valid PNG parts + an album field.
+  const ok = await request.post(`${API_BASE}/lab/gallery`, {
+    headers: { Accept: 'application/json' },
+    multipart: {
+      'photos[0]': { name: 'a.png', mimeType: 'image/png', buffer: png },
+      'photos[1]': { name: 'b.png', mimeType: 'image/png', buffer: png },
+      album: 'summer',
+    },
+  });
+  expect(ok.status()).toBe(201);
+  expect((await ok.json()).message).toContain('Received 2 photo(s) in album summer');
+
+  // A non-PNG part is rejected by the generated photos.* file/mimetypes rule.
+  const bad = await request.post(`${API_BASE}/lab/gallery`, {
+    headers: { Accept: 'application/json' },
+    multipart: {
+      'photos[0]': { name: 'a.txt', mimeType: 'text/plain', buffer: txt },
+    },
+  });
+  expect(bad.status()).toBe(422);
+});
+
+test('lab/tuple (#82): prefixItems validate per position (and the value round-trips)', async ({ request }) => {
+  const ok = await labPost(request, 'tuple', { pair: ['hi', 5] });
+  expect(ok.status).toBe(LAB_OK);
+  expect(ok.body.pair).toEqual(['hi', 5]);
+
+  // position 1 is typed integer (a string there 422s).
+  expect((await labPost(request, 'tuple', { pair: ['hi', 'notint'] })).status).toBe(422);
+  // position 1 carries the per-position min:0 rule.
+  expect((await labPost(request, 'tuple', { pair: ['hi', -3] })).status).toBe(422);
 });
