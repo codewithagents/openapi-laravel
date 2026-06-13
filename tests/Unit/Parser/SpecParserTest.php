@@ -44,11 +44,14 @@ it('throws for a missing file', function () {
     (new SpecParser)->parseFileToDocument('/no/such/spec.json');
 })->throws(ParseException::class, 'not found');
 
-it('wraps malformed content in a ParseException', function () {
+it('wraps malformed content in a ParseException naming the attempted format', function () {
     $path = writeTempSpec('broken.json', '{not valid json');
 
-    (new SpecParser)->parseFileToDocument($path);
-})->throws(ParseException::class, 'Failed to parse OpenAPI spec');
+    expect(fn () => (new SpecParser)->parseFileToDocument($path))
+        ->toThrow(ParseException::class, 'Failed to parse OpenAPI spec')
+        ->toThrow(ParseException::class, 'as JSON')
+        ->toThrow(ParseException::class, 'Check that the file is well-formed JSON');
+});
 
 // A-1: a non-OpenAPI-3.x document must fail loudly, not parse into a
 // null-filled graph that silently produces nothing.
@@ -69,13 +72,13 @@ it('rejects a document missing the info object', function () {
     $path = writeTempSpec('noinfo.json', '{"openapi":"3.0.3","paths":{}}');
 
     (new SpecParser)->parseFileToDocument($path);
-})->throws(ParseException::class, "missing required 'info'");
+})->throws(ParseException::class, "the required '#/info' object is missing");
 
 it('rejects an empty file with the structural error, not a silent success', function () {
     $path = writeTempSpec('empty.yaml', '');
 
     (new SpecParser)->parseFileToDocument($path);
-})->throws(ParseException::class, "missing 'openapi' version string");
+})->throws(ParseException::class, "the root '#/openapi' member must be a version string");
 
 // #103: exact version gating instead of the old `3.` prefix check. 3.0.x and
 // 3.1.x are fully supported (no warnings); 3.2.x is accepted best-effort with
