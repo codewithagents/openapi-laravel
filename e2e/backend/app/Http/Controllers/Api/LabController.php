@@ -15,12 +15,14 @@ use App\Data\Lab\LabEnumConstData;
 use App\Data\Lab\LabFormatsData;
 use App\Data\Lab\LabGalleryRequestData;
 use App\Data\Lab\LabHeaderEchoData;
+use App\Data\Lab\LabHeaderHeaderData;
 use App\Data\Lab\LabInlineBodyRequestData;
 use App\Data\Lab\LabInlineShapeData;
 use App\Data\Lab\LabMapData;
 use App\Data\Lab\LabNestedData;
 use App\Data\Lab\LabNumericData;
 use App\Data\Lab\LabPathEchoData;
+use App\Data\Lab\LabPathPathData;
 use App\Data\Lab\LabPresenceData;
 use App\Data\Lab\LabQueryEchoData;
 use App\Data\Lab\LabQueryQueryData;
@@ -148,22 +150,26 @@ final class LabController extends AbstractLabController
 
     public function show(int $score): LabPathEchoData
     {
-        // The generated abstract types $score int but does NOT validate the
-        // path-param min/max (issue #113 residual: path-param constraints are
-        // dropped). We echo it back; the e2e suite asserts the PROMISED
-        // behavior (out-of-range -> 422) as a .fixme so the gap is visible.
-        return new LabPathEchoData(score: $score);
+        // Path-param min/max validation (#113): the generator emits
+        // LabPathPathData with a fromRoute() factory that validates the route
+        // parameters against rules() (score min:10 max:20). Calling it here
+        // makes an out-of-range path value a 422 instead of a silent 200. The
+        // validated value is then echoed back.
+        $path = LabPathPathData::fromRoute(request());
+
+        return new LabPathEchoData(score: $path->score);
     }
 
     public function labHeader(): LabHeaderEchoData
     {
-        // Header-param validation is not generated yet (issue #121 pending), so
-        // the abstract takes no header argument. We read the raw header here so
-        // the endpoint still works; the e2e suite asserts the promised
-        // constrained-header behavior as a .fixme citing #121.
-        $token = (string) request()->header('X-Lab-Token', '');
+        // Header-param validation (#121): the generator emits
+        // LabHeaderHeaderData with a fromHeaders() factory that validates the
+        // request headers against rules() (X-Lab-Token pattern ^tok-[0-9]{4}$,
+        // required). Calling it here makes a bad or missing header a 422; the
+        // validated value is echoed back.
+        $header = LabHeaderHeaderData::fromHeaders(request());
 
-        return new LabHeaderEchoData(token: $token);
+        return new LabHeaderEchoData(token: $header->xLabToken);
     }
 
     // --- Stage 2: composition forms -----------------------------------------

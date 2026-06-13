@@ -401,43 +401,42 @@ non-JSON response surfaces. All are raw-HTTP assertions via the request fixture.
 |---|---|---|---|---|
 | query params | `in: query` params with `enum` + `minimum`/`maximum` + `pattern` | a valid query round-trips; each violation (bad enum, below-min, above-max, bad pattern, missing required) 422s | generated per-operation query Data + `rules()` | proven (Stage-0 probe: query validation FIRES at runtime) |
 | path param, valid | `in: path` integer param | an in-range path value round-trips | generated typed path binding | proven |
-| path param constraint (#113) | `in: path` integer with `minimum`/`maximum` | an out-of-range path value SHOULD 422 | NOT generated: the path param is typed `int` but the spec min/max is dropped | residual: `.fixme` holding the promised 422; actual today is 200 (flips green when #113 ships) |
-| header param (#121 pending) | `in: header` param, currently echoed | the header value is read and echoed (no validation today) | NOT generated: typed/validated request header params are not built yet | pending: echo-only test active; a `.fixme` holds the promised 422 for a bad `^tok-[0-9]{4}$` value and a missing required header (flips green when #121 ships) |
+| path param constraint (#113) | `in: path` integer with `minimum`/`maximum` | an out-of-range path value 422s with `score` in the error bag | generated `LabPathPathData::fromRoute()`; the concrete controller calls it to fire the min/max | proven (shipped in #113) |
+| header param (#121) | `in: header` param with `pattern` `^tok-[0-9]{4}$`, required | a valid token echoes; a bad value or a missing required header 422s with `x-lab-token` in the error bag | generated `LabHeaderHeaderData::fromHeaders()`; the concrete controller calls it to fire the pattern/required rule | proven (shipped in #121) |
 | routes group (#71) | `routes.prefix: v1` + `routes.middleware` | only `/api/v1/*` is reachable (un-prefixed 404s) and the group middleware stamps `X-Route-Group: v1` | generated `Route::group([prefix, middleware])`; consumer writes the marker middleware | proven |
 | inline object request body (#76) | inline `application/json` OBJECT body (no `$ref`) | the synthesized class validates (minLength, max, required) and round-trips | generated `<Operation>RequestData` from the inline schema | proven |
 | shared inline-object $ref (#110/#116) | two operations referencing ONE `requestBodies` $ref to an inline object schema | both operations validate and round-trip through the SAME class with identical rules | generated single shared `<Component>RequestData` class | proven |
 | inline-union discriminator (#38) | inline `oneOf` + `discriminator` (synthesized variant names) | each variant hydrates by `petType`; an unknown value 422s | generated morphable base + synthesized variants | proven |
 | allOf-inheritance discriminator (#38) | `discriminator` over `allOf`-inheritance variants | each variant hydrates by `vehicleType`; the variant rule fires post-morph; an unknown value 422s | generated morphable base + inherited variants | proven |
-| missing discriminator (residual) | discriminated union, discriminator property ABSENT | a MISSING discriminator SHOULD 422 | the `from()` path throws before validation when the discriminator is absent | residual: `.fixme` holding the promised 422; actual today is 500 (covers both inline-union and allOf-inheritance forms) |
+| missing discriminator (#124) | discriminated union, discriminator property ABSENT | a MISSING discriminator 422s with the discriminator field in the error bag (covers both inline-union and allOf-inheritance forms) | generated morphable base: `morph()`'s default arm throws `ValidationException` when the value is null/unmapped; the controller-injection path routes through it before any 500 | proven (controller-injection path; the raw `from()` path is still a 500 residual per ROADMAP) |
 | response union (#116) | success response `oneOf` of two Data classes | each branch returns its own shape correctly; the selector enum is validated | generated union return type | proven |
 | anyOf scalar union | `anyOf: [boolean, integer]` | BOTH variants hydrate without coercion (bool stays bool, int stays int) | generated `bool\|int` union type | proven |
 | plain-text response (#117/#118) | `text/plain` success response | the runtime serves `text/plain` with the right body | generated base `Response` return + warning; body is consumer-written | proven (honest typing: no Data return) |
 | binary download (#117/#118) | `application/octet-stream` success response | the runtime serves octet-stream bytes | generated base `Response` return + warning; body is consumer-written | proven (honest typing) |
 | multipart array of binary (#75 edge) | `multipart/form-data` with `photos: array<string/binary>` + an `album` field | two PNG parts + the field round-trip the count; a non-PNG part 422s via the per-file rule | generated `photos.*` `file`/`mimetypes` rules + non-binary field validation | proven |
 | tuple prefixItems (#82) | `prefixItems: [string, integer(min:0)]` | a valid tuple round-trips; a wrong-type or below-min value at a position 422s | generated per-position rules (types as `array<int, mixed>`) | proven (per-position validation; the array element TYPE is still `mixed`) |
+| user CRUD (#94) | clean RESTful `/user` surface (POST, GET/PUT/DELETE `/{username}`) | full create -> read -> update -> delete loop over raw HTTP: POST 201, GET 200 (exact body), PUT 204, DELETE 204, GET missing 404 | generated Laravel-convention method names (`store`/`show`/`update`/`destroy`) + routes; consumer backs them with the in-memory store | proven |
+| array query param (#63) | `tags` required `array`, `explode: true` | the PHP bracket form `?tags[]=a&tags[]=b` reflects BOTH tag values (200); a missing required `tags` 422s with `tags` in the error bag | generated `FindPetsByTagsQueryData` (`array` + `array.*` rules) | proven (bracket form; see residual below) |
 
-Every active row above is an assertion. Two of them (the unknown discriminator
-and the 202-on-POST status) were first shipped as `test.fixme` holding the
-promised assertion because real behavior diverged; the e2e suite surfaced both
-as bugs, they were fixed in the generator (#124 / PR #127 and #125 / PR #128),
-and the assertions are now active and green. This is the suite working as
-intended: strict assertions that encode the promised contract and fail until the
-contract actually holds.
+Every active row above is an assertion. Several of them (the unknown
+discriminator, the 202-on-POST status, path-param and header-param validation,
+and the missing discriminator on the controller path) were first shipped as
+`test.fixme` holding the promised assertion because real behavior diverged; the
+e2e suite surfaced them as bugs/gaps, they were fixed/shipped in the generator
+(#124 / PR #127, #125 / PR #128, #113, #121), and the assertions are now active
+and green. This is the suite working as intended: strict assertions that encode
+the promised contract and fail until the contract actually holds.
 
-Three Pass-4 rows are currently parked as `test.fixme`, each holding the PROMISED
-assertion with a loud comment citing the issue, so they flip green the day the
-generator catches up (and fail loudly if the parked behavior silently changes):
+One row remains a deliberately-parked `test.fixme`, holding the OpenAPI-ideal
+contract with a loud comment so the limitation is documented without lying about
+runtime behavior:
 
-- path-param min/max validation (#113): out-of-range path value is 200 today,
-  promised 422.
-- header-param validation (#121 pending): a bad/missing constrained header is 200
-  today, promised 422. The active companion test asserts the current echo-only
-  reality so the gap is documented, not hidden.
-- missing discriminator (residual): an ABSENT discriminator property returns 500
-  today (the #124 fix only made an UNKNOWN value a clean 422), promised 422.
-
-These three were re-verified live against this stack and behave exactly as the
-parked comments describe.
+- array query param, OpenAPI explode repeated-key form (#63, PHP residual): the
+  OpenAPI `explode: true` ideal is `?tags=a&tags=b`, but PHP collapses repeated
+  query keys to the LAST value before the app sees them, so only the last tag
+  survives. This is a PHP/runtime limitation, not a generator bug. The PASSING
+  contract uses the PHP-native bracket form `?tags[]=a&tags[]=b` (active, green);
+  the repeated-key ideal is parked as a clearly-labeled `.fixme`.
 
 ## CORS
 

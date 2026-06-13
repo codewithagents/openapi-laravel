@@ -1279,10 +1279,10 @@ test('lab/query: constrained query params (enum + min/max + pattern) round-trip 
 });
 
 // ---------------------------------------------------------------------------
-// Stage 1B: PATH PARAM constraint. DISCOVERED RESIDUAL #113: path-param
-// min/max constraints are typed but NOT validated, so an out-of-range path
-// value is accepted (200) instead of the promised 422. Kept at the promised
-// behavior as .fixme so it flips green when #113 ships.
+// Stage 1B: PATH PARAM constraint (#113, now shipped). The generator emits
+// LabPathPathData with a fromRoute() factory; the concrete controller calls it,
+// so the path-segment min/max is enforced at runtime: an in-range value
+// round-trips, an out-of-range value is a 422 with `score` in the error bag.
 // ---------------------------------------------------------------------------
 
 test('lab/path: a valid in-range path param round-trips', async ({ request }) => {
@@ -1291,33 +1291,38 @@ test('lab/path: a valid in-range path param round-trips', async ({ request }) =>
   expect(ok.body).toEqual({ score: 15 });
 });
 
-test.fixme('lab/path: an out-of-range path param should be rejected with 422 (#113)', async ({ request }) => {
-  // ACTUAL today: 200 (the generated path param is typed int but the min/max
-  // from the spec is dropped, issue #113). Promised: 422.
-  expect((await labGet(request, 'path/99')).status).toBe(422); // > max 20
-  expect((await labGet(request, 'path/5')).status).toBe(422); // < min 10
+test('lab/path: an out-of-range path param is rejected with 422 (#113)', async ({ request }) => {
+  const tooHigh = await labGet(request, 'path/99'); // > max 20
+  expect(tooHigh.status).toBe(422);
+  expect(tooHigh.body.errors).toHaveProperty('score');
+
+  const tooLow = await labGet(request, 'path/5'); // < min 10
+  expect(tooLow.status).toBe(422);
+  expect(tooLow.body.errors).toHaveProperty('score');
 });
 
 // ---------------------------------------------------------------------------
-// Stage 1C: HEADER PARAM constraint. NOT BUILT YET (#121 pending): typed/
-// validated request header params are not generated, so a bad header value is
-// accepted (200). Documented as .fixme citing #121-pending so it flips green
-// when #121 ships. We do NOT assert it works today.
+// Stage 1C: HEADER PARAM constraint (#121, now shipped). The generator emits
+// LabHeaderHeaderData with a fromHeaders() factory; the concrete controller
+// calls it, so the X-Lab-Token pattern ^tok-[0-9]{4}$ is enforced at runtime: a
+// valid token echoes, a bad value or a missing required header is a 422 with the
+// header name (lowercased to `x-lab-token`) in the error bag.
 // ---------------------------------------------------------------------------
 
-test('lab/header: the endpoint echoes the header (validation not yet generated, #121)', async ({ request }) => {
-  // Today the header is simply read and echoed; no validation. This asserts the
-  // current (un-validated) reality so the suite documents the gap without lying.
+test('lab/header: a valid constrained header round-trips (#121)', async ({ request }) => {
   const ok = await labGet(request, 'header', { 'X-Lab-Token': 'tok-1234' });
   expect(ok.status).toBe(200);
   expect(ok.body).toEqual({ token: 'tok-1234' });
 });
 
-test.fixme('lab/header: a bad constrained header value should be rejected with 422 (#121 pending)', async ({ request }) => {
-  // ACTUAL today: 200 (header-param validation is not generated, #121). Promised
-  // once #121 ships: a value violating the header pattern ^tok-[0-9]{4}$ is 422.
-  expect((await labGet(request, 'header', { 'X-Lab-Token': 'garbage' })).status).toBe(422);
-  expect((await labGet(request, 'header')).status).toBe(422); // missing required header
+test('lab/header: a bad or missing constrained header is rejected with 422 (#121)', async ({ request }) => {
+  const bad = await labGet(request, 'header', { 'X-Lab-Token': 'garbage' }); // violates pattern
+  expect(bad.status).toBe(422);
+  expect(bad.body.errors).toHaveProperty('x-lab-token');
+
+  const missing = await labGet(request, 'header'); // required header absent
+  expect(missing.status).toBe(422);
+  expect(missing.body.errors).toHaveProperty('x-lab-token');
 });
 
 // ---------------------------------------------------------------------------
@@ -1408,15 +1413,20 @@ test('lab/inherit-shape (#38 allOf-inheritance): variants hydrate and the varian
   expect((await labPost(request, 'inherit-shape', { vehicleType: 'plane', wheels: 4 })).status).toBe(422);
 });
 
-// DISCOVERED RESIDUAL: a MISSING discriminator (the property absent entirely)
-// returns HTTP 500, not 422. The #124 fix made an UNKNOWN (present but unmapped)
-// value a clean 422, but when the discriminator property is absent the raw
-// laravel-data from() path still throws before validation. Kept at the promised
-// 422 as .fixme. Covers BOTH discriminated forms reachable here.
-test.fixme('lab/shape: a MISSING discriminator should be 422, not 500 (residual)', async ({ request }) => {
-  // ACTUAL today: 500. Promised: 422.
-  expect((await labPost(request, 'inline-shape', { bark: 'woof' })).status).toBe(422);
-  expect((await labPost(request, 'inherit-shape', { wheels: 4 })).status).toBe(422);
+// A MISSING discriminator (the property absent entirely) is now a clean 422,
+// not a 500. On the controller-injection consumption path the framework routes
+// through the morphable base's morph(), whose default arm (#124) throws a
+// ValidationException keyed on the discriminator field when the value is null or
+// unmapped, so an absent discriminator rejects before any 500 fires. Covers BOTH
+// discriminated forms reachable here (inline-union and allOf-inheritance).
+test('lab/shape: a MISSING discriminator is rejected with 422, not 500 (#124)', async ({ request }) => {
+  const inline = await labPost(request, 'inline-shape', { bark: 'woof' }); // no petType
+  expect(inline.status).toBe(422);
+  expect(inline.body.errors).toHaveProperty('petType');
+
+  const inherit = await labPost(request, 'inherit-shape', { wheels: 4 }); // no vehicleType
+  expect(inherit.status).toBe(422);
+  expect(inherit.body.errors).toHaveProperty('vehicleType');
 });
 
 test('lab/response-union (#116): a oneOf-of-Data-class response returns each shape correctly', async ({ request }) => {
@@ -1506,4 +1516,127 @@ test('lab/tuple (#82): prefixItems validate per position (and the value round-tr
   expect((await labPost(request, 'tuple', { pair: ['hi', 'notint'] })).status).toBe(422);
   // position 1 carries the per-position min:0 rule.
   expect((await labPost(request, 'tuple', { pair: ['hi', -3] })).status).toBe(422);
+});
+
+// ---------------------------------------------------------------------------
+// Stage 4: USER CRUD (#94). The user tag exposes a clean RESTful surface that
+// the generator maps to Laravel-convention method names (store/show/update/
+// destroy). The concrete UserController backs them with the in-memory store.
+// This proves the full create -> read -> update -> delete loop plus the 404 arm
+// over raw HTTP, end to end.
+// ---------------------------------------------------------------------------
+
+test('user CRUD (#94): POST 201, GET 200, PUT 204, DELETE 204, missing GET 404', async ({ request }) => {
+  const username = `e2e-user-${Date.now()}`;
+  const json = { Accept: 'application/json', 'Content-Type': 'application/json' };
+
+  // POST /user creates and returns the user as a Data object -> 201.
+  const created = await request.post(`${API_BASE}/user`, {
+    headers: json,
+    data: { username, firstName: 'Ada', lastName: 'Lovelace', email: 'ada@example.com', userStatus: 1 },
+  });
+  expect(created.status()).toBe(201);
+  expect((await created.json()).username).toBe(username);
+
+  // GET /user/{username} returns the exact stored body -> 200.
+  const fetched = await request.get(`${API_BASE}/user/${username}`, { headers: { Accept: 'application/json' } });
+  expect(fetched.status()).toBe(200);
+  const body = await fetched.json();
+  expect(body.username).toBe(username);
+  expect(body.firstName).toBe('Ada');
+  expect(body.lastName).toBe('Lovelace');
+  expect(body.email).toBe('ada@example.com');
+  expect(body.userStatus).toBe(1);
+
+  // PUT /user/{username} updates and returns an empty body -> 204.
+  const updated = await request.put(`${API_BASE}/user/${username}`, {
+    headers: json,
+    data: { username, firstName: 'Augusta', lastName: 'Lovelace', email: 'augusta@example.com', userStatus: 2 },
+  });
+  expect(updated.status()).toBe(204);
+
+  // The update took effect.
+  const refetched = await request.get(`${API_BASE}/user/${username}`, { headers: { Accept: 'application/json' } });
+  expect(refetched.status()).toBe(200);
+  expect((await refetched.json()).firstName).toBe('Augusta');
+
+  // DELETE /user/{username} removes it -> 204.
+  const deleted = await request.delete(`${API_BASE}/user/${username}`, { headers: { Accept: 'application/json' } });
+  expect(deleted.status()).toBe(204);
+
+  // A GET for the now-missing (or never-created) user -> 404.
+  const missing = await request.get(`${API_BASE}/user/${username}`, { headers: { Accept: 'application/json' } });
+  expect(missing.status()).toBe(404);
+});
+
+// ---------------------------------------------------------------------------
+// Stage 4: ARRAY QUERY PARAM (#63). findByTags declares `tags` as a required
+// array (explode:true). The PASSING contract uses the PHP bracket form
+// `?tags[]=a&tags[]=b`, which PHP parses into a real array, so both tag values
+// reach the validated FindPetsByTagsQueryData and both matching pets come back.
+// A missing required `tags` is a 422.
+//
+// PHP RESIDUAL: the OpenAPI explode:true ideal is the repeated-key form
+// `?tags=a&tags=b`. PHP collapses repeated query keys to the LAST value, so only
+// the last tag survives. That is a PHP/runtime limitation, not a generator bug;
+// the OpenAPI-ideal contract is parked as a clearly-labeled .fixme below.
+// ---------------------------------------------------------------------------
+
+test('findByTags (#63): the PHP bracket array form reflects BOTH tag values', async ({ request }) => {
+  const json = { Accept: 'application/json', 'Content-Type': 'application/json' };
+  const tagA = `e2e-tag-a-${Date.now()}`;
+  const tagB = `e2e-tag-b-${Date.now()}`;
+
+  // Seed two pets, one per distinct tag, so a both-tags query must return both.
+  const petA = await request.post(`${API_BASE}/pet`, {
+    headers: json,
+    data: { name: 'TagPetA', photoUrls: ['https://example.com/a.png'], status: 'available', tags: [{ name: tagA }] },
+  });
+  expect(petA.status()).toBe(201);
+  const idA = (await petA.json()).id as number;
+
+  const petB = await request.post(`${API_BASE}/pet`, {
+    headers: json,
+    data: { name: 'TagPetB', photoUrls: ['https://example.com/b.png'], status: 'available', tags: [{ name: tagB }] },
+  });
+  expect(petB.status()).toBe(201);
+  const idB = (await petB.json()).id as number;
+
+  // The bracket array form: both tag values reach the validated query Data.
+  const both = await request.get(
+    `${API_BASE}/pet/findByTags?tags[]=${encodeURIComponent(tagA)}&tags[]=${encodeURIComponent(tagB)}`,
+    { headers: { Accept: 'application/json' } },
+  );
+  expect(both.status()).toBe(200);
+  const pets = await both.json();
+  expect(Array.isArray(pets)).toBe(true);
+  const names: string[] = pets.flatMap((p: any) => (p.tags ?? []).map((t: any) => t.name));
+  expect(names).toContain(tagA);
+  expect(names).toContain(tagB);
+
+  // A missing required `tags` query param is a 422.
+  const missing = await request.get(`${API_BASE}/pet/findByTags`, { headers: { Accept: 'application/json' } });
+  expect(missing.status()).toBe(422);
+  expect((await missing.json()).errors).toHaveProperty('tags');
+
+  // clean up the throwaway pets.
+  expect((await request.delete(`${API_BASE}/pet/${idA}`, { headers: { Accept: 'application/json' } })).status()).toBe(204);
+  expect((await request.delete(`${API_BASE}/pet/${idB}`, { headers: { Accept: 'application/json' } })).status()).toBe(204);
+});
+
+// PHP RESIDUAL (parked, not a generator bug): the OpenAPI explode:true ideal is
+// the repeated-key form `?tags=a&tags=b`. PHP collapses repeated query keys to
+// the LAST value before the app sees them, so only `b` survives and the
+// both-tags contract cannot hold. Kept as .fixme holding the OpenAPI-ideal so
+// the limitation is documented without lying about runtime behavior.
+test.fixme('findByTags (#63): the OpenAPI explode repeated-key form reflects BOTH values (PHP residual)', async ({ request }) => {
+  const res = await request.get(`${API_BASE}/pet/findByTags?tags=alpha&tags=beta`, {
+    headers: { Accept: 'application/json' },
+  });
+  expect(res.status()).toBe(200);
+  // PHP keeps only the last repeated key, so `alpha` is lost; this is the ideal
+  // contract that PHP cannot satisfy.
+  const text = await res.text();
+  expect(text).toContain('alpha');
+  expect(text).toContain('beta');
 });
