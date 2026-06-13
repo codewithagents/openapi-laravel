@@ -97,6 +97,14 @@ final class OpenApiReader
     public const SUPPORTED_MATRIX = 'Supported versions: OpenAPI 3.0.x and 3.1.x (fully), 3.2.x (accepted best-effort with warnings). See '.self::VERSION_MATRIX_URL;
 
     /**
+     * The human-readable label for the spec source supplied to read(), captured
+     * for the current read() so the deep hydration helpers (which thread a JSON
+     * pointer but not the source) can name the file in their error messages
+     * without widening every signature. Reset at the start of each read().
+     */
+    private string $source = 'spec';
+
+    /**
      * Numeric schema keywords whose strictly-numeric string values are coerced
      * to int/float (issue #32). Kept here as the
      * authoritative list for the integer-valued keywords; the int|float ones
@@ -142,21 +150,24 @@ final class OpenApiReader
         }
 
         $this->nodeCount = 0;
+        $this->source = $source;
 
         $version = $data['openapi'] ?? null;
 
         if (! is_string($version) || $version === '') {
-            throw new ParseException("Not an OpenAPI 3.x document ({$source}): missing 'openapi' version string. Swagger 2.0 and other formats are not supported. ".self::SUPPORTED_MATRIX);
+            $found = $this->describeType($version);
+            throw new ParseException("Not an OpenAPI 3.x document ({$source}): the root '#/openapi' member must be a version string like '3.1.0', but {$found}. Swagger 2.0 (a 'swagger' key) and other formats are not supported. ".self::SUPPORTED_MATRIX);
         }
 
         if (preg_match('/^3\.(\d+)(?:[.\-+]|$)/', $version, $matches) !== 1 || ! in_array((int) $matches[1], [0, 1, 2], true)) {
-            throw new ParseException("Unsupported OpenAPI version '{$version}' ({$source}). ".self::SUPPORTED_MATRIX);
+            throw new ParseException("Unsupported OpenAPI version '{$version}' at #/openapi ({$source}). ".self::SUPPORTED_MATRIX);
         }
 
         $rawInfo = $data['info'] ?? null;
 
         if (! is_array($rawInfo)) {
-            throw new ParseException("Not a valid OpenAPI document ({$source}): missing required 'info' object.");
+            $found = $this->describeType($rawInfo);
+            throw new ParseException("Not a valid OpenAPI document ({$source}): the required '#/info' object is {$found}. Add an 'info' object with at least a 'title' and a 'version'.");
         }
 
         $warnings = [];
@@ -494,7 +505,7 @@ final class OpenApiReader
         $rawSchemas = $raw['schemas'] ?? null;
         if (is_array($rawSchemas)) {
             foreach ($rawSchemas as $name => $value) {
-                $node = $this->subschema($value, 0);
+                $node = $this->subschema($value, 0, '#/components/schemas/'.$this->escapePointer((string) $name));
                 if ($node !== null) {
                     $schemas[(string) $name] = $node;
                 }
@@ -580,7 +591,7 @@ final class OpenApiReader
      * ("nothing"). Anything else (a mistyped value) returns null and the
      * caller routes the raw value to its extra bag or skips the entry.
      */
-    private function subschema(mixed $value, int $depth): SchemaNode|ReferenceNode|null
+    private function subschema(mixed $value, int $depth, string $pointer = ''): SchemaNode|ReferenceNode|null
     {
         if (is_bool($value)) {
             return $value ? new SchemaNode : new SchemaNode(not: new SchemaNode);
@@ -592,7 +603,7 @@ final class OpenApiReader
 
         return $this->isReference($value)
             ? $this->reference($value)
-            : $this->schema($value, $depth);
+            : $this->schema($value, $depth, $pointer);
     }
 
     /**
@@ -604,10 +615,12 @@ final class OpenApiReader
      *
      * @param  array<array-key, mixed>  $raw
      */
-    private function schema(array $raw, int $depth): SchemaNode
+    private function schema(array $raw, int $depth, string $pointer = ''): SchemaNode
     {
+        $at = $this->locationSuffix($pointer);
+
         if ($depth > $this->maxDepth) {
-            throw new ParseException("OpenAPI document exceeds the maximum schema nesting depth ({$this->maxDepth}).");
+            throw new ParseException("OpenAPI document ({$this->source}) exceeds the maximum schema nesting depth ({$this->maxDepth}){$at}. Flatten the nesting, factor the deep shape into a component schema referenced by \$ref, or raise the bound via --max-depth / the max_depth config key only for a trusted spec.");
         }
 
         // Total-node guard (issue #107): YAML alias amplification can fan a
@@ -616,7 +629,7 @@ final class OpenApiReader
         // node and failing closed here bounds that breadth blowup before it
         // exhausts memory.
         if (++$this->nodeCount > $this->maxNodes) {
-            throw new ParseException("OpenAPI document exceeds the maximum hydrated schema node count ({$this->maxNodes}). This usually means the spec uses YAML anchors and aliases to amplify a small file into a very large structure. Override the bound via the constructor only for a trusted spec.");
+            throw new ParseException("OpenAPI document ({$this->source}) exceeds the maximum hydrated schema node count ({$this->maxNodes}){$at}. This usually means the spec uses YAML anchors and aliases to amplify a small file into a very large structure. Override the bound via the constructor only for a trusted spec.");
         }
 
         // Closed tuple (issue #82): `items: false` next to a non-empty
@@ -785,10 +798,10 @@ final class OpenApiReader
                     }
                     break;
                 case 'properties':
-                    $properties = $this->schemaMap($value, $depth, $extra, 'properties');
+                    $properties = $this->schemaMap($value, $depth, $extra, 'properties', $pointer);
                     break;
                 case 'patternProperties':
-                    $patternProperties = $this->schemaMap($value, $depth, $extra, 'patternProperties');
+                    $patternProperties = $this->schemaMap($value, $depth, $extra, 'patternProperties', $pointer);
                     break;
                 case 'additionalProperties':
                     if (is_bool($value)) {
@@ -796,7 +809,7 @@ final class OpenApiReader
                         $hasAdditionalProperties = true;
                         break;
                     }
-                    $node = $this->subschema($value, $depth + 1);
+                    $node = $this->subschema($value, $depth + 1, $this->childPointer($pointer, 'additionalProperties'));
                     if ($node === null) {
                         $extra['additionalProperties'] = $value;
                     } else {
@@ -807,7 +820,7 @@ final class OpenApiReader
                 case 'allOf':
                 case 'oneOf':
                 case 'anyOf':
-                    $list = $this->schemaList($value, $depth);
+                    $list = $this->schemaList($value, $depth, $this->childPointer($pointer, (string) $key));
                     if ($list === null) {
                         $extra[(string) $key] = $value;
                     } else {
@@ -821,7 +834,7 @@ final class OpenApiReader
                     // empty placeholder node (which emits no rules, exactly
                     // like the skipped null position on the old cebe path)
                     // instead of being dropped.
-                    $list = $this->prefixItemList($value, $depth);
+                    $list = $this->prefixItemList($value, $depth, $this->childPointer($pointer, 'prefixItems'));
                     if ($list === null) {
                         $extra['prefixItems'] = $value;
                     } else {
@@ -829,7 +842,7 @@ final class OpenApiReader
                     }
                     break;
                 case 'not':
-                    $not = $this->subschema($value, $depth + 1);
+                    $not = $this->subschema($value, $depth + 1, $this->childPointer($pointer, 'not'));
                     if ($not === null) {
                         $extra['not'] = $value;
                     }
@@ -841,7 +854,7 @@ final class OpenApiReader
                     if ($value === true) {
                         $items = new SchemaNode;
                     } elseif ($value !== false) {
-                        $items = $this->subschema($value, $depth + 1);
+                        $items = $this->subschema($value, $depth + 1, $this->childPointer($pointer, 'items'));
                         if ($items === null) {
                             $extra['items'] = $value;
                         }
@@ -946,7 +959,7 @@ final class OpenApiReader
      * @param  array<string, mixed>  $extra
      * @return array<string, SchemaNode|ReferenceNode>|null
      */
-    private function schemaMap(mixed $value, int $depth, array &$extra, string $key): ?array
+    private function schemaMap(mixed $value, int $depth, array &$extra, string $key, string $pointer = ''): ?array
     {
         if (! is_array($value)) {
             $extra[$key] = $value;
@@ -954,9 +967,11 @@ final class OpenApiReader
             return null;
         }
 
+        $base = $this->childPointer($pointer, $key);
+
         $map = [];
         foreach ($value as $name => $entry) {
-            $node = $this->subschema($entry, $depth + 1);
+            $node = $this->subschema($entry, $depth + 1, $this->childPointer($base, (string) $name));
             if ($node !== null) {
                 $map[(string) $name] = $node;
             }
@@ -972,15 +987,15 @@ final class OpenApiReader
      *
      * @return list<SchemaNode|ReferenceNode>|null
      */
-    private function schemaList(mixed $value, int $depth): ?array
+    private function schemaList(mixed $value, int $depth, string $pointer = ''): ?array
     {
         if (! is_array($value) || ! array_is_list($value)) {
             return null;
         }
 
         $list = [];
-        foreach ($value as $entry) {
-            $node = $this->subschema($entry, $depth + 1);
+        foreach ($value as $index => $entry) {
+            $node = $this->subschema($entry, $depth + 1, $this->childPointer($pointer, (string) $index));
             if ($node !== null) {
                 $list[] = $node;
             }
@@ -1000,15 +1015,15 @@ final class OpenApiReader
      *
      * @return list<SchemaNode|ReferenceNode>|null
      */
-    private function prefixItemList(mixed $value, int $depth): ?array
+    private function prefixItemList(mixed $value, int $depth, string $pointer = ''): ?array
     {
         if (! is_array($value) || ! array_is_list($value)) {
             return null;
         }
 
         $list = [];
-        foreach ($value as $entry) {
-            $list[] = $this->subschema($entry, $depth + 1) ?? new SchemaNode;
+        foreach ($value as $index => $entry) {
+            $list[] = $this->subschema($entry, $depth + 1, $this->childPointer($pointer, (string) $index)) ?? new SchemaNode;
         }
 
         return $list;
@@ -1281,5 +1296,62 @@ final class OpenApiReader
         }
 
         return $float;
+    }
+
+    /**
+     * Append a single member or array index to a JSON pointer (RFC 6901),
+     * escaping the segment. An empty parent pointer (a schema reached from a
+     * position the reader does not pinpoint, e.g. an inline parameter or media
+     * type schema) yields an empty pointer too, so the message degrades to "no
+     * location" cleanly rather than producing a misleading partial pointer.
+     */
+    private function childPointer(string $parent, string $segment): string
+    {
+        if ($parent === '') {
+            return '';
+        }
+
+        return $parent.'/'.$this->escapePointer($segment);
+    }
+
+    /**
+     * Escape a single JSON pointer reference token (RFC 6901): `~` becomes `~0`
+     * and `/` becomes `~1`, in that order, so a property or component name that
+     * contains either character produces a valid, unambiguous pointer.
+     */
+    private function escapePointer(string $segment): string
+    {
+        return str_replace(['~', '/'], ['~0', '~1'], $segment);
+    }
+
+    /**
+     * Render the ` at <pointer>` location suffix for an error message, or the
+     * empty string when the reader could not pinpoint the offending node (the
+     * pointer is threaded only from positions the reader tracks). Keeping the
+     * caller's message identical when there is no pointer avoids a dangling
+     * "at " with nothing after it.
+     */
+    private function locationSuffix(string $pointer): string
+    {
+        return $pointer === '' ? '' : " at {$pointer}";
+    }
+
+    /**
+     * A short human-readable description of a found value's type, for the
+     * expected-vs-found half of a structural-rejection message: "missing"
+     * (null/absent), "a string", "a number", "a boolean", "an array", or "an
+     * object". Never echoes the value itself, which is untrusted input.
+     */
+    private function describeType(mixed $value): string
+    {
+        return match (true) {
+            $value === null => 'missing',
+            is_string($value) => 'a string',
+            is_int($value) || is_float($value) => 'a number',
+            is_bool($value) => 'a boolean',
+            is_array($value) && array_is_list($value) => 'an array',
+            is_array($value) => 'an object',
+            default => 'an unexpected value',
+        };
     }
 }
