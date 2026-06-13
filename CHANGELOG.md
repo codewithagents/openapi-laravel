@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.13.0](https://github.com/codewithagents/openapi-laravel/compare/v0.12.0...v0.13.0) (2026-06-13)
+
+
+### Features
+
+* **parser:** include JSON pointer and expected shape in spec parse errors ([183f58c](https://github.com/codewithagents/openapi-laravel/commit/183f58c8a7fe7ba76186ba79deb2f8ed16cd229e))
+* **parser:** name the attempted format and source file in spec file errors ([c0cb2b6](https://github.com/codewithagents/openapi-laravel/commit/c0cb2b682e8c5cd5bca2e17ea817b33f3dc6394c))
+* **server:** emit [@deprecated](https://github.com/deprecated) docblock on controller methods for deprecated operations ([a1c98b9](https://github.com/codewithagents/openapi-laravel/commit/a1c98b9da122060fb9709fbf6fe6ee99549e87fd))
+* **server:** split non-exploded delimited array query parameters ([#132](https://github.com/codewithagents/openapi-laravel/issues/132)) ([0d10ebe](https://github.com/codewithagents/openapi-laravel/commit/0d10ebeb1df009971408de685102328e2e5e6425))
+* **server:** synthesize deepObject query parameters into nested query rules ([#131](https://github.com/codewithagents/openapi-laravel/issues/131)) ([8bfbf9c](https://github.com/codewithagents/openapi-laravel/commit/8bfbf9cc2976d9ff631e69c9ce08166f84728498))
+* **server:** synthesize typed return from inline object response schemas ([#129](https://github.com/codewithagents/openapi-laravel/issues/129)) ([6333f1f](https://github.com/codewithagents/openapi-laravel/commit/6333f1f1d7343d7154300174375e57ceaeb7b84f))
+* **server:** type application/x-www-form-urlencoded object request bodies ([#130](https://github.com/codewithagents/openapi-laravel/issues/130)) ([083ac3e](https://github.com/codewithagents/openapi-laravel/commit/083ac3eaf616c663604a70c5f0635c19beac33ed))
+
+
+### Bug Fixes
+
+* **emitter:** emit self:: instead of static:: return type in final generated Data factories ([97bd030](https://github.com/codewithagents/openapi-laravel/commit/97bd0304c371b6f7ec9934d6f2cc5f1b75445092))
+* **server:** make delimited-array query classes additive so the split runs on GET ([#132](https://github.com/codewithagents/openapi-laravel/issues/132)) ([e95e8b0](https://github.com/codewithagents/openapi-laravel/commit/e95e8b0174f172f85f1e496b259a668ba8e31801))
+
 ## [0.12.0](https://github.com/codewithagents/openapi-laravel/compare/v0.11.0...v0.12.0) (2026-06-13)
 
 
