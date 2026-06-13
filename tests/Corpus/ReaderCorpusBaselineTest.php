@@ -1094,6 +1094,139 @@ const READER_BASELINE_REBASELINED_DEEPOBJECT = [
     'stripe.json' => 'deepObject object query parameters synthesized as nested query classes',
 ];
 
+/*
+ * INTENTIONAL post-freeze rebaseline (QDPHP self-vs-static sweep): the 116
+ * specs in READER_BASELINE_REBASELINED_SELF_STATIC carry a refreshed hash
+ * because the per-operation query Data factory's return type changed from
+ * `: static` to `: self`. The classes are always emitted final, so static
+ * was redundant there (Qodana PhpUnnecessaryStaticReferenceInspection); self
+ * is the equivalent, non-redundant declaration. The divergence is exactly
+ * that one-token change on each generated fromQuery() (and, off the baseline
+ * pipeline, fromRoute()/fromHeaders()) signature, nothing else. A spec present
+ * in an earlier rebaseline list accumulates the change; every spec outside the
+ * rebaseline lists stays the frozen v0.11.0 freeze, byte for byte.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_SELF_STATIC = [
+    '1password-connect.yaml' => 'final query Data factory return type changed from static to self',
+    'ably.json' => 'final query Data factory return type changed from static to self',
+    'adyen-checkout.yaml' => 'final query Data factory return type changed from static to self',
+    'adyen-legal-entity.yaml' => 'final query Data factory return type changed from static to self',
+    'airflow.json' => 'final query Data factory return type changed from static to self',
+    'amadeus.json' => 'final query Data factory return type changed from static to self',
+    'apple_appstore.json' => 'final query Data factory return type changed from static to self',
+    'appwrite.json' => 'final query Data factory return type changed from static to self',
+    'asana.json' => 'final query Data factory return type changed from static to self',
+    'aws_apigateway.json' => 'final query Data factory return type changed from static to self',
+    'aws_cloudformation.json' => 'final query Data factory return type changed from static to self',
+    'aws_cognito.json' => 'final query Data factory return type changed from static to self',
+    'aws_dynamodb.json' => 'final query Data factory return type changed from static to self',
+    'aws_iam.json' => 'final query Data factory return type changed from static to self',
+    'aws_lambda.json' => 'final query Data factory return type changed from static to self',
+    'aws_rds.json' => 'final query Data factory return type changed from static to self',
+    'aws_s3.json' => 'final query Data factory return type changed from static to self',
+    'aws_sns.json' => 'final query Data factory return type changed from static to self',
+    'aws_sqs.json' => 'final query Data factory return type changed from static to self',
+    'balldontlie.json' => 'final query Data factory return type changed from static to self',
+    'bbc.json' => 'final query Data factory return type changed from static to self',
+    'bigdatacloud.json' => 'final query Data factory return type changed from static to self',
+    'bikewise.json' => 'final query Data factory return type changed from static to self',
+    'bitbucket.json' => 'final query Data factory return type changed from static to self',
+    'box.json' => 'final query Data factory return type changed from static to self',
+    'braze.json' => 'final query Data factory return type changed from static to self',
+    'brex.json' => 'final query Data factory return type changed from static to self',
+    'bungie.json' => 'final query Data factory return type changed from static to self',
+    'canada_holidays.json' => 'final query Data factory return type changed from static to self',
+    'circleci.json' => 'final query Data factory return type changed from static to self',
+    'clevercloud.json' => 'final query Data factory return type changed from static to self',
+    'codat_accounting.json' => 'final query Data factory return type changed from static to self',
+    'codat_banking.json' => 'final query Data factory return type changed from static to self',
+    'configcat.json' => 'final query Data factory return type changed from static to self',
+    'devto.json' => 'final query Data factory return type changed from static to self',
+    'digitalocean.json' => 'final query Data factory return type changed from static to self',
+    'discourse.json' => 'final query Data factory return type changed from static to self',
+    'dnd5e.json' => 'final query Data factory return type changed from static to self',
+    'docker.json' => 'final query Data factory return type changed from static to self',
+    'docusign.json' => 'final query Data factory return type changed from static to self',
+    'dracoon.json' => 'final query Data factory return type changed from static to self',
+    'ebay_fulfillment.json' => 'final query Data factory return type changed from static to self',
+    'ebay_marketing.json' => 'final query Data factory return type changed from static to self',
+    'elevenlabs.json' => 'final query Data factory return type changed from static to self',
+    'flickr.json' => 'final query Data factory return type changed from static to self',
+    'gettyimages.json' => 'final query Data factory return type changed from static to self',
+    'giphy.json' => 'final query Data factory return type changed from static to self',
+    'github.json' => 'final query Data factory return type changed from static to self',
+    'google_bigquery.json' => 'final query Data factory return type changed from static to self',
+    'google_calendar.json' => 'final query Data factory return type changed from static to self',
+    'google_cloudrun.json' => 'final query Data factory return type changed from static to self',
+    'google_compute.json' => 'final query Data factory return type changed from static to self',
+    'google_docs.json' => 'final query Data factory return type changed from static to self',
+    'google_drive.json' => 'final query Data factory return type changed from static to self',
+    'google_functions.json' => 'final query Data factory return type changed from static to self',
+    'google_gke.json' => 'final query Data factory return type changed from static to self',
+    'google_gmail.json' => 'final query Data factory return type changed from static to self',
+    'google_logging.json' => 'final query Data factory return type changed from static to self',
+    'google_monitoring.json' => 'final query Data factory return type changed from static to self',
+    'google_pubsub.json' => 'final query Data factory return type changed from static to self',
+    'google_sheets.json' => 'final query Data factory return type changed from static to self',
+    'google_speech.json' => 'final query Data factory return type changed from static to self',
+    'google_translate.json' => 'final query Data factory return type changed from static to self',
+    'google_tts.json' => 'final query Data factory return type changed from static to self',
+    'google_vision.json' => 'final query Data factory return type changed from static to self',
+    'here_positioning.json' => 'final query Data factory return type changed from static to self',
+    'here_tracking.json' => 'final query Data factory return type changed from static to self',
+    'ipgeo.json' => 'final query Data factory return type changed from static to self',
+    'jira.json' => 'final query Data factory return type changed from static to self',
+    'linode.json' => 'final query Data factory return type changed from static to self',
+    'lufthansa.json' => 'final query Data factory return type changed from static to self',
+    'medium.json' => 'final query Data factory return type changed from static to self',
+    'nasa_apod.json' => 'final query Data factory return type changed from static to self',
+    'notion.json' => 'final query Data factory return type changed from static to self',
+    'nytimes.json' => 'final query Data factory return type changed from static to self',
+    'okta.json' => 'final query Data factory return type changed from static to self',
+    'open-meteo.yaml' => 'final query Data factory return type changed from static to self',
+    'openai.yaml' => 'final query Data factory return type changed from static to self',
+    'petstore-3.0.yaml' => 'final query Data factory return type changed from static to self',
+    'postman.json' => 'final query Data factory return type changed from static to self',
+    'rawg.json' => 'final query Data factory return type changed from static to self',
+    'redocly-museum.yaml' => 'final query Data factory return type changed from static to self',
+    'resend.json' => 'final query Data factory return type changed from static to self',
+    'reverb.json' => 'final query Data factory return type changed from static to self',
+    'sendgrid.json' => 'final query Data factory return type changed from static to self',
+    'sentry.json' => 'final query Data factory return type changed from static to self',
+    'shutterstock.json' => 'final query Data factory return type changed from static to self',
+    'slack.json' => 'final query Data factory return type changed from static to self',
+    'snyk.json' => 'final query Data factory return type changed from static to self',
+    'soundcloud.json' => 'final query Data factory return type changed from static to self',
+    'spotify.yaml' => 'final query Data factory return type changed from static to self',
+    'square.json' => 'final query Data factory return type changed from static to self',
+    'stackexchange.json' => 'final query Data factory return type changed from static to self',
+    'stripe.json' => 'final query Data factory return type changed from static to self',
+    'tomtom_maps.json' => 'final query Data factory return type changed from static to self',
+    'tomtom_routing.json' => 'final query Data factory return type changed from static to self',
+    'traccar.json' => 'final query Data factory return type changed from static to self',
+    'trello.json' => 'final query Data factory return type changed from static to self',
+    'twilio.json' => 'final query Data factory return type changed from static to self',
+    'twilio_api_v2010.json' => 'final query Data factory return type changed from static to self',
+    'twilio_messaging.json' => 'final query Data factory return type changed from static to self',
+    'twilio_verify.json' => 'final query Data factory return type changed from static to self',
+    'twilio_video.json' => 'final query Data factory return type changed from static to self',
+    'twitter.json' => 'final query Data factory return type changed from static to self',
+    'vercel.json' => 'final query Data factory return type changed from static to self',
+    'vimeo.json' => 'final query Data factory return type changed from static to self',
+    'wayback.json' => 'final query Data factory return type changed from static to self',
+    'weather_visual.json' => 'final query Data factory return type changed from static to self',
+    'webflow.json' => 'final query Data factory return type changed from static to self',
+    'wolfram.json' => 'final query Data factory return type changed from static to self',
+    'wordnik.json' => 'final query Data factory return type changed from static to self',
+    'xero.json' => 'final query Data factory return type changed from static to self',
+    'xero_assets.json' => 'final query Data factory return type changed from static to self',
+    'youtube.json' => 'final query Data factory return type changed from static to self',
+    'zoom.json' => 'final query Data factory return type changed from static to self',
+    'zuora.json' => 'final query Data factory return type changed from static to self',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -1168,7 +1301,7 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
     // must still exist on disk and carry a hash in the baseline (it is an
     // update, not an exemption): a renamed or deleted spec would make the
     // documented rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY), ...array_keys(READER_BASELINE_REBASELINED_130), ...array_keys(READER_BASELINE_REBASELINED_DELIMITED_ARRAYS), ...array_keys(READER_BASELINE_REBASELINED_DEEPOBJECT)] as $spec) {
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY), ...array_keys(READER_BASELINE_REBASELINED_130), ...array_keys(READER_BASELINE_REBASELINED_DELIMITED_ARRAYS), ...array_keys(READER_BASELINE_REBASELINED_DEEPOBJECT), ...array_keys(READER_BASELINE_REBASELINED_SELF_STATIC)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }
