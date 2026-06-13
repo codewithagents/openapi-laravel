@@ -608,13 +608,17 @@ The generator resolves the type of each parameter and return value from the spec
 | Request body referencing a component `$ref` (schema with writeOnly fields) | Write-variant Data param, e.g. `PetWritableData $pet` |
 | Inline JSON object request body (no `$ref`)                           | Synthesized per-operation Data param, e.g. `CreatePetRequestData $body` |
 | `multipart/form-data` object request body (inline or schema `$ref`)   | Synthesized per-operation Data param with `UploadedFile` file parts, e.g. `UploadPetImageRequestData $body` |
-| Request body that is an inline array/scalar schema or an unsupported content type (form-urlencoded, octet-stream, ...) | `Illuminate\Http\Request $request` |
+| `application/x-www-form-urlencoded` object request body (inline, schema `$ref`, or component `$ref`) | Synthesized per-operation Data param, e.g. `UpdatePetRequestData $body` |
+| Request body referencing a component `$ref` (`#/components/requestBodies/...`) | Resolved to the component and typed through the same content-type logic |
+| Request body that is not an object shape (array, scalar, union, enum, free-form map) or a whole-body raw binary (octet-stream) | `Illuminate\Http\Request $request` |
 | `in: query` parameters on a body-less operation                       | Per-operation query Data param, e.g. `FindPetsByStatusQueryData $query` |
 | `in: query` parameters on an operation with a request body            | No extra param; the docblock points at `<Operation>QueryData::fromQuery($request)` |
 | Response that is a single object `$ref`                               | Data class, e.g. `PetData`                              |
+| Inline object response schema (no `$ref`)                             | Synthesized per-operation Data return, e.g. `GetPetResponseData` |
 | Response that is an array of objects                                  | `Spatie\LaravelData\DataCollection` with `@return DataCollection<int, PetData>` docblock |
 | Selected success response is a 204                                    | `void`; the generated route sets the 204 and guarantees the empty body |
-| Success response with no JSON schema (binary, plain text, none)       | `Illuminate\Http\JsonResponse`                          |
+| Non-JSON success response (binary download, text/html)                | `Symfony\Component\HttpFoundation\Response` with a warning (return a `BinaryFileResponse` / `StreamedResponse`) |
+| Success response with no declared content                             | `Illuminate\Http\JsonResponse`                          |
 
 <Aside type="note" title="Request body typing and the write variant">
   When a request body references a schema that splits fields with `readOnly` and `writeOnly`, the
@@ -625,14 +629,12 @@ The generator resolves the type of each parameter and return value from the spec
   synthesized `<Operation>RequestData` class is emitted as the write shape (readOnly fields
   dropped), because a request body is input by definition.
 
-  Array bodies, scalar bodies, and content types other than JSON and `multipart/form-data` fall
-  back to a plain `Illuminate\Http\Request` parameter, because there is no single Data class to
-  type them against.
-
-  Request bodies expressed as a component reference (`$ref: '#/components/requestBodies/...'`) are
-  also left untyped today and fall back to `Illuminate\Http\Request`, because the parser does not
-  resolve component request bodies. Reference the schema directly under `content` if you want a typed
-  Data parameter.
+  Object bodies are typed across JSON, `multipart/form-data`, and
+  `application/x-www-form-urlencoded`, including a body expressed as a component reference
+  (`$ref: '#/components/requestBodies/...'`), which resolves to the referenced component and routes
+  through the same content-type logic. A body that is not an object shape (an array, a scalar, a
+  union, an enum, a free-form map) or a whole-body raw binary (octet-stream) falls back to a plain
+  `Illuminate\Http\Request` parameter, because there is no single Data class to type it against.
 </Aside>
 
 ## Inline request bodies
@@ -753,6 +755,59 @@ A multipart body that is not an object shape (a bare binary schema, an array, a 
 `Illuminate\Http\Request` fallback **with a generator warning**, exactly like the non-object
 inline JSON bodies.
 
+## Form-urlencoded bodies
+
+An operation whose request body declares `application/x-www-form-urlencoded` with an **object
+schema** gets the same synthesized `<Operation>RequestData` class as a JSON body, validated by the
+same spec-derived `rules()`. Laravel parses urlencoded input into `$request->all()` exactly like a
+JSON body, so no special handling is needed and the controller receives the typed, validated param.
+This works for an inline schema, a schema `$ref`, and a component `$ref`
+(`#/components/requestBodies/...`).
+
+When an operation declares several media types, precedence is **JSON > multipart > form-urlencoded**:
+JSON always wins, so a body declaring both `application/json` and form-urlencoded is typed against
+the JSON shape. A form-urlencoded body that is **not** an object shape keeps the
+`Illuminate\Http\Request` fallback with a generator warning.
+
+## Inline object responses
+
+When an operation's selected success response declares an **inline object schema** (directly under
+`content`, not a `$ref` to a component), the generator synthesizes a per-operation
+`<Operation>ResponseData` class and types it as the abstract method's return, symmetric with the
+[inline request body](#inline-request-bodies). It is the **read variant**: `readOnly` properties stay
+and `writeOnly` properties drop, because a response is server output. The class goes through the same
+model pipeline as any component schema (nested objects, rules, the tag-group placement).
+
+```yaml
+paths:
+  /pets/{petId}:
+    get:
+      operationId: getPet
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  name: { type: string }
+```
+
+```php
+// generated: app/Http/Controllers/Api/AbstractPetController.php
+abstract public function getPet(int $petId): GetPetResponseData;
+```
+
+A component `$ref` response (`#/components/responses/...`) resolves the same way: a wrapped schema
+`$ref` reuses that component's Data class, and an inline object component response emits one shared
+`<Component>ResponseData` class for every referencing operation. The [response status
+codes](#response-status-codes) semantics are unchanged: an inline 204 stays `void`, and a non-200
+inline success keeps its `RespondsWithStatus` middleware. An inline success response that is **not**
+an object shape (an array, a scalar, a `oneOf`/`anyOf` union, an enum, a free-form map) keeps the
+`JsonResponse` fallback with a warning, exactly like the non-object inline request bodies; see
+[limitations](/guides/limitations#responses-that-fall-back-to-jsonresponse).
+
 ## Query parameters
 
 An operation that declares `in: query` parameters gets a **per-operation query Data class**, named
@@ -836,17 +891,40 @@ Every query class carries the `fromQuery()` factory, including the auto-injected
 explicit path always works. `fromQuery()` validates and hydrates from `$request->query()` **only**:
 request-body fields never leak into query validation.
 
+### Delimited arrays and deepObject
+
+Two non-flat serializations are handled rather than skipped:
+
+- **Non-exploded delimited arrays** are split in the generated `fromQuery()` on their declared
+  delimiter **before** the array rules run: `style: form, explode: false` on comma,
+  `style: spaceDelimited` on space, `style: pipeDelimited` on pipe. A missing key stays absent (not
+  an empty array); an empty string splits to a single empty element.
+- **`style: deepObject` object parameters** (Stripe's `?filter[gte]=10&filter[lte]=20`) are
+  synthesized as a **nested object property** with dotted nested rules (`filter.gte`, `filter.lte`,
+  ...), reusing the same nested-object pipeline a body object property uses, since PHP parses the
+  bracketed keys natively into a nested array.
+
+<Aside type="note" title="A delimited-array query class is forced additive">
+  A `<Operation>QueryData` that carries **any** non-exploded delimited-array parameter is **never
+  container-injected**, even on a body-less `GET`. The abstract method takes no injected query param
+  and instead carries a `::fromQuery($request)` docblock pointer, the exact mechanism path (#113) and
+  header (#121) parameters use. Container injection would make spatie/laravel-data validate the
+  **raw, unsplit** string before `fromQuery()` runs the split, 422-ing a valid body-less filter. A
+  `deepObject` parameter needs no such treatment: PHP has already parsed the nested array, so a
+  QueryData with only flat and deepObject parameters stays container-injectable on body-less
+  operations as before.
+</Aside>
+
 ### What is skipped, with a warning
 
-The generator only emits typed properties for parameters that survive Laravel's flat query parsing
-(`key=value` scalars, `key[]=value` arrays). Anything else is **skipped with a generator warning**
-rather than given rules that would false-reject valid requests:
+The generator only emits typed properties for parameters it can faithfully validate against Laravel's
+query parsing. Anything else is **skipped with a generator warning** rather than given rules that
+would false-reject valid requests:
 
-- `in: header` and `in: cookie` parameters (not supported yet),
-- `style: deepObject` parameters (bracket-notation objects, e.g. Stripe's filter objects),
-- `style: spaceDelimited` / `pipeDelimited` and non-exploded (`explode: false`) arrays, which
-  serialize the whole array into one delimited value,
-- object-shaped and content-typed parameters, which have no flat query-string form.
+- `in: cookie` parameters (not supported yet; `in: header` parameters **are** generated, see
+  [path and header parameters](#method-signatures-in-detail)),
+- a non-object `deepObject` schema, or `deepObject` + `explode: false`,
+- object-shaped parameters that are not `deepObject`, object maps, and `content`-typed parameters.
 
 An operation whose every query parameter is skipped gets no query class at all. See
 [limitations](/guides/limitations#query-parameters) for the full list of residuals.

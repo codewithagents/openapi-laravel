@@ -507,30 +507,34 @@ compiles and runs, but the spec-declared body validation or return typing is abs
 fallback emits a build warning naming the operation. (Query parameters used to be listed here;
 since issue #63 they generate typed, validated per-operation query Data classes, with the residuals
 described under [Query parameters](#query-parameters) below. Inline JSON object bodies used to be
-listed here too; since issue #76 they synthesize typed per-operation body Data classes. Spec-declared
-response status codes used to be listed here as well; since issue #64 they are honored, with the
-residuals described under
+listed here too; since issue #76 they synthesize typed per-operation body Data classes, and
+form-urlencoded object bodies join them since issue #130. Inline object responses used to be listed
+here as well; since issue #129 they synthesize a typed per-operation `<Operation>ResponseData` return,
+symmetric with the inline request body. Spec-declared response status codes used to be listed here
+too; since issue #64 they are honored, with the residuals described under
 [Response status codes](#response-status-codes-only-the-selected-success-response) below.)
 
 ### Request bodies that fall back to Request, with a warning
 
-An inline JSON **object** body no longer falls back: it synthesizes a per-operation
-`<Operation>RequestData` class with the full `rules()` pipeline and a typed controller param
-(issue #76, see the [server scaffold guide](/guides/server-scaffold#inline-request-bodies)). A
-`multipart/form-data` **object** body no longer falls back either: it synthesizes the same class
-with `UploadedFile` typing and `file` / `mimetypes:` rules for its binary parts (issue #75, see
-[multipart bodies](/guides/server-scaffold#multipart-bodies-and-file-uploads)). The remaining
-fallbacks:
+Object request bodies no longer fall back, across every form. An inline JSON **object** body
+synthesizes a per-operation `<Operation>RequestData` class with the full `rules()` pipeline and a
+typed controller param (issue #76, see the
+[server scaffold guide](/guides/server-scaffold#inline-request-bodies)). A `multipart/form-data`
+**object** body synthesizes the same class with `UploadedFile` typing and `file` / `mimetypes:`
+rules for its binary parts (issue #75, see
+[multipart bodies](/guides/server-scaffold#multipart-bodies-and-file-uploads)). An
+`application/x-www-form-urlencoded` **object** body routes through the same synthesizer (issue #130:
+Laravel parses urlencoded input into `$request->all()` exactly like JSON, so the same spec-derived
+rules validate it). A body that is a `$ref` into `components.requestBodies` resolves to the
+referenced component and routes through the same content-type logic (issue #110). When several media
+types are declared, precedence is JSON > multipart > form-urlencoded. The remaining fallbacks:
 
-- A body that is a `$ref` into `components.requestBodies` (not resolved yet; this is a separate
-  residual from the inline case, reference the schema directly under `content` for a typed param).
-- An inline JSON or multipart body that is **not an object shape**: an array, a scalar, a
-  `oneOf`/`anyOf` union, an enum, or a free-form map (`additionalProperties` only). No single Data
-  class can type these; for multipart this includes the whole-body binary form
+- A body that is **not an object shape**: an array, a scalar, a `oneOf`/`anyOf` union, an enum, or a
+  free-form map (`additionalProperties` only), in any media type. No single Data class can type
+  these; for multipart this includes the whole-body binary form
   (`schema: {type: string, format: binary}`).
-- A body with no `application/json` or `multipart/form-data` content (form-urlencoded,
-  octet-stream, ...): there is no schema mapping to type, so read and validate it from the
-  `Request` yourself.
+- A whole-body raw binary body (`application/octet-stream`): there is no object schema to map to a
+  Data class, so read and validate it from the `Request` yourself (issue #119).
 - A body schema `$ref` that is external or does not resolve to a generated Data class.
 
 Multipart residuals on the bodies that ARE generated (issue #75): no file-size rule is derived
@@ -543,13 +547,20 @@ BOTH `application/json` and `multipart/form-data` keeps the JSON typing (documen
 
 ### Responses that fall back to JsonResponse
 
-- A response that is a `$ref` into `components.responses` (not resolved yet) warns, except when it
-  is selected for a 204: the method is `void` either way, so nothing degrades.
-- An external response schema `$ref` warns.
-- A **local** response schema `$ref` to a non-Data component (a scalar or array alias, an enum, a
-  map), or an inline response schema that is not an array-of-`$ref` or a clean Data-class union,
-  falls back **without** a warning: only an object shape can type the return, and `JsonResponse` is
-  the honest general-purpose return type for everything else.
+A response that is a `$ref` into `components.responses` resolves to the referenced component and
+types the return (issue #116), and an **inline** object response schema synthesizes a per-operation
+`<Operation>ResponseData` return (issue #129). The remaining fallbacks:
+
+- An **inline** response schema that is **not an object shape**: an array, a scalar, a `oneOf`/`anyOf`
+  union, an enum, or a free-form map. Only an object shape can name a return Data class.
+- A response `$ref` whose JSON schema is not an object shape (a scalar or array alias, an enum, a
+  map), or an unresolvable response `$ref` (external, `#/paths/...`, missing, or ref-to-ref).
+- A response with no JSON content: a non-JSON-only success (a binary download, text/html) is typed as
+  the base `Symfony\Component\HttpFoundation\Response` with a warning (issue #118), so your method can
+  return a `BinaryFileResponse` or `StreamedResponse` with no type error; a response with no declared
+  content at all keeps the `JsonResponse` default.
+
+These warn, except a `$ref` selected for a 204 (the method is `void` either way, so nothing degrades).
 
 An unresolvable parameter `$ref` (external or dangling) is dropped from its operation, also with a
 warning naming the pointer.
@@ -707,21 +718,28 @@ Operations with `in: query` parameters generate a per-operation query Data class
 [server scaffold](/guides/server-scaffold#query-parameters) for how the class is injected or
 called). The residuals:
 
-**Header and cookie parameters are not generated.** `in: header` and `in: cookie` parameters produce
-no typing and no validation yet. They are not silently dropped: the generator emits a warning naming
-the operation and the parameters, so the gap is visible at generation time. Read them from the
-`Request` yourself in the meantime.
+**Header parameters are now generated; only cookie parameters are not.** `in: header` parameters
+generate a per-operation `<Operation>HeaderData` class with spec-derived `rules()` and a
+`::fromHeaders($request)` factory (issue #121). `in: cookie` parameters produce no typing and no
+validation yet; they are not silently dropped (a warning names the operation and the parameters), so
+read them from the `Request` yourself in the meantime.
 
-**Parameters without a flat query-string form are skipped, with a warning.** The generated rules
-validate what Laravel's query parsing actually delivers: `key=value` scalars and exploded
-`key[]=value` arrays (the OpenAPI default `form`/`explode` serialization). A parameter that cannot
-round-trip through that parsing is skipped rather than given rules that would false-reject valid
-requests:
+**Repeated-key array query parameters are a known limitation.** The `form` + `explode: true` form
+(`?tags=a&tags=b`, the OpenAPI default array serialization) collapses to a single value under PHP's
+query parsing, so only the last value survives. Non-exploded delimited arrays are handled, see below.
 
-- `style: deepObject` (bracket-notation filter objects, used heavily by e.g. Stripe),
-- `style: spaceDelimited` and `style: pipeDelimited` (the array arrives as one delimited string),
-- non-exploded arrays (`explode: false`, the array arrives as one comma-joined string),
-- object-shaped parameters, object maps, and `content`-typed parameters.
+**Non-flat parameters that ARE handled.** A non-exploded delimited array is split in the generated
+`fromQuery()` on its declared delimiter before the array rules run (issue #132): `style: form,
+explode: false` on comma, `style: spaceDelimited` on space, `style: pipeDelimited` on pipe. A
+`style: deepObject` **object** parameter (Stripe's `?filter[gte]=10&filter[lte]=20`) is synthesized
+as a nested object property with dotted nested rules (issue #131), since PHP parses the bracketed
+keys natively into a nested array.
+
+**Parameters still skipped, with a warning.** A parameter that cannot round-trip through Laravel's
+parsing is skipped rather than given rules that would false-reject valid requests:
+
+- a non-object `deepObject` schema, or `deepObject` + `explode: false`,
+- object-shaped parameters that are not `deepObject`, object maps, and `content`-typed parameters.
 
 Each skip emits a warning naming the operation, the parameter, and the reason. An operation whose
 every query parameter is skipped gets no query class.

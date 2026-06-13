@@ -139,6 +139,16 @@ page](/guides/limitations) has examples, the fallback rules, and the object-unio
   into the consumer's own `Support` namespace, so generated code has no runtime dependency on the
   generator package. Plus Pint-idempotent output (#60) and PHPStan-max-clean generated array
   generics (#62).
+- **Scaffold typing pass (shipped):** the server scaffold now types far more of the contract. Query,
+  path, and header parameters generate per-operation `<Operation>QueryData` / `PathData` / `HeaderData`
+  classes with spec-derived rules and `fromQuery` / `fromRoute` / `fromHeaders` factories (#63, #113,
+  #121); spec response status codes are honored via `RespondsWithStatus` middleware (#64). Object
+  request bodies are typed across inline JSON (#76), multipart (#75), form-urlencoded (#130), and
+  component `$ref` (#110) forms. Responses are typed for both component `$ref` (#116) and inline
+  object schemas (#129). Non-exploded delimited array query parameters are split in `fromQuery`
+  (#132) and `deepObject` object query parameters are synthesized as nested object properties (#131).
+  A non-JSON-only success response is typed as the base Symfony `Response` with a warning (#118);
+  callbacks and webhooks warn rather than scaffold (#115).
 
 ## Drift check: keeping generated code in sync
 
@@ -175,22 +185,14 @@ generated backend, all from one spec. See the [end-to-end demo page](/guides/end
 
 ## What is next
 
-The pre-1.0 milestone, in priority order:
+Most of the original pre-1.0 list has shipped: typed query, path, and header parameters
+(issues #63, #113, #121), spec response status codes in the scaffold (issue #64), and warnings for
+every silent degradation (issue #67). What remains open before 1.0:
 
-- **Typed and validated query parameters** ([issue #63](https://github.com/codewithagents/openapi-laravel/issues/63)):
-  `in: query` parameters currently produce no typing, no rules, and no warning. See the
-  [limitations page](/guides/limitations#query-parameters-are-not-typed-or-validated).
-- **Spec response status codes in the scaffold** ([issue #64](https://github.com/codewithagents/openapi-laravel/issues/64)):
-  a `201`/`202` declared in the spec should come back from the generated scaffold without a
-  hand-written workaround. See the
-  [limitations page](/guides/limitations#response-status-codes-are-not-honored).
-- **Warnings for every silent degradation** ([issue #67](https://github.com/codewithagents/openapi-laravel/issues/67)):
-  every fallback to `mixed` or `Illuminate\Http\Request` hits the warnings channel.
-- **`@internal` PHP class API** ([issue #69](https://github.com/codewithagents/openapi-laravel/issues/69)):
-  the CLI is the public surface, the PHP classes are not.
-- **`minProperties` / `maxProperties` and dead normalization** ([issue #72](https://github.com/codewithagents/openapi-laravel/issues/72)).
-- **Visible empty Data classes** ([issue #95](https://github.com/codewithagents/openapi-laravel/issues/95)):
-  a TODO marker and a build warning instead of a silently empty class.
+- **Whole-body raw binary request bodies** ([issue #119](https://github.com/codewithagents/openapi-laravel/issues/119)):
+  an `application/octet-stream` body still falls back to `Illuminate\Http\Request` (low priority).
+- **OpenAPI 3.2** ([issue #102](https://github.com/codewithagents/openapi-laravel/issues/102)):
+  full support is a post-1.0 item; 3.2 specs generate today on a best-effort path with loud warnings.
 
 **What `1.0.0` means:** the output-stability promise described in the
 [versioning policy](/guides/versioning-policy). Intentional output-shape and validation changes
