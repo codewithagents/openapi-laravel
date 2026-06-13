@@ -1615,6 +1615,44 @@ test('lab/inline-body (#76 + #129): an INLINE object request body is synthesized
   expect((await labPost(request, 'inline-body', { title: 'hello' })).status).toBe(422); // required rank
 });
 
+test('lab/form-body (#130): an application/x-www-form-urlencoded OBJECT body is synthesized, validates, and round-trips', async ({ request }) => {
+  // The op declares its body with ONLY content type
+  // application/x-www-form-urlencoded. The generator routes it through the same
+  // <Operation>RequestData synthesizer as an inline JSON object body (#76), so
+  // LabFormBodyRequestData is typed and its rules() fire. We POST a real
+  // urlencoded payload (Playwright's `form` option sets
+  // Content-Type: application/x-www-form-urlencoded and url-encodes the data),
+  // proving Laravel parses the urlencoded values into the input bag and
+  // laravel-data validates and hydrates them just like JSON. A Data returned
+  // from a POST serializes 201 (the laravel-data framework default).
+  const ok = await request.post(`${API_BASE}/lab/form-body`, {
+    headers: { Accept: 'application/json' },
+    form: { label: 'widget', quantity: 7 },
+  });
+  expect(ok.status(), `valid form-body returned ${ok.status()}: ${await ok.text()}`).toBe(LAB_OK);
+  expect(await ok.json()).toEqual({ label: 'widget', quantity: 7 });
+
+  // Invalid urlencoded payloads must 422 from the generated rules, proving the
+  // form branch validates the same as JSON (not silently accepted/dropped).
+  const tooShort = await request.post(`${API_BASE}/lab/form-body`, {
+    headers: { Accept: 'application/json' },
+    form: { label: 'ab', quantity: 7 }, // minLength:3
+  });
+  expect(tooShort.status(), `short label returned ${tooShort.status()}: ${await tooShort.text()}`).toBe(422);
+
+  const tooBig = await request.post(`${API_BASE}/lab/form-body`, {
+    headers: { Accept: 'application/json' },
+    form: { label: 'widget', quantity: 999 }, // max:99
+  });
+  expect(tooBig.status(), `out-of-range quantity returned ${tooBig.status()}: ${await tooBig.text()}`).toBe(422);
+
+  const missing = await request.post(`${API_BASE}/lab/form-body`, {
+    headers: { Accept: 'application/json' },
+    form: { label: 'widget' }, // required quantity absent
+  });
+  expect(missing.status(), `missing quantity returned ${missing.status()}: ${await missing.text()}`).toBe(422);
+});
+
 test('lab/shared-one + shared-two (#110/#116): two ops share ONE inline-object component class', async ({ request }) => {
   const one = await labPost(request, 'shared-one', { sku: 'SKU-123', qty: 2 });
   expect(one.status).toBe(LAB_OK);

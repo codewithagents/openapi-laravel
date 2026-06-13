@@ -15,6 +15,8 @@ use App\Data\Lab\LabClosedNestData;
 use App\Data\Lab\LabCookieEchoData;
 use App\Data\Lab\LabEnumConstData;
 use App\Data\Lab\LabFormatsData;
+use App\Data\Lab\LabFormBodyRequestData;
+use App\Data\Lab\LabFormBodyResponseData;
 use App\Data\Lab\LabGalleryRequestData;
 use App\Data\Lab\LabHeaderEchoData;
 use App\Data\Lab\LabHeaderHeaderData;
@@ -247,6 +249,18 @@ final class LabController extends AbstractLabController
         // to be JsonResponse). Echo the validated, hydrated request values into
         // the synthesized response Data.
         return new LabInlineBodyResponseData(title: $body->title, rank: $body->rank);
+    }
+
+    public function labFormBody(LabFormBodyRequestData $body): LabFormBodyResponseData
+    {
+        // application/x-www-form-urlencoded OBJECT body (#130). The generator
+        // synthesizes LabFormBodyRequestData through the SAME pipeline as an
+        // inline JSON object body (#76) and types this param with it. By the
+        // time we run, Laravel has parsed the urlencoded body into the input
+        // bag and laravel-data has validated it against the generated rules(),
+        // so a spec-invalid payload 422s before reaching here. Echoing the
+        // typed values back proves the urlencoded body hydrated and round-trips.
+        return new LabFormBodyResponseData(label: $body->label, quantity: $body->quantity);
     }
 
     public function labInlineResponse(): LabInlineResponseResponseData

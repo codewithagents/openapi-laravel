@@ -1187,6 +1187,52 @@ paths:
                     type: integer
         '422':
           description: Validation exception
+  /lab/form-body:
+    post:
+      tags:
+        - lab
+      summary: >-
+        Echo an application/x-www-form-urlencoded OBJECT request body (#130).
+        The body's ONLY content type is application/x-www-form-urlencoded, and
+        the generator routes it through the SAME <Operation>RequestData
+        synthesizer as an inline JSON object body (#76): the controller param is
+        typed LabFormBodyRequestData and the urlencoded values are validated
+        like JSON (Laravel parses urlencoded into the input bag). Proves BOTH a
+        valid urlencoded payload (passes, typed, round-trips) and an invalid one
+        (422 from the generated rules), so the form branch of the synthesizer is
+        no longer dead.
+      operationId: labFormBody
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - label
+                - quantity
+              properties:
+                label:
+                  type: string
+                  minLength: 3
+                quantity:
+                  type: integer
+                  minimum: 1
+                  maximum: 99
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  label:
+                    type: string
+                  quantity:
+                    type: integer
+        '422':
+          description: Validation exception
   /lab/inline-response:
     get:
       tags:
