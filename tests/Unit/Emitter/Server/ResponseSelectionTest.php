@@ -112,8 +112,9 @@ it('enforces a declared 201 even when its body is untyped (issue #64)', function
     ]);
 
     // No JSON schema means the JsonResponse fallback, but the spec still
-    // declares 201, and the middleware only promotes an exactly-200 response,
-    // so an explicit user-set status is never overridden.
+    // declares 201, so the route attaches the status-enforcing middleware
+    // (the middleware normalizes any framework-default 2xx, never an error
+    // response, so an explicit user-set non-2xx status is left untouched).
     expect($descriptor->returnType)->toBe('JsonResponse')
         ->and($descriptor->successStatus)->toBe(201)
         ->and($descriptor->needsStatusMiddleware())->toBeTrue();

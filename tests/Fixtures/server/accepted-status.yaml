@@ -1,0 +1,56 @@
+openapi: 3.0.3
+info:
+  title: Accepted Status
+  version: 1.0.0
+paths:
+  /jobs:
+    post:
+      tags:
+        - job
+      summary: Queue a job.
+      operationId: queueJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Job'
+      responses:
+        '202':
+          description: The accepted job.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+  /jobs/{jobId}:
+    get:
+      tags:
+        - job
+      summary: Get a job by id.
+      operationId: getJobById
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: The job.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+components:
+  schemas:
+    Job:
+      type: object
+      required:
+        - name
+      properties:
+        id:
+          type: integer
+          format: int64
+          readOnly: true
+        name:
+          type: string

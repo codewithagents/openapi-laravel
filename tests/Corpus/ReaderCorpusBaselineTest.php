@@ -327,6 +327,94 @@ const READER_BASELINE_REBASELINED_124 = [
     'twitter.json' => '2 discriminated-union bases: unknown discriminator value now a 422',
 ];
 
+/*
+ * INTENTIONAL post-freeze rebaseline (#125): the fifty-three specs in
+ * READER_BASELINE_REBASELINED_125 carry a post-#125 hash because they declare
+ * at least one operation with a non-200 success status, so they inline the
+ * `RespondsWithStatus` support class, and #125 changed that one shared file.
+ * The bug: spatie/laravel-data serializes a Data object returned from a POST
+ * as 201 Created, so the middleware's old exactly-200 guard never matched and
+ * a declared 202 (or any non-201 success) on a mutating Data-returning op was
+ * silently served as 201. The fix widens the guard to normalize any
+ * framework-default 2xx to the declared status while still leaving every
+ * error response untouched. The divergence is the SAME single mechanical
+ * change for every listed spec: the inlined `RespondsWithStatus.php` body
+ * (the guard line and its docblock), NOTHING else; no per-operation file and
+ * no warning list changed (verified: each listed spec emits a
+ * RespondsWithStatus.php, and only that file's bytes moved). A spec also
+ * present in an earlier rebaseline list accumulates the changes; every spec
+ * outside the rebaseline lists stays the frozen v0.11.0 freeze, byte for
+ * byte.
+ */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-#125 output
+ * (the inlined `RespondsWithStatus` middleware now normalizes any
+ * framework-default 2xx, honoring a declared non-200 success status on a
+ * Data-returning operation that laravel-data answered 201), keyed by spec
+ * basename. The per-spec test below still compares against the JSON baseline,
+ * which now holds these specs' post-#125 hashes; the coverage test pins that
+ * every listed name exists on disk and in the baseline, so the list cannot
+ * rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_125 = [
+    '1password-connect.yaml' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'ably_control.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'adyen-checkout.yaml' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'adyen-legal-entity.yaml' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'airflow.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'apple_appstore.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'appwrite.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'asana.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'aws_apigateway.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'aws_lambda.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'aws_s3.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'bitbucket.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'box.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'circleci.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'clevercloud.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'clickup.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'configcat.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'devto.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'digitalocean.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'docker.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'docusign.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'dracoon.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'ebay_fulfillment.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'ebay_marketing.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'gettyimages.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'github.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'here_tracking.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'jira.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'klarna.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'openai.yaml' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'pinecone.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'redocly-museum.yaml' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'resend.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'sendgrid.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'sentry.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'shipstation.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'shutterstock.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'snyk.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'soundcloud.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'spotify.yaml' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'traccar.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'twilio.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'twilio_api_v2010.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'twilio_messaging.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'twilio_verify.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'twilio_video.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'twitter.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'vercel.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'vimeo.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'webflow.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'xero.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'zoom.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+    'zuora.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -395,11 +483,11 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
             ->and(READER_BASELINE_POST_FREEZE_SPECS)->not->toHaveKey($rebaselined);
     }
 
-    // Every spec rebaselined for #110, #116, #120, #122, or #124 must still
-    // exist on disk and carry a hash in the baseline (it is an update, not an
-    // exemption): a renamed or deleted spec would make the documented
+    // Every spec rebaselined for #110, #116, #120, #122, #124, or #125 must
+    // still exist on disk and carry a hash in the baseline (it is an update,
+    // not an exemption): a renamed or deleted spec would make the documented
     // rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124)] as $spec) {
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }
