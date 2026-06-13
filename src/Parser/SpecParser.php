@@ -91,10 +91,12 @@ final class SpecParser
         // (issue #17). The guard is disarmed as soon as the parse step returns.
         MemoryGuard::arm($absolute, $this->maxBytes);
 
+        $isYaml = $this->isYaml($absolute);
+
         try {
             $contents = (string) file_get_contents($absolute);
 
-            $data = $this->isYaml($absolute)
+            $data = $isYaml
                 ? Yaml::parse($contents)
                 : json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
 
@@ -102,7 +104,14 @@ final class SpecParser
         } catch (ParseException $e) {
             throw $e;
         } catch (Throwable $e) {
-            throw new ParseException("Failed to parse OpenAPI spec ({$path}): {$e->getMessage()}", 0, $e);
+            $format = $isYaml ? 'YAML' : 'JSON';
+            throw new ParseException(
+                "Failed to parse OpenAPI spec ({$path}) as {$format}: {$e->getMessage()}. "
+                ."Check that the file is well-formed {$format} (the format is taken from the file extension, "
+                .'falling back to sniffing the first non-whitespace byte: { or [ means JSON, anything else YAML).',
+                0,
+                $e,
+            );
         } finally {
             MemoryGuard::disarm();
         }
@@ -122,9 +131,11 @@ final class SpecParser
 
         if ($size !== false && $size > $this->maxBytes) {
             throw new ParseException(sprintf(
-                'OpenAPI spec is too large (%d bytes, limit %d bytes). Raise --max-bytes only for trusted '
-                .'specs, and note that a larger spec needs a proportionally larger PHP memory_limit to parse '
-                .'(it can otherwise exhaust memory mid-parse). Or run the generator under OS-level resource limits.',
+                'OpenAPI spec is too large (%s: %d bytes, limit %d bytes). Raise --max-bytes / the max_bytes '
+                .'config key only for trusted specs, and note that a larger spec needs a proportionally larger '
+                .'PHP memory_limit to parse (it can otherwise exhaust memory mid-parse). Or run the generator '
+                .'under OS-level resource limits.',
+                $absolute,
                 $size,
                 $this->maxBytes,
             ));
