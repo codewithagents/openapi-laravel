@@ -486,10 +486,28 @@ final class ClassRenderer
 
         $attributeLine = '        #[PropertyForMorph, '.implode(', ', $validationAttributes)."]\n";
 
+        // The discriminator is declared NULLABLE with a `null` default even though
+        // the spec marks it required (#124 follow-up). The default is the lever
+        // that makes a MISSING discriminator reach morph(): spatie's
+        // DataMorphClassResolver short-circuits to a null morph (which the creation
+        // paths turn into the uncatchable CannotCreateAbstractClass, a 500) when
+        // the morphable property is absent AND has NO default value; giving it a
+        // default makes the resolver call morph() with that default, so the default
+        // arm throws a ValidationException (a clean 422) instead. `null` is the
+        // sentinel because no OpenAPI discriminator mapping value is ever null, so
+        // it can never collide with a real variant arm (true for an int
+        // discriminator too, where any non-null literal default could be a real
+        // mapping key). The `Required` attribute keeps the spec-required contract,
+        // and a valid payload still hydrates the variant with its real value, since
+        // the variants forward a non-null value into this nullable parameter.
+        $nullableType = $type->nullable || $type->declaration === 'mixed'
+            ? $type->declaration()
+            : '?'.$type->declaration();
+
         $constructor = "    public function __construct(\n"
             .$mapName
             .$attributeLine
-            .'        public readonly '.$type->declaration().' $'.$propertyName.",\n"
+            .'        public readonly '.$nullableType.' $'.$propertyName.' = null,'."\n"
             .'    ) {}';
 
         // spatie's DataMorphClassResolver builds the morph() input keyed by the

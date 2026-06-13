@@ -568,7 +568,9 @@ it('emits a morphable base plus synthesized variants for the INLINE-union discri
     $base = $files['InlineDiscriminatedUnionData']->code;
     expect($base)->toContain('abstract class InlineDiscriminatedUnionData extends Data implements PropertyMorphableData')
         ->and($base)->toContain('#[PropertyForMorph, Required, StringType]')
-        ->and($base)->toContain('public readonly string $shapeKind')
+        // Nullable with a `null` default so a MISSING discriminator reaches morph()
+        // (a clean 422) rather than spatie's uncatchable CannotCreateAbstractClass.
+        ->and($base)->toContain('public readonly ?string $shapeKind = null')
         ->and($base)->toContain("'circle' => InlineDiscriminatedUnionCircleData::class,")
         ->and($base)->toContain("'square' => InlineDiscriminatedUnionSquareData::class,")
         // The default arm throws so an unmapped discriminator value is a 422,
@@ -596,7 +598,9 @@ it('emits a morphable base plus extending variants for the allOf-INHERITANCE dis
 
     $base = $files['VehicleData']->code;
     expect($base)->toContain('abstract class VehicleData extends Data implements PropertyMorphableData')
-        ->and($base)->toContain('public readonly string $vehicleType')
+        // Nullable with a `null` default so a MISSING discriminator reaches morph()
+        // (a clean 422) rather than spatie's uncatchable CannotCreateAbstractClass.
+        ->and($base)->toContain('public readonly ?string $vehicleType = null')
         ->and($base)->toContain("'car' => CarData::class,")
         ->and($base)->toContain("'truck' => TruckData::class,");
 

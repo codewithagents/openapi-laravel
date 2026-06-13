@@ -168,14 +168,20 @@ collisions failing loudly.
 - Undiscriminated object unions (no `discriminator`) stay `mixed`, presence-only by design (#31).
 - An allOf-inheritance variant that does not pin its discriminator with a `const` is not rejected for
   a wrong value when validated STANDALONE (morph routing through the base is unaffected).
-- An UNKNOWN discriminator value is a clean 422 on every consumption path (#124): the morphable
-  base's `morph()` default arm throws a `ValidationException` rather than returning null, so the
-  morph-then-validate creation paths (`from()` / `validateAndCreate()` / container injection) reject
-  before the uncatchable `CannotCreateAbstractClass` (a 500) can fire. A discriminator that is
-  MISSING ENTIRELY still throws `CannotCreateAbstractClass` on the creation paths (laravel-data's
-  morph resolver short-circuits before `morph()` is reached when the property is absent); the
-  `validate()` path rejects it cleanly via the morph guard, so a body validated before hydration is
-  unaffected, but a raw `from()` on an absent discriminator remains a 500 (a separate, narrower gap).
+- A discriminator that is UNKNOWN (#124) OR MISSING ENTIRELY (#126) is a clean 422 on every
+  consumption path. #124 made the morphable base's `morph()` default arm throw a `ValidationException`
+  rather than returning null, so an unmapped value rejects before the uncatchable
+  `CannotCreateAbstractClass` (a 500) can fire on the creation paths (`from()` /
+  `validateAndCreate()` / container injection). #126 closes the missing-key sibling: spatie's
+  `DataMorphClassResolver` short-circuits to a null morph (which the creation paths turn into the
+  same 500) when the morphable property is ABSENT and has no default, so the base now declares the
+  discriminator NULLABLE with a `null` default. The resolver then calls `morph()` with `null` for a
+  missing key, the default arm throws, and a missing discriminator is a clean 422 on `from()` /
+  `validateAndCreate()` / container injection too (the `validate()` path already rejected it). `null`
+  is the sentinel because no discriminator mapping value is ever null (true for an int discriminator
+  too, where a non-null literal default could be a real mapping key); the `Required` attribute keeps
+  the spec-required contract, and the variants are untouched (they forward a non-null value into the
+  nullable parameter, so a valid payload hydrates the right variant with its real value).
 - Component `$ref` request bodies resolve to typed Data params (#110); only a body that is NOT an
   object shape (an array, scalar, union, enum, free-form map, or a whole-body binary multipart
   schema) keeps the warned `Illuminate\Http\Request` fallback, whether it arrives inline (#76),

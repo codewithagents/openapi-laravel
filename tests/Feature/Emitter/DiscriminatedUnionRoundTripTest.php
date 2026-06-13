@@ -173,6 +173,30 @@ it('rejects a payload missing the discriminator property', function () {
     HolderData::validate(['pet' => ['meow' => 'mrr']]);
 })->throws(ValidationException::class);
 
+// Regression for the #124 sibling: a MISSING discriminator (the key absent
+// entirely, not merely an unknown value) must also surface a 422 on the
+// CREATION paths, not the uncatchable CannotCreateAbstractClass a 500.
+// spatie's DataMorphClassResolver short-circuits to a null morph (the 500)
+// when the morphable property is absent AND has no default, so the base now
+// declares the discriminator nullable with a `null` default: the resolver then
+// calls morph() with null, and the default arm throws a ValidationException.
+// `null` is the sentinel because no discriminator mapping value is ever null.
+it('rejects a MISSING discriminator on the base via from()', function () {
+    PetData::from(['meow' => 'mrr']);
+})->throws(ValidationException::class);
+
+it('rejects a MISSING discriminator on the base via validate()', function () {
+    PetData::validate(['meow' => 'mrr']);
+})->throws(ValidationException::class);
+
+it('rejects a MISSING discriminator on the base via validateAndCreate()', function () {
+    PetData::validateAndCreate(['meow' => 'mrr']);
+})->throws(ValidationException::class);
+
+it('rejects a MISSING discriminator on a NESTED union via from()', function () {
+    HolderData::from(['pet' => ['meow' => 'mrr']]);
+})->throws(ValidationException::class);
+
 it('accepts a valid cat payload', function () {
     $validated = HolderData::validate(['pet' => ['petType' => 'cat', 'meow' => 'mrr']]);
 

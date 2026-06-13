@@ -415,6 +415,46 @@ const READER_BASELINE_REBASELINED_125 = [
     'zuora.json' => 'inlined RespondsWithStatus middleware updated to normalize any framework-default 2xx',
 ];
 
+/*
+ * INTENTIONAL post-freeze rebaseline (#126): the same seven specs as #124 carry
+ * a post-#126 hash, because they declare a named-component discriminated union
+ * (#38). #124 made an UNKNOWN discriminator value a clean 422 by throwing in the
+ * morph() default arm, but a discriminator that is MISSING ENTIRELY still 500ed
+ * on the creation paths: spatie's DataMorphClassResolver short-circuits to a
+ * null morph (the uncatchable CannotCreateAbstractClass) when the morphable
+ * property is absent AND has no default, so morph() was never reached. #126
+ * declares the morphable base's discriminator NULLABLE with a `null` default:
+ * the resolver now calls morph() with null for a missing key, the default arm
+ * throws, and a missing discriminator is a clean 422 on from() /
+ * validateAndCreate() / container injection too. The divergence is exactly that
+ * one property declaration on each discriminated-union base (`string $x` ->
+ * `?string $x = null`); the variants are untouched (they forward a non-null
+ * value into the nullable parameter), and nothing else moves. Every spec
+ * outside the rebaseline lists stays the frozen v0.11.0 freeze, byte for byte.
+ */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-#126 output (the
+ * morphable base's discriminator is nullable with a `null` default so a MISSING
+ * discriminator surfaces a 422 on the creation paths instead of an uncatchable
+ * CannotCreateAbstractClass 500), keyed by spec basename, with the count of
+ * discriminated-union bases affected for auditability. The per-spec test below
+ * still compares against the JSON baseline, which now holds these specs'
+ * post-#126 hashes; the coverage test pins that every listed name exists on
+ * disk and in the baseline, so the list cannot rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_126 = [
+    'ably_control.json' => '2 discriminated-union bases: missing discriminator now a 422',
+    'adyen-checkout.yaml' => '1 discriminated-union base: missing discriminator now a 422',
+    'airflow.json' => '1 discriminated-union base: missing discriminator now a 422',
+    'bitbucket.json' => '1 discriminated-union base: missing discriminator now a 422',
+    'jira.json' => '3 discriminated-union bases: missing discriminator now a 422',
+    'openai.yaml' => '26 discriminated-union bases: missing discriminator now a 422',
+    'twitter.json' => '2 discriminated-union bases: missing discriminator now a 422',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -483,11 +523,11 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
             ->and(READER_BASELINE_POST_FREEZE_SPECS)->not->toHaveKey($rebaselined);
     }
 
-    // Every spec rebaselined for #110, #116, #120, #122, #124, or #125 must
-    // still exist on disk and carry a hash in the baseline (it is an update,
-    // not an exemption): a renamed or deleted spec would make the documented
-    // rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125)] as $spec) {
+    // Every spec rebaselined for #110, #116, #120, #122, #124, #125, or #126
+    // must still exist on disk and carry a hash in the baseline (it is an
+    // update, not an exemption): a renamed or deleted spec would make the
+    // documented rebaseline lists rot silently.
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }

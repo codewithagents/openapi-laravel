@@ -78,7 +78,12 @@ it('emits an abstract PropertyMorphableData base with the morph discriminator pr
         // validation attributes (NOT a rules() method, which would clobber the
         // morph guard via the overwritten-rules path).
         ->and($code)->toContain('#[PropertyForMorph, Required, StringType]')
-        ->and($code)->toContain('public readonly string $petType,')
+        // Nullable with a `null` default: the default makes a MISSING discriminator
+        // reach morph() (which throws a 422) instead of spatie short-circuiting to
+        // the uncatchable CannotCreateAbstractClass a 500. `null` is the sentinel
+        // because no discriminator mapping value is ever null. `Required` keeps the
+        // spec-required contract.
+        ->and($code)->toContain('public readonly ?string $petType = null,')
         // No rules() method on the base.
         ->and($code)->not->toContain('public static function rules');
 });
@@ -188,7 +193,7 @@ it('emits a MapName and matches morph() on the PHP property name', function () {
     $code = generateDiscriminatorSchemas($schemas)['PetData']->code;
 
     expect($code)->toContain("#[MapName('pet_type')]")
-        ->and($code)->toContain('public readonly string $petType,')
+        ->and($code)->toContain('public readonly ?string $petType = null,')
         // spatie keys the morph payload by the PHP property name even under
         // MapName, so the match reads $properties['petType'], not 'pet_type'.
         ->and($code)->toContain("return match (\$properties['petType'] ?? null) {");

@@ -102,14 +102,18 @@ fixtures added in #104 T8) generate valid PHP.
 
 **Honest residuals (documented, not hidden):** an undiscriminated object union does not
 auto-hydrate (typed `mixed`, presence-only, #31). All three DISCRIMINATED forms (named-component,
-inline-union, allOf-inheritance) now validate and hydrate (#38); an UNKNOWN discriminator value is a
-clean 422 on every consumption path (#124, the morphable base's `morph()` default arm throws a
-`ValidationException` instead of returning null, so the morph-then-validate creation paths reject
-before the uncatchable `CannotCreateAbstractClass` 500 fires). The discriminator residuals: an
+inline-union, allOf-inheritance) now validate and hydrate (#38); a discriminator that is UNKNOWN
+(#124) OR MISSING ENTIRELY (#126) is a clean 422 on every consumption path. #124 made the morphable
+base's `morph()` default arm throw a `ValidationException` instead of returning null, so an unmapped
+value rejects before the uncatchable `CannotCreateAbstractClass` 500 fires on the creation paths.
+#126 closes the missing-key sibling: the base now declares the discriminator NULLABLE with a `null`
+default, so spatie's morph resolver (which short-circuits to a null morph, the same 500, when the
+property is absent and has no default) instead calls `morph()` with `null` for a missing key, the
+default arm throws, and `from()` / `validateAndCreate()` / container injection reject cleanly too;
+`null` is the sentinel (no discriminator value is ever null), `Required` keeps the spec-required
+contract, and the variants are untouched. The one remaining discriminator residual: an
 allOf-inheritance variant whose discriminator is not pinned by a `const` is not rejected for a wrong
-value when validated standalone (morph routing through the base is unaffected), and a discriminator
-that is MISSING ENTIRELY still 500s on a raw `from()` creation path (the morph resolver
-short-circuits before `morph()` is reached; the `validate()` path rejects it cleanly). Component
+value when validated standalone (morph routing through the base is unaffected). Component
 `$ref` request bodies (`#/components/requestBodies/...`) resolve to typed Data params (#110);
 inline JSON OBJECT bodies are generated as `<Operation>RequestData` classes (#76) and
 multipart/form-data OBJECT bodies too (#75), but a body that is not an object shape (array, scalar,
