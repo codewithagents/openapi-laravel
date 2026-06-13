@@ -386,6 +386,8 @@ not 200. That is a laravel-data framework default, not a generator choice.
 | empty-map RESPONSE | `GET /lab/empty-map` returns a `LabMap` with an EMPTY `counts` map | the RAW response text contains `"counts":{}` not `"counts":[]` (response side of map serialization; request side is the row above) | generated `MapObjectTransformer` forces JSON object encoding on the return | proven |
 | oneOf scalar union | `oneOf: [string, integer]` | BOTH variants hydrate without coercion | generated `string\|int` union type | proven |
 | nested + collection | nested `$ref` object + `array` of `$ref` objects | nested object and the collection round-trip; a deep violation 422 | generated nested Data + `#[DataCollectionOf]` | proven |
+| nested-in-collection readOnly/writeOnly (#writable-variant recursion) | `POST /lab/nested-variant`: a collection `items[]` of objects each carrying a `writeOnly` (`secret`) AND a `readOnly` (`serverId`) field | writeOnly is correctly DROPPED from the read response inside each item, BUT a client-sent readOnly `serverId` LEAKS back verbatim | **REAL BUG (parked `test.fixme`):** the read/write split does NOT recurse on the REQUEST side for a nested-in-collection class. The root declares no own readOnly/writeOnly so no writable root variant is synthesized; the body binds to the read variant `LabNestedVariantData`, whose item class `LabVariantItemData` treats `serverId` as a normal writable property. Generator `src/` territory, out of scope to fix here |
+| nested closed object (#30 recursion) | `POST /lab/closed-nest`: a closed object (`additionalProperties: false`) nested as a property (`inner`) AND inside a collection (`items[]`) | a CLEAN payload should pass and an unknown nested key should 422 keyed on the nested path | **REAL BUG (parked `test.fixme`):** the `NoUnknownPropertiesRule` does NOT recurse. As a Laravel `DataAwareRule` its `setData()` always receives the full TOP-LEVEL payload, so the nested rule compares the ROOT keys (`inner`, `items`) against the inner allow-list (`known`) and falsely rejects EVERY payload, clean ones included. Generator `src/` territory, out of scope to fix here |
 | backed enum | named string `enum` component | round-trips; out-of-enum 422 | generated backed `enum` class + `Rule::enum(...)` | proven |
 | allOf merged-flat | `allOf: [$ref base, inline object]` | both branches round-trip; a missing field from either branch 422 | generated flat-merged Data | proven |
 | discriminated union | `oneOf` + `discriminator` (named-component) | each variant hydrates to its own shape by `kind`; a variant-specific rule still fires after morph | generated morphable abstract base + `morph()` | proven |
@@ -457,35 +459,32 @@ the request fixture.
 | C2 valid JSON sent as `text/plain` | `POST /pet` and `POST /lab/numeric`, spec-valid JSON bytes mislabeled `text/plain` | clean 422: Laravel does not JSON-decode a `text/plain` body, so the typed fields are absent and required-field validation 422s. No 415, no 500. (The content-type seam: JSON wins only when the body is actually labeled JSON; the form/xml branches stay dead in this e2e) | proven (pinned) |
 | C2 valid JSON sent as `x-www-form-urlencoded` | same ops, JSON bytes mislabeled form-urlencoded | clean 422: a raw JSON string is not valid form syntax, so the fields still do not materialize. No 500 | proven (pinned) |
 | B1 multi-axis upload, valid + query | `POST /pet/{petId}/uploadImage?additionalMetadata=foo` with a valid PNG multipart body | 201; the response message echoes both the multipart `caption` AND the query `additionalMetadata`, proving path + query + multipart body validate on separate axes without bleeding into one another. The query is read via the generated `UploadFileQueryData::fromQuery($request)` (consumer glue honoring the generator's docblock instruction) | proven (correct) |
-| B1 multi-axis upload, malformed petId | `POST /pet/not-an-int/uploadImage` (non-integer path segment) | **REAL BUG: 500**. Expected a clean 4xx. Parked `test.fixme` holding the correct assertion (see below) | bug (parked `.fixme`) |
+| B1 multi-axis upload, malformed petId | `POST /pet/not-an-int/uploadImage` (non-integer path segment) | **FIXED (#129):** clean `404` at the router, never a 500. The generated route now carries `->whereNumber('petId')`, so a non-numeric segment misses the route before dispatch | proven (correct, was a real 500 bug) |
+| B1 multi-axis upload, numeric petId companion | `POST /pet/1/uploadImage` with a valid PNG | `201`: a numeric segment still routes into `uploadFile` and the happy path is intact, proving the `whereNumber` constraint narrows ONLY the malformed case | proven (correct) |
 
-#### REAL BUG found: a non-integer `petId` path segment 500s on `uploadFile`
+#### FIXED (#129): a non-integer `petId` path segment now 404s, no longer 500s
 
-`POST /pet/not-an-int/uploadImage` returns `500 {"message":"Server Error"}`.
-`laravel.log`:
+Previously `POST /pet/not-an-int/uploadImage` returned `500 {"message":"Server Error"}`
+with `laravel.log`:
 
 ```
 TypeError: PetController::uploadFile(): Argument #2 ($petId) must be of type int,
 string given, called in .../Routing/ControllerDispatcher.php on line 46
 ```
 
-Root cause (generator-shaped, NOT e2e glue, so OUT OF SCOPE to fix here): the
-generated abstract types the method parameter `int $petId`, and the generated
-route carries NO numeric constraint (no `->whereNumber('petId')`). With
-`strict_types=1`, Laravel's `ControllerDispatcher` binds the untrusted route
-segment `not-an-int` to the `int` parameter and PHP throws a TypeError BEFORE the
-controller body runs. The generated `UploadFilePathData::fromRoute()` guard,
-which exists precisely to 422 a bad segment via its `integer` rule, is therefore
-UNREACHABLE: the dispatcher cannot even assemble the argument list to enter the
-method, so the path class never gets a chance to validate. (Contrast `/lab/path`,
-whose `score` path param is also typed `int` but only ever receives numeric
-segments in the tests, so the TypeError is not exercised there.)
+Root cause (generator-shaped): the generated abstract typed the method parameter
+`int $petId` and the generated route carried NO numeric constraint, so under
+`strict_types=1` Laravel's `ControllerDispatcher` bound the untrusted segment
+`not-an-int` to the `int` parameter and PHP threw a TypeError BEFORE the
+controller body ran (the `UploadFilePathData::fromRoute()` guard was unreachable).
 
-Possible generator fixes (any one): emit `->whereNumber('petId')` on the route
-for numeric path params (a non-numeric segment then 404s before dispatch), OR
-type the abstract param `int|string` / accept the raw `Request` so `fromRoute()`
-runs and 422s cleanly. The `test.fixme` keeps the suite runnable while holding
-the correct assertion (a clean 4xx, never a 500) so the bug stays documented.
+The fix (commit `4b1ff10`, #129): the generator now emits `->whereNumber('petId')`
+on integer path params. The generated route for `POST /pet/{petId}/uploadImage`
+carries `->whereNumber('petId')`, so a non-numeric segment misses the route and
+404s at the router, BEFORE the dispatcher tries to bind it. The e2e suite now
+holds an ACTIVE strict test asserting the clean `404` (never a 500), plus a
+companion proving a numeric petId still routes into the upload op and 201s on the
+happy path.
 
 ### #77 security middleware matrix (AND / OR / public), end-to-end
 

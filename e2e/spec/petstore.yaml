@@ -918,6 +918,57 @@ paths:
                 $ref: '#/components/schemas/LabNested'
         '422':
           description: Validation exception
+  /lab/nested-variant:
+    post:
+      tags:
+        - lab
+      summary: >-
+        Echo a collection whose items carry readOnly AND writeOnly properties.
+        Proves the WritableData readOnly/writeOnly split recurses into a
+        nested-in-collection Data class: writeOnly is accepted on create but
+        omitted from the read response, readOnly is server-managed (a client
+        value is ignored) inside EACH item.
+      operationId: labNestedVariant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabNestedVariant'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabNestedVariant'
+        '422':
+          description: Validation exception
+  /lab/closed-nest:
+    post:
+      tags:
+        - lab
+      summary: >-
+        Echo an object that nests a closed object (additionalProperties false)
+        both as a direct property AND inside a collection. Proves the #30
+        NoUnknownPropertiesRule recurses: an unknown key on the INNER object
+        (property or array item) is a clean 422 keyed on the nested path.
+      operationId: labClosedNest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabClosedNest'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabClosedNest'
+        '422':
+          description: Validation exception
   /lab/backed-enum:
     post:
       tags:
@@ -1929,6 +1980,60 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/LabInner'
+    LabVariantItem:
+      type: object
+      required:
+        - name
+        - secret
+      properties:
+        name:
+          type: string
+          description: A plain field that round-trips both ways.
+        secret:
+          type: string
+          writeOnly: true
+          description: >-
+            Accepted on create, never present in any read response. Exercises
+            the writeOnly split into the WritableData variant of a class that is
+            nested INSIDE a collection.
+        serverId:
+          type: string
+          readOnly: true
+          description: >-
+            Server-managed: present in reads, ignored if a client sends it.
+            Exercises the readOnly split for a nested-in-collection class.
+    LabNestedVariant:
+      type: object
+      required:
+        - title
+        - items
+      properties:
+        title:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LabVariantItem'
+    LabClosedInner:
+      type: object
+      additionalProperties: false
+      required:
+        - known
+      properties:
+        known:
+          type: string
+    LabClosedNest:
+      type: object
+      required:
+        - inner
+        - items
+      properties:
+        inner:
+          $ref: '#/components/schemas/LabClosedInner'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LabClosedInner'
     LabPriority:
       type: string
       enum:

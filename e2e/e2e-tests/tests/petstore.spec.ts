@@ -1763,6 +1763,150 @@ test('lab/nested-binary (#75 residual): a binary field NESTED below the multipar
   expect(missing.status()).toBe(422);
 });
 
+// ===========================================================================
+// RECURSION BUG-HUNT: the highest-risk remaining gaps. Two structural questions:
+//   (1) Does the WritableData readOnly/writeOnly split recurse into a class that
+//       is nested INSIDE A COLLECTION?
+//   (2) Does the #30 closed-object NoUnknownPropertiesRule recurse into a NESTED
+//       object (property and array item)?
+// Each test asserts the CORRECT contract. Where the generator gets it wrong, the
+// test FAILS loudly and the failure IS the finding (the bug is in generator
+// src/, out of scope to fix here). See e2e/README.md for the writeup.
+// ===========================================================================
+
+// (1) Nested-in-collection readOnly/writeOnly split.
+//
+// /lab/nested-variant body is LabNestedVariant { title, items[] }, each item a
+// LabVariantItem with: name (plain), secret (writeOnly), serverId (readOnly).
+//
+// CORRECT contract, recursing into each item:
+//   (a) writeOnly `secret` is accepted on write but OMITTED from the read response.
+//   (b) readOnly `serverId` is server-managed: a client-sent value is IGNORED
+//       (it must NOT echo back as the client sent it).
+//
+// FINDING (real generator bug): the root LabNestedVariant declares no own
+// readOnly/writeOnly, so NO writable root variant is synthesized, and the body
+// param is bound to the READ variant LabNestedVariantData. Its items collection
+// is typed LabVariantItemData (the READ variant), which treats readOnly serverId
+// as a normal hydratable, writable property. So a client-sent serverId is
+// accepted and ECHOED BACK verbatim: the readOnly split does NOT recurse on the
+// REQUEST side for a nested-in-collection class. (The writeOnly side DOES drop
+// `secret` from the read serialization, so part (a) passes.) This test asserts
+// the correct contract, so part (b) FAILS until the generator either synthesizes
+// a writable root variant whenever a nested/collected child has one, or binds the
+// body to a writable form whose collection points at LabVariantItemWritableData.
+//
+// !!! REAL BUG CONFIRMED over HTTP (kept as the CORRECT assertion, parked .fixme
+// !!! to keep the suite runnable). OBSERVED response for items with a client-sent
+// !!! readOnly serverId + writeOnly secret:
+// !!!   {"title":"recursion","items":[{"name":"first","serverId":"CLIENT-RO-1"},
+// !!!    {"name":"second","serverId":"CLIENT-RO-2"}]}
+// !!! writeOnly `secret` IS correctly dropped (the split's writeOnly side recurses
+// !!! into the read serialization), BUT readOnly `serverId` round-trips the
+// !!! CLIENT-SENT value verbatim. The readOnly split does NOT recurse on the
+// !!! REQUEST side for a nested-in-collection class: the body binds to the read
+// !!! variant, whose item class treats serverId as a normal writable property.
+// !!! Generator src/ territory, out of scope to fix here. The (a) writeOnly leg
+// !!! passes; the (b) readOnly leg is what fails.
+test.fixme('lab/nested-variant (#writable-variant recursion): writeOnly omitted AND readOnly ignored inside EACH collection item [REAL BUG: readOnly leaks, see comment]', async ({ request }) => {
+  const res = await request.post(`${API_BASE}/lab/nested-variant`, {
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    data: {
+      title: 'recursion',
+      items: [
+        { name: 'first', secret: 'WRITEONLY-MUST-NOT-LEAK-1', serverId: 'CLIENT-RO-1' },
+        { name: 'second', secret: 'WRITEONLY-MUST-NOT-LEAK-2', serverId: 'CLIENT-RO-2' },
+      ],
+    },
+  });
+  expect(res.status(), `nested-variant returned ${res.status()}: ${await res.text()}`).toBe(LAB_OK);
+  const body = await res.json();
+  const rawText = JSON.stringify(body);
+
+  expect(body.title).toBe('recursion');
+  expect(Array.isArray(body.items)).toBe(true);
+  expect(body.items).toHaveLength(2);
+
+  for (const item of body.items) {
+    // (a) writeOnly secret: absent from the read response, by key and by value.
+    expect(item).not.toHaveProperty('secret');
+  }
+  expect(rawText).not.toContain('WRITEONLY-MUST-NOT-LEAK-1');
+  expect(rawText).not.toContain('WRITEONLY-MUST-NOT-LEAK-2');
+
+  // (b) readOnly serverId: a client-sent value must be IGNORED, never echoed
+  // back verbatim. (Currently FAILS: the read-variant item binds serverId as a
+  // writable property, so the client value round-trips. Real generator bug.)
+  expect(rawText, 'client-sent readOnly serverId leaked back into the response').not.toContain('CLIENT-RO-1');
+  expect(rawText).not.toContain('CLIENT-RO-2');
+});
+
+// (2) Closed-object enforcement on a NESTED object.
+//
+// /lab/closed-nest body is LabClosedNest { inner, items[] } where both `inner`
+// (property) and each `items[*]` (collection item) are LabClosedInner, a closed
+// object (additionalProperties: false, only `known` allowed).
+//
+// CORRECT contract, recursing into each nested object:
+//   - a clean payload PASSES (201);
+//   - an unknown key on the inner property 422s keyed on `inner.*`;
+//   - an unknown key on an array item 422s keyed on `items.*`.
+//
+// FINDING (real generator bug): NoUnknownPropertiesRule is a Laravel
+// DataAwareRule. Laravel's setData() always injects the FULL TOP-LEVEL payload,
+// never the nested object's subset. When the rule runs for a nested attribute
+// (inner.__openapi... / items.0.__openapi...) it still inspects the ROOT keys
+// (`inner`, `items`) and compares them against the INNER allow-list (`known`), so
+// it falsely reports the root's keys as unknown. Net effect: every closed nested
+// object REJECTS EVERY payload, including a perfectly clean one. The rule does
+// not recurse. This test asserts the correct contract, so the clean-payload leg
+// FAILS until the generated rule is made nesting-aware (e.g. inspect the keyed
+// subtree, not the whole payload).
+//
+// !!! REAL BUG CONFIRMED over HTTP (kept as the CORRECT assertion, parked .fixme
+// !!! to keep the suite runnable). OBSERVED for a perfectly CLEAN payload
+// !!! ({inner:{known:'a'},items:[{known:'b'},{known:'c'}]}):
+// !!!   422 {"errors":{
+// !!!     "inner.__openapi_laravel_no_unknown_properties":
+// !!!       ["...may not contain unknown properties: inner, items."],
+// !!!     "items.0.__openapi_laravel_no_unknown_properties":[...],
+// !!!     "items.1.__openapi_laravel_no_unknown_properties":[...]}}
+// !!! The nested NoUnknownPropertiesRule receives the ROOT payload via Laravel's
+// !!! DataAwareRule::setData() (which always hands over the full top-level data,
+// !!! never the nested subtree), then compares the root keys (inner, items)
+// !!! against the inner allow-list (known) and falsely rejects them. Net effect:
+// !!! EVERY closed nested object rejects EVERY payload, clean ones included. The
+// !!! #30 rule does NOT recurse. Generator src/ territory, out of scope to fix
+// !!! here. The whole test fails on its FIRST (clean-payload) leg.
+test.fixme('lab/closed-nest (#30 recursion): unknown nested key 422s on the nested path, clean payload passes [REAL BUG: clean payload rejected, see comment]', async ({ request }) => {
+  // Clean payload: must PASS. (Currently FAILS: the rule rejects even clean data
+  // because setData() hands it the root keys, not the inner subtree.)
+  const clean = await request.post(`${API_BASE}/lab/closed-nest`, {
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    data: { inner: { known: 'a' }, items: [{ known: 'b' }, { known: 'c' }] },
+  });
+  expect(clean.status(), `clean closed-nest returned ${clean.status()}: ${await clean.text()}`).toBe(LAB_OK);
+  expect(clean.body).toBeDefined;
+
+  // Unknown key on the INNER property: must 422 keyed on inner.*.
+  const innerBad = await request.post(`${API_BASE}/lab/closed-nest`, {
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    data: { inner: { known: 'a', sneaky: 'BAD' }, items: [{ known: 'b' }] },
+  });
+  expect(innerBad.status(), `inner-unknown closed-nest returned ${innerBad.status()}`).toBe(422);
+  const innerErrors = JSON.stringify((await innerBad.json()).errors ?? {});
+  expect(innerErrors).toContain('inner');
+
+  // Unknown key on an ARRAY ITEM: must 422 keyed on items.*.
+  const itemBad = await request.post(`${API_BASE}/lab/closed-nest`, {
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    data: { inner: { known: 'a' }, items: [{ known: 'b', sneaky: 'BAD' }] },
+  });
+  expect(itemBad.status(), `item-unknown closed-nest returned ${itemBad.status()}`).toBe(422);
+  const itemErrors = JSON.stringify((await itemBad.json()).errors ?? {});
+  expect(itemErrors).toContain('items');
+});
+
 test('lab/tuple (#82): prefixItems validate per position (and the value round-trips)', async ({ request }) => {
   const ok = await labPost(request, 'tuple', { pair: ['hi', 5] });
   expect(ok.status).toBe(LAB_OK);
@@ -2185,31 +2329,17 @@ test('B1 (interaction): a valid multipart upload WITH ?additionalMetadata=foo 20
   expect(body.message).toContain('caption: multi-axis');
 });
 
-// !!! REAL BUG FOUND (kept as the CORRECT assertion, parked .fixme to keep the
-// !!! suite runnable). A non-integer petId path segment on uploadFile 500s.
+// FIXED (#129, commit 4b1ff10): the generator now emits ->whereNumber('petId')
+// on integer path params. The generated route for POST /pet/{petId}/uploadImage
+// carries ->whereNumber('petId'), so a non-numeric segment misses the route and
+// 404s at the router BEFORE the dispatcher tries to bind 'not-an-int' to the
+// `int $petId` parameter. The previously-observed 500 TypeError
+// ("Argument #2 ($petId) must be of type int, string given") can no longer fire:
+// the route never matches, so the controller is never entered.
 //
-// OBSERVED: POST /pet/not-an-int/uploadImage -> 500 {"message":"Server Error"}.
-// laravel.log: "PetController::uploadFile(): Argument #2 ($petId) must be of
-// type int, string given, called in .../ControllerDispatcher.php on line 46".
-//
-// ROOT CAUSE (generator-shaped, NOT e2e glue): the generated abstract types the
-// method parameter `int $petId`, and the generated route has no numeric
-// constraint (no ->whereNumber('petId')). With strict_types=1, Laravel's
-// ControllerDispatcher binds the untrusted route segment 'not-an-int' to the
-// `int` parameter and PHP throws an UNCATCHABLE-AT-THIS-LAYER TypeError BEFORE
-// the controller body runs. The generated UploadFilePathData::fromRoute() guard
-// (which would 422 cleanly via its `integer` rule) is therefore UNREACHABLE on
-// this op: the dispatcher cannot even assemble the argument list to enter the
-// method. So a path-class that was built precisely to make a bad segment a clean
-// 422 never gets the chance. This is in generator `src/` territory (the abstract
-// signature + the route definition), so it is OUT OF SCOPE to fix here and is
-// reported as a finding. Possible generator fixes: emit `->whereNumber('petId')`
-// on numeric path params, OR type the abstract param `int|string` (or accept the
-// raw Request) so fromRoute() can run and 422 cleanly.
-//
-// The assertion below is the CORRECT contract (a clean 4xx, never a 500). It is
-// left intact under .fixme so the bug stays documented and the suite stays green.
-test.fixme('B1 (interaction): a malformed (non-integer) petId path segment is rejected, never a 500 [REAL BUG: 500 TypeError, see comment]', async ({ request }) => {
+// This was a parked .fixme documenting a 500. The fix landed, so it is now an
+// ACTIVE strict test asserting the CORRECT contract: a clean 404, never a 500.
+test('B1 (interaction): a malformed (non-integer) petId path segment 404s at the router, never a 500 [#129 whereNumber fix]', async ({ request }) => {
   const fs = require('node:fs') as typeof import('node:fs');
   const png = fs.readFileSync(PNG_FIXTURE);
 
@@ -2217,8 +2347,28 @@ test.fixme('B1 (interaction): a malformed (non-integer) petId path segment is re
     headers: { Accept: 'application/json', 'X-API-Key': UPLOAD_API_KEY },
     multipart: { image: { name: 'pixel.png', mimeType: 'image/png', buffer: png } },
   });
-  // CORRECT behavior: a bad path segment is a clean 4xx (422 from the path class,
-  // or 404 from route binding), never a 500. Currently FAILS with 500.
-  expect(res.status(), `bad-petId upload returned ${res.status()}: ${await res.text()}`).toBeLessThan(500);
-  expect(res.status()).toBeGreaterThanOrEqual(400);
+  // CORRECT behavior: the ->whereNumber('petId') constraint makes a non-numeric
+  // segment a route miss, so it is a clean 404, never a 500 TypeError.
+  expect(res.status(), `bad-petId upload returned ${res.status()}: ${await res.text()}`).toBe(404);
+});
+
+// Companion: a NUMERIC petId still routes into the controller as before. The
+// whereNumber constraint only filters non-numeric segments, so a valid numeric
+// value (an existing seeded pet) reaches the upload op and 201s normally. This
+// proves the fix narrows the route ONLY for malformed segments and does not
+// break the happy path. (A numeric-but-missing pet still 404s from the
+// controller body, which is the correct, pre-fix behavior; the fix changed only
+// the NON-numeric case.)
+test('B1 (interaction): a numeric petId still routes into uploadImage and a valid upload 201s [#129 companion]', async ({ request }) => {
+  const fs = require('node:fs') as typeof import('node:fs');
+  const png = fs.readFileSync(PNG_FIXTURE);
+
+  const res = await request.post(`${API_BASE}/pet/1/uploadImage`, {
+    headers: { Accept: 'application/json', 'X-API-Key': UPLOAD_API_KEY },
+    multipart: { image: { name: 'pixel.png', mimeType: 'image/png', buffer: png } },
+  });
+  expect(res.status(), `numeric-petId upload returned ${res.status()}: ${await res.text()}`).toBe(201);
+  const body = await res.json();
+  expect(body.code).toBe(200);
+  expect(body.type).toBe('success');
 });

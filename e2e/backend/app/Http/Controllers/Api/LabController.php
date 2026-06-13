@@ -11,6 +11,7 @@ use App\Data\Lab\LabArrayData;
 use App\Data\Lab\LabBackedEnumData;
 use App\Data\Lab\LabCircleData;
 use App\Data\Lab\LabClosedData;
+use App\Data\Lab\LabClosedNestData;
 use App\Data\Lab\LabCookieEchoData;
 use App\Data\Lab\LabEnumConstData;
 use App\Data\Lab\LabFormatsData;
@@ -24,6 +25,7 @@ use App\Data\Lab\LabLooseUnionData;
 use App\Data\Lab\LabMapData;
 use App\Data\Lab\LabNestedBinaryRequestData;
 use App\Data\Lab\LabNestedData;
+use App\Data\Lab\LabNestedVariantData;
 use App\Data\Lab\LabNumericData;
 use App\Data\Lab\LabPathEchoData;
 use App\Data\Lab\LabPathPathData;
@@ -132,6 +134,28 @@ final class LabController extends AbstractLabController
     public function labNested(LabNestedData $labNested): LabNestedData
     {
         return $labNested;
+    }
+
+    public function labNestedVariant(LabNestedVariantData $labNestedVariant): LabNestedVariantData
+    {
+        // Nested-in-collection readOnly/writeOnly split (#writable-variant
+        // recursion). The framework hydrated and validated the body against the
+        // generated rules() before this ran. We echo it back: the read-variant
+        // serialization is what the test inspects. If the split recurses, each
+        // item omits the writeOnly `secret` and surfaces a server-managed
+        // `serverId`, never the client-sent one. This pure echo cannot itself
+        // inject a serverId, so the assertion checks the generated read variant
+        // does not carry the client-sent writeOnly value back out.
+        return $labNestedVariant;
+    }
+
+    public function labClosedNest(LabClosedNestData $labClosedNest): LabClosedNestData
+    {
+        // Nested closed-object enforcement (#30 recursion). An unknown key on the
+        // inner object (property `inner` or item `items[*]`) must 422 via the
+        // recursing NoUnknownPropertiesRule BEFORE this body runs. A clean payload
+        // round-trips as a pure echo.
+        return $labClosedNest;
     }
 
     public function labBackedEnum(LabBackedEnumData $labBackedEnum): LabBackedEnumData
