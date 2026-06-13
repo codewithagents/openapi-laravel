@@ -1250,6 +1250,31 @@ test('lab/empty-map: an EMPTY map RESPONSE serializes as {} not [] (response sid
   expect(Array.isArray(body.counts)).toBe(false);
 });
 
+test('lab/inline-response: an INLINE object response (#129) synthesizes a typed READ-variant return (readOnly kept, writeOnly dropped)', async ({ request }) => {
+  // GET /lab/inline-response declares an INLINE object 200 schema (NOT a
+  // component responses $ref, that path is covered by /lab/ref-body). The
+  // generator synthesizes LabInlineResponseResponseData as the READ variant:
+  // the readOnly generated_at stays in the typed return, the writeOnly
+  // internal_token is dropped (the class has no such property). The concrete
+  // controller returns a populated instance, proving the synthesized typed
+  // return serializes correctly over HTTP, symmetric with the inline request
+  // body (#76).
+  const res = await request.get(`${API_BASE}/lab/inline-response`, {
+    headers: { Accept: 'application/json' },
+  });
+  expect(res.status()).toBe(200);
+  const body = await res.json();
+  // The normal property and the readOnly property are present with the
+  // expected values (generated_at is mapped back from the generatedAt property).
+  expect(body.label).toBe('inline');
+  expect(body.generated_at).toBe('2026-06-13T12:00:00+00:00');
+  // The writeOnly property is ABSENT from the READ-variant response. Check the
+  // parsed body AND the raw text so its absence is unambiguous.
+  expect(body).not.toHaveProperty('internal_token');
+  const text = await res.text();
+  expect(text).not.toContain('internal_token');
+});
+
 test('lab/union: oneOf scalar union hydrates BOTH variants without coercion', async ({ request }) => {
   const asString = await labPost(request, 'union', { value: 'hello' });
   expect(asString.status).toBe(LAB_OK);
@@ -1576,11 +1601,13 @@ test('lab/secure-public (#77): security:[] carries no auth middleware and is rea
 // Stage 2: COMPOSITION FORMS
 // ---------------------------------------------------------------------------
 
-test('lab/inline-body (#76): an INLINE object request body is synthesized, validates, and round-trips', async ({ request }) => {
-  // labInlineBody returns a JsonResponse (not a Data object), so the success
-  // status is 200, not the laravel-data 201.
+test('lab/inline-body (#76 + #129): an INLINE object request body is synthesized, validates, and round-trips into a synthesized inline response Data', async ({ request }) => {
+  // The op declares an inline object 200 response, so #129 synthesizes
+  // LabInlineBodyResponseData and the abstract now returns it (it used to be a
+  // JsonResponse). A Data returned from a POST serializes 201 (the laravel-data
+  // framework default, same as every other Data-returning lab op).
   const ok = await labPost(request, 'inline-body', { title: 'hello', rank: 3 });
-  expect(ok.status).toBe(200);
+  expect(ok.status).toBe(LAB_OK);
   expect(ok.body).toEqual({ title: 'hello', rank: 3 });
 
   expect((await labPost(request, 'inline-body', { title: 'x', rank: 3 })).status).toBe(422); // minLength:2

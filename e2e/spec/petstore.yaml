@@ -1187,6 +1187,40 @@ paths:
                     type: integer
         '422':
           description: Validation exception
+  /lab/inline-response:
+    get:
+      tags:
+        - lab
+      summary: >-
+        Return an INLINE object success response (#129, not a component
+        responses $ref). The generator synthesizes a typed
+        LabInlineResponseResponseData class from the inline 200 object schema as
+        the READ variant: the readOnly property (generated_at) stays in the
+        typed return, the writeOnly property (internal_token) is DROPPED. Pins
+        that an inline (non-$ref) object response is synthesized symmetric with
+        an inline object request body (#76), distinct from the component $ref
+        response covered by /lab/ref-body (#116).
+      operationId: labInlineResponse
+      responses:
+        '200':
+          description: an inline object response (READ variant drops writeOnly)
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - label
+                  - generated_at
+                properties:
+                  label:
+                    type: string
+                  generated_at:
+                    type: string
+                    format: date-time
+                    readOnly: true
+                  internal_token:
+                    type: string
+                    writeOnly: true
   /lab/shared-one:
     post:
       tags:

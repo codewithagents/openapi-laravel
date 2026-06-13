@@ -19,6 +19,8 @@ use App\Data\Lab\LabGalleryRequestData;
 use App\Data\Lab\LabHeaderEchoData;
 use App\Data\Lab\LabHeaderHeaderData;
 use App\Data\Lab\LabInlineBodyRequestData;
+use App\Data\Lab\LabInlineBodyResponseData;
+use App\Data\Lab\LabInlineResponseResponseData;
 use App\Data\Lab\LabInlineShapeData;
 use App\Data\Lab\LabInt64Data;
 use App\Data\Lab\LabLooseUnionData;
@@ -237,11 +239,29 @@ final class LabController extends AbstractLabController
 
     // --- Stage 2: composition forms -----------------------------------------
 
-    public function labInlineBody(LabInlineBodyRequestData $body): JsonResponse
+    public function labInlineBody(LabInlineBodyRequestData $body): LabInlineBodyResponseData
     {
-        // The generated abstract returns JsonResponse for this inline-object
-        // body op. Echo the validated, hydrated values.
-        return new JsonResponse($body->toArray());
+        // INLINE object response synthesis (#129): the op declares an inline
+        // 200 object schema, so the generator now synthesizes
+        // LabInlineBodyResponseData and types the abstract return as it (it used
+        // to be JsonResponse). Echo the validated, hydrated request values into
+        // the synthesized response Data.
+        return new LabInlineBodyResponseData(title: $body->title, rank: $body->rank);
+    }
+
+    public function labInlineResponse(): LabInlineResponseResponseData
+    {
+        // INLINE object response synthesis (#129). The generator built
+        // LabInlineResponseResponseData from the inline 200 object schema as the
+        // READ variant: the readOnly generated_at stays, the writeOnly
+        // internal_token is dropped (the class has no such property to set).
+        // Returning a populated instance proves the synthesized typed return
+        // serializes correctly over HTTP, symmetric with the inline request
+        // body (#76) and distinct from the component $ref response (#116).
+        return new LabInlineResponseResponseData(
+            label: 'inline',
+            generatedAt: '2026-06-13T12:00:00+00:00',
+        );
     }
 
     public function labSharedOne(LabSharedBodyRequestData $body): LabSharedResponseResponseData
