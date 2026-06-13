@@ -999,6 +999,63 @@ test('lab/string: minLength, maxLength, and pattern round-trip and reject', asyn
   expect((await labPost(request, 'string', { sized: 'hello', coded: 'bad-code' })).status).toBe(422); // regex
 });
 
+// ---------------------------------------------------------------------------
+// CONFIG FEATURE: controllers.base_class (#83)
+// ---------------------------------------------------------------------------
+// config/openapi-laravel.php sets controllers.base_class = BaseApiController, so
+// the generator emits `abstract class Abstract*Controller extends
+// BaseApiController`. BaseApiController declares the BaseClassMarker middleware
+// via Laravel 12's HasMiddleware interface, which stamps an X-Base-Class header
+// on every response handled by a generated controller. Asserting that header
+// over real HTTP proves the generated abstract truly extends the configured base
+// and the inheritance is live at runtime, not just textually in the file.
+test('controllers.base_class (#83): every generated-controller route carries the X-Base-Class header from the configured base', async ({ request }) => {
+  // A lab GET handled by the generated LabController (extends AbstractLabController
+  // extends BaseApiController). labHeader echoes a constrained header param; we
+  // only care that the base-class marker fires, so send a valid token.
+  const res = await request.get(`${API_BASE}/lab/header`, {
+    headers: { Accept: 'application/json', 'X-Lab-Token': 'tok-1234' },
+  });
+  expect(res.status()).toBe(200);
+  expect(res.headers()['x-base-class']).toBe('openapi-laravel');
+
+  // It is not specific to one controller: a generated PetController route carries
+  // it too, since every generated abstract extends the same configured base.
+  const pets = await request.get(`${API_BASE}/pet/findByStatus?status=available`, {
+    headers: { Accept: 'application/json' },
+  });
+  expect(pets.status()).toBe(200);
+  expect(pets.headers()['x-base-class']).toBe('openapi-laravel');
+});
+
+// ---------------------------------------------------------------------------
+// CONFIG FEATURE: output.validation_trait (#83)
+// ---------------------------------------------------------------------------
+// config/openapi-laravel.php sets output.validation_trait =
+// App\Validation\CustomValidationMessages, so the generator weaves a
+// `use CustomValidationMessages;` line into every generated Data class. The trait
+// returns CUSTOM messages for the /lab/trait-check `code` field (required + regex
+// rules). laravel-data discovers the static messages() via method_exists() and
+// feeds it to the Laravel validator, so a missing/malformed code 422s with the
+// EXACT custom string. That equality is the proof the trait is woven in and
+// honored, not just present in the file.
+test('output.validation_trait (#83): the woven trait returns the exact custom 422 messages for /lab/trait-check code', async ({ request }) => {
+  // Valid code round-trips (proves the rule is the trait-bearing class's rule()).
+  const ok = await labPost(request, 'trait-check', { code: 'ABC-123' });
+  expect(ok.status).toBe(LAB_OK);
+  expect(ok.body).toEqual({ code: 'ABC-123' });
+
+  // Missing code -> trait's code.required message, byte-for-byte.
+  const missing = await labPost(request, 'trait-check', {});
+  expect(missing.status).toBe(422);
+  expect(missing.body.errors.code[0]).toBe('CUSTOM: code is required');
+
+  // Malformed code -> trait's code.regex message, byte-for-byte.
+  const malformed = await labPost(request, 'trait-check', { code: 'nope' });
+  expect(malformed.status).toBe(422);
+  expect(malformed.body.errors.code[0]).toBe('CUSTOM: code is malformed');
+});
+
 test('lab/array: minItems, maxItems, and uniqueItems round-trip and reject', async ({ request }) => {
   const ok = await labPost(request, 'array', { bag: ['a', 'b'], distinct: [1, 2, 3] });
   expect(ok.status).toBe(LAB_OK);

@@ -472,6 +472,38 @@ REJECTS a request that only carries a valid `X-Lab-Team` (second requirement),
 even though a spec-true OR would admit it. The e2e test pins this exact behavior
 so the divergence from the OpenAPI ideal stays visible and honest.
 
+### Config-only OUTPUT features: `controllers.base_class` and `output.validation_trait` (#83)
+
+Both are config-only switches that change the SHAPE of the generated output, with
+no CLI flag and no spec construct. The e2e suite proves each one not by inspecting
+the generated file but by asserting its OBSERVABLE effect over real HTTP, so the
+test fails if the generator stops weaving the feature in OR if the woven form is
+inert at runtime.
+
+| Feature | Config | What the assertion proves | Generated vs consumer | Status |
+|---|---|---|---|---|
+| `controllers.base_class` | `controllers.base_class: App\Http\Controllers\Api\BaseApiController` | every generated-controller route carries an `X-Base-Class: openapi-laravel` response header (asserted on a `LabController` route AND a `PetController` route), so the generated abstract really `extends BaseApiController` and the inheritance is live at runtime | generated `abstract class Abstract*Controller extends BaseApiController`; consumer writes the base, which declares `BaseClassMarker` middleware via Laravel 12's `HasMiddleware` interface | proven |
+| `output.validation_trait` | `output.validation_trait: App\Validation\CustomValidationMessages` | POST `/lab/trait-check` with a missing or malformed `code` 422s with `errors.code[0]` EQUAL to the trait's exact custom string, so the trait is woven into the generated Data class and laravel-data honors its static `messages()` | generated `use CustomValidationMessages;` body line in every Data class; consumer writes the trait | proven |
+
+The base-class proof mechanism: `BaseApiController` is abstract and implements
+`HasMiddleware`, returning `BaseClassMarker` from its static `middleware()`. The
+generator emits each abstract as `extends BaseApiController`, the concrete
+controllers extend the abstracts, and the generated routes dispatch in the
+`[Controller::class, 'method']` array form, so controller middleware fires.
+`BaseClassMarker` stamps `X-Base-Class: openapi-laravel` on the response. If the
+generator stopped emitting the extends clause, the header would vanish and the
+test would fail.
+
+The validation-trait proof mechanism: a new `/lab/trait-check` operation echoes a
+single required, pattern-constrained `code` (`^[A-Z]{3}-[0-9]{3}$`). Its generated
+`LabTraitCheckData` carries `use CustomValidationMessages;`, whose static
+`messages()` returns `code.required => 'CUSTOM: code is required'` and
+`code.regex => 'CUSTOM: code is malformed'`. laravel-data discovers `messages()`
+via `method_exists()` and feeds it to the Laravel validator, so the 422 body's
+`errors.code[0]` is the exact custom string, byte-for-byte. The keys are scoped to
+that one field so enabling the trait globally (it is woven into EVERY Data class)
+does not change the message text any other test asserts on.
+
 ## CORS
 
 `config/cors.php` is fully permissive (`paths: api/*`, origins/methods/headers

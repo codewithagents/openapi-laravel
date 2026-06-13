@@ -32,6 +32,7 @@ use App\Data\Lab\LabSharedBodyRequestData;
 use App\Data\Lab\LabSharedResponseResponseData;
 use App\Data\Lab\LabSquareData;
 use App\Data\Lab\LabStringData;
+use App\Data\Lab\LabTraitCheckData;
 use App\Data\Lab\LabTupleData;
 use App\Data\Lab\LabUnionData;
 use App\Data\Lab\LabUnionSelectorData;
@@ -69,6 +70,11 @@ final class LabController extends AbstractLabController
     public function labString(LabStringData $labString): LabStringData
     {
         return $labString;
+    }
+
+    public function labTraitCheck(LabTraitCheckData $labTraitCheck): LabTraitCheckData
+    {
+        return $labTraitCheck;
     }
 
     public function labArray(LabArrayData $labArray): LabArrayData

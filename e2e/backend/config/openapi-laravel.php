@@ -30,6 +30,17 @@ return [
          * so a removed schema does not leave a stale class behind.
          */
         'prune' => false,
+
+        /*
+         * #83: mix this consumer-owned trait into every generated Data class.
+         * It is the regeneration-safe home for laravel-data's static messages()
+         * / attributes() hooks: the Data class is overwritten on every run, the
+         * trait is not. Here CustomValidationMessages returns a CUSTOM message
+         * for the /lab/trait-check `code` field, so a missing or malformed code
+         * 422s with that exact string. The e2e suite asserts it over real HTTP,
+         * proving the trait is woven in and laravel-data honors its messages().
+         */
+        'validation_trait' => 'App\\Validation\\CustomValidationMessages',
     ],
 
     /*
@@ -43,6 +54,17 @@ return [
         'enabled' => false,
         'path' => app_path('Http/Controllers/Api'),
         'namespace' => 'App\\Http\\Controllers\\Api',
+
+        /*
+         * #83: make every generated abstract controller `extends BaseApiController`
+         * (default: extends nothing). BaseApiController declares the
+         * BaseClassMarker middleware via Laravel 12's HasMiddleware interface, so
+         * every route handled by a generated controller stamps an X-Base-Class
+         * header. The e2e suite asserts that header over real HTTP, proving the
+         * generated abstract truly extends the configured base and the
+         * inheritance is live.
+         */
+        'base_class' => 'App\\Http\\Controllers\\Api\\BaseApiController',
     ],
 
     /*

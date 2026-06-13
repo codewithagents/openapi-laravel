@@ -725,6 +725,31 @@ paths:
                 $ref: '#/components/schemas/LabString'
         '422':
           description: Validation exception
+  /lab/trait-check:
+    post:
+      tags:
+        - lab
+      summary: >-
+        Echo a single required, pattern-constrained code. Backs the
+        output.validation_trait config proof (#83): the generated request Data
+        class mixes in the consumer trait, so a missing or malformed code 422s
+        with the trait's CUSTOM message rather than Laravel's default.
+      operationId: labTraitCheck
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabTraitCheck'
+      responses:
+        '200':
+          description: echoed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabTraitCheck'
+        '422':
+          description: Validation exception
   /lab/array:
     post:
       tags:
@@ -1574,6 +1599,14 @@ components:
         coded:
           type: string
           pattern: '^[A-Z]{2}-[0-9]{4}$'
+    LabTraitCheck:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z]{3}-[0-9]{3}$'
     LabArray:
       type: object
       required:
