@@ -83,7 +83,9 @@ date/date-time/time/duration, hostname, defaults, `const`), backed enums, readOn
 nested objects, collections, `allOf` merge, `additionalProperties` typed maps (empty map serializes
 as `{}`), `oneOf`/`anyOf` native unions for scalars, and discriminated object unions (all three forms:
 named-component, inline-union with synthesized variant names, and allOf-inheritance) validated and
-hydrated via an abstract morphable base plus variants. Default-on closed-object enforcement. The
+hydrated via an abstract morphable base plus variants. Default-on closed-object enforcement that
+scopes to its own attribute subtree, so a NESTED or collection-nested closed object enforces against
+its own keys (keyed on the nested path) and a clean nested payload is not false-rejected (#30). The
 naming layer (incl. the `this` special case). Deterministic, Pint-idempotent, PHPStan-max-clean,
 Qodana-clean output. Artisan command plus framework-free `vendor/bin`. Validation messages and
 attribute names are customizable without touching generated files (#83): `output.validation_trait`

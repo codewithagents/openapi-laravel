@@ -742,6 +742,62 @@ const READER_BASELINE_REBASELINED_129 = [
     'zuora.json' => 'integer path parameter constrained with whereNumber',
 ];
 
+/*
+ * INTENTIONAL post-freeze rebaseline (#30 nested-recursion fix): the
+ * twenty-three specs in READER_BASELINE_REBASELINED_30 carry a post-fix hash
+ * because they reference the inlined NoUnknownPropertiesRule (closed-object
+ * enforcement, on by default), whose RUNTIME BODY changed. The bug: the rule is
+ * a DataAwareRule, so laravel-data handed it the FULL top-level payload via
+ * setData(); a rule attached to a NESTED closed object therefore compared the
+ * ROOT keys against the nested allow-list and false-rejected every valid nested
+ * payload. The fix scopes the rule to its OWN attribute subtree (it strips the
+ * trailing sentinel segment from the validation attribute, reads that node out
+ * of the payload, and policing only that node's keys), so a nested or
+ * collection-nested closed object now enforces against its own keys. The ONLY
+ * divergence in each of these hashes is the bytes of the inlined
+ * Support/NoUnknownPropertiesRule.php copy (the emitted rules() expressions,
+ * Data classes, controllers, routes, and warnings are all byte-unchanged). A
+ * spec also present in an earlier rebaseline list accumulates the changes;
+ * every spec outside the rebaseline lists stays the frozen v0.11.0 freeze,
+ * byte for byte.
+ */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-#30-fix output
+ * (the inlined NoUnknownPropertiesRule body now scopes to its own subtree),
+ * keyed by spec basename. The per-spec test below still compares against the
+ * JSON baseline, which now holds these specs' post-fix hashes; the coverage
+ * test pins that every listed name exists on disk and in the baseline, so the
+ * list cannot rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_30 = [
+    'ably_control.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'adyen-checkout.yaml' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'adyen-legal-entity.yaml' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'apisguru.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'bbc.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'bitbucket.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'codat_accounting.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'configcat.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'discourse.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'gettyimages.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'github.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'here_positioning.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'here_tracking.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'jira.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'openai.yaml' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'shutterstock.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'slack.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'stripe.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'twitter.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'vercel.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'webflow.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'zoom.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+    'zuora.json' => 'inlined NoUnknownPropertiesRule body scoped to its own subtree',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -811,10 +867,10 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
     }
 
     // Every spec rebaselined for #110, #116, #120, #122, #124, #125, #126,
-    // #113, #121, or #129 must still exist on disk and carry a hash in the
+    // #113, #121, #129, or #30 must still exist on disk and carry a hash in the
     // baseline (it is an update, not an exemption): a renamed or deleted spec
     // would make the documented rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129)] as $spec) {
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_30)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }

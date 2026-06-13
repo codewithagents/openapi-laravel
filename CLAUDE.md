@@ -33,7 +33,10 @@ readOnly/writeOnly split, nested objects, collections, `@deprecated` docblocks. 
 `oneOf`/`anyOf` native unions for scalars, discriminated object unions (named-component, inline-union
 with synthesized variant names, and allOf-inheritance forms) validated and hydrated via an abstract
 morphable base plus variants (#38), non-object components aliased at use sites. Default-on
-`additionalProperties: false` enforcement, opt out with `--no-enforce-closed-objects` (#30).
+`additionalProperties: false` enforcement, opt out with `--no-enforce-closed-objects` (#30); the
+`NoUnknownPropertiesRule` scopes to its own attribute subtree, so a closed object NESTED as a
+property of (or inside a collection on) another object enforces against ITS OWN keys, keyed on the
+nested path, and a clean nested payload is no longer false-rejected.
 `output.validation_trait` (config-only, #83) mixes a user-owned trait into every generated Data
 class, the regeneration-safe home for laravel-data's static `messages()` / `attributes()` hooks.
 Tag-grouped data layout (#93, the ONLY layout; the flags, the config key, and the flat mode are
