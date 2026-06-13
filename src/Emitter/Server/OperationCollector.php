@@ -1845,14 +1845,17 @@ final class OperationCollector
     }
 
     /**
-     * Find the application/json schema in a content map.
+     * Find the schema of the first content entry whose media type the predicate
+     * accepts (and that carries a schema). The three media-type lookups below
+     * differ only in that predicate, so they share this walk.
      *
      * @param  array<array-key, MediaTypeNode>  $content
+     * @param  callable(string): bool  $matches
      */
-    private function jsonSchema(array $content): SchemaNode|ReferenceNode|null
+    private function schemaForMediaType(array $content, callable $matches): SchemaNode|ReferenceNode|null
     {
         foreach ($content as $mediaType => $media) {
-            if (! is_string($mediaType) || ! $this->isJsonMediaType($mediaType)) {
+            if (! is_string($mediaType) || ! $matches($mediaType)) {
                 continue;
             }
 
@@ -1865,9 +1868,28 @@ final class OperationCollector
         return null;
     }
 
+    /**
+     * The case-folded base media type, with any `; charset=...` parameter
+     * stripped. Shared by the three media-type predicates.
+     */
+    private function mediaTypeBase(string $mediaType): string
+    {
+        return strtolower(trim(explode(';', $mediaType)[0]));
+    }
+
+    /**
+     * Find the application/json schema in a content map.
+     *
+     * @param  array<array-key, MediaTypeNode>  $content
+     */
+    private function jsonSchema(array $content): SchemaNode|ReferenceNode|null
+    {
+        return $this->schemaForMediaType($content, $this->isJsonMediaType(...));
+    }
+
     private function isJsonMediaType(string $mediaType): bool
     {
-        $base = strtolower(trim(explode(';', $mediaType)[0]));
+        $base = $this->mediaTypeBase($mediaType);
 
         return $base === 'application/json' || str_ends_with($base, '+json');
     }
@@ -1881,23 +1903,12 @@ final class OperationCollector
      */
     private function multipartSchema(array $content): SchemaNode|ReferenceNode|null
     {
-        foreach ($content as $mediaType => $media) {
-            if (! is_string($mediaType) || ! $this->isMultipartFormData($mediaType)) {
-                continue;
-            }
-
-            $schema = $media->schema;
-            if ($schema !== null) {
-                return $schema;
-            }
-        }
-
-        return null;
+        return $this->schemaForMediaType($content, $this->isMultipartFormData(...));
     }
 
     private function isMultipartFormData(string $mediaType): bool
     {
-        return strtolower(trim(explode(';', $mediaType)[0])) === 'multipart/form-data';
+        return $this->mediaTypeBase($mediaType) === 'multipart/form-data';
     }
 
     /**
@@ -1910,23 +1921,12 @@ final class OperationCollector
      */
     private function formUrlencodedSchema(array $content): SchemaNode|ReferenceNode|null
     {
-        foreach ($content as $mediaType => $media) {
-            if (! is_string($mediaType) || ! $this->isFormUrlencoded($mediaType)) {
-                continue;
-            }
-
-            $schema = $media->schema;
-            if ($schema !== null) {
-                return $schema;
-            }
-        }
-
-        return null;
+        return $this->schemaForMediaType($content, $this->isFormUrlencoded(...));
     }
 
     private function isFormUrlencoded(string $mediaType): bool
     {
-        return strtolower(trim(explode(';', $mediaType)[0])) === 'application/x-www-form-urlencoded';
+        return $this->mediaTypeBase($mediaType) === 'application/x-www-form-urlencoded';
     }
 
     private function scalarType(SchemaNode $schema): ?string
