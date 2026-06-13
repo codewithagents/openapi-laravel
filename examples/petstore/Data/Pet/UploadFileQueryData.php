@@ -20,7 +20,7 @@ final class UploadFileQueryData extends Data
      * Validate against rules() and hydrate from the query string only, so
      * request-body fields never bleed into query validation (or vice versa).
      */
-    public static function fromQuery(Request $request): static
+    public static function fromQuery(Request $request): self
     {
         return self::validateAndCreate($request->query->all());
     }

@@ -21,7 +21,7 @@ final class DeleteUserPathData extends Data
      * only, so path-segment constraints are enforced at runtime (a bad value
      * is a 422, not a silent 200).
      */
-    public static function fromRoute(Request $request): static
+    public static function fromRoute(Request $request): self
     {
         return self::validateAndCreate($request->route()->parameters());
     }
