@@ -2,6 +2,7 @@
     "symbol-whitelist": [
         "config",
         "config_path",
+        "base_path",
         "Illuminate\\Console\\Command",
         "Illuminate\\Support\\ServiceProvider",
         "Illuminate\\Support\\Arr",

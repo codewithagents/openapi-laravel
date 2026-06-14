@@ -19,6 +19,12 @@ namespace CodeWithAgents\OpenApiLaravel\Console;
  * The generate paths print them after writing; nothing in the planned files is
  * affected. It defaults to an empty list so existing constructions keep working.
  *
+ * `unsupportedCount` is the number of constructs the generator could not
+ * faithfully represent (the fidelity report's entry count). The generate paths
+ * print a one-line summary when it is positive and the report is enabled. It is
+ * independent of whether the report file is actually planned: a disabled report
+ * still has an accurate count, the command just does not print the pointer.
+ *
  * @internal
  */
 final readonly class GenerationPlan
@@ -31,6 +37,7 @@ final readonly class GenerationPlan
         public array $files,
         public bool $noModelSchemas,
         public array $warnings = [],
+        public int $unsupportedCount = 0,
     ) {}
 
     /**

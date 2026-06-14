@@ -32,7 +32,7 @@ final class DeletePetPathData extends Data
     public static function rules(): array
     {
         return [
-            'petId' => ['required', 'integer'],
+            'petId' => ['required', 'integer', 'min:-9223372036854775808', 'max:9223372036854775807'],
         ];
     }
 }

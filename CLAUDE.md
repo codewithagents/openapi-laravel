@@ -27,7 +27,8 @@ keys and wrong types rejected, 1 MiB size guard) with config-sourced write paths
 config's directory (#54).
 
 **Models:** laravel-data classes, spec-derived `rules()` (incl. exclusive bounds, `multipleOf`,
-`uniqueItems`, strict date/date-time/time/duration, hostname, defaults, `const`), backed enums,
+`uniqueItems`, strict date/date-time/time/duration, hostname, defaults, `const`, `int32`/`int64`
+range bounds, `not: {enum}` / `not: {const}` as `Rule::notIn`), backed enums,
 a TRANSITIVE readOnly/writeOnly split (a writable variant is synthesized when the schema OR any
 descendant nested object, collection element, map value, allOf/union member declares a
 readOnly/writeOnly property; the write variant recurses into nested and collection-nested Data
@@ -136,6 +137,20 @@ skipped, never overwritten, and the drift gate never sees them. The abstracts ex
 default; `controllers.base_class` (#83, both config surfaces plus `--controller-base-class` on the
 standalone binary) makes them extend a configurable base class.
 
+**Fidelity report:** on every `openapi:generate` run the generator writes
+`openapi-laravel.unsupported.json`: a deterministic JSON file (sorted, deduped, byte-stable)
+listing every OpenAPI construct in the spec it cannot faithfully represent AND that affects
+correctness or runtime behavior. Each entry carries `pointer` (RFC 6901), `location`, `construct`,
+`impact`, and `severity: correctness`. Constructs currently recorded: cookie params, success-response
+headers, callbacks/webhooks, content-typed params, multipart `encoding`, 3.2
+`query`/`additionalOperations`/`itemSchema` stubs, repeated-key array query params, matrix/label
+path params, `allowEmptyValue`, undiscriminated object unions, `patternProperties` value schemas,
+`$ref`-valued additionalProperties map values, and intractable `not` shapes (type exclusion, nested
+object, composition). The file is part of the drift-checked output; opt out with
+`output.unsupported_report: false` / `--no-unsupported-report` (both flags together is exit 2);
+opting out removes the file from both generate and check, so deleting it never fails the gate.
+After a run with gaps the console prints `N construct(s) not fully represented, see <path>`.
+
 **Drift gate:** `openapi:check` (and `vendor/bin/openapi-laravel check`) regenerates the file set
 in memory and compares byte-for-byte against disk; exit 0 in sync, 1 drift, 2 config/spec error;
 `--diff` prints a bounded diff. Generate and check share one `GenerationPlanner`, so they are
@@ -183,7 +198,7 @@ no file-size rule (OpenAPI has no standard byte-size
 keyword), `encoding.contentType` is not read (only `contentMediaType` feeds `mimetypes:`), and a
 binary string nested below the multipart root stays a plain string; tuple `prefixItems` validates
 per position (#82, incl. a length cap for the closed `items: false` form) but still types as
-`array<int, mixed>`; int64 bounds degrade gracefully. A non-JSON-only success response is typed as
+`array<int, mixed>`. A non-JSON-only success response is typed as
 the base Symfony `Response` with a warning (#117/#118, honest typing, no Data return); a response
 with NO declared content keeps the JsonResponse default. Response headers are not generated but
 warn per operation on the SELECTED success response only (#114, the one response the generator

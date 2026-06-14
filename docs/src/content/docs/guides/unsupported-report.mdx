@@ -1,0 +1,222 @@
+---
+title: Unsupported constructs report
+description: The fidelity report that lists every OpenAPI construct the generator cannot faithfully represent. Emitted on every generate run, drift-checked by openapi:check, readable by humans and machines.
+---
+
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components'
+
+Every generator has gaps. `openapi-laravel` documents its honestly: on every `openapi:generate` run
+the generator writes `openapi-laravel.unsupported.json` (the fidelity report) that lists every
+OpenAPI construct in your spec that it cannot faithfully represent AND that affects the correctness
+or runtime behavior of the generated code. Pure metadata (externalDocs, examples, xml, servers, Link
+objects, allowReserved, info.contact/license) is intentionally excluded: those silences do not change
+the generated PHP.
+
+The report pairs with the [drift gate](/guides/drift-check) (it is part of the checked output, see
+below) and with the [limitations prose](/guides/limitations) (which covers the same gaps in
+human-readable form, spec-version context, and workaround advice).
+
+## What it looks like
+
+The file is a single JSON object with a `generator` label and an `unsupported` array:
+
+```json
+{
+  "generator": "openapi-laravel",
+  "unsupported": [
+    {
+      "pointer": "/paths/~1pets/get/parameters/0",
+      "location": "GET /pets – parameter 'tags'",
+      "construct": "repeated-key array query param (form+explode:true)",
+      "impact": "PHP collapses repeated query keys; only the last value survives",
+      "severity": "correctness"
+    },
+    {
+      "pointer": "/paths/~1pets/get/callbacks",
+      "location": "GET /pets – callbacks",
+      "construct": "operation callbacks",
+      "impact": "no callback handler is scaffolded",
+      "severity": "correctness"
+    }
+  ]
+}
+```
+
+Each entry has five fields:
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `pointer` | string | RFC 6901 JSON pointer into the spec, identifying the exact node. |
+| `location` | string | Human-readable label (method + path + local context). |
+| `construct` | string | Short name for the unsupported feature. |
+| `impact` | string | One-line description of what silently goes wrong in the generated code. |
+| `severity` | string | Always `"correctness"` today: every recorded entry affects runtime behavior. |
+
+Entries are sorted by pointer, then construct, and deduped, so the file is byte-stable. A spec with
+no recorded gaps produces `"unsupported": []`. No construct is recorded more than once per location
+even if multiple features overlap.
+
+## Reading an entry
+
+Each entry tells you three things:
+
+1. **Where** in the spec the gap is (`pointer` and `location`).
+2. **What** the unsupported feature is (`construct`).
+3. **What goes wrong** at runtime without it (`impact`).
+
+Use the pointer to jump to the exact node in your spec editor. Use the impact line to decide whether
+the gap matters for your use case. For example, a `repeated-key array query param` entry means that
+`?tags=a&tags=b` will silently deliver only `b` to your controller; if your API never sends that
+parameter with multiple values, the gap is inert.
+
+<Aside type="tip">
+  Cross-reference the entry's `construct` with the [limitations guide](/guides/limitations) for the
+  full explanation, workaround options, and which tracked issue covers the gap.
+</Aside>
+
+## Constructs currently recorded
+
+These are the correctness gaps that appear in the report today:
+
+| Construct | Impact |
+| --------- | ------ |
+| `repeated-key array query param (form+explode:true)` | PHP collapses repeated query keys; only the last value survives |
+| `in: cookie parameter` | no cookie parameter validation or typing is generated |
+| `content-typed parameter` | a `content`-keyed parameter schema is skipped |
+| `allowEmptyValue` | empty-value semantics are not enforced |
+| `matrix/label path param style` | matrix/label expansion is not parsed; value reaches the controller unexpanded |
+| `success response headers` | response headers on the selected 2xx are not modeled |
+| `operation callbacks` | no callback handler is scaffolded |
+| `root webhooks` | no webhook handler is scaffolded |
+| `multipart encoding` | multipart `encoding` object constraints are not applied |
+| `undiscriminated object oneOf/anyOf` | typed as `mixed`, presence-only; no variant validation |
+| `patternProperties value schema` | matching keys are admitted through the closed-object rule but value schemas are not validated |
+| `$ref-valued additionalProperties map value` | values are typed in the docblock but not auto-hydrated; value schemas are not validated |
+| `not (intractable)` | `not: {type}`, `not: {object}`, and `not: {composition}` have no Laravel equivalent; the constraint is absent |
+| `3.2 query method operation` | no controller method or route is scaffolded for query-method operations |
+| `3.2 additionalOperations` | additional operations on a path item are not scaffolded |
+| `3.2 itemSchema media type` | itemSchema media-type objects are not processed |
+
+Note that `not: {enum: [...]}` and `not: {const: X}` are NOT in this list: those tractable forms
+emit `Rule::notIn([...])`. Only the intractable `not` shapes above are recorded.
+
+## The file is drift-checked
+
+`openapi-laravel.unsupported.json` is part of the generator-owned file set. `openapi:check` compares
+it byte-for-byte against the file on disk, exactly like it does for Data classes and controllers.
+
+This means:
+
+- If you regenerate (and the report changes because you changed the spec), you must commit the new
+  report alongside the new Data classes.
+- If the spec is unchanged and the report changes, that is a drift failure. It means the generator's
+  gap-detection logic changed between the version you generated with and the version running in CI.
+
+```
+openapi.yaml ──► openapi:generate ──► openapi-laravel.unsupported.json   (commit this)
+openapi.yaml ──► openapi:check    ──► byte-compares report vs disk        (CI gate)
+```
+
+<Aside type="note">
+  A fully-supported spec (no recorded gaps) still emits the file with `"unsupported": []`. This
+  ensures a stable file presence: the drift gate always has a file to compare, and `git log` shows
+  exactly when your spec became fully supported.
+</Aside>
+
+## Console summary
+
+After a run that finds gaps, the command prints a one-line summary:
+
+```
+3 construct(s) not fully represented, see openapi-laravel.unsupported.json
+```
+
+When there are no gaps, nothing is printed (the file is still written, silently).
+
+## Opting out
+
+You can disable the report entirely. When disabled, the file is neither written by `openapi:generate`
+nor compared by `openapi:check`, so opting out and deleting the file never triggers a drift failure.
+
+The opt-out follows the same flag pattern as controllers and routes:
+
+<Tabs>
+<TabItem label="Laravel (artisan)">
+
+```bash
+# Disable for one run
+php artisan openapi:generate --no-unsupported-report
+
+# Force on (overrides config)
+php artisan openapi:generate --unsupported-report
+```
+
+```php
+// config/openapi-laravel.php
+'output' => [
+    // ...
+    'unsupported_report' => false,
+    'unsupported_report_path' => base_path('openapi-laravel.unsupported.json'),
+],
+```
+
+</TabItem>
+<TabItem label="Standalone binary">
+
+```bash
+# Disable for one run
+vendor/bin/openapi-laravel generate --no-unsupported-report
+
+# Force on
+vendor/bin/openapi-laravel generate --unsupported-report
+```
+
+```json
+{
+  "output": {
+    "unsupported_report": false,
+    "unsupported_report_path": "openapi-laravel.unsupported.json"
+  }
+}
+```
+
+</TabItem>
+</Tabs>
+
+Passing `--unsupported-report` together with `--no-unsupported-report` is a configuration error
+(exit 2), consistent with the controllers and routes flag pair behavior.
+
+`openapi:check` accepts the same flags with the same semantics: disable the flag to exclude the
+report from the check, force it on to include it even when the config disables it.
+
+## Gitignoring the report
+
+Because the fidelity report is deterministic and checked, the simplest approach is to commit it:
+any spec change that changes the gap list shows up in your git diff alongside the changed Data
+classes, making the impact of a spec change visible at review time.
+
+If you prefer not to commit it, gitignore it and disable the report so the drift gate does not fail:
+
+```gitignore
+# .gitignore
+openapi-laravel.unsupported.json
+```
+
+```php
+// config/openapi-laravel.php
+'output' => [
+    'unsupported_report' => false,
+],
+```
+
+With both in place: `openapi:generate` writes no report, `openapi:check` expects no report, and the
+`git status` stays clean.
+
+## Relationship to the limitations guide
+
+The [limitations guide](/guides/limitations) covers the same gaps in prose: full explanations,
+workaround patterns, which tracked issues are open. The fidelity report is the per-spec,
+machine-readable companion: it tells you which of those prose limitations actually apply to YOUR spec.
+A spec that never uses cookies will not have a cookie-parameter entry, even though the prose
+documents the gap. Start with the report to find what matters for your spec, then read the
+corresponding limitations section for context and options.

@@ -489,3 +489,16 @@ verifies the grouped tree through the same shared planner as generate.
 ## Determinism
 
 The generator emits stable ordering everywhere: properties, rules, enum cases, and file output. The same spec in produces byte-identical files out, so re-running in CI yields either no diff or a diff that is entirely a consequence of the spec changing. The [tag-grouped layout](#tag-grouped-data-layout) is equally deterministic.
+
+## Generated file set
+
+A full run (default flags) writes these file groups:
+
+- **Data classes and enums** in the tag-grouped layout under `output.path`.
+- **Abstract controllers** under `controllers.path` (one file per OpenAPI tag).
+- **Routes file** at `routes.path`.
+- **Fidelity report** (`openapi-laravel.unsupported.json`): a single JSON file listing every OpenAPI construct in the spec the generator cannot faithfully represent. See [Unsupported constructs report](/guides/unsupported-report) for the shape, the recorded constructs, and the opt-out.
+
+All of these are deterministic and drift-checked by `openapi:check`. Use `--no-controllers`,
+`--no-routes`, or `--no-unsupported-report` to exclude specific groups from both generation and
+the check.

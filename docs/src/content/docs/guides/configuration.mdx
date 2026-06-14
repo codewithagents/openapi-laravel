@@ -43,6 +43,15 @@ return [
          * so a removed schema does not leave a stale class behind.
          */
         'prune' => false,
+
+        /*
+         * Emit a per-run fidelity report listing every OpenAPI construct the
+         * generator cannot faithfully represent. Enabled by default. Disable
+         * with 'unsupported_report' => false or pass --no-unsupported-report.
+         * When disabled, the file is neither written nor drift-checked.
+         */
+        'unsupported_report' => true,
+        'unsupported_report_path' => base_path('openapi-laravel.unsupported.json'),
     ],
 
     /*
@@ -148,6 +157,29 @@ name before anything is written (a malformed value is a configuration error, exi
 
 See [customizing validation messages and attributes](/guides/generated-output#customizing-validation-messages-and-attributes)
 for the worked example.
+
+### `output.unsupported_report`
+
+When `true` (the default), every `openapi:generate` run writes `openapi-laravel.unsupported.json`:
+a deterministic JSON file listing every OpenAPI construct in the spec that the generator cannot
+faithfully represent AND that affects runtime behavior. The file is part of the generator-owned
+output, so `openapi:check` drift-compares it byte-for-byte against disk alongside the Data classes.
+
+Set to `false` here or pass `--no-unsupported-report` on `openapi:generate` / `openapi:check` to
+disable the report entirely. When disabled, the file is neither written by generate nor compared by
+check, so opting out and deleting the file never triggers a drift-gate failure. Pass
+`--unsupported-report` to force the report on when the config disables it. Passing both flags
+together is a configuration error (exit 2).
+
+See [Unsupported constructs report](/guides/unsupported-report) for the file shape, the recorded
+constructs, and guidance on whether to commit or gitignore the file.
+
+### `output.unsupported_report_path`
+
+Path the fidelity report is written to. Defaults to `base_path('openapi-laravel.unsupported.json')`
+in Laravel (the project root). On the standalone binary the default is next to the model output
+directory. Config-only on the standalone surface; a `--unsupported-report-path` flag is not
+provided since the path is a standing convention rather than a per-run switch.
 
 ### `max_depth`
 
@@ -296,6 +328,7 @@ oversight ([issue #73](https://github.com/codewithagents/openapi-laravel/issues/
 
 **Shared by both surfaces** (the artisan commands and the standalone binary): `--spec`,
 `--output`, `--namespace`, `--controllers` / `--no-controllers`, `--routes` / `--no-routes`,
+`--unsupported-report` / `--no-unsupported-report`,
 `--enforce-closed-objects` / `--no-enforce-closed-objects`, `--only-tags`, `--only-schemas`,
 `--exclude-path-prefix` (repeatable), plus `--prune` (generate only) and `--diff` (check only).
 
@@ -331,7 +364,9 @@ one to one:
     "namespace": "Acme\\Dto",
     "suffix": "Data",
     "prune": false,
-    "validation_trait": "Acme\\Support\\ApiValidationMessages"
+    "validation_trait": "Acme\\Support\\ApiValidationMessages",
+    "unsupported_report": true,
+    "unsupported_report_path": "openapi-laravel.unsupported.json"
   },
   "controllers": {
     "enabled": true,

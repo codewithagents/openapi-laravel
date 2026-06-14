@@ -525,3 +525,151 @@ it('never emits ?mixed for a nullable mixed-fallback property', function () {
 
     expect($output)->toContain('No syntax errors detected');
 });
+
+// Stream 2 FIX A: int32 / int64 format range rules.
+
+it('emits the int32 signed range as min/max rule strings', function () {
+    $files = generateConstraintSchemas([
+        'Widget' => [
+            'type' => 'object',
+            'properties' => [
+                'n' => ['type' => 'integer', 'format' => 'int32'],
+            ],
+        ],
+    ], '3.1.0');
+
+    expect($files['WidgetData']->code)
+        ->toContain("'n' => ['sometimes', 'integer', 'min:-2147483648', 'max:2147483647'],");
+});
+
+it('emits the int64 signed range as exact min/max rule STRINGS (no float overflow)', function () {
+    $files = generateConstraintSchemas([
+        'Widget' => [
+            'type' => 'object',
+            'properties' => [
+                'n' => ['type' => 'integer', 'format' => 'int64'],
+            ],
+        ],
+    ], '3.1.0');
+
+    $code = $files['WidgetData']->code;
+
+    // The int64 minimum is PHP_INT_MIN; as a PHP literal it would overflow to a
+    // float. It must appear verbatim as a quoted rule-string argument instead.
+    expect($code)->toContain("'n' => ['sometimes', 'integer', 'min:-9223372036854775808', 'max:9223372036854775807'],")
+        ->and($code)->toContain("'min:-9223372036854775808'")
+        ->and($code)->toContain("'max:9223372036854775807'");
+});
+
+it('lets an explicit minimum win over the int64 format lower bound (no conflicting or duplicate min)', function () {
+    $files = generateConstraintSchemas([
+        'Widget' => [
+            'type' => 'object',
+            'properties' => [
+                'n' => ['type' => 'integer', 'format' => 'int64', 'minimum' => 0],
+            ],
+        ],
+    ], '3.1.0');
+
+    $code = $files['WidgetData']->code;
+
+    // Explicit minimum:0 stays; the format max is still added (decided per side).
+    expect($code)->toContain("'n' => ['sometimes', 'integer', 'min:0', 'max:9223372036854775807'],")
+        ->and($code)->not->toContain("'min:-9223372036854775808'");
+});
+
+it('lets an explicit maximum win over the int32 format upper bound (format min still emitted)', function () {
+    $files = generateConstraintSchemas([
+        'Widget' => [
+            'type' => 'object',
+            'properties' => [
+                'n' => ['type' => 'integer', 'format' => 'int32', 'maximum' => 100],
+            ],
+        ],
+    ], '3.1.0');
+
+    $code = $files['WidgetData']->code;
+
+    expect($code)->toContain("'n' => ['sometimes', 'integer', 'max:100', 'min:-2147483648'],")
+        ->and($code)->not->toContain("'max:2147483647'");
+});
+
+it('emits no format range when both explicit bounds are present', function () {
+    $files = generateConstraintSchemas([
+        'Widget' => [
+            'type' => 'object',
+            'properties' => [
+                'n' => ['type' => 'integer', 'format' => 'int32', 'minimum' => -5, 'maximum' => 5],
+            ],
+        ],
+    ], '3.1.0');
+
+    $code = $files['WidgetData']->code;
+
+    expect($code)->toContain("'n' => ['sometimes', 'integer', 'min:-5', 'max:5'],")
+        ->and($code)->not->toContain('2147483647')
+        ->and($code)->not->toContain('-2147483648');
+});
+
+it('lets a 3.1 numeric exclusiveMinimum suppress the int64 format lower bound', function () {
+    $files = generateConstraintSchemas([
+        'Widget' => [
+            'type' => 'object',
+            'properties' => [
+                'n' => ['type' => 'integer', 'format' => 'int64', 'exclusiveMinimum' => 0],
+            ],
+        ],
+    ], '3.1.0');
+
+    $code = $files['WidgetData']->code;
+
+    expect($code)->toContain("'gt:0'")
+        ->and($code)->not->toContain("'min:-9223372036854775808'")
+        ->and($code)->toContain("'max:9223372036854775807'");
+});
+
+// Stream 2 FIX B: the tractable `not` subset as Rule::notIn.
+
+it('emits Rule::notIn for a not/enum forbidden-value set', function () {
+    $files = generateConstraintSchemas([
+        'Widget' => [
+            'type' => 'object',
+            'properties' => [
+                's' => ['type' => 'string', 'not' => ['enum' => ['a', 'b', 'c']]],
+            ],
+        ],
+    ], '3.1.0');
+
+    $code = $files['WidgetData']->code;
+
+    expect($code)->toContain("Rule::notIn(['a', 'b', 'c'])")
+        ->and($code)->toContain('use Illuminate\Validation\Rule;');
+});
+
+it('emits Rule::notIn for a not/const single forbidden value', function () {
+    $files = generateConstraintSchemas([
+        'Widget' => [
+            'type' => 'object',
+            'properties' => [
+                's' => ['type' => 'string', 'not' => ['const' => 'forbidden']],
+            ],
+        ],
+    ], '3.1.0');
+
+    expect($files['WidgetData']->code)->toContain("Rule::notIn(['forbidden'])");
+});
+
+it('keeps comma- and quote-bearing not/enum values escaped via the literal helper', function () {
+    $files = generateConstraintSchemas([
+        'Widget' => [
+            'type' => 'object',
+            'properties' => [
+                's' => ['type' => 'string', 'not' => ['enum' => ['a,b', "q'r"]]],
+            ],
+        ],
+    ], '3.1.0');
+
+    // The values stay inside a Rule::notIn array literal, so a comma in a value
+    // is just an array element separator, never a delimiter that splits a value.
+    expect($files['WidgetData']->code)->toContain("Rule::notIn(['a,b', 'q\\'r'])");
+});

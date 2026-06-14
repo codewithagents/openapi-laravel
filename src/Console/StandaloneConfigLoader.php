@@ -43,7 +43,7 @@ final readonly class StandaloneConfigLoader
      */
     private const SCHEMA = [
         'spec' => null,
-        'output' => ['path', 'namespace', 'suffix', 'prune', 'validation_trait'],
+        'output' => ['path', 'namespace', 'suffix', 'prune', 'validation_trait', 'unsupported_report', 'unsupported_report_path'],
         'controllers' => ['enabled', 'path', 'namespace', 'base_class'],
         'routes' => ['enabled', 'path', 'middleware', 'prefix'],
         'security' => ['middleware_map'],
@@ -105,6 +105,8 @@ final readonly class StandaloneConfigLoader
             suffix: $this->string($decoded['output'] ?? [], 'suffix', $path, 'output.'),
             prune: $this->bool($decoded['output'] ?? [], 'prune', $path, 'output.'),
             validationTrait: $this->nonEmptyString($decoded['output'] ?? [], 'validation_trait', $path, 'output.'),
+            unsupportedReportEnabled: $this->bool($decoded['output'] ?? [], 'unsupported_report', $path, 'output.'),
+            unsupportedReportPath: $containment->contain($this->string($decoded['output'] ?? [], 'unsupported_report_path', $path, 'output.'), 'output.unsupported_report_path', $path),
             controllersEnabled: $this->bool($decoded['controllers'] ?? [], 'enabled', $path, 'controllers.'),
             controllerPath: $containment->contain($this->string($decoded['controllers'] ?? [], 'path', $path, 'controllers.'), 'controllers.path', $path),
             controllerNamespace: $this->string($decoded['controllers'] ?? [], 'namespace', $path, 'controllers.'),

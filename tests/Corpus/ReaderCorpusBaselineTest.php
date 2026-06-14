@@ -1279,6 +1279,95 @@ const READER_BASELINE_REBASELINED_DEPRECATED_CONTROLLER_DOCBLOCKS = [
     'zoom.json' => 'deprecated operation gains an @deprecated controller method docblock',
 ];
 
+/*
+ * INTENTIONAL post-freeze rebaseline (int32/int64 format range rules): the 58
+ * specs in READER_BASELINE_REBASELINED_INT_FORMATS carry a post-fix hash
+ * because they declare at least one integer field with `format: int32` or
+ * `format: int64`. v0.11.0 emitted a bare `'integer'` rule for those, leaving
+ * the format-implied value range unenforced, so an out-of-range integer was
+ * wrongly accepted. The fix adds the signed range as Laravel `min:`/`max:`
+ * rule STRINGS (int32: -2147483648..2147483647, int64:
+ * -9223372036854775808..9223372036854775807; emitted as strings because the
+ * int64 minimum is PHP_INT_MIN and a literal would overflow to float). An
+ * explicit `minimum`/`maximum` (or 3.1 numeric exclusive bound) on the same
+ * side wins, so a format bound is added only where the schema sets none. The
+ * ONLY divergence in each of these hashes is the added range rule(s) on the
+ * affected integer fields; no existing rule is dropped or retyped, and the
+ * warning lists are byte-identical. A spec also present in an earlier
+ * rebaseline list accumulates the change; every spec outside the rebaseline
+ * lists stays the frozen v0.11.0 freeze, byte for byte.
+ */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-fix output
+ * (int32/int64 fields gain format-derived min/max range rules), keyed by spec
+ * basename. The per-spec test below still compares against the JSON baseline,
+ * which now holds these specs' post-fix hashes; the coverage test pins that
+ * every listed name exists on disk and in the baseline, so the list cannot rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_INT_FORMATS = [
+    'ably.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'adyen-checkout.yaml' => 'int32/int64 fields gain format-derived min/max range rules',
+    'adyen-legal-entity.yaml' => 'int32/int64 fields gain format-derived min/max range rules',
+    'amadeus.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'appwrite.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'bikewise.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'bitbucket.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'box.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'brex.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'bungie.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'clevercloud.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'codat_accounting.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'codat_banking.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'configcat.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'devto.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'digitalocean.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'docker.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'docusign.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'dracoon.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'ebay_fulfillment.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'ebay_marketing.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'gettyimages.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'giphy.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'github.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'google_bigquery.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'google_calendar.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'google_cloudrun.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'google_compute.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'google_docs.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'google_drive.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'google_functions.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'google_gke.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'google_gmail.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'google_logging.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'google_monitoring.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'google_pubsub.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'google_sheets.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'google_speech.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'google_translate.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'google_tts.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'google_vision.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'jira.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'klarna.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'lufthansa.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'medium.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'openai.yaml' => 'int32/int64 fields gain format-derived min/max range rules',
+    'petstore-3.0.yaml' => 'int32/int64 fields gain format-derived min/max range rules',
+    'pinecone.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'sendgrid.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'sentry.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'spotify.yaml' => 'int32/int64 fields gain format-derived min/max range rules',
+    'square.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'twilio_video.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'twitter.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'wordnik.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'youtube.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'zoom.json' => 'int32/int64 fields gain format-derived min/max range rules',
+    'zuora.json' => 'int32/int64 fields gain format-derived min/max range rules',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -1353,7 +1442,7 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
     // deprecated controller docblocks must still exist on disk and carry a hash
     // in the baseline (it is an update, not an exemption): a renamed or deleted
     // spec would make the documented rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY), ...array_keys(READER_BASELINE_REBASELINED_130), ...array_keys(READER_BASELINE_REBASELINED_DELIMITED_ARRAYS), ...array_keys(READER_BASELINE_REBASELINED_DEEPOBJECT), ...array_keys(READER_BASELINE_REBASELINED_SELF_STATIC), ...array_keys(READER_BASELINE_REBASELINED_DEPRECATED_CONTROLLER_DOCBLOCKS)] as $spec) {
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY), ...array_keys(READER_BASELINE_REBASELINED_130), ...array_keys(READER_BASELINE_REBASELINED_DELIMITED_ARRAYS), ...array_keys(READER_BASELINE_REBASELINED_DEEPOBJECT), ...array_keys(READER_BASELINE_REBASELINED_SELF_STATIC), ...array_keys(READER_BASELINE_REBASELINED_DEPRECATED_CONTROLLER_DOCBLOCKS), ...array_keys(READER_BASELINE_REBASELINED_INT_FORMATS)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }

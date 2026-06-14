@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Parser;
 
+use CodeWithAgents\OpenApiLaravel\Parser\Fidelity\FidelityScanner;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\ComponentsNode;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\DiscriminatorNode;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\InfoNode;
@@ -208,6 +209,13 @@ final class OpenApiReader
 
         $rawComponents = $data['components'] ?? null;
 
+        // The fidelity scan (the unsupported-construct report) runs over the raw
+        // decoded data so it sees keywords the typed graph does not retain
+        // (encoding, patternProperties, allowEmptyValue) and has the exact key
+        // order for RFC 6901 JSON pointers. It travels on the document the same
+        // way warnings do; the planner serializes it into the report artifact.
+        $fidelity = (new FidelityScanner)->scan($data);
+
         return new OpenApiDocument(
             openapi: $version,
             info: $this->info($rawInfo),
@@ -219,6 +227,7 @@ final class OpenApiReader
             servers: array_key_exists('servers', $data) ? $this->rawObjectList($data['servers']) : null,
             warnings: $warnings,
             extensions: $this->extensions($data),
+            fidelity: $fidelity,
         );
     }
 

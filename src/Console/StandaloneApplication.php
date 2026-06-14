@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CodeWithAgents\OpenApiLaravel\Console;
 
 use CodeWithAgents\OpenApiLaravel\Emitter\GenerationException;
+use CodeWithAgents\OpenApiLaravel\Parser\Fidelity\FidelityReport;
 use CodeWithAgents\OpenApiLaravel\Parser\ParseException;
 
 /**
@@ -111,6 +112,20 @@ final class StandaloneApplication
             $written = $writer->write($plan, PlannedFile::CATEGORY_ROUTES);
             $count = count($written);
             fwrite(STDOUT, sprintf("Generated %d %s into %s\n", $count, $count === 1 ? 'route file' : 'route files', $request->routesPath));
+        }
+
+        // The unsupported-construct report (the fidelity artifact): written when
+        // planned (the flag is on and a path is set). The summary line prints
+        // only when there is something to report, mirroring the artisan surface.
+        if ($request->unsupportedReport && $request->unsupportedReportPath !== null && $request->unsupportedReportPath !== '') {
+            $writer->write($plan, PlannedFile::CATEGORY_FIDELITY);
+            if ($plan->unsupportedCount > 0) {
+                fwrite(STDOUT, sprintf(
+                    "%d construct(s) not fully represented, see %s\n",
+                    $plan->unsupportedCount,
+                    $request->unsupportedReportPath,
+                ));
+            }
         }
 
         // Non-fatal diagnostics (e.g. a non-standard per-property `required` key
@@ -276,6 +291,15 @@ final class StandaloneApplication
         $controllers = $this->resolveToggle($options, 'controllers', $config->controllersEnabled);
         $routes = $this->resolveToggle($options, 'routes', $config->routesEnabled);
 
+        // Fidelity report (the unsupported-construct artifact). Default-on
+        // toggle resolved with the same strict precedence as controllers/routes:
+        // flag beats the config key, the config key beats the built-in default.
+        // The write path is config-only and defaults next to the output dir, so
+        // a standalone run with no extra flags still emits the artifact. The
+        // path is contained to the config directory by the loader for a
+        // config-sourced value, mirroring the other write paths.
+        $unsupportedReport = $this->resolveToggle($options, 'unsupported-report', $config->unsupportedReportEnabled);
+
         // Closed-object enforcement is a default-on toggle, resolved with the
         // same strict precedence as controllers/routes: flag beats the config
         // file key, the config file key beats the built-in default (enabled).
@@ -286,6 +310,12 @@ final class StandaloneApplication
         $outputDir = rtrim($output, '/');
         $controllerOutput = $options['controller-output'] ?? $config->controllerPath ?? $outputDir.'/Controllers';
         $routesOutput = $options['routes-output'] ?? $config->routesPath ?? $outputDir.'/routes.php';
+
+        // The fidelity report path: the config key (contained) wins, else a
+        // deterministic default next to the output directory so a flag-only run
+        // still emits it. Placing it beside the output dir keeps it inside the
+        // generated-output footprint, mirroring routes.php.
+        $unsupportedReportPath = $config->unsupportedReportPath ?? $outputDir.'/'.FidelityReport::FILENAME;
         $controllerNamespace = $options['controller-namespace'] ?? $config->controllerNamespace ?? 'App\\Http\\Controllers\\Api';
 
         // Controller base class (issue #83): the flag wins over the config
@@ -346,6 +376,8 @@ final class StandaloneApplication
             $stubs,
             $controllerBaseClass,
             $validationTrait,
+            $unsupportedReport,
+            $unsupportedReportPath,
         );
     }
 
@@ -517,7 +549,8 @@ final class StandaloneApplication
         the config file beats the built-in defaults. The config file is
         openapi-laravel.json in the working directory (if present), or the
         path given via --config. Its keys mirror config/openapi-laravel.php:
-        spec, output.{path,namespace,suffix,prune,validation_trait},
+        spec, output.{path,namespace,suffix,prune,validation_trait,
+        unsupported_report,unsupported_report_path},
         controllers.{enabled,path,namespace,base_class},
         routes.{enabled,path,middleware,prefix}, security.middleware_map,
         enforce_closed_objects, max_depth, max_bytes, only_tags, only_schemas (the
@@ -555,6 +588,8 @@ final class StandaloneApplication
           --controller-namespace=<ns>    Controller namespace (default: App\Http\Controllers\Api)
           --controller-base-class=<fqcn> Base class the abstract controllers extend (default: none)
           --routes-output=<file>         Where the routes file lives (default: <output>/routes.php)
+          --no-unsupported-report        Skip the unsupported-construct report (openapi-laravel.unsupported.json)
+          --unsupported-report           Force the report on (overrides a config that disables it)
 
         Exit codes:
           0  success / in sync

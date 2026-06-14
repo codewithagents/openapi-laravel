@@ -22,6 +22,8 @@ final class GenerateCommand extends Command
         {--no-controllers : Skip the abstract controllers}
         {--routes : Generate the routes file even when disabled in config (default: on)}
         {--no-routes : Skip the routes file}
+        {--unsupported-report : Write the unsupported-construct report even when disabled in config (default: on)}
+        {--no-unsupported-report : Skip the unsupported-construct report}
         {--enforce-closed-objects : Reject unknown keys for schemas with additionalProperties: false (default: on)}
         {--no-enforce-closed-objects : Accept unknown keys even for additionalProperties: false schemas}
         {--only-tags= : Generate only operations carrying these comma-separated tags, plus their schema closure}
@@ -85,6 +87,20 @@ final class GenerateCommand extends Command
             $written = $writer->write($plan, PlannedFile::CATEGORY_ROUTES);
             $count = count($written);
             $this->components->info(sprintf('Generated %d %s into %s', $count, $count === 1 ? 'route file' : 'route files', $request->routesPath));
+        }
+
+        // The unsupported-construct report (the fidelity artifact). Written
+        // whenever it was planned (the flag is on and a path is set); the
+        // category bucket is empty when it was opted out, so nothing is written.
+        if ($request->unsupportedReport && $request->unsupportedReportPath !== null && $request->unsupportedReportPath !== '') {
+            $writer->write($plan, PlannedFile::CATEGORY_FIDELITY);
+            if ($plan->unsupportedCount > 0) {
+                $this->components->warn(sprintf(
+                    '%d construct(s) not fully represented, see %s',
+                    $plan->unsupportedCount,
+                    $request->unsupportedReportPath,
+                ));
+            }
         }
 
         // Non-fatal diagnostics (e.g. a non-standard per-property `required` key

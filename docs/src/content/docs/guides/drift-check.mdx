@@ -164,3 +164,9 @@ Run `openapi:check` on every pull request, not just on `main`. The whole point i
 ## Why this matters
 
 Code generators tend to rot: someone edits a generated file "just this once", or changes the spec and forgets to regenerate, and the committed code quietly stops matching the contract. `openapi:check` closes that gap. Combined with deterministic generation, it makes the spec the single enforceable source of truth: the only way to change the generated code is to change the spec and regenerate, and CI proves it.
+
+## The fidelity report is also drift-checked
+
+`openapi:check` compares all generator-owned files, including `openapi-laravel.unsupported.json` (the fidelity report). That file lists every OpenAPI construct in your spec the generator cannot faithfully represent. Because it is deterministic and byte-compared like the Data classes, a spec change that changes the gap list shows up as drift, surfacing the impact at review time.
+
+See [Unsupported constructs report](/guides/unsupported-report) for the file shape, the list of recorded constructs, and how to opt out.

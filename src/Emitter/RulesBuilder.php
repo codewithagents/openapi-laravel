@@ -116,6 +116,39 @@ final class RulesBuilder
             return [$rules, [], false];
         }
 
+        // `not` keyword, tractable subset: a `not: {enum: [...]}` or
+        // `not: {const: X}` forbids a fixed set of values, which maps cleanly to
+        // Laravel's Rule::notIn. The object form (matching the project's
+        // Rule::in convention for enum/const) keeps comma- and quote-bearing
+        // values escaped through PhpLiteral::scalarLiteral, so a value with a
+        // comma never corrupts a string-form rule. Any OTHER `not` shape (a type
+        // exclusion, a nested object schema, composition) cannot be expressed as
+        // a Laravel rule and is left to the fidelity report; it adds no rule
+        // here. The forbidden-value rule is appended to the base so it survives
+        // the scalar/enum return paths below, which all array_merge onto $rules,
+        // and because it is a `Rule::` expression the result's usesRule flag is
+        // forced on so the Illuminate\Validation\Rule import is emitted.
+        $notInRule = $this->forbiddenValuesRule($schema->not);
+        if ($notInRule !== null) {
+            $rules[] = $notInRule;
+        }
+
+        [$builtRules, $wildcards, $usesRule] = $this->inlineRules($schema, $rules);
+
+        return [$builtRules, $wildcards, $usesRule || $notInRule !== null];
+    }
+
+    /**
+     * The rules for an inline (non-reference) schema, given the base presence
+     * rules (which already carry any `not_in` forbidden-value rule). Split out of
+     * {@see buildRules()} so the `not` keyword's import flag can be OR-ed in at a
+     * single exit point rather than threaded through every return below.
+     *
+     * @param  list<string>  $rules  base rules (presence + any forbidden-value rule)
+     * @return array{0: list<string>, 1: array<string, list<string>>, 2: bool}
+     */
+    private function inlineRules(SchemaNode $schema, array $rules): array
+    {
         // A pure-map property: 'array' plus the map's own key-count bounds
         // (minProperties/maxProperties, issue #72) and a wildcard value rule.
         if (SchemaFacts::isPureMap($schema)) {
@@ -737,7 +770,110 @@ final class RulesBuilder
             $rules[] = 'new MultipleOfRule('.PhpLiteral::numberLiteral($multipleOf).')';
         }
 
+        // Integer format range (int32/int64): the format pins the value range an
+        // integer of that width can hold, so a value outside it is invalid even
+        // when the spec sets no explicit bound. The bounds are emitted as Laravel
+        // rule STRINGS, never PHP int literals: the int64 minimum
+        // (-9223372036854775808) is PHP_INT_MIN, and a literal `-9223372036854775808`
+        // parses as a float (the unary minus binds to the out-of-range positive
+        // literal), which would both lose precision and churn the output. A
+        // verbatim string is exact and byte-stable.
+        //
+        // Explicit-bound precedence (per side, independent): a format bound is
+        // emitted only when the schema sets no explicit bound on THAT side. An
+        // explicit `minimum`/`exclusiveMinimum` already produced a `min:`/`gt:`
+        // rule above, so the format `min:` is skipped to avoid a duplicate or
+        // conflicting lower bound; the upper side is decided independently, so a
+        // schema with only an explicit `minimum` still gets the format `max:`.
+        [$formatMin, $formatMax] = $this->integerFormatBounds($schema->format);
+        if ($formatMin !== null && ! $this->hasExplicitLowerBound($schema)) {
+            $rules[] = "'min:".$formatMin."'";
+        }
+        if ($formatMax !== null && ! $this->hasExplicitUpperBound($schema)) {
+            $rules[] = "'max:".$formatMax."'";
+        }
+
         return $rules;
+    }
+
+    /**
+     * The tractable `not` subset, as a Laravel forbidden-value rule (issue: the
+     * `not` keyword). Only two shapes map cleanly: `not: {enum: [...]}` forbids
+     * the listed values, and `not: {const: X}` forbids the single value. Both
+     * become `Rule::notIn([...])`, mirroring the project's `Rule::in` membership
+     * convention for enum/const so commas and quotes in the values stay escaped
+     * through PhpLiteral::scalarLiteral (a string-form `not_in:` rule would be
+     * corrupted by a value containing a comma). Every other `not` shape (a bare
+     * type exclusion, a nested object schema, a composition) has no Laravel
+     * equivalent and returns null, leaving it to the fidelity report.
+     *
+     * A ReferenceNode `not` (a `$ref` to a component) is not resolved here: only
+     * an inline enum/const form is tractable, so a referenced `not` returns null
+     * and stays recorded as an intractable form too.
+     */
+    private function forbiddenValuesRule(SchemaNode|ReferenceNode|null $not): ?string
+    {
+        if (! $not instanceof SchemaNode) {
+            return null;
+        }
+
+        $values = SchemaFacts::enumValues($not);
+        if ($values === []) {
+            // `not: {const: X}` is a single forbidden value; reuse the const
+            // extractor and its scalar-literal escaping, exactly like the
+            // positive const path emits Rule::in([X]).
+            $const = SchemaFacts::constValue($not);
+            if ($const === null) {
+                return null;
+            }
+            $values = $const;
+        }
+
+        return 'Rule::notIn(['.implode(', ', array_map(
+            static fn (string|int|float|bool $value): string => PhpLiteral::scalarLiteral($value),
+            $values,
+        )).'])';
+    }
+
+    /**
+     * The signed-range bounds an integer of the given format can hold, as exact
+     * decimal strings (never PHP int literals: int64 min is PHP_INT_MIN and a
+     * literal would overflow to float). Returns [min, max] for int32/int64, or
+     * [null, null] for any other format, so a non-width format adds no bound.
+     *
+     * @return array{0: ?string, 1: ?string}
+     */
+    private function integerFormatBounds(?string $format): array
+    {
+        return match ($format) {
+            'int32' => ['-2147483648', '2147483647'],
+            'int64' => ['-9223372036854775808', '9223372036854775807'],
+            default => [null, null],
+        };
+    }
+
+    /**
+     * Whether the schema already pins a lower bound through an explicit keyword:
+     * an inclusive `minimum` (any number), a 3.0 boolean `exclusiveMinimum: true`
+     * companion to that minimum, or a 3.1 numeric `exclusiveMinimum`. Any of these
+     * means numericRules() already emitted a `min:`/`gt:` rule, so a format-derived
+     * lower bound must stand down.
+     */
+    private function hasExplicitLowerBound(SchemaNode $schema): bool
+    {
+        return is_int($schema->minimum) || is_float($schema->minimum)
+            || is_int($schema->exclusiveMinimum) || is_float($schema->exclusiveMinimum);
+    }
+
+    /**
+     * The upper-bound counterpart of {@see hasExplicitLowerBound()}: an explicit
+     * `maximum` or a 3.1 numeric `exclusiveMaximum` already produced a `max:`/`lt:`
+     * rule, so a format-derived upper bound must stand down.
+     */
+    private function hasExplicitUpperBound(SchemaNode $schema): bool
+    {
+        return is_int($schema->maximum) || is_float($schema->maximum)
+            || is_int($schema->exclusiveMaximum) || is_float($schema->exclusiveMaximum);
     }
 
     /**

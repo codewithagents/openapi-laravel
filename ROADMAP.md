@@ -8,11 +8,12 @@ open questions. Do not re-litigate decided items without new information.
 
 **0.12.0 on Packagist; 0.13.0 queued** (release-please PR open). A plain `php artisan openapi:generate`
 (or the framework-free `vendor/bin/openapi-laravel`) generates the full slice out of the box: Data
-model classes with spec-derived `rules()`, native backed enums, one abstract controller per tag, and
-a routes file. `--no-controllers` / `--no-routes` opt out; settings resolve with strict precedence
-(CLI flags over config file over built-in defaults); the standalone binary reads an optional
-`openapi-laravel.json`. Generated output is self-contained: the support classes a spec references are
-inlined into the consumer's own `\Support` namespace, so there is no runtime dependency on the
+model classes with spec-derived `rules()`, native backed enums, one abstract controller per tag, a
+routes file, and the fidelity report (`openapi-laravel.unsupported.json`). `--no-controllers` /
+`--no-routes` / `--no-unsupported-report` opt out; settings resolve with strict precedence (CLI
+flags over config file over built-in defaults); the standalone binary reads an optional
+`openapi-laravel.json`. Generated output is self-contained: the support classes a spec references
+are inlined into the consumer's own `\Support` namespace, so there is no runtime dependency on the
 generator. The drift gate (`openapi:check`) and the differential validation oracle are permanent
 quality layers.
 
@@ -76,6 +77,40 @@ and `php -l` gates, before anything ships.
     names are the only behavior. #96 closed as not planned under the same principle.
 
 ## Current capabilities
+
+### Fidelity report [shipped]
+A machine-readable `openapi-laravel.unsupported.json` artifact emitted per run (default on),
+listing every OpenAPI construct the generator could not faithfully represent AND that affects the
+correctness or runtime behavior of the generated code: each entry carries an RFC 6901 `pointer`, a
+human `location`, the `construct`, a one-line `impact`, and `severity: correctness`. Entries are
+scanned from the raw document by `FidelityScanner` (Parser layer), deduped on (pointer, construct),
+and sorted by pointer then construct, so the file is byte-stable across runs of the same spec. It
+flows through the shared `GenerationPlanner` (CATEGORY_FIDELITY), so `openapi:check` drift-checks it
+like every other artifact; an empty report still emits `"unsupported": []` for a stable presence.
+Opt out with `output.unsupported_report: false` or `--no-unsupported-report` (force on with
+`--unsupported-report`; both flags together is an exit-2 config error): the opt-out removes the file
+from BOTH generation and the checked set, so a user who gitignores and deletes it never fails the
+gate. The write path is config-only (`output.unsupported_report_path`, contained on the standalone
+surface), defaulting to the project root (Laravel) or next to the output dir (standalone). After a
+run with gaps, the commands print `N construct(s) not fully represented, see <path>`. Covered
+constructs (current correctness gaps): repeated-key array query params, cookie params, content-typed
+params, `allowEmptyValue`, matrix/label path params, success response headers, operation callbacks,
+root webhooks, multipart `encoding`, undiscriminated object `oneOf`/`anyOf` (#31), `patternProperties`
+value schemas, `$ref`-valued `additionalProperties` map values, the INTRACTABLE `not` forms (type
+exclusion, nested shape, composition), and the 3.2 `query`/`additionalOperations`/`itemSchema` drops.
+
+### int32/int64 range and the tractable `not` subset [shipped]
+Two former fidelity gaps are now enforced, so they no longer appear in the report. An integer with
+`format: int32` gets `min:-2147483648` / `max:2147483647`, and `format: int64` gets
+`min:-9223372036854775808` / `max:9223372036854775807`, emitted as Laravel rule STRINGS (never PHP
+int literals: the int64 minimum is PHP_INT_MIN and a literal overflows to float). An explicit
+`minimum`/`maximum` (or a 3.1 numeric exclusive bound) on a side wins, so a format bound is added
+only where the schema sets none, decided per side. The `not` keyword is partially supported: the
+tractable `not: {enum: [...]}` and `not: {const: X}` forms emit `Rule::notIn([...])` (the object
+form matching the project's `Rule::in` convention, so commas/quotes in values stay escaped); every
+OTHER `not` shape (a bare type exclusion, a nested object schema, a composition, or a float/bool
+const the literal helper cannot express) has no Laravel equivalent and stays recorded in the
+fidelity report. The scanner records `not` only for those intractable forms.
 
 ### Models [shipped]
 laravel-data classes, spec-derived `rules()` (exclusive bounds, `multipleOf`, `uniqueItems`, strict
@@ -258,8 +293,10 @@ collisions failing loudly.
   shared constraint mapping, plus a `max:` length cap for the closed `items: false` form) but the
   TYPING still degrades to `array<int, mixed>`; a post-prefix `items` schema stays unenforced (a
   `field.*` rule would false-reject the prefix positions).
-- int64/bignum literal bounds and `$ref`-valued map values degrade gracefully (typed in the
-  docblock, not auto-hydrated). A non-JSON-only success response (text/html, binary downloads) is
+- int64/bignum values are typed `int` in the docblock and not promoted to an arbitrary-precision
+  type (a value beyond PHP_INT_MAX cannot round-trip), though the int64 range is now ENFORCED as a
+  validation rule (see the int32/int64 section above); `$ref`-valued map values degrade gracefully
+  (typed in the docblock, not auto-hydrated). A non-JSON-only success response (text/html, binary downloads) is
   typed as the base Symfony `Response` with a warning (#117/#118): honest typing (any Response
   subclass satisfies it), but no schema-derived validation or Data return exists for it. A response
   with NO declared content keeps the JsonResponse default (the spec says nothing about the body).
@@ -304,15 +341,16 @@ differential oracle guarding every emitted constraint, self-contained output (no
 and a clean large-corpus sweep. The remaining gate to 1.0.0 is **output-format stability**: hold the
 format steady across a few releases, then tag 1.0.0 as the output-stability promise.
 
-The three 1.0.0-readiness docs are finalized and live under `docs/src/content/docs/guides/`:
+The four 1.0.0-readiness docs are finalized and live under `docs/src/content/docs/guides/`:
 supported OpenAPI versions (`openapi-versions.mdx`), versioning and upgrades (`versioning-policy.mdx`),
-and runtime coupling (`runtime-coupling.mdx`).
+runtime coupling (`runtime-coupling.mdx`), and the fidelity report (`unsupported-report.mdx`).
 
 Remaining smaller follow-ups (not blockers):
 - Richer error messages on bad input.
-- `@deprecated` docblocks on abstract controller methods for deprecated operations.
 - Cross-repo: the openapi-zod-ts `Accept: application/json` gap (openapi-zod-ts #289), surfaced by the
   e2e demo. The fix lives in the sibling repo, not here.
+- Fidelity report backlog: issues #138-143 track planned coverage expansions for the report
+  (additional recorded constructs, machine-readable severity tiers, and consumer-facing tooling).
 
 **What 1.0.0 means:** at the cutover, flip `enforce_admins: true`, require 1 PR review, set required
 checks `strict: true`, and move from the direct-push flow to a PR + review workflow.

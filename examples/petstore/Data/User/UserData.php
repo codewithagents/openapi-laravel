@@ -25,14 +25,14 @@ final class UserData extends Data
     public static function rules(): array
     {
         return [
-            'id' => ['sometimes', 'integer'],
+            'id' => ['sometimes', 'integer', 'min:-9223372036854775808', 'max:9223372036854775807'],
             'username' => ['sometimes', 'string'],
             'firstName' => ['sometimes', 'string'],
             'lastName' => ['sometimes', 'string'],
             'email' => ['sometimes', 'string'],
             'password' => ['sometimes', 'string'],
             'phone' => ['sometimes', 'string'],
-            'userStatus' => ['sometimes', 'integer'],
+            'userStatus' => ['sometimes', 'integer', 'min:-2147483648', 'max:2147483647'],
         ];
     }
 }

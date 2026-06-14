@@ -19,7 +19,7 @@ final class WidgetData extends Data
     public static function rules(): array
     {
         return [
-            'id' => ['sometimes', 'integer'],
+            'id' => ['sometimes', 'integer', 'min:-9223372036854775808', 'max:9223372036854775807'],
             'name' => ['required', 'string'],
         ];
     }

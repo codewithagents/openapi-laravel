@@ -36,6 +36,8 @@ final class CheckCommand extends Command
         {--no-controllers : Skip the abstract controllers}
         {--routes : Check the routes file even when disabled in config (default: on)}
         {--no-routes : Skip the routes file}
+        {--unsupported-report : Check the unsupported-construct report even when disabled in config (default: on)}
+        {--no-unsupported-report : Skip the unsupported-construct report}
         {--enforce-closed-objects : Reject unknown keys for schemas with additionalProperties: false (default: on)}
         {--no-enforce-closed-objects : Accept unknown keys even for additionalProperties: false schemas}
         {--only-tags= : Check only operations carrying these comma-separated tags, plus their schema closure}

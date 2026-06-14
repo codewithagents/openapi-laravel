@@ -1,0 +1,35 @@
+openapi: 3.1.0
+info:
+  title: Fully Supported Fixture
+  version: 1.0.0
+paths:
+  /pets/{petId}:
+    get:
+      tags:
+        - pet
+      operationId: showPet
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+components:
+  schemas:
+    Pet:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+      required:
+        - id
+        - name

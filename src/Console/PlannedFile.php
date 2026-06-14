@@ -31,6 +31,8 @@ final readonly class PlannedFile
 
     public const CATEGORY_STUB = 'stub';
 
+    public const CATEGORY_FIDELITY = 'fidelity';
+
     /**
      * @param  self::CATEGORY_*  $category
      */

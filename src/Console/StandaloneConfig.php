@@ -42,6 +42,15 @@ final readonly class StandaloneConfig
          * empty string, and the planner validates the value as a legal FQCN.
          */
         public ?string $validationTrait = null,
+        /*
+         * Fidelity report (the unsupported-construct artifact).
+         * output.unsupported_report toggles it (default on);
+         * output.unsupported_report_path is its write path (contained to the
+         * config directory like the other write paths). Null means the key was
+         * not set, so the binary applies its default.
+         */
+        public ?bool $unsupportedReportEnabled = null,
+        public ?string $unsupportedReportPath = null,
         public ?bool $controllersEnabled = null,
         public ?string $controllerPath = null,
         public ?string $controllerNamespace = null,

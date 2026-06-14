@@ -82,6 +82,7 @@ export default defineConfig({
           items: [
             { label: 'Configuration', slug: 'guides/configuration' },
             { label: 'Drift check', slug: 'guides/drift-check' },
+            { label: 'Unsupported constructs report', slug: 'guides/unsupported-report' },
             { label: 'Contract testing', slug: 'guides/contract-testing' },
             { label: 'Validation error shape', slug: 'guides/validation-errors' },
             { label: 'Cookbook', slug: 'guides/cookbook' },

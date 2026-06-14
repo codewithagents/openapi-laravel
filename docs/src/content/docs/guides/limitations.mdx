@@ -18,6 +18,10 @@ location. The only mixed-typed cases that do **not** warn are the deliberate, vi
 out below (the undiscriminated object union, whose variants stay in the docblock, and genuinely
 untyped schemas, where `mixed` is the faithful type).
 
+For a per-spec, machine-readable view of which gaps affect YOUR spec, see the
+[unsupported constructs report](/guides/unsupported-report). The report is emitted on every
+`openapi:generate` run and lists every recorded gap with the exact JSON pointer into your spec.
+
 <Aside type="note" title="oneOf / anyOf and discriminated unions">
   Scalar `oneOf`/`anyOf` emit native PHP union type hints. A **discriminated object union**
   is fully validated and hydrated via a morphable base and variant classes. An
@@ -304,6 +308,16 @@ items. Numeric `enum` values, including floats, emit a `Rule::in([...])` constra
 number-enum component (which cannot be a PHP backed enum) becomes a single-`value` Data class that
 carries that constraint rather than an empty class.
 
+**`format: int32` and `format: int64` emit range rules.** An integer schema with `format: int32`
+gets `min:-2147483648` and `max:2147483647`; `format: int64` gets `min:-9223372036854775808` and
+`max:9223372036854775807`. The range rules are emitted as Laravel rule strings, not PHP integer
+literals (the int64 minimum equals `PHP_INT_MIN` and a literal would overflow to float). An explicit
+`minimum` or `maximum` on the schema wins per side: if you declare `minimum: 0` on an int32 field,
+the spec bound (`min:0`) is used and the format lower bound (`min:-2147483648`) is suppressed for
+that side only. Note that PHP's `int` type cannot represent values beyond `PHP_INT_MIN` /
+`PHP_INT_MAX` without arbitrary-precision support, so an int64 value at the spec boundary validates
+correctly but may not round-trip as a PHP integer on 32-bit or very large values.
+
 ## Tuple prefixItems: per-index rules, loose typing
 
 A positional tuple (OpenAPI 3.1 `prefixItems`) is **validated per position but typed loosely**.
@@ -367,6 +381,29 @@ This generates `public readonly ?string $channel` with `'channel' => ['sometimes
 A bare `const` with no declared `type` infers its PHP type from the literal (`const: stable` is a
 `string`, `const: 3` is an `int`). Only scalar `const` values (string and integer) are enforced this
 way; an array, object, boolean, or null `const` falls back to the normal type handling.
+
+## The `not` keyword: tractable forms supported, rest recorded
+
+The `not` keyword is partially supported. Two forms have a direct Laravel equivalent and are
+enforced:
+
+- **`not: {enum: [...]}` emits `Rule::notIn([...])`**, so a field that must NOT be one of a fixed
+  set of values is validated at runtime.
+- **`not: {const: X}` emits `Rule::notIn([X])`**, the same mechanism for a single excluded value.
+
+All other `not` shapes have no faithful Laravel rule equivalent and are not enforced:
+
+- A type-exclusion `not` (for example `not: {type: string}`): Laravel has no "must not be this
+  type" rule.
+- A nested object `not`: too complex to invert into individual field rules.
+- A composition `not` (`not: {allOf: [...]}`, `not: {oneOf: [...]}`, etc.): no direct inversion.
+- A `not` whose inner `const` is a float, boolean, array, or object (not a scalar string/integer):
+  the literal helper cannot express those.
+
+For every intractable `not`, the property is generated without the constraint (no false-rejects, but
+the exclusion is absent). Each such gap is recorded in the
+[unsupported constructs report](/guides/unsupported-report) under the construct name
+`not (intractable)`, so you can see exactly which fields in your spec are affected.
 
 ## Per-property required is ignored (it is non-standard)
 
@@ -484,12 +521,12 @@ Everything else generates fully: object schemas with `properties`, `$ref`s betwe
 `allOf` composition (merged into a flat class), `additionalProperties` maps (typed `array` with
 per-value rules), nested objects and arrays (`DataCollection`), native enums, the read/write variant
 split, scalar constraints (`minLength`, `maxLength`, `pattern`, `format`, `minimum`/`maximum`,
-`enum`), the server scaffold, typed and validated query parameters (per-operation query Data
-classes), scalar `oneOf`/`anyOf` union type hints, and discriminated object
-unions (abstract morphable base plus variants, validated and hydrated). The spec-derived validation
-is presence-exact, with the caveats noted above: **undiscriminated** object unions are presence-only
-(any object is accepted, no variant enforced) by design, while all three **discriminated** forms
-(named-component, inline-union, allOf-inheritance) are validated and hydrated, and the
-map caveats apply (raw-array `$ref` map values, uncaptured mixed-object overflow, and
-`additionalProperties: false` enforced by default, with `--no-enforce-closed-objects` as the
-lenient opt-out).
+`enum`, `int32`/`int64` range bounds), `not: {enum}` and `not: {const}` (emitting `Rule::notIn`),
+the server scaffold, typed and validated query parameters (per-operation query Data classes), scalar
+`oneOf`/`anyOf` union type hints, and discriminated object unions (abstract morphable base plus
+variants, validated and hydrated). The spec-derived validation is presence-exact, with the caveats
+noted above: **undiscriminated** object unions are presence-only (any object is accepted, no variant
+enforced) by design, while all three **discriminated** forms (named-component, inline-union,
+allOf-inheritance) are validated and hydrated, and the map caveats apply (raw-array `$ref` map
+values, uncaptured mixed-object overflow, and `additionalProperties: false` enforced by default,
+with `--no-enforce-closed-objects` as the lenient opt-out).

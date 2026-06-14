@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Console;
 
+use CodeWithAgents\OpenApiLaravel\Parser\Fidelity\FidelityReport;
 use Illuminate\Console\Command;
 
 /**
@@ -52,6 +53,16 @@ final readonly class CommandRequestFactory
 
         $controllers = $this->resolveToggle($command, 'controllers', 'openapi-laravel.controllers.enabled');
         $routes = $this->resolveToggle($command, 'routes', 'openapi-laravel.routes.enabled');
+
+        // Fidelity report (the unsupported-construct artifact). Default-on
+        // toggle resolved with the same strict precedence as controllers/routes;
+        // both --unsupported-report and --no-unsupported-report at once is a
+        // contradiction that fails loudly (exit 2). The write path is config-only
+        // and defaults to the project root next to the spec, so the artifact has
+        // a stable home with no extra flags.
+        $unsupportedReport = $this->resolveToggle($command, 'unsupported-report', 'openapi-laravel.output.unsupported_report');
+        $unsupportedReportPath = $this->configString('openapi-laravel.output.unsupported_report_path')
+            ?? (function_exists('base_path') ? base_path(FidelityReport::FILENAME) : FidelityReport::FILENAME);
 
         // Closed-object enforcement is now a default-on toggle, resolved with the
         // same strict precedence as controllers/routes: an explicit flag beats
@@ -118,6 +129,8 @@ final readonly class CommandRequestFactory
             $stubs,
             $controllerBaseClass,
             $validationTrait,
+            $unsupportedReport,
+            $unsupportedReportPath,
         );
     }
 
@@ -315,8 +328,14 @@ final readonly class CommandRequestFactory
      */
     private function resolveToggle(Command $command, string $flag, string $configKey): bool
     {
-        $enable = (bool) $command->option($flag);
-        $disable = (bool) $command->option('no-'.$flag);
+        // Not every command surface declares every toggle: openapi:scaffold
+        // writes only stubs and has no --unsupported-report flag, yet shares
+        // this factory. A missing option simply falls through to the config /
+        // default arm rather than throwing, so the shared factory stays usable
+        // from a command that does not expose the flag pair.
+        $definition = $command->getDefinition();
+        $enable = $definition->hasOption($flag) && (bool) $command->option($flag);
+        $disable = $definition->hasOption('no-'.$flag) && (bool) $command->option('no-'.$flag);
 
         if ($enable && $disable) {
             throw new OptionException(sprintf('--%s and --no-%s cannot be combined. Pass at most one of them.', $flag, $flag));

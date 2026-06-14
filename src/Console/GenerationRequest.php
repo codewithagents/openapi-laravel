@@ -118,5 +118,25 @@ final readonly class GenerationRequest
          * legal FQCN by the planner before any file is planned.
          */
         public ?string $validationTrait = null,
+        /*
+         * Fidelity report (the unsupported-construct artifact). When true (the
+         * default) and a report path is set, the plan contains one
+         * CATEGORY_FIDELITY file: a machine-readable
+         * openapi-laravel.unsupported.json listing every construct the
+         * generator could not faithfully represent. Resolved with the same
+         * strict precedence as controllers/routes (flag beats config beats the
+         * built-in default, enabled). When false, the file is excluded from
+         * BOTH generation and the checked set, so a user who opts out and
+         * deletes it does not get a drift-gate failure.
+         */
+        public bool $unsupportedReport = true,
+        /*
+         * Where the fidelity report is written. Null (or empty) means no report
+         * is planned even when $unsupportedReport is true: both command
+         * surfaces always supply a path, so this only stays null in narrow
+         * unit-test constructions that do not exercise the report. The path is
+         * the report's full target (directory plus filename).
+         */
+        public ?string $unsupportedReportPath = null,
     ) {}
 }

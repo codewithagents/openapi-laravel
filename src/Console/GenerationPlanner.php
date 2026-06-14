@@ -16,6 +16,7 @@ use CodeWithAgents\OpenApiLaravel\Emitter\Server\RouteGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\StubGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\SubsetSelection;
+use CodeWithAgents\OpenApiLaravel\Parser\Fidelity\FidelityReport;
 use CodeWithAgents\OpenApiLaravel\Parser\ParseException;
 use CodeWithAgents\OpenApiLaravel\Parser\Spec\OpenApiDocument;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
@@ -168,6 +169,26 @@ final readonly class GenerationPlanner
 
         $files = [...$files, ...$serverFiles];
 
+        // The fidelity report (the unsupported-construct artifact): a
+        // machine-readable openapi-laravel.unsupported.json listing every
+        // construct the generator could not faithfully represent. It is gated
+        // on the request flag AND a configured path, so opting out removes it
+        // from BOTH generation and the drift-checked set (a user who deletes
+        // an opted-out file never sees a drift failure). The entries are
+        // scanned from the document on every run, so the report is
+        // deterministic: the same spec in, byte-identical JSON out.
+        if ($request->unsupportedReport && $request->unsupportedReportPath !== null && $request->unsupportedReportPath !== '') {
+            $report = new FidelityReport;
+            foreach ($document->fidelity as $entry) {
+                $report->add($entry);
+            }
+            $files[] = new PlannedFile(
+                $request->unsupportedReportPath,
+                $report->toJson(),
+                PlannedFile::CATEGORY_FIDELITY,
+            );
+        }
+
         // One merged, sorted diagnostics channel: the parser's warnings (a 3.2
         // document accepted best-effort plus its dropped constructs, issue
         // #103) plus the model generator's (including skipped query
@@ -193,7 +214,7 @@ final readonly class GenerationPlanner
 
         $this->assertNoCaseFoldedPathCollision($files);
 
-        return new GenerationPlan($files, ! $hasDataFiles, $warnings);
+        return new GenerationPlan($files, ! $hasDataFiles, $warnings, count($document->fidelity));
     }
 
     /**

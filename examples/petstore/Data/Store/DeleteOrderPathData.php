@@ -32,7 +32,7 @@ final class DeleteOrderPathData extends Data
     public static function rules(): array
     {
         return [
-            'orderId' => ['required', 'integer'],
+            'orderId' => ['required', 'integer', 'min:-9223372036854775808', 'max:9223372036854775807'],
         ];
     }
 }

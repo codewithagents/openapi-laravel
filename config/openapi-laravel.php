@@ -48,6 +48,27 @@ return [
          * methods when validating. Null (the default) emits no trait line.
          */
         'validation_trait' => null,
+
+        /*
+         * Fidelity report: emit one machine-readable JSON file
+         * (openapi-laravel.unsupported.json) per run listing every OpenAPI
+         * construct the generator could not faithfully represent in the
+         * generated code AND that affects its correctness or runtime behavior
+         * (a silently lost value, an unenforced constraint, a presence-only
+         * union). Enabled by default; opt out here or pass
+         * --no-unsupported-report (--unsupported-report force-enables it). The
+         * file is part of the drift-checked output set, so it is byte-stable
+         * across runs of the same spec. You may gitignore it; opting out then
+         * removes it from BOTH generation and the drift check so a deleted file
+         * never fails the gate.
+         */
+        'unsupported_report' => true,
+
+        /*
+         * Where the fidelity report is written. The default places it at the
+         * project root next to the spec.
+         */
+        'unsupported_report_path' => base_path('openapi-laravel.unsupported.json'),
     ],
 
     /*

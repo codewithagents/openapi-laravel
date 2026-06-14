@@ -20,7 +20,7 @@ final class ApiResponseData extends Data
     public static function rules(): array
     {
         return [
-            'code' => ['sometimes', 'integer'],
+            'code' => ['sometimes', 'integer', 'min:-2147483648', 'max:2147483647'],
             'type' => ['sometimes', 'string'],
             'message' => ['sometimes', 'string'],
         ];

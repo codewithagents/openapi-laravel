@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Parser\Spec;
 
+use CodeWithAgents\OpenApiLaravel\Parser\Fidelity\FidelityEntry;
+
 /**
  * The root of the parsed OpenAPI document (issue #104), the replacement for
  * cebe's OpenApi object. A pure read-only graph: no reference resolution, no
@@ -11,8 +13,10 @@ namespace CodeWithAgents\OpenApiLaravel\Parser\Spec;
  * the operation level (null = absent, [] = explicit empty). `warnings` carries
  * the parser's best-effort notices (e.g. the 3.2 construct scanner from
  * issue #103) so they travel with the document instead of a side channel.
- * `tags` and `servers` stay raw passthrough: the generator groups by operation
- * tags, never by the root tag list.
+ * `fidelity` carries the structured fidelity-report entries (constructs the
+ * generator cannot faithfully represent), scanned from the raw document so they
+ * travel with it the same way. `tags` and `servers` stay raw passthrough: the
+ * generator groups by operation tags, never by the root tag list.
  *
  * @internal
  */
@@ -27,6 +31,7 @@ final readonly class OpenApiDocument
      * @param  list<array<string, mixed>>|null  $servers  raw passthrough, not consumed by the emitter
      * @param  list<string>  $warnings  parser notices (e.g. 3.2 best-effort constructs, issue #103)
      * @param  array<string, mixed>  $extensions  `x-*` vendor extension keys
+     * @param  list<FidelityEntry>  $fidelity  structured fidelity-report entries scanned from the raw document
      */
     public function __construct(
         public string $openapi,
@@ -39,5 +44,6 @@ final readonly class OpenApiDocument
         public ?array $servers = null,
         public array $warnings = [],
         public array $extensions = [],
+        public array $fidelity = [],
     ) {}
 }

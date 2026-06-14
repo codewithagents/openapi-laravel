@@ -25,9 +25,9 @@ final class OrderData extends Data
     public static function rules(): array
     {
         return [
-            'id' => ['sometimes', 'integer'],
-            'petId' => ['sometimes', 'integer'],
-            'quantity' => ['sometimes', 'integer'],
+            'id' => ['sometimes', 'integer', 'min:-9223372036854775808', 'max:9223372036854775807'],
+            'petId' => ['sometimes', 'integer', 'min:-9223372036854775808', 'max:9223372036854775807'],
+            'quantity' => ['sometimes', 'integer', 'min:-2147483648', 'max:2147483647'],
             'shipDate' => ['sometimes', 'string', new Rfc3339DateTimeRule],
             'status' => ['sometimes', Rule::in(['placed', 'approved', 'delivered'])],
             'complete' => ['sometimes', 'boolean'],
