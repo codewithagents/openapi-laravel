@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/codewithagents/openapi-laravel/compare/v0.13.0...v0.14.0) (2026-06-14)
+
+
+### Features
+
+* **fidelity:** emit openapi-laravel.unsupported.json report, add int32/int64 + not rules ([83af810](https://github.com/codewithagents/openapi-laravel/commit/83af810cc670e75187ce89e19b5dcb85a05b4899))
+
 ## [0.13.0](https://github.com/codewithagents/openapi-laravel/compare/v0.12.0...v0.13.0) (2026-06-13)
 
 
