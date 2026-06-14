@@ -52,14 +52,14 @@ What is explicitly **not** breaking (a minor or patch, no major bump needed):
 
 ### What if laravel-data ships a v5
 
-The generated code extends `spatie/laravel-data`, and the package pins `^4.15`. A laravel-data v5
+The generated code extends `spatie/laravel-data`, and the package pins `^4.23`. A laravel-data v5
 release therefore does not reach you through this package: Composer keeps resolving 4.x until
 `openapi-laravel` itself widens or raises the constraint. When a v5 exists, it gets evaluated like
 any other floor change under the rules above. If supporting it changes the generated output or the
 behavior of the generated code in any way (different base-class semantics, changed validation or
 serialization), the bump ships as a **major release of this package**, with a changelog entry and a
 regeneration note, exactly like the floor-bump bullet. If v5 can be supported with byte-identical
-output, the constraint could instead be widened (`^4.15 || ^5.0`) in a minor, since nothing
+output, the constraint could instead be widened (`^4.23 || ^5.0`) in a minor, since nothing
 observable changes for existing consumers. Either way, nothing is silent: the
 [drift check](/guides/drift-check) and the upgrade flow below apply unchanged.
 
@@ -92,6 +92,8 @@ The project is deliberately in 0.x while the output format is still settling ([d
 - **1.0.0 and after:** 1.0.0 **is** the output-format freeze. From then on, the breaking-change definition above governs: an intentional change to output shape or validation behavior requires a major version, with a changelog entry and a regeneration note. The upgrade flow stays the same; the difference is that a minor or patch upgrade is now promised **not** to change output shape (correctness-fix caveat aside).
 
 In short: 0.x says "expect output churn, always regenerate"; 1.0.0 says "output is stable across minors and patches, output changes are a major release you opt into".
+
+For a consolidated overview of the stability story, including the criterion for when `1.0.0` is tagged and what the freeze covers, see [Stability & the 1.0 promise](/guides/stability).
 
 ## Decision
 

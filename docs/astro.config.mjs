@@ -66,21 +66,36 @@ export default defineConfig({
           ],
         },
         {
-          label: 'Reference',
+          label: 'Features',
+          items: [
+            { label: 'Generated models & enums', slug: 'guides/generated-output' },
+            { label: 'Request & response bodies', slug: 'guides/request-response-bodies' },
+            { label: 'Parameters', slug: 'guides/parameters' },
+            { label: 'Unions & polymorphism', slug: 'guides/unions' },
+            { label: 'Server scaffold', slug: 'guides/server-scaffold' },
+            { label: 'Security & middleware', slug: 'guides/security' },
+            { label: 'Subset generation', slug: 'guides/subset-generation' },
+          ],
+        },
+        {
+          label: 'Workflow',
           items: [
             { label: 'Configuration', slug: 'guides/configuration' },
-            { label: 'Generated output', slug: 'guides/generated-output' },
-            { label: 'Server scaffold', slug: 'guides/server-scaffold' },
-            { label: 'Subset generation', slug: 'guides/subset-generation' },
             { label: 'Drift check', slug: 'guides/drift-check' },
             { label: 'Contract testing', slug: 'guides/contract-testing' },
             { label: 'Validation error shape', slug: 'guides/validation-errors' },
             { label: 'Cookbook', slug: 'guides/cookbook' },
+          ],
+        },
+        {
+          label: 'Reference',
+          items: [
+            { label: 'Stability & the 1.0 promise', slug: 'guides/stability' },
             { label: 'Supported OpenAPI versions', slug: 'guides/openapi-versions' },
-            { label: 'End-to-end demo', slug: 'guides/end-to-end-demo' },
             { label: 'Limitations', slug: 'guides/limitations' },
             { label: 'Versioning & upgrades', slug: 'guides/versioning-policy' },
             { label: 'Runtime coupling', slug: 'guides/runtime-coupling' },
+            { label: 'End-to-end demo', slug: 'guides/end-to-end-demo' },
           ],
         },
         {

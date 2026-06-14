@@ -88,11 +88,11 @@ These are completeness gaps, not crashes. Even a schema that leans on an unsuppo
 
 ## Validation mode
 
-The parser is invoked with full OpenAPI validation **off** by default. It applies the lightweight structural check above (version string plus `info` object) rather than asserting the document is fully spec-conformant. This is deliberate: many real-world specs in the wild are slightly non-conformant yet still useful, and the corpus gate proves the generator produces valid PHP for 130 of them. Strict validation can be opted into at the parser level, but the shipped commands run in lenient mode so a minor spec wart does not block generation.
+The parser is invoked with full OpenAPI validation **off** by default. It applies the lightweight structural check above (version string plus `info` object) rather than asserting the document is fully spec-conformant. This is deliberate: many real-world specs in the wild are slightly non-conformant yet still useful, and the corpus gate proves the generator produces valid PHP for 135 of them. Strict validation can be opted into at the parser level, but the shipped commands run in lenient mode so a minor spec wart does not block generation.
 
 ## Summary
 
-- **OpenAPI 3.0.x and 3.1.x are supported.** Both are pinned by a conformance fixture and exercised by the 130-spec corpus.
+- **OpenAPI 3.0.x and 3.1.x are supported.** Both are pinned by a conformance fixture and exercised by the 135-spec corpus.
 - **OpenAPI 3.2.x is accepted best-effort**: a loud warning plus one warning per dropped 3.2-only construct (`query` operations, `additionalOperations`, `itemSchema`), on generate and on the drift gate alike. Full support is tracked in [issue #102](https://github.com/codewithagents/openapi-laravel/issues/102).
 - **Swagger 2.0 and any other version are rejected** with a clear error naming this matrix.
 - **The 3.0 and 3.1 spellings** of nullability and exclusive bounds are normalized to one code path; boolean `items`, multi-type arrays, `const`, and `dependentRequired` are 3.1-only constructs that are handled.

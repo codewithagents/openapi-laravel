@@ -13,119 +13,15 @@ documents a flag or config key that does not exist.
 
 ## Auth middleware on generated routes
 
-The generator reads `securitySchemes` and operation/global `security` from the spec and maps them
-to per-route middleware through the config-only
-[`security.middleware_map` key](/guides/server-scaffold#security-middleware-from-the-spec). The
-generated middleware names are wiring only: the auth implementation itself (guards, tokens) stays
-Laravel's job. There are four places to put auth, from spec-driven to fully hand-wired.
+The generator supports four ways to put auth in front of generated routes, from spec-driven
+(`security.middleware_map`) to hand-wired middleware on your concrete controller. The full
+reference, with worked examples for each approach, lives in the
+[Security & middleware guide](/guides/security). The patterns in brief:
 
-### From the spec: `security.middleware_map`
-
-When the spec declares security, map each scheme name to the middleware that implements it:
-
-```php
-// config/openapi-laravel.php
-'security' => [
-    'middleware_map' => [
-        'bearerAuth' => 'auth:sanctum',
-    ],
-],
-```
-
-After regenerating, every route whose operation requires `bearerAuth` carries the middleware, and
-an operation with `security: []` stays public:
-
-```php
-Route::get('/health', [MetaController::class, 'index'])->name('index');
-Route::get('/pets', [PetController::class, 'index'])->name('index_2')->middleware(['auth:sanctum']);
-```
-
-Operation-level `security` overrides the global one, AND requirements apply all mapped middleware,
-and OR alternatives enforce only the first requirement object (with a warning). A required scheme
-missing from the map warns at generation time and leaves those routes open, so a secured spec is
-never silently unprotected. The full semantics table lives in the
-[server scaffold guide](/guides/server-scaffold#security-middleware-from-the-spec). When the spec
-declares no security (or you prefer auth policy outside the spec), use one of the recipes below
-instead.
-
-### The whole API: `routes.middleware`
-
-The [config-only `routes.middleware` key](/guides/server-scaffold#middleware-and-prefix-groups)
-wraps every generated route in one `Route::group`:
-
-```php
-// config/openapi-laravel.php
-'routes' => [
-    'enabled'    => true,
-    'path'       => base_path('routes/api.generated.php'),
-    'middleware' => ['auth:sanctum'],
-    'prefix'     => '',
-],
-```
-
-After regenerating, the routes file itself carries the group:
-
-```php
-Route::middleware(['auth:sanctum'])->group(function (): void {
-    Route::get('/pets', [PetController::class, 'index'])->name('index');
-    // ...
-});
-```
-
-Each middleware entry is its own string and is never comma-split, so `'throttle:60,1'` stays
-intact. The standalone binary reads the same keys from
-[`openapi-laravel.json`](/guides/configuration#standalone-binary-openapi-laraveljson). There are
-deliberately no CLI flags for these two keys.
-
-### The whole API, without touching the generated file
-
-If you prefer to keep the generated file free of environment concerns, wrap the include instead.
-`Route::group()` accepts a file path, and routes registered inside the group inherit its
-attributes:
-
-```php
-// routes/api.php
-Route::middleware('auth:sanctum')->group(base_path('routes/api.generated.php'));
-```
-
-Both approaches produce the same routing table. The config key keeps the policy visible in the
-generated artifact (and in the [drift check](/guides/drift-check)); the wrapper keeps it in code
-you own. Pick one, not both.
-
-### Per operation: middleware on your concrete controller
-
-The generated routes file is overwritten on every run, so never hand-edit middleware onto a single
-`Route::` line. For a mixed public/protected API, put the middleware on your **concrete**
-controller, which the generator never touches. On Laravel 11+ that is the `HasMiddleware`
-interface, and the method names to target are the generated controller method names (the
-conventional Laravel name for a clean RESTful operation, otherwise the operationId-derived one):
-
-```php
-use Illuminate\Routing\Controllers\HasMiddleware;
-use Illuminate\Routing\Controllers\Middleware;
-
-final class PetController extends AbstractPetController implements HasMiddleware
-{
-    public static function middleware(): array
-    {
-        return [
-            // index and show stay public, everything else needs auth.
-            new Middleware('auth:sanctum', except: ['index', 'show']),
-        ];
-    }
-
-    // ... the abstract method implementations
-}
-```
-
-This survives every regenerate: the abstract controller and the routes file change with the spec,
-your concrete controller and its middleware do not.
-
-<Aside type="note" title="Route names work too">
-  Every generated route has a deterministic <code>-&gt;name()</code> following its method name
-  (see [route names](/guides/server-scaffold#route-names)), so name-based tooling such as
-  authorization gates or `route()` calls can target individual operations as well.
-</Aside>
+- **From the spec:** map scheme names to middleware with `security.middleware_map` in the config.
+- **Whole API:** set `routes.middleware` in the config to wrap every route in a group.
+- **Without touching the generated file:** wrap the route include in `routes/api.php`.
+- **Per operation:** implement `HasMiddleware` on your concrete controller.
 
 ## Versioned APIs: v1 and v2 side by side
 
@@ -420,6 +316,7 @@ explicit mapping from the previous section, map first, then collect:
 
 ## Related pages
 
+- [Security & middleware](/guides/security) for auth middleware, route groups, and the untrusted-spec posture.
 - [Server scaffold](/guides/server-scaffold) for the full controller and routes reference.
 - [Configuration](/guides/configuration) for every flag and config key used above.
 - [Contract testing](/guides/contract-testing) for validating response conformance in tests.

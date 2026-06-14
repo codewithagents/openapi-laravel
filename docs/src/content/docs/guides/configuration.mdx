@@ -155,7 +155,7 @@ Maximum schema nesting depth the parser follows before it bails out. Defaults to
 
 ### `max_bytes`
 
-Maximum raw spec file size, in bytes, accepted before parsing. Defaults to `25_165_824` (24 MiB). The spec is untrusted input fed to a YAML parser that expands anchors and aliases before the generator sees the data, a classic alias-bomb vector the underlying parser cannot disable. This pre-parse size guard caps the blast radius and sits well above the largest real-world specs. Overridden by the `--max-bytes` flag on the standalone binary; artisan users set it here in the config file (see [which surface has which flags](#which-surface-has-which-flags-intentional-asymmetry)). Raise it only for trusted inputs, and prefer OS-level resource limits when running against genuinely untrusted specs. See the [limitations page](/guides/limitations#security-specs-are-untrusted-input) for the full threat model.
+Maximum raw spec file size, in bytes, accepted before parsing. Defaults to `25_165_824` (24 MiB). The spec is untrusted input fed to a YAML parser that expands anchors and aliases before the generator sees the data, a classic alias-bomb vector the underlying parser cannot disable. This pre-parse size guard caps the blast radius and sits well above the largest real-world specs. Overridden by the `--max-bytes` flag on the standalone binary; artisan users set it here in the config file (see [which surface has which flags](#which-surface-has-which-flags-intentional-asymmetry)). Raise it only for trusted inputs, and prefer OS-level resource limits when running against genuinely untrusted specs. See the [security posture](/guides/security#security-specs-are-untrusted-input) for the full threat model.
 
 ### `controllers`
 
@@ -224,7 +224,7 @@ scheme the spec requires but the map does not name leaves its routes without aut
 warns at generation time; map it to an empty list (`'schemeName' => []`) to acknowledge it is
 handled elsewhere and silence the warning. Defaults to `[]` (nothing mapped, no middleware).
 Config-only, no CLI flag; the `openapi-laravel.json` file accepts the same key as a JSON object.
-See [security middleware from the spec](/guides/server-scaffold#security-middleware-from-the-spec)
+See [security middleware from the spec](/guides/security#security-middleware-from-the-spec)
 for the full semantics table.
 
 ### `enforce_closed_objects`
@@ -391,4 +391,4 @@ A `..` traversal, an absolute path, or a symlink whose target escapes the direct
 Legitimate in-root relative paths (`src/Data`, `app/Http/Controllers/Api`) and nested paths work
 unchanged. CLI flags (`--output`, `--controller-output`, `--routes-output`) are explicit operator
 input and keep full freedom, so pass a flag if you really do mean to write outside the project. See
-the [security posture](/guides/limitations#security-specs-are-untrusted-input) for the full rationale.
+the [security posture](/guides/security#security-specs-are-untrusted-input) for the full rationale.

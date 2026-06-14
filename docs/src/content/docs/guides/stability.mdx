@@ -1,0 +1,123 @@
+---
+title: Stability & the 1.0 promise
+description: What openapi-laravel commits to at 1.0.0, which surfaces are frozen, the support-class ownership story, the upgrade contract, and the honest criterion for when 1.0.0 is tagged.
+---
+
+import { Aside } from '@astrojs/starlight/components'
+
+The project deliberately stays in `0.x` while the generated output format is still evolving.
+`1.0.0` is not a feature milestone: it is the **output-stability promise**, tagged when the format
+settles. This page explains exactly what that promise covers, what will never change silently, and
+the honest criterion for when the tag is applied.
+
+## What 1.0.0 promises
+
+Two surfaces are frozen at `1.0.0`:
+
+**1. The generated output shape.** For an unchanged spec, an upgrade to any `1.x` minor or patch
+release produces byte-identical PHP: the same class and property names, the same `rules()` body, the
+same type hints and docblocks, the same file set, the same `#[MapName]` attributes. The
+[drift check](/guides/drift-check) (`openapi:check`) enforces this byte-for-byte in CI.
+
+**2. The support-class namespace and import lines.** The eight support classes the generator inlines
+(`MultipleOfRule`, `Rfc3339DateTimeRule`, `Rfc3339TimeRule`, `Iso8601DurationRule`, `HostnameRule`,
+`MapObjectTransformer`, `NoUnknownPropertiesRule`, `RespondsWithStatus`) land at a fixed location
+relative to your configured Data namespace, for example `App\Data\Support\MultipleOfRule`. Their
+import lines are part of the committed output, so moving them would be an output-shape change covered
+by the same rule. The namespace is not changing after `1.0.0`.
+
+Everything above stays stable across `1.x` minor and patch releases. An intentional change to either
+surface requires a **major version** with a documented changelog entry and a regeneration note.
+Correctness patches (a constraint that was silently dropped, non-compiling output) remain the
+narrow exception: they may ship in a patch with an explicit changelog call-out. See the
+[versioning policy](/guides/versioning-policy) for the full definition, including the honest caveat
+on correctness fixes.
+
+## The support-class ownership story
+
+The generated PHP is fully self-contained. The generator inlines the support classes your spec
+actually uses into your own `\Support` namespace (the Data namespace plus a `\Support` suffix,
+typically `App\Data\Support\`). They are emitted into `<output>/Support/`, committed alongside the
+Data classes, and drift-checked byte-for-byte by `openapi:check`.
+
+The consequence: **`codewithagents/openapi-laravel` has no runtime presence in consuming
+applications.** It is a pure dev-time tool. A class that uses `multipleOf` loads `MultipleOfRule`
+from your own `App\Data\Support` namespace, not from vendor. If you stopped using the generator
+tomorrow, your committed PHP would still compile and run.
+
+`spatie/laravel-data` is a genuine runtime peer dependency, since the generated classes are
+laravel-data classes. But the generator itself is `require-dev`.
+
+For the full analysis of why inlining was chosen over a runtime package, see
+[runtime coupling](/guides/runtime-coupling).
+
+## The upgrade contract
+
+Because you own the generated code, an upgrade is a deliberate, reviewed action:
+
+1. **Upgrade** the package: `composer update codewithagents/openapi-laravel`.
+2. **Regenerate**: re-run `openapi:generate` (with the same flags you use in CI).
+3. **Review the diff** in git. The changelog tells you what to expect; the diff confirms it. A major
+   upgrade will show intentional changes; a minor or patch should show nothing, or only a documented
+   correctness fix.
+4. **Commit** the regenerated output.
+
+The [drift check](/guides/drift-check) enforces this contract in CI. If a generator upgrade changes
+output, `openapi:check` goes red until you regenerate. That is correct behavior: read a red check
+after `composer update` as **"regenerate and review"**, not as a bug to suppress.
+
+For full details on the upgrade flow, the interaction with the drift check, and what to do when
+`laravel-data` ships a major version, see the [versioning policy](/guides/versioning-policy).
+
+## What will never change silently
+
+Under the 1.0.0 promise, the following categories of change require a major version, a changelog
+entry, and a regeneration note. None of them will arrive in a minor or patch without explicit,
+prominent notice:
+
+- A change to **generated class or property names** for an unchanged spec.
+- A change to the **shape of `rules()`**: different keys, different rule strings, a dropped or added
+  constraint.
+- A change to **type hints or return types** in generated controllers.
+- A change to **which files the generator writes**: moved, renamed, or dropped files.
+- A change to **support-class locations or import lines**: the `App\Data\Support\...` path is fixed.
+- A change to **validation behavior**: a payload previously accepted is now rejected, or vice versa.
+- A change to **CLI flags or config keys**: removed, renamed, or changed defaults.
+- A **floor bump** (minimum PHP, Laravel, or laravel-data version) that changes output or behavior.
+
+What will never be silent: even a "more correct" output change (eliminating a `JsonResponse`
+fallback in favor of a typed return, for example) counts as an output-shape change and must ship in
+a major. The [versioning policy](/guides/versioning-policy) defines this precisely.
+
+<Aside type="note" title="On additive 0.x improvements">
+  Pre-1.0, even an improvement that adds information to the output, such as a new typed return where
+  a `JsonResponse` fallback used to appear, changes the committed diff for an unchanged spec. That
+  is exactly why those improvements have shipped in 0.x minors rather than waiting for a major:
+  the 0.x contract already says "regenerate on every upgrade and review the diff". Under 1.0, the
+  same change would require a major version. The 0.x period is precisely the window for these
+  improvements, so they are complete before the freeze.
+</Aside>
+
+## Why 1.0.0 is not tagged yet
+
+The project has changed generated output across several 0.x minor releases as correctness work
+landed: the silent-validation sweep in 0.5.0, the differential oracle fixes in 0.7.0, the
+tag-grouped layout and Laravel-convention naming in 0.11.0. Each of those releases was an
+intentional output-shape improvement, and each one required regeneration.
+
+That history is exactly why `1.0.0` is not tagged yet. The format needs to hold steady across
+consecutive releases before the stability promise is meaningful. The criterion is: **consecutive
+minor releases that ship no non-additive output change.** The precise count of releases in that
+run will be fixed before tagging; ROADMAP.md describes the gate as "hold the format steady across
+a few releases, then tag `1.0.0`". Once that window passes without format churn, the tag is applied
+and the freeze takes effect.
+
+Until then, the 0.x contract applies: **regenerate on every upgrade and review the diff.** The
+generator does not promise a stable output format yet, but it does promise to be honest about every
+change through the changelog and the drift gate.
+
+<Aside type="tip" title="Track progress">
+  The [roadmap](/roadmap) and the
+  [ROADMAP.md](https://github.com/codewithagents/openapi-laravel/blob/main/ROADMAP.md) in the repo
+  track what remains before `1.0.0` is tagged.
+</Aside>

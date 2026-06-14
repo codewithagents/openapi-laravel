@@ -1,0 +1,279 @@
+---
+title: Unions & polymorphism
+description: How openapi-laravel handles oneOf and anyOf. Scalar unions become native PHP union types. Discriminated object unions are validated and hydrated via a morphable base. Undiscriminated object unions are presence-only.
+---
+
+import { Aside } from '@astrojs/starlight/components'
+
+<Aside type="note" title="oneOf / anyOf typing and object unions">
+  Scalar `oneOf`/`anyOf` emit native PHP union type hints (and a variant docblock).
+  A **discriminated object union** (a `oneOf`/`anyOf` of object `$ref`s with a
+  `discriminator`) is fully validated and hydrated: the generator emits an
+  abstract morphable base plus one variant class per member, and spatie selects
+  the right variant from the discriminator value at runtime (issue #38). An
+  **undiscriminated object union** (no `discriminator`) stays typed `mixed` and
+  validated for presence only, so every valid variant is accepted and no valid
+  payload is false-rejected (issue #31).
+</Aside>
+
+## oneOf and anyOf emit union types
+
+A property whose schema uses `oneOf` or `anyOf` of **scalars** emits a native PHP union type hint
+plus a `@var` docblock listing the variants. A union that contains an **object** member (a generated
+Data class) is typed `mixed` with the variant union preserved in the `@var` docblock (see the object
+union note below). `oneOf` and `anyOf` are handled identically for typing, since PHP cannot
+distinguish "exactly one" from "at least one" shape.
+
+```yaml
+animal:
+  oneOf:
+    - $ref: '#/components/schemas/Cat'
+    - $ref: '#/components/schemas/Dog'
+```
+
+This generates:
+
+```php
+/** @var CatData|DogData */
+public readonly mixed $animal = null,
+```
+
+A scalar union such as `oneOf: [string, integer]` keeps its native union type hint:
+
+```php
+/** @var string|int */
+public readonly string|int|null $value = null,
+```
+
+The scalar union is built in source order, deduplicated, with `null` forced to the end. `null` is
+added to the union (and the property defaults to `= null`) when any member is the `null` type, any
+member is itself nullable, or the property is nullable.
+
+### Fallback to mixed
+
+When a member does **not** resolve to a clean type, the whole property falls back to the previous
+behavior: `public readonly mixed $payload` with presence-only rules. This is deliberate and
+deterministic. It happens when a member is itself a `oneOf`/`anyOf`, an array, a map, an inline
+object, an untyped or empty schema, an enum, or a `$ref` to something that is not a Data class.
+Each collapse emits a build warning naming the schema (and the pointer, when the messy member is a
+`$ref`), so the degradation is visible at generation time instead of only in the generated type.
+
+### Rules stay presence-only
+
+The generated `rules()` keep presence semantics (`required` / `sometimes` / `nullable`). They do
+**not** assert which variant was supplied: standard Laravel validation cannot enforce "exactly one
+of these shapes" without a discriminator, and a type rule on a union would wrongly reject a valid
+variant. When the spec **does** carry a `discriminator`, the generator wires it into runtime
+dispatch instead, see [Discriminated object unions](#discriminated-object-unions-are-validated-and-hydrated)
+below.
+
+This applies to **scalar** unions too. A `oneOf: [string, integer]` (or the JSON Schema multi-type
+form `type: ["string", "integer"]`) emits the `string|int` type hint but only a presence rule, with
+**no per-variant type rule**. The native PHP union already constrains the value to one of the member
+types at hydration, but the validator does not separately assert "this is a string OR an integer".
+A field whose only constraint is being one of several scalar types is therefore validated for
+presence only. If you need to reject, say, a boolean on a `string|int` field at the validation layer,
+add a rule for it yourself.
+
+## Discriminated object unions are validated and hydrated
+
+When a `oneOf`/`anyOf` carries a `discriminator`, the generator emits a real discriminated union: an
+**abstract morphable base** plus one **variant class** per member. spatie/laravel-data reads the
+discriminator value from the payload, selects the concrete variant, and validates and hydrates
+**that** variant, so per-variant validation and polymorphic hydration both work at runtime, with no
+custom cast. **All three discriminator forms are supported** (issue #38): the named-component form
+(members are `$ref`s, shown below), the inline-union form (members are inline object schemas), and
+the allOf-inheritance form (a base object declares the discriminator and variants compose it via
+`allOf`). The inline and allOf forms are described after the named-component example.
+
+Given:
+
+```yaml
+Pet:
+  oneOf:
+    - $ref: '#/components/schemas/Cat'
+    - $ref: '#/components/schemas/Dog'
+  discriminator:
+    propertyName: petType
+    mapping: { cat: '#/components/schemas/Cat', dog: '#/components/schemas/Dog' }
+Cat:
+  type: object
+  required: [petType, meow]
+  properties: { petType: { type: string }, meow: { type: string } }
+Dog:
+  type: object
+  required: [petType, bark]
+  properties: { petType: { type: string }, bark: { type: string } }
+```
+
+the generator emits an abstract `PetData` whose only property is the discriminator (marked for morph)
+plus a `morph()` that maps each discriminator value to a variant:
+
+```php
+abstract class PetData extends Data implements PropertyMorphableData
+{
+    public function __construct(
+        #[PropertyForMorph, Required, StringType]
+        public readonly string $petType,
+    ) {}
+
+    public static function morph(array $properties): ?string
+    {
+        return match ($properties['petType'] ?? null) {
+            'cat' => CatData::class,
+            'dog' => DogData::class,
+            default => null,
+        };
+    }
+}
+```
+
+and one variant per member, each forwarding the discriminator and declaring its own properties:
+
+```php
+final class CatData extends PetData
+{
+    public function __construct(
+        string $petType,
+        public readonly string $meow,
+    ) {
+        parent::__construct($petType);
+    }
+
+    public static function rules(): array
+    {
+        return ['meow' => ['required', 'string']];
+    }
+}
+```
+
+A property whose schema is `$ref: Pet` is typed as the abstract `PetData`, so laravel-data morphs it:
+
+```php
+public readonly PetData $pet,
+```
+
+At runtime, `HolderData::from(['pet' => ['petType' => 'cat', 'meow' => 'mrr']])` hydrates `->pet` as a
+`CatData`; a `dog` payload hydrates a `DogData`. `HolderData::validate(...)` enforces the **selected
+variant's** rules: a `cat` discriminator missing `meow` is rejected, an unmapped discriminator value
+is rejected (the `default => null` arm fails spatie's morph guard), and a payload missing the
+discriminator is rejected. An **array** of a discriminated union (`items: { $ref: Pet }`) works too:
+each element morphs to its own variant and is validated per variant. The mapping is optional, when it
+is omitted, the implicit discriminator value for each member is its component schema name.
+
+**Inline-union form.** A `oneOf`/`anyOf` + `discriminator` whose members are **inline** object
+schemas (not `$ref`s) is handled too. Since the variants have no component name, the generator
+synthesizes a deterministic, collision-safe Data class per member from its discriminator value:
+
+```yaml
+Shape:
+  oneOf:
+    - { type: object, required: [kind, radius], properties: { kind: { const: circle }, radius: { type: number } } }
+    - { type: object, required: [kind, side],   properties: { kind: { const: square }, side:   { type: number } } }
+  discriminator:
+    propertyName: kind
+    mapping: { circle: '#/components/schemas/Shape/oneOf/0', square: '#/components/schemas/Shape/oneOf/1' }
+```
+
+emits an abstract `ShapeData` base plus `ShapeCircleData` and `ShapeSquareData` variants, each
+pinning its own discriminator via `Rule::in`, validated and hydrated exactly like the named form.
+
+**allOf-inheritance form.** A base object that declares the `discriminator` directly, with variants
+composed via `allOf: [{ $ref: Base }, { ...own props }]`:
+
+```yaml
+Vehicle:
+  type: object
+  required: [vehicleType]
+  properties: { vehicleType: { type: string }, wheels: { type: integer } }
+  discriminator: { propertyName: vehicleType, mapping: { car: Car, truck: Truck } }
+Car:
+  allOf:
+    - $ref: '#/components/schemas/Vehicle'
+    - { type: object, required: [doors], properties: { doors: { type: integer } } }
+```
+
+The base `VehicleData` becomes the abstract morphable parent (declaring only the discriminator), and
+`CarData`/`TruckData` extend it, forwarding the discriminator and declaring their own merged
+properties.
+
+A discriminated union that cannot be cleanly handled degrades to the presence-only behavior below and
+emits a build warning explaining why. This happens when a member is not an object schema, when an
+inline member has no derivable discriminator value (no mapping entry and no `const`/single-enum pin),
+when a variant is shared by two discriminated bases (PHP single inheritance keeps the first base), or
+when a base is left with no claimable variant. One honest residual remains for the allOf-inheritance
+form: when its variants do not pin their discriminator with a `const`, validating a variant
+**standalone** (outside the morph base) does not reject a wrong discriminator value (morph routing
+through the base is unaffected). All tracked in
+[issue #38](https://github.com/codewithagents/openapi-laravel/issues/38).
+
+### Unknown and missing discriminator values are clean 422s
+
+An **unknown** discriminator value (a value not in the mapping, issue #124) is a clean 422, not an
+uncatchable 500. The base's `morph()` default arm throws a `ValidationException` instead of
+returning `null`, so an unmapped value rejects before the `CannotCreateAbstractClass` error fires on
+the creation paths.
+
+A **missing** discriminator key (issue #126) is also a clean 422. The base declares the
+discriminator property as nullable with a `null` default, so spatie's morph resolver calls
+`morph()` with `null` when the key is absent. The default arm rejects that too, and `from()`,
+`validateAndCreate()`, and container injection all reject cleanly. `null` is the sentinel; no real
+discriminator value is ever `null`.
+
+## Undiscriminated object unions are presence-only (no false-reject)
+
+An **undiscriminated object union** (`oneOf`/`anyOf` of Data classes with no `discriminator`,
+`CatData|DogData`) is typed `mixed` rather than the native union, and validated for **presence only**.
+This is deliberate (issue #31). A native
+`CatData|DogData` property type makes spatie/laravel-data infer nested validation rules from the
+union and, lacking a discriminator, validate **every** payload against the **first** variant. With
+`oneOf: [Cat, Dog]` where `Cat` requires `meow`, a valid `Dog` payload (`{"bark": "woof"}`) was then
+**false-rejected** with "meow is required". False-rejecting valid data is worse than under-validating,
+so the property is typed `mixed`: every valid variant is now accepted, and the variant union stays in
+the `@var` docblock for IDE and PHPStan.
+
+The tradeoff is honest: an **undiscriminated** object union accepts **any** object (presence-only),
+it does **not** enforce "the value is exactly one of these variants". If your spec has a
+`discriminator`, you get full variant validation and hydration automatically, see
+[Discriminated object unions](#discriminated-object-unions-are-validated-and-hydrated) above. Scalar
+unions (`string|int`) are unaffected: they keep their native union type and hydrate directly.
+
+**Hydrating an undiscriminated object union today.** Because the property is `mixed`, the value
+arrives as a raw array at runtime. Add a `discriminator` to the spec to have the generator handle it
+for you, or hydrate the chosen variant yourself by sniffing a distinguishing field. Given a spec with
+a field you can switch on:
+
+```yaml
+animal:
+  oneOf:
+    - $ref: '#/components/schemas/Cat'
+    - $ref: '#/components/schemas/Dog'
+  # no discriminator: dispatch on a field one variant carries, e.g. "kind"
+```
+
+`$pet->animal` arrives as a raw `array`. Dispatch on the distinguishing field in your controller or
+service:
+
+```php
+$raw = $pet->animal;                        // raw array, e.g. ['kind' => 'cat', 'lives' => 9]
+
+$animal = match ($raw['kind'] ?? null) {    // a field you switch on yourself
+    'cat'   => CatData::from($raw),
+    'dog'   => DogData::from($raw),
+    default => throw ValidationException::withMessages([
+        'animal' => 'Unknown animal variant.',
+    ]),
+};
+
+// $animal is now a fully hydrated CatData or DogData
+```
+
+The cleaner fix is to add a `discriminator` to the spec, which makes the generator emit the morphable
+base and variants for you. Failing that, sniff a distinguishing field as above (for example a property
+only `CatData` defines), or register a custom cast on the property. Scalar unions (`string|int`) need
+none of this: they hydrate directly.
+
+## See also
+
+- [Generated output](/guides/generated-output) for the Data class format and the readOnly/writeOnly split.
+- [Limitations](/guides/limitations#oneof-and-anyof-union-residuals) for the remaining union residuals.

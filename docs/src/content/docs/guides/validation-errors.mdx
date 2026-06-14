@@ -29,7 +29,7 @@ renderer, using the error Data classes the generator already emits.
 
 This was an explicit design decision
 ([issue #79](https://github.com/codewithagents/openapi-laravel/issues/79)): the generator ships a
-**recipe**, not a generated renderer. A survey of the 130-spec corpus shows there is no common
+**recipe**, not a generated renderer. A survey of the 135-spec corpus shows there is no common
 error shape to generate against: FastAPI's `HTTPValidationError` (a `detail` array of
 `loc`/`msg`/`type`), GitHub's `validation_failed`, RFC 9457 problem-details variants, flat
 `{ code, message }` objects, and one-off inline shapes all coexist, and many specs declare the

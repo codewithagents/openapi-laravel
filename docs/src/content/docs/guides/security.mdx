@@ -1,0 +1,284 @@
+---
+title: Security & middleware
+description: Map spec security schemes to per-route Laravel middleware, wrap routes in groups, and understand the generator's untrusted-input posture. Canonical home for all auth and security wiring.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components'
+
+The generator reads `securitySchemes` and operation/global `security` from the spec and maps them
+to per-route middleware through the config-only `security.middleware_map` key. It also supports
+route groups via `routes.middleware` and `routes.prefix`. This page is the canonical reference for
+all auth wiring and the generator's untrusted-input posture.
+
+## Auth middleware on generated routes
+
+There are four places to put auth on generated routes, from spec-driven to fully hand-wired.
+
+### From the spec: security.middleware_map
+
+When the spec declares security, map each scheme name to the middleware that implements it:
+
+```php
+// config/openapi-laravel.php
+'security' => [
+    'middleware_map' => [
+        'bearerAuth' => 'auth:sanctum',
+    ],
+],
+```
+
+After regenerating, every route whose operation requires `bearerAuth` carries the middleware, and
+an operation with `security: []` stays public:
+
+```php
+Route::get('/health', [MetaController::class, 'index'])->name('index');
+Route::get('/pets', [PetController::class, 'index'])->name('index_2')->middleware(['auth:sanctum']);
+```
+
+Operation-level `security` overrides the global one, AND requirements apply all mapped middleware,
+and OR alternatives enforce only the first requirement object (with a warning). A required scheme
+missing from the map warns at generation time and leaves those routes open, so a secured spec is
+never silently unprotected. The full semantics table is in
+[Security middleware from the spec](#security-middleware-from-the-spec) below. When the spec
+declares no security (or you prefer auth policy outside the spec), use one of the recipes below
+instead.
+
+### The whole API: routes.middleware
+
+The config-only `routes.middleware` key wraps every generated route in one `Route::group` (see
+[Middleware and prefix groups](#middleware-and-prefix-groups)):
+
+```php
+// config/openapi-laravel.php
+'routes' => [
+    'enabled'    => true,
+    'path'       => base_path('routes/api.generated.php'),
+    'middleware' => ['auth:sanctum'],
+    'prefix'     => '',
+],
+```
+
+After regenerating, the routes file itself carries the group:
+
+```php
+Route::middleware(['auth:sanctum'])->group(function (): void {
+    Route::get('/pets', [PetController::class, 'index'])->name('index');
+    // ...
+});
+```
+
+Each middleware entry is its own string and is never comma-split, so `'throttle:60,1'` stays
+intact. The standalone binary reads the same keys from
+[`openapi-laravel.json`](/guides/configuration#standalone-binary-openapi-laraveljson). There are
+deliberately no CLI flags for these two keys.
+
+### The whole API, without touching the generated file
+
+If you prefer to keep the generated file free of environment concerns, wrap the include instead.
+`Route::group()` accepts a file path, and routes registered inside the group inherit its
+attributes:
+
+```php
+// routes/api.php
+Route::middleware('auth:sanctum')->group(base_path('routes/api.generated.php'));
+```
+
+Both approaches produce the same routing table. The config key keeps the policy visible in the
+generated artifact (and in the [drift check](/guides/drift-check)); the wrapper keeps it in code
+you own. Pick one, not both.
+
+### Per operation: middleware on your concrete controller
+
+The generated routes file is overwritten on every run, so never hand-edit middleware onto a single
+`Route::` line. For a mixed public/protected API, put the middleware on your **concrete**
+controller, which the generator never touches. On Laravel 11+ that is the `HasMiddleware`
+interface, and the method names to target are the generated controller method names (the
+conventional Laravel name for a clean RESTful operation, otherwise the operationId-derived one):
+
+```php
+use Illuminate\Routing\Controllers\HasMiddleware;
+use Illuminate\Routing\Controllers\Middleware;
+
+final class PetController extends AbstractPetController implements HasMiddleware
+{
+    public static function middleware(): array
+    {
+        return [
+            // index and show stay public, everything else needs auth.
+            new Middleware('auth:sanctum', except: ['index', 'show']),
+        ];
+    }
+
+    // ... the abstract method implementations
+}
+```
+
+This survives every regenerate: the abstract controller and the routes file change with the spec,
+your concrete controller and its middleware do not.
+
+<Aside type="note" title="Route names work too">
+  Every generated route has a deterministic <code>-&gt;name()</code> following its method name
+  (see [route names](/guides/server-scaffold#route-names)), so name-based tooling such as
+  authorization gates or `route()` calls can target individual operations as well.
+</Aside>
+
+## Middleware and prefix groups
+
+Set `routes.middleware` (a list of middleware names) and/or `routes.prefix` (a URI prefix) in the
+config to wrap the generated routes in a single `Route::group` block:
+
+```php
+// config/openapi-laravel.php
+'routes' => [
+    'enabled'    => true,
+    'path'       => base_path('routes/api.generated.php'),
+    'middleware' => ['api', 'throttle:60,1'],
+    'prefix'     => 'api/v1',
+],
+```
+
+```php
+Route::middleware(['api', 'throttle:60,1'])->prefix('api/v1')->group(function (): void {
+    Route::post('/pet', [PetController::class, 'addPet'])->name('addPet');
+    // ...
+});
+```
+
+Each middleware entry is its own string and is never comma-split, so parameterized names like
+`throttle:60,1` stay intact. With both keys empty (the default) the routes file stays a flat list,
+exactly as before. These two keys are config-only: there are no CLI flags for them, in both the
+artisan command and the standalone binary (via `routes.middleware` / `routes.prefix` in
+[`openapi-laravel.json`](/guides/configuration#standalone-binary-openapi-laraveljson)).
+
+## Security middleware from the spec
+
+The spec's `securitySchemes` and `security` declarations map to per-route middleware through the
+config-only `security.middleware_map` key. Keys are scheme names from
+`components.securitySchemes`; values are one middleware name or a list of names (each entry its
+own string, never comma-split):
+
+```php
+// config/openapi-laravel.php
+'security' => [
+    'middleware_map' => [
+        'bearerAuth' => 'auth:sanctum',
+        'apiKey'     => ['auth.apikey', 'throttle:60,1'],
+    ],
+],
+```
+
+Every generated route whose operation requires a mapped scheme carries the mapped middleware:
+
+```php
+Route::get('/pets', [PetController::class, 'index'])->name('index')->middleware(['auth:sanctum']);
+```
+
+The resolution follows the OpenAPI security semantics exactly:
+
+| Spec declares | Generated route carries |
+| --- | --- |
+| no `security` on the operation, global `security` set | the mapped middleware of the global requirement |
+| operation-level `security` | the mapped middleware of the operation's own requirement (the global one is overridden entirely) |
+| operation-level `security: []` | nothing: the operation is explicitly public, even when global security exists |
+| one requirement object with several schemes (AND) | all mapped middleware, in spec order, deduplicated |
+| several requirement objects (OR) | the mapped middleware of the **first** requirement object only, with a warning per operation naming the ignored alternatives (middleware is a flat AND list and cannot express OR) |
+| an empty requirement object `{}` as the first alternative | nothing: the spec allows anonymous access |
+
+Scopes inside a requirement are ignored; the mapping is name-based. When both this mapping and a
+non-200 [status enforcement](/guides/request-response-bodies#response-status-codes) apply, the route carries a single
+`->middleware([...])` array holding both. The `routes.middleware` group wraps around everything,
+so group middleware and per-route security middleware compose.
+
+Two warnings keep the mapping honest, on the same channel as the other generation diagnostics:
+
+- A scheme the spec **requires but the map does not name** warns once per scheme, because that
+  route is generated without auth middleware (the pre-mapping behavior, now visible). Map the
+  scheme to an empty list (`'schemeName' => []`) to acknowledge it is handled elsewhere and
+  silence the warning.
+- A mapped scheme name the spec **never declares** in `components.securitySchemes` warns once: it
+  is almost certainly a typo in the config.
+
+The key is config-only on both surfaces, like the route group settings: the publishable
+`config/openapi-laravel.php` shown above, and `security.middleware_map` in
+[`openapi-laravel.json`](/guides/configuration#standalone-binary-openapi-laraveljson) for the
+standalone binary (a JSON object; values a string or a list of strings, strictly validated).
+
+### Residuals: what the middleware mapping cannot express
+
+- **OR alternatives are not expressible.** Multiple requirement objects mean "any one of these
+  suffices", and a flat middleware list cannot encode that. Only the **first** requirement object
+  is enforced, with a warning per operation naming the ignored alternatives. If the first
+  alternative is the empty requirement (`{}`, anonymous access allowed), nothing is enforced.
+- **Scopes are ignored.** The mapping is scheme-name-based; OAuth2 scope checking is your
+  middleware's job (e.g. `auth:api,scope-name` style parameterized middleware, which you can
+  encode in the mapped name yourself).
+- **The middleware itself is yours.** The generator wires names onto routes; it does not generate
+  guards, token validation, or any auth code.
+- A scheme the spec requires but the map does not name leaves its routes **without** auth
+  middleware, exactly like before the mapping existed, but now with a warning per scheme. With no
+  map configured (the default), a secured spec generates open routes and warns, so the degradation
+  is visible instead of silent.
+
+## Security: specs are untrusted input
+
+The generator reads an OpenAPI spec and writes PHP source that your application then loads and
+executes. Treat the spec as untrusted input: a hostile spec can try to inject PHP through any
+spec-derived value that lands in generated code (a class name, a string literal, a docblock, a
+validation rule). The generator defends against this, but operators still own a few boundaries.
+
+**Docblock injection is neutralized.** Free text from the spec (operation summaries, paths) is
+written into generated controller docblocks. Before that, every `*/` is rewritten to `* /` so a
+value cannot close the comment early and inject code, and newlines and other control characters are
+collapsed to a single space so a value cannot forge extra doc lines. The same neutralization applies
+to any spec free text that reaches a comment in the controller or route output.
+
+**Namespace and class-name options are validated.** The `--namespace`, `--suffix`, and
+`--controller-namespace` options (and their `config` equivalents) are interpolated raw into
+generated `namespace ...;` declarations and class names. They are validated at startup, before any
+file is written: a namespace must be a legal PHP namespace and a suffix must be a legal PHP
+identifier. An invalid value fails fast with a clear error and a non-zero exit, rather than emitting
+broken or injected PHP. This also rules out accidental breakage such as a stray space.
+
+**Validation patterns are never silently dropped.** A `pattern` constraint is emitted as a Laravel
+`regex:` rule. The generator picks a PCRE delimiter not present in the pattern from a candidate list,
+and if a pattern somehow contains all candidates it falls back to a fixed delimiter and escapes it
+rather than dropping the rule. A field is never silently left under-validated.
+
+**Non-OpenAPI documents are rejected.** A Swagger 2.0, non-3.x, or empty document is rejected with a
+clear error naming what was found, instead of silently parsing into an empty result.
+
+**CLI output paths must be operator-controlled.** When you pass the output directory, controller
+path, or routes path as a CLI flag (`--output`, `--controller-output`, `--routes-output`, or their
+`config/openapi-laravel.php` equivalents in a Laravel app), they are written exactly where you point
+them, by design, with no sandboxing. A flag is explicit operator input. Never derive these flag
+values from untrusted input (for example from spec content or from an end user). Point them at fixed,
+operator-controlled locations.
+
+**Discovered config-file paths are contained to the project directory.** The standalone binary
+auto-discovers `openapi-laravel.json` from the working directory. Those paths are not typed by the
+operator and may not even be known to exist, so a hostile config committed to a cloned repository
+could otherwise silently redirect generated-file writes the moment a developer runs
+`vendor/bin/openapi-laravel` in that directory. To close this path-traversal / arbitrary-write
+hazard, every write path sourced from a config file (`output.path`, `controllers.path`,
+`routes.path`) is contained: after normalization (resolving `.`, `..`, and symlinks) it must stay
+inside the directory the config file lives in (the working directory for the discovered default file,
+or the directory of the file named by `--config`). A `..` traversal, an absolute path, or a symlink
+whose target escapes the directory fails closed with a clear error naming the offending path, before
+any file is written. Legitimate in-root relative and nested paths are unaffected, the default
+behaviour for a safe config is unchanged. If you genuinely need to write outside the project
+directory, pass the path as an explicit CLI flag instead, which is treated as operator-controlled
+input and keeps full freedom.
+
+**YAML resource exhaustion: use OS-level limits.** YAML anchors and aliases are expanded by the
+underlying parser before the generator sees the data, a classic "billion laughs" / alias-bomb
+vector that the vendored library cannot disable. The generator applies a cheap pre-parse input-size
+guard (default 24 MiB, configurable via `max_bytes` / `--max-bytes`) that caps the blast radius and
+sits well above the largest real-world specs. This bounds input size but not expansion depth, so when
+running against genuinely untrusted specs you should still run the generator under OS-level resource
+limits (memory and CPU, for example via `ulimit` or a container quota).
+
+## See also
+
+- [Server scaffold](/guides/server-scaffold) for how routes are generated and named.
+- [Configuration](/guides/configuration) for the full list of `routes` and `security` config keys.
+- [Cookbook](/guides/cookbook) for more auth patterns including versioned APIs.

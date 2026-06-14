@@ -15,21 +15,22 @@ The Laravel ecosystem is full of **code-first** tools that generate an OpenAPI d
 |---|---|---|---|---|
 | Direction | **Spec to code** | Code to spec | Spec to code | n/a |
 | Generates laravel-data DTOs | **Yes** | No | No (custom DTOs) | You do |
-| Spec-derived validation `rules()` | **Yes**, differentially tested against the spec | No | Partial | You do |
+| Spec-derived validation `rules()` | **Yes**, differentially tested against the real Laravel Validator (see below) | No | Partial | You do |
+| Differential validation oracle | **Yes**: spec-valid payloads must pass and spec-invalid must fail through the real Validator; a known-gap ratchet prevents silent accumulation of new gaps | No | No | No |
 | Native PHP enums | **Yes** | No | No | You do |
 | Server scaffold (abstract controllers + routes) | **Yes** (default) | No | Yes | You do |
 | `allOf` / `additionalProperties` | **Yes** | n/a | Partial | You do |
 | `oneOf` / `anyOf` | **Yes**: scalar union type hints; discriminated object unions validated and hydrated; undiscriminated ones presence-only | n/a | Partial | You do |
 | Minimum Laravel version | **11** | 9+ | 10+ | n/a |
-| Runtime peer dependency | `spatie/laravel-data` v4 | none | own DTO layer | none |
+| Runtime peer dependency | `spatie/laravel-data` v4 (the generator itself is dev-only: no runtime dep on the generator, support classes inlined into your own namespace) | none | own DTO layer | none |
 | Standard OpenAPI (no custom extensions) | **Yes** | Yes | No (custom OAS) | n/a |
 | Owned, readable, committed output | **Yes** | n/a | Generated | Yes |
 | Runs without Laravel (CI) | **Yes** (bin) | No | No | n/a |
-| Drift detection in CI | **Yes** (`openapi:check`, byte-level, exit 1 on drift in generator-owned files) | n/a (spec is generated from code) | No | Manual review |
+| Byte-level drift gate in CI | **Yes** (`openapi:check`, byte-for-byte comparison, exit 1 on divergence between spec and committed code) | Structurally impossible: code-first tools generate the spec FROM your code, so there is nothing to check against | No | Manual review |
 
-The `oneOf` / `anyOf` cell is honest: scalar unions get native PHP union type hints, and an object union **with** a `discriminator` is validated against the selected variant and hydrated polymorphically at runtime. An **undiscriminated** object union (`CatData|DogData` with no discriminator) stays presence-only and does not auto-hydrate. See the [limitations page](/guides/limitations#oneof-and-anyof-emit-union-types).
+The `oneOf` / `anyOf` cell is honest: scalar unions get native PHP union type hints, and an object union **with** a `discriminator` is validated against the selected variant and hydrated polymorphically at runtime. An **undiscriminated** object union (`CatData|DogData` with no discriminator) stays presence-only and does not auto-hydrate. See the [Unions & polymorphism page](/guides/unions#oneof-and-anyof-emit-union-types).
 
-The `spatie/laravel-data` v4 runtime peer is a real adoption cost: the generated DTOs are laravel-data classes, so your app takes on that dependency and its conventions, and you need Laravel 11 or newer.
+The `spatie/laravel-data` v4 runtime peer is a real adoption cost: the generated DTOs are laravel-data classes, so your app takes on that dependency and its conventions, and you need Laravel 11 or newer. The generator itself (`codewithagents/openapi-laravel`) is a dev-time tool only: it goes in `require-dev`, not `require`, and has no runtime presence in consuming applications. The support classes the generated code uses (custom validation rules, the map transformer, the status-enforcement middleware) are inlined into your own `\Support` namespace alongside the generated Data classes, so nothing from vendor is loaded at runtime beyond `spatie/laravel-data` itself. See [runtime coupling](/guides/runtime-coupling) for the full story.
 
 ## Code-first: l5-swagger and scramble
 

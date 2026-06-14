@@ -230,6 +230,9 @@ abstract class AbstractPetController
      * GET /pet/{petId}
      *
      * Find pet by ID.
+     *
+     * Path parameters: validate them with
+     * \App\Data\Pet\GetPetByIdPathData::fromRoute($request).
      */
     abstract public function show(int $petId): PetData;
 
@@ -237,6 +240,9 @@ abstract class AbstractPetController
      * POST /pet/{petId}
      *
      * Updates a pet in the store with form data.
+     *
+     * Path parameters: validate them with
+     * \App\Data\Pet\UpdatePetWithFormPathData::fromRoute($request).
      */
     abstract public function updatePetWithForm(UpdatePetWithFormQueryData $query, int $petId): PetData;
 
@@ -244,6 +250,12 @@ abstract class AbstractPetController
      * DELETE /pet/{petId}
      *
      * Deletes a pet.
+     *
+     * Path parameters: validate them with
+     * \App\Data\Pet\DeletePetPathData::fromRoute($request).
+     *
+     * Header parameters: validate them with
+     * \App\Data\Pet\DeletePetHeaderData::fromHeaders($request).
      */
     abstract public function destroy(int $petId): JsonResponse;
 
@@ -254,6 +266,9 @@ abstract class AbstractPetController
      *
      * Query parameters: validate and hydrate them with
      * \App\Data\Pet\UploadFileQueryData::fromQuery($request).
+     *
+     * Path parameters: validate them with
+     * \App\Data\Pet\UploadFilePathData::fromRoute($request).
      */
     abstract public function uploadFile(Request $request, int $petId): ApiResponseData;
 }
@@ -390,130 +405,6 @@ can target any generated operation:
 route('show', ['petId' => 7]);   // => /pet/7
 ```
 
-### Middleware and prefix groups
-
-Set `routes.middleware` (a list of middleware names) and/or `routes.prefix` (a URI prefix) in the
-config to wrap the generated routes in a single `Route::group` block:
-
-```php
-// config/openapi-laravel.php
-'routes' => [
-    'enabled'    => true,
-    'path'       => base_path('routes/api.generated.php'),
-    'middleware' => ['api', 'throttle:60,1'],
-    'prefix'     => 'api/v1',
-],
-```
-
-```php
-Route::middleware(['api', 'throttle:60,1'])->prefix('api/v1')->group(function (): void {
-    Route::post('/pet', [PetController::class, 'addPet'])->name('addPet');
-    // ...
-});
-```
-
-Each middleware entry is its own string and is never comma-split, so parameterized names like
-`throttle:60,1` stay intact. With both keys empty (the default) the routes file stays a flat list,
-exactly as before. These two keys are config-only: there are no CLI flags for them, in both the
-artisan command and the standalone binary (via `routes.middleware` / `routes.prefix` in
-[`openapi-laravel.json`](/guides/configuration#standalone-binary-openapi-laraveljson)).
-
-### Security middleware from the spec
-
-The spec's `securitySchemes` and `security` declarations map to per-route middleware through the
-config-only `security.middleware_map` key. Keys are scheme names from
-`components.securitySchemes`; values are one middleware name or a list of names (each entry its
-own string, never comma-split):
-
-```php
-// config/openapi-laravel.php
-'security' => [
-    'middleware_map' => [
-        'bearerAuth' => 'auth:sanctum',
-        'apiKey'     => ['auth.apikey', 'throttle:60,1'],
-    ],
-],
-```
-
-Every generated route whose operation requires a mapped scheme carries the mapped middleware:
-
-```php
-Route::get('/pets', [PetController::class, 'index'])->name('index')->middleware(['auth:sanctum']);
-```
-
-The resolution follows the OpenAPI security semantics exactly:
-
-| Spec declares | Generated route carries |
-| --- | --- |
-| no `security` on the operation, global `security` set | the mapped middleware of the global requirement |
-| operation-level `security` | the mapped middleware of the operation's own requirement (the global one is overridden entirely) |
-| operation-level `security: []` | nothing: the operation is explicitly public, even when global security exists |
-| one requirement object with several schemes (AND) | all mapped middleware, in spec order, deduplicated |
-| several requirement objects (OR) | the mapped middleware of the **first** requirement object only, with a warning per operation naming the ignored alternatives (middleware is a flat AND list and cannot express OR) |
-| an empty requirement object `{}` as the first alternative | nothing: the spec allows anonymous access |
-
-Scopes inside a requirement are ignored; the mapping is name-based. When both this mapping and a
-non-200 [status enforcement](#response-status-codes) apply, the route carries a single
-`->middleware([...])` array holding both. The `routes.middleware` group wraps around everything,
-so group middleware and per-route security middleware compose.
-
-Two warnings keep the mapping honest, on the same channel as the other generation diagnostics:
-
-- A scheme the spec **requires but the map does not name** warns once per scheme, because that
-  route is generated without auth middleware (the pre-mapping behavior, now visible). Map the
-  scheme to an empty list (`'schemeName' => []`) to acknowledge it is handled elsewhere and
-  silence the warning.
-- A mapped scheme name the spec **never declares** in `components.securitySchemes` warns once: it
-  is almost certainly a typo in the config.
-
-The key is config-only on both surfaces, like the route group settings: the publishable
-`config/openapi-laravel.php` shown above, and `security.middleware_map` in
-[`openapi-laravel.json`](/guides/configuration#standalone-binary-openapi-laraveljson) for the
-standalone binary (a JSON object; values a string or a list of strings, strictly validated).
-
-### Response status codes
-
-The success status your spec declares is the status the scaffold produces. For each operation the
-generator selects the success response that also drives the return type (the numerically smallest
-2xx status); when that status is not 200, the generated route attaches the `RespondsWithStatus`
-middleware with the declared code as its parameter:
-
-```php
-use App\Data\Support\RespondsWithStatus;
-
-Route::post('/pets', [PetController::class, 'createPet'])->name('createPet')->middleware(RespondsWithStatus::class.':201');
-```
-
-Your concrete controller keeps returning the plain Data object; no `response()` helpers, no status
-constants. `RespondsWithStatus` is inlined into your own `<output>/Support/` directory alongside
-the rule classes, so the generated output stays self-contained with no runtime dependency on the
-generator. The middleware rewrites the framework-default success status (any 2xx) to the declared
-one. That default is not always 200: spatie/laravel-data serializes a Data object returned from a
-POST as 201 Created, so a declared 202 (or any other non-201 success) on a mutating Data-returning
-operation is honored even though the framework produced a 201. An error response (404, 422, 500,
-...) or a redirect passes through untouched, and a handler that explicitly set its own non-2xx
-status keeps it.
-
-**204 No Content** gets dedicated treatment. A 204 must not carry a body (RFC 9110), so the
-abstract method for an operation whose selected success response is a 204 is typed `void`: the
-implementation returns nothing, and the route middleware sets the 204 and guarantees the empty
-body.
-
-```php
-/**
- * DELETE /pets/{petId}
- *
- * Responds with HTTP 204: return nothing, the generated route sets the status.
- */
-abstract public function destroy(int $petId): void;
-```
-
-Only the **selected** success response drives this. An operation that declares several 2xx
-responses (say a 201 and a 202) is typed and status-enforced against the smallest one; producing
-one of the other declared statuses remains your code's responsibility (return a response object
-with the status set explicitly, the middleware never overrides a non-200). See
-[limitations](/guides/limitations#response-status-codes-only-the-selected-success-response).
-
 ### Registering the routes in Laravel
 
 Include the generated file from your application's route service provider or from `routes/api.php`:
@@ -538,6 +429,15 @@ Or from `bootstrap/app.php` in Laravel 11+:
   source of truth. Re-run the generator when the spec changes and review the diff the same way
   you would review any code change.
 </Aside>
+
+For middleware groups, route prefixes, and per-operation security middleware from the spec, see
+[Security & middleware](/guides/security).
+
+For response status codes (201, 204, `RespondsWithStatus`), method signatures, inline request and
+response bodies, multipart and form-urlencoded bodies, see
+[Request & response bodies](/guides/request-response-bodies).
+
+For query, path, and header parameter Data classes, see [Parameters](/guides/parameters).
 
 ## Laravel-convention method names
 
@@ -590,344 +490,13 @@ unique, so a second controller's `show` becomes `show_2`.
 Two things deliberately stay operationId-derived:
 
 - **The Data layer.** Generated Data classes, including the per-operation
-  [query classes](#query-parameters) (`FindPetsByStatusQueryData`) and
-  [inline request-body classes](#inline-request-bodies) (`CreatePetRequestData`), keep their
+  query classes (`FindPetsByStatusQueryData`) and
+  inline request-body classes (`CreatePetRequestData`), keep their
   operationId-derived names: they live in the shared Data namespace, where an `IndexQueryData` or
   `StoreRequestData` would collide across controllers.
 - **Everything the fallback rules catch.** Non-CRUD and ambiguous operations keep their
   operationId-derived names, so nothing is ever forced into a conventional name that does not
   fit. The drift gate (`openapi:check`) verifies the same naming through the shared planner.
-
-## Method signatures in detail
-
-The generator resolves the type of each parameter and return value from the spec:
-
-| Spec element                                                          | Generated type                                          |
-| --------------------------------------------------------------------- | ------------------------------------------------------- |
-| Request body referencing a component `$ref` (non-readOnly schema)     | Typed Data param, e.g. `PetData $pet`                   |
-| Request body referencing a component `$ref` (schema with writeOnly fields) | Write-variant Data param, e.g. `PetWritableData $pet` |
-| Inline JSON object request body (no `$ref`)                           | Synthesized per-operation Data param, e.g. `CreatePetRequestData $body` |
-| `multipart/form-data` object request body (inline or schema `$ref`)   | Synthesized per-operation Data param with `UploadedFile` file parts, e.g. `UploadPetImageRequestData $body` |
-| `application/x-www-form-urlencoded` object request body (inline, schema `$ref`, or component `$ref`) | Synthesized per-operation Data param, e.g. `UpdatePetRequestData $body` |
-| Request body referencing a component `$ref` (`#/components/requestBodies/...`) | Resolved to the component and typed through the same content-type logic |
-| Request body that is not an object shape (array, scalar, union, enum, free-form map) or a whole-body raw binary (octet-stream) | `Illuminate\Http\Request $request` |
-| `in: query` parameters on a body-less operation                       | Per-operation query Data param, e.g. `FindPetsByStatusQueryData $query` |
-| `in: query` parameters on an operation with a request body            | No extra param; the docblock points at `<Operation>QueryData::fromQuery($request)` |
-| Response that is a single object `$ref`                               | Data class, e.g. `PetData`                              |
-| Inline object response schema (no `$ref`)                             | Synthesized per-operation Data return, e.g. `GetPetResponseData` |
-| Response that is an array of objects                                  | `Spatie\LaravelData\DataCollection` with `@return DataCollection<int, PetData>` docblock |
-| Selected success response is a 204                                    | `void`; the generated route sets the 204 and guarantees the empty body |
-| Non-JSON success response (binary download, text/html)                | `Symfony\Component\HttpFoundation\Response` with a warning (return a `BinaryFileResponse` / `StreamedResponse`) |
-| Success response with no declared content                             | `Illuminate\Http\JsonResponse`                          |
-
-<Aside type="note" title="Request body typing and the write variant">
-  When a request body references a schema that splits fields with `readOnly` and `writeOnly`, the
-  generated method uses the write variant (`...WritableData`). This is the same variant the model
-  generator produces. See [generated output](/guides/generated-output) for how the split works.
-
-  An inline object body follows the same rule: when its properties carry `readOnly` flags, the
-  synthesized `<Operation>RequestData` class is emitted as the write shape (readOnly fields
-  dropped), because a request body is input by definition.
-
-  Object bodies are typed across JSON, `multipart/form-data`, and
-  `application/x-www-form-urlencoded`, including a body expressed as a component reference
-  (`$ref: '#/components/requestBodies/...'`), which resolves to the referenced component and routes
-  through the same content-type logic. A body that is not an object shape (an array, a scalar, a
-  union, an enum, a free-form map) or a whole-body raw binary (octet-stream) falls back to a plain
-  `Illuminate\Http\Request` parameter, because there is no single Data class to type it against.
-</Aside>
-
-## Inline request bodies
-
-An operation whose JSON request body is an **inline object schema** (declared directly under
-`content`, not a `$ref` to a component) gets a **synthesized per-operation Data class**, named from
-the `operationId` (or the method+path fallback) plus a `RequestData` suffix, mirroring the
-`<Operation>QueryData` naming. It lives next to the model Data classes, in the same namespace and
-output directory, and is drift-checked like every other generated file.
-
-The class goes through the exact pipeline a component schema uses: spec-derived `rules()` (enums,
-bounds, formats, array element rules, defaults), nested inline objects spawning their own classes
-(`CreatePetRequestHomeData` for a nested `home` object), `additionalProperties: false` enforcement,
-and the readOnly/writeOnly write shape. The controller method receives the typed param, so an
-inline body validates before your code runs, exactly like a `$ref` body:
-
-```yaml
-paths:
-  /pets:
-    post:
-      operationId: createPet
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [name]
-              properties:
-                name: { type: string, maxLength: 20 }
-```
-
-```php
-// generated: app/Http/Controllers/Api/AbstractPetController.php
-abstract public function createPet(CreatePetRequestData $body): JsonResponse;
-```
-
-Naming is deterministic and collision-safe: when a component schema already claimed the name
-(a component literally called `CreatePetRequest`), the synthesized class takes a numeric suffix
-(`CreatePetRequestData_2`) through the same allocator that deduplicates component names.
-
-Only an **object** schema synthesizes a class. An inline body that is an array, a scalar, a
-`oneOf`/`anyOf` union, an enum, or a free-form map (`additionalProperties` only) keeps the
-`Illuminate\Http\Request` fallback **with a generator warning**, because no single Data class can
-type it; see [limitations](/guides/limitations#request-bodies-that-fall-back-to-request-with-a-warning).
-
-## Multipart bodies and file uploads
-
-An operation whose request body declares `multipart/form-data` with an **object schema** gets the
-same synthesized `<Operation>RequestData` class as a JSON body, with one multipart-specific
-mapping: a root property of `type: string, format: binary` is an **uploaded file**, typed
-`Illuminate\Http\UploadedFile` and validated with Laravel's `file` rule. When the part pins its
-media type via `contentMediaType` (an OpenAPI 3.1 / JSON Schema keyword), a `mimetypes:` rule is
-added; Laravel's wildcard form (`image/*`) is supported. An array of binary items becomes a typed
-`array<int, UploadedFile>` with the spec's `minItems`/`maxItems` bounds and a per-item
-`field.* => file` rule. Every non-binary part is validated exactly like a JSON body field, through
-the same rules pipeline.
-
-```yaml
-paths:
-  /pets/upload:
-    post:
-      operationId: uploadPetImage
-      requestBody:
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required: [image]
-              properties:
-                image: { type: string, format: binary, contentMediaType: image/png }
-                caption: { type: string, maxLength: 80 }
-```
-
-```php
-// generated: app/Data/UploadPetImageRequestData.php
-final class UploadPetImageRequestData extends Data
-{
-    public function __construct(
-        public readonly UploadedFile $image,
-        public readonly ?string $caption = null,
-    ) {}
-
-    public static function rules(): array
-    {
-        return [
-            'image' => ['required', 'file', 'mimetypes:image/png'],
-            'caption' => ['sometimes', 'string', 'max:80'],
-        ];
-    }
-}
-```
-
-```php
-// generated: app/Http/Controllers/Api/AbstractPetController.php
-abstract public function uploadPetImage(UploadPetImageRequestData $body): JsonResponse;
-```
-
-spatie/laravel-data hydrates the `UploadedFile` straight from the multipart request, so the
-implementation receives a ready `$body->image` to store.
-
-Four boundaries to know about:
-
-- **JSON wins on a tie.** An operation declaring BOTH `application/json` and `multipart/form-data`
-  keeps the JSON typing: the scaffold validates one body shape, and JSON is the established,
-  richer mapping. The multipart variant of such an operation is the implementer's responsibility.
-- **Schema `$ref` bodies are re-emitted, not reused.** A multipart body whose schema is a `$ref`
-  to an object component gets a fresh per-operation class instead of the component's Data class:
-  the component was emitted with JSON semantics, where a binary string is a plain `string` whose
-  `string` rule would false-reject every actual upload.
-- **Only root properties are file parts.** A `format: binary` string nested inside an object
-  property sits in a JSON-serialized part and keeps its plain string typing.
-- **No file-size rule is derived.** OpenAPI has no standard keyword for a file's byte size
-  (`maxLength` bounds a string's character length, and Laravel's file `max:` counts kilobytes), so
-  no `max:` is invented. Add size limits in your concrete controller (or middleware) if you need
-  them.
-
-A multipart body that is not an object shape (a bare binary schema, an array, a union) keeps the
-`Illuminate\Http\Request` fallback **with a generator warning**, exactly like the non-object
-inline JSON bodies.
-
-## Form-urlencoded bodies
-
-An operation whose request body declares `application/x-www-form-urlencoded` with an **object
-schema** gets the same synthesized `<Operation>RequestData` class as a JSON body, validated by the
-same spec-derived `rules()`. Laravel parses urlencoded input into `$request->all()` exactly like a
-JSON body, so no special handling is needed and the controller receives the typed, validated param.
-This works for an inline schema, a schema `$ref`, and a component `$ref`
-(`#/components/requestBodies/...`).
-
-When an operation declares several media types, precedence is **JSON > multipart > form-urlencoded**:
-JSON always wins, so a body declaring both `application/json` and form-urlencoded is typed against
-the JSON shape. A form-urlencoded body that is **not** an object shape keeps the
-`Illuminate\Http\Request` fallback with a generator warning.
-
-## Inline object responses
-
-When an operation's selected success response declares an **inline object schema** (directly under
-`content`, not a `$ref` to a component), the generator synthesizes a per-operation
-`<Operation>ResponseData` class and types it as the abstract method's return, symmetric with the
-[inline request body](#inline-request-bodies). It is the **read variant**: `readOnly` properties stay
-and `writeOnly` properties drop, because a response is server output. The class goes through the same
-model pipeline as any component schema (nested objects, rules, the tag-group placement).
-
-```yaml
-paths:
-  /pets/{petId}:
-    get:
-      operationId: getPet
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id: { type: integer }
-                  name: { type: string }
-```
-
-```php
-// generated: app/Http/Controllers/Api/AbstractPetController.php
-abstract public function getPet(int $petId): GetPetResponseData;
-```
-
-A component `$ref` response (`#/components/responses/...`) resolves the same way: a wrapped schema
-`$ref` reuses that component's Data class, and an inline object component response emits one shared
-`<Component>ResponseData` class for every referencing operation. The [response status
-codes](#response-status-codes) semantics are unchanged: an inline 204 stays `void`, and a non-200
-inline success keeps its `RespondsWithStatus` middleware. An inline success response that is **not**
-an object shape (an array, a scalar, a `oneOf`/`anyOf` union, an enum, a free-form map) keeps the
-`JsonResponse` fallback with a warning, exactly like the non-object inline request bodies; see
-[limitations](/guides/limitations#responses-that-fall-back-to-jsonresponse).
-
-## Query parameters
-
-An operation that declares `in: query` parameters gets a **per-operation query Data class**, named
-from the `operationId` (or the method+path fallback) plus a `QueryData` suffix. It lives next to the
-model Data classes, in the same namespace and output directory, and its `rules()` are derived from
-the parameter schemas by the exact same pipeline the body Data classes use: enum membership, numeric
-bounds, string lengths and formats, array element rules, defaults.
-
-```php
-<?php
-
-declare(strict_types=1);
-
-namespace App\Data;
-
-use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
-use Spatie\LaravelData\Data;
-
-/**
- * Query parameters of GET /pet/findByStatus.
- */
-final class FindPetsByStatusQueryData extends Data
-{
-    public function __construct(
-        public readonly string $status = 'available',
-    ) {}
-
-    /**
-     * Validate against rules() and hydrate from the query string only, so
-     * request-body fields never bleed into query validation (or vice versa).
-     */
-    public static function fromQuery(Request $request): static
-    {
-        return self::validateAndCreate($request->query->all());
-    }
-
-    /**
-     * @return array<array-key, list<string|object>>
-     */
-    public static function rules(): array
-    {
-        return [
-            'status' => ['sometimes', Rule::in(['available', 'pending', 'sold'])],
-        ];
-    }
-}
-```
-
-A required parameter gets a `required` rule; an optional parameter validates with `sometimes`; a
-parameter with a spec `default` fills it when the value is omitted, exactly like a defaulted body
-property. Exploded form arrays (`?ids[]=1&ids[]=2`, the OpenAPI default serialization) validate with
-an `array` rule plus per-element rules. Boolean parameters accept the form-style literals
-`?flag=true` / `?flag=false` as well as `1` / `0`: `fromQuery()` maps the literals before validation,
-so they validate and hydrate to the correct `bool` (never PHP's "non-empty string is truthy"
-coercion).
-
-### The hybrid injection rule
-
-Where the query class appears depends on whether the operation has a request body:
-
-- **No request body** (typical `GET` / `DELETE`): the class is **type-hinted into the method
-  signature** (`FindPetsByStatusQueryData $query`). Laravel resolves it from the container,
-  laravel-data picks `fromQuery()` as the creation method, and your implementation receives an
-  already validated, typed object. A spec violation never reaches your code: it surfaces as a
-  standard Laravel `ValidationException` (a 422 by default).
-- **With a request body** (a typed Data param or the `Request` fallback): the class is **not**
-  injected. Container resolution would hand both Data classes the merged body+query input, so body
-  fields would bleed into query validation and vice versa. Instead, the generated method docblock
-  names the class, and you call it explicitly in your implementation:
-
-```php
-public function uploadFile(Request $request, int $petId): ApiResponseData
-{
-    $query = UploadFileQueryData::fromQuery($request);
-    // ...
-}
-```
-
-Every query class carries the `fromQuery()` factory, including the auto-injected ones, so the
-explicit path always works. `fromQuery()` validates and hydrates from `$request->query()` **only**:
-request-body fields never leak into query validation.
-
-### Delimited arrays and deepObject
-
-Two non-flat serializations are handled rather than skipped:
-
-- **Non-exploded delimited arrays** are split in the generated `fromQuery()` on their declared
-  delimiter **before** the array rules run: `style: form, explode: false` on comma,
-  `style: spaceDelimited` on space, `style: pipeDelimited` on pipe. A missing key stays absent (not
-  an empty array); an empty string splits to a single empty element.
-- **`style: deepObject` object parameters** (Stripe's `?filter[gte]=10&filter[lte]=20`) are
-  synthesized as a **nested object property** with dotted nested rules (`filter.gte`, `filter.lte`,
-  ...), reusing the same nested-object pipeline a body object property uses, since PHP parses the
-  bracketed keys natively into a nested array.
-
-<Aside type="note" title="A delimited-array query class is forced additive">
-  A `<Operation>QueryData` that carries **any** non-exploded delimited-array parameter is **never
-  container-injected**, even on a body-less `GET`. The abstract method takes no injected query param
-  and instead carries a `::fromQuery($request)` docblock pointer, the exact mechanism path (#113) and
-  header (#121) parameters use. Container injection would make spatie/laravel-data validate the
-  **raw, unsplit** string before `fromQuery()` runs the split, 422-ing a valid body-less filter. A
-  `deepObject` parameter needs no such treatment: PHP has already parsed the nested array, so a
-  QueryData with only flat and deepObject parameters stays container-injectable on body-less
-  operations as before.
-</Aside>
-
-### What is skipped, with a warning
-
-The generator only emits typed properties for parameters it can faithfully validate against Laravel's
-query parsing. Anything else is **skipped with a generator warning** rather than given rules that
-would false-reject valid requests:
-
-- `in: cookie` parameters (not supported yet; `in: header` parameters **are** generated, see
-  [path and header parameters](#method-signatures-in-detail)),
-- a non-object `deepObject` schema, or `deepObject` + `explode: false`,
-- object-shaped parameters that are not `deepObject`, object maps, and `content`-typed parameters.
-
-An operation whose every query parameter is skipped gets no query class at all. See
-[limitations](/guides/limitations#query-parameters) for the full list of residuals.
 
 ## Pruning
 
@@ -939,7 +508,13 @@ The `--prune` flag and `output.prune: true` config key apply to the **Data class
   <Card title="Configuration" icon="setting">
     The full list of config keys including `controllers` and `routes`. [Configuration](/guides/configuration)
   </Card>
-  <Card title="Generated output" icon="document">
+  <Card title="Generated models & enums" icon="document">
     How Data classes, enums, and the read/write variant split work. [Generated output](/guides/generated-output)
+  </Card>
+  <Card title="Request & response bodies" icon="right-arrow">
+    Method signatures, inline bodies, multipart, and response status. [Request & response bodies](/guides/request-response-bodies)
+  </Card>
+  <Card title="Parameters" icon="right-arrow">
+    Query, path, and header parameter Data classes. [Parameters](/guides/parameters)
   </Card>
 </CardGrid>

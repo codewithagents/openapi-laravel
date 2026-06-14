@@ -1,0 +1,232 @@
+---
+title: Parameters
+description: Query parameters (QueryData/fromQuery, delimited arrays, deepObject), path parameters (PathData/fromRoute, integer route constraints), and header parameters (HeaderData/fromHeaders) generated from your OpenAPI spec.
+---
+
+import { Aside } from '@astrojs/starlight/components'
+
+The generator synthesizes a typed, validated Data class for each parameter location an operation declares. Each class runs spec-derived `rules()` before your code runs, so a bad value is a 422, never a silent 200.
+
+Three parameter locations are generated: `in: query`, `in: path`, and `in: header`. Cookie parameters (`in: cookie`) are not yet supported and warn at generation time.
+
+## Query parameters
+
+An operation that declares `in: query` parameters gets a **per-operation query Data class**, named
+from the `operationId` (or the method+path fallback) plus a `QueryData` suffix. It lives next to the
+model Data classes, in the same namespace and output directory, and its `rules()` are derived from
+the parameter schemas by the exact same pipeline the body Data classes use: enum membership, numeric
+bounds, string lengths and formats, array element rules, defaults.
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data;
+
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Spatie\LaravelData\Data;
+
+/**
+ * Query parameters of GET /pet/findByStatus.
+ */
+final class FindPetsByStatusQueryData extends Data
+{
+    public function __construct(
+        public readonly string $status = 'available',
+    ) {}
+
+    /**
+     * Validate against rules() and hydrate from the query string only, so
+     * request-body fields never bleed into query validation (or vice versa).
+     */
+    public static function fromQuery(Request $request): static
+    {
+        return self::validateAndCreate($request->query->all());
+    }
+
+    /**
+     * @return array<array-key, list<string|object>>
+     */
+    public static function rules(): array
+    {
+        return [
+            'status' => ['sometimes', Rule::in(['available', 'pending', 'sold'])],
+        ];
+    }
+}
+```
+
+A required parameter gets a `required` rule; an optional parameter validates with `sometimes`; a
+parameter with a spec `default` fills it when the value is omitted, exactly like a defaulted body
+property. Exploded form arrays (`?ids[]=1&ids[]=2`, the OpenAPI default serialization) validate with
+an `array` rule plus per-element rules. Boolean parameters accept the form-style literals
+`?flag=true` / `?flag=false` as well as `1` / `0`: `fromQuery()` maps the literals before validation,
+so they validate and hydrate to the correct `bool` (never PHP's "non-empty string is truthy"
+coercion).
+
+### The hybrid injection rule
+
+Where the query class appears depends on whether the operation has a request body:
+
+- **No request body** (typical `GET` / `DELETE`): the class is **type-hinted into the method
+  signature** (`FindPetsByStatusQueryData $query`). Laravel resolves it from the container,
+  laravel-data picks `fromQuery()` as the creation method, and your implementation receives an
+  already validated, typed object. A spec violation never reaches your code: it surfaces as a
+  standard Laravel `ValidationException` (a 422 by default).
+- **With a request body** (a typed Data param or the `Request` fallback): the class is **not**
+  injected. Container resolution would hand both Data classes the merged body+query input, so body
+  fields would bleed into query validation and vice versa. Instead, the generated method docblock
+  names the class, and you call it explicitly in your implementation:
+
+```php
+public function uploadFile(Request $request, int $petId): ApiResponseData
+{
+    $query = UploadFileQueryData::fromQuery($request);
+    // ...
+}
+```
+
+Every query class carries the `fromQuery()` factory, including the auto-injected ones, so the
+explicit path always works. `fromQuery()` validates and hydrates from `$request->query()` **only**:
+request-body fields never leak into query validation.
+
+### Delimited arrays and deepObject
+
+Two non-flat serializations are handled rather than skipped:
+
+- **Non-exploded delimited arrays** are split in the generated `fromQuery()` on their declared
+  delimiter **before** the array rules run: `style: form, explode: false` on comma,
+  `style: spaceDelimited` on space, `style: pipeDelimited` on pipe. A missing key stays absent (not
+  an empty array); an empty string splits to a single empty element.
+- **`style: deepObject` object parameters** (Stripe's `?filter[gte]=10&filter[lte]=20`) are
+  synthesized as a **nested object property** with dotted nested rules (`filter.gte`, `filter.lte`,
+  ...), reusing the same nested-object pipeline a body object property uses, since PHP parses the
+  bracketed keys natively into a nested array.
+
+<Aside type="note" title="A delimited-array query class is forced additive">
+  A `<Operation>QueryData` that carries **any** non-exploded delimited-array parameter is **never
+  container-injected**, even on a body-less `GET`. The abstract method takes no injected query param
+  and instead carries a `::fromQuery($request)` docblock pointer, the exact mechanism path (#113) and
+  header (#121) parameters use. Container injection would make spatie/laravel-data validate the
+  **raw, unsplit** string before `fromQuery()` runs the split, 422-ing a valid body-less filter. A
+  `deepObject` parameter needs no such treatment: PHP has already parsed the nested array, so a
+  QueryData with only flat and deepObject parameters stays container-injectable on body-less
+  operations as before.
+</Aside>
+
+### What is skipped, with a warning
+
+The generator only emits typed properties for parameters it can faithfully validate against Laravel's
+query parsing. Anything else is **skipped with a generator warning** rather than given rules that
+would false-reject valid requests:
+
+- `in: cookie` parameters (not supported yet; `in: header` parameters **are** generated, see
+  [header parameters](#header-parameters) below),
+- a non-object `deepObject` schema, or `deepObject` + `explode: false`,
+- object-shaped parameters that are not `deepObject`, object maps, and `content`-typed parameters.
+
+An operation whose every query parameter is skipped gets no query class at all. See
+[limitations](/guides/limitations#query-parameters) for the full list of residuals.
+
+## Path parameters
+
+An operation that declares `in: path` parameters gets a **per-operation path Data class**, named
+from the `operationId` (or the method+path fallback) plus a `PathData` suffix. It validates path
+segment values before your code runs, so a bad segment is a 422 (or a 404 for an integer segment
+that does not parse as a number), not a silent miss.
+
+The class is **additive** (not container-injected): the scalar path arguments still fill the method
+signature positionally (a `{petId}` segment is an `int $petId` parameter), and the abstract method
+docblock carries a pointer to call `::fromRoute($request)` explicitly to apply the spec constraints:
+
+```php
+/**
+ * GET /pet/{petId}
+ *
+ * Find pet by ID.
+ *
+ * Path parameters: validate them with
+ * \App\Data\Pet\GetPetByIdPathData::fromRoute($request).
+ */
+abstract public function show(int $petId): PetData;
+```
+
+The `fromRoute()` factory reads `$request->route()->parameters()` and runs the spec-derived
+`rules()` against them, so `minimum`, `maximum`, `pattern`, `enum`, and `format` constraints on a
+path segment are all enforced at runtime. A segment that fails validation is a 422.
+
+### Integer path parameters and route constraints
+
+An `integer` path parameter also gets a `->whereNumber('<token>')` constraint appended to its
+generated route entry:
+
+```php
+Route::get('/pet/{petId}', [PetController::class, 'show'])->name('show')->whereNumber('petId');
+```
+
+This gives clean 404-vs-422 semantics. Without the constraint a non-numeric string like `/pet/abc`
+would reach the ControllerDispatcher, PHP would try to coerce `'abc'` into the typed `int $petId`
+parameter, and the result would be an uncatchable `TypeError` 500. With the constraint, a
+non-numeric segment misses the route entirely (404), and a numeric segment that violates a
+`minimum`/`maximum` bound reaches `fromRoute()` and is rejected as a 422.
+
+`number`/float path parameters stay typed `string` in the method signature and receive no route
+constraint; they are validated by `fromRoute()` only.
+
+### Calling fromRoute in your implementation
+
+```php
+public function show(int $petId): PetData
+{
+    $path = GetPetByIdPathData::fromRoute($request);
+    // $path->petId is validated against spec constraints
+    return $this->petService->findOrFail($path->petId);
+}
+```
+
+## Header parameters
+
+An operation that declares `in: header` parameters gets a **per-operation header Data class**, named
+from the `operationId` plus a `HeaderData` suffix. It uses the same spec-derived rules pipeline as
+query and path Data classes.
+
+The class is **additive**: the abstract method carries a docblock pointer to
+`::fromHeaders($request)` rather than injecting it as a method parameter.
+
+```php
+/**
+ * DELETE /pet/{petId}
+ *
+ * Deletes a pet.
+ *
+ * Path parameters: validate them with
+ * \App\Data\Pet\DeletePetPathData::fromRoute($request).
+ *
+ * Header parameters: validate them with
+ * \App\Data\Pet\DeletePetHeaderData::fromHeaders($request).
+ */
+abstract public function destroy(int $petId): JsonResponse;
+```
+
+The `fromHeaders()` factory reads `$request->headers->all()` and takes the first value of each
+header's array before validating. Wire header names are **lowercased** in the factory (HTTP headers
+are case-insensitive; Symfony lowercases them in `$request->headers->all()`), so a spec header named
+`X-Api-Key` is read as `x-api-key`.
+
+**Reserved standard headers are skipped with a warning.** Framework-owned standard headers (Accept,
+Content-Type, Authorization, Host, and others) are not included in the generated `rules()`:
+generating rules for them would conflict with Laravel's own header handling. Only custom application
+headers get rules.
+
+### Cookie parameters
+
+`in: cookie` parameters are not supported yet. A warning names the operation and the affected
+parameters at generation time. Read cookie values from the `Request` directly in your
+implementation.
+
+## See also
+
+- [Server scaffold](/guides/server-scaffold) for how the abstract controller method signatures are typed overall.
+- [Limitations](/guides/limitations#query-parameters) for the full list of query parameter residuals.

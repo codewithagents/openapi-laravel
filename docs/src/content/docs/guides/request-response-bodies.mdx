@@ -1,0 +1,322 @@
+---
+title: Request & response bodies
+description: How openapi-laravel types controller method parameters and return values from your OpenAPI spec. Inline JSON bodies, multipart file uploads, form-urlencoded, component $ref bodies and responses, response status codes, and the fallback rules.
+---
+
+import { Aside } from '@astrojs/starlight/components'
+
+The generator resolves every method parameter and return type in the abstract controllers from the
+spec. An object request body becomes a typed, validated Data param; an object response schema
+becomes a typed return. Where the spec cannot be mapped to a single Data class, the generator falls
+back to `Illuminate\Http\Request` (request side) or `Illuminate\Http\JsonResponse` (response side)
+and emits a warning.
+
+## Method signatures
+
+The generator resolves the type of each parameter and return value from the spec:
+
+| Spec element                                                          | Generated type                                          |
+| --------------------------------------------------------------------- | ------------------------------------------------------- |
+| Request body referencing a component `$ref` (non-readOnly schema)     | Typed Data param, e.g. `PetData $pet`                   |
+| Request body referencing a component `$ref` (schema with writeOnly fields) | Write-variant Data param, e.g. `PetWritableData $pet` |
+| Inline JSON object request body (no `$ref`)                           | Synthesized per-operation Data param, e.g. `CreatePetRequestData $body` |
+| `multipart/form-data` object request body (inline or schema `$ref`)   | Synthesized per-operation Data param with `UploadedFile` file parts, e.g. `UploadPetImageRequestData $body` |
+| `application/x-www-form-urlencoded` object request body (inline, schema `$ref`, or component `$ref`) | Synthesized per-operation Data param, e.g. `UpdatePetRequestData $body` |
+| Request body referencing a component `$ref` (`#/components/requestBodies/...`) | Resolved to the component and typed through the same content-type logic |
+| Request body that is not an object shape (array, scalar, union, enum, free-form map) or a whole-body raw binary (octet-stream) | `Illuminate\Http\Request $request` |
+| `in: query` parameters on a body-less operation                       | Per-operation query Data param, e.g. `FindPetsByStatusQueryData $query` (see [Parameters](/guides/parameters)) |
+| `in: query` parameters on an operation with a request body            | No extra param; the docblock points at `<Operation>QueryData::fromQuery($request)` |
+| Response that is a single object `$ref`                               | Data class, e.g. `PetData`                              |
+| Inline object response schema (no `$ref`)                             | Synthesized per-operation Data return, e.g. `GetPetResponseData` |
+| Response that is an array of objects                                  | `Spatie\LaravelData\DataCollection` with `@return DataCollection<int, PetData>` docblock |
+| Selected success response is a 204                                    | `void`; the generated route sets the 204 and guarantees the empty body |
+| Non-JSON success response (binary download, text/html)                | `Symfony\Component\HttpFoundation\Response` with a warning (return a `BinaryFileResponse` / `StreamedResponse`) |
+| Success response with no declared content                             | `Illuminate\Http\JsonResponse`                          |
+
+<Aside type="note" title="Request body typing and the write variant">
+  When a request body references a schema that splits fields with `readOnly` and `writeOnly`, the
+  generated method uses the write variant (`...WritableData`). This is the same variant the model
+  generator produces. See [generated output](/guides/generated-output) for how the split works.
+
+  An inline object body follows the same rule: when its properties carry `readOnly` flags, the
+  synthesized `<Operation>RequestData` class is emitted as the write shape (readOnly fields
+  dropped), because a request body is input by definition.
+
+  Object bodies are typed across JSON, `multipart/form-data`, and
+  `application/x-www-form-urlencoded`, including a body expressed as a component reference
+  (`$ref: '#/components/requestBodies/...'`), which resolves to the referenced component and routes
+  through the same content-type logic. A body that is not an object shape (an array, a scalar, a
+  union, an enum, a free-form map) or a whole-body raw binary (octet-stream) falls back to a plain
+  `Illuminate\Http\Request` parameter, because there is no single Data class to type it against.
+</Aside>
+
+## Inline request bodies
+
+An operation whose JSON request body is an **inline object schema** (declared directly under
+`content`, not a `$ref` to a component) gets a **synthesized per-operation Data class**, named from
+the `operationId` (or the method+path fallback) plus a `RequestData` suffix, mirroring the
+`<Operation>QueryData` naming. It lives next to the model Data classes, in the same namespace and
+output directory, and is drift-checked like every other generated file.
+
+The class goes through the exact pipeline a component schema uses: spec-derived `rules()` (enums,
+bounds, formats, array element rules, defaults), nested inline objects spawning their own classes
+(`CreatePetRequestHomeData` for a nested `home` object), `additionalProperties: false` enforcement,
+and the readOnly/writeOnly write shape. The controller method receives the typed param, so an
+inline body validates before your code runs, exactly like a `$ref` body:
+
+```yaml
+paths:
+  /pets:
+    post:
+      operationId: createPet
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 20 }
+```
+
+```php
+// generated: app/Http/Controllers/Api/AbstractPetController.php
+abstract public function createPet(CreatePetRequestData $body): JsonResponse;
+```
+
+Naming is deterministic and collision-safe: when a component schema already claimed the name
+(a component literally called `CreatePetRequest`), the synthesized class takes a numeric suffix
+(`CreatePetRequestData_2`) through the same allocator that deduplicates component names.
+
+Only an **object** schema synthesizes a class. An inline body that is an array, a scalar, a
+`oneOf`/`anyOf` union, an enum, or a free-form map (`additionalProperties` only) keeps the
+`Illuminate\Http\Request` fallback **with a generator warning**, because no single Data class can
+type it; see [Request bodies that fall back to Request](#request-bodies-that-fall-back-to-request-with-a-warning).
+
+## Multipart bodies and file uploads
+
+An operation whose request body declares `multipart/form-data` with an **object schema** gets the
+same synthesized `<Operation>RequestData` class as a JSON body, with one multipart-specific
+mapping: a root property of `type: string, format: binary` is an **uploaded file**, typed
+`Illuminate\Http\UploadedFile` and validated with Laravel's `file` rule. When the part pins its
+media type via `contentMediaType` (an OpenAPI 3.1 / JSON Schema keyword), a `mimetypes:` rule is
+added; Laravel's wildcard form (`image/*`) is supported. An array of binary items becomes a typed
+`array<int, UploadedFile>` with the spec's `minItems`/`maxItems` bounds and a per-item
+`field.* => file` rule. Every non-binary part is validated exactly like a JSON body field, through
+the same rules pipeline.
+
+```yaml
+paths:
+  /pets/upload:
+    post:
+      operationId: uploadPetImage
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image: { type: string, format: binary, contentMediaType: image/png }
+                caption: { type: string, maxLength: 80 }
+```
+
+```php
+// generated: app/Data/UploadPetImageRequestData.php
+final class UploadPetImageRequestData extends Data
+{
+    public function __construct(
+        public readonly UploadedFile $image,
+        public readonly ?string $caption = null,
+    ) {}
+
+    public static function rules(): array
+    {
+        return [
+            'image' => ['required', 'file', 'mimetypes:image/png'],
+            'caption' => ['sometimes', 'string', 'max:80'],
+        ];
+    }
+}
+```
+
+```php
+// generated: app/Http/Controllers/Api/AbstractPetController.php
+abstract public function uploadPetImage(UploadPetImageRequestData $body): JsonResponse;
+```
+
+spatie/laravel-data hydrates the `UploadedFile` straight from the multipart request, so the
+implementation receives a ready `$body->image` to store.
+
+Four boundaries to know about:
+
+- **JSON wins on a tie.** An operation declaring BOTH `application/json` and `multipart/form-data`
+  keeps the JSON typing: the scaffold validates one body shape, and JSON is the established,
+  richer mapping. The multipart variant of such an operation is the implementer's responsibility.
+- **Schema `$ref` bodies are re-emitted, not reused.** A multipart body whose schema is a `$ref`
+  to an object component gets a fresh per-operation class instead of the component's Data class:
+  the component was emitted with JSON semantics, where a binary string is a plain `string` whose
+  `string` rule would false-reject every actual upload.
+- **Only root properties are file parts.** A `format: binary` string nested inside an object
+  property sits in a JSON-serialized part and keeps its plain string typing.
+- **No file-size rule is derived.** OpenAPI has no standard keyword for a file's byte size
+  (`maxLength` bounds a string's character length, and Laravel's file `max:` counts kilobytes), so
+  no `max:` is invented. Add size limits in your concrete controller (or middleware) if you need
+  them.
+
+A multipart body that is not an object shape (a bare binary schema, an array, a union) keeps the
+`Illuminate\Http\Request` fallback **with a generator warning**, exactly like the non-object
+inline JSON bodies.
+
+## Form-urlencoded bodies
+
+An operation whose request body declares `application/x-www-form-urlencoded` with an **object
+schema** gets the same synthesized `<Operation>RequestData` class as a JSON body, validated by the
+same spec-derived `rules()`. Laravel parses urlencoded input into `$request->all()` exactly like a
+JSON body, so no special handling is needed and the controller receives the typed, validated param.
+This works for an inline schema, a schema `$ref`, and a component `$ref`
+(`#/components/requestBodies/...`).
+
+When an operation declares several media types, precedence is **JSON > multipart > form-urlencoded**:
+JSON always wins, so a body declaring both `application/json` and form-urlencoded is typed against
+the JSON shape. A form-urlencoded body that is **not** an object shape keeps the
+`Illuminate\Http\Request` fallback with a generator warning.
+
+## Inline object responses
+
+When an operation's selected success response declares an **inline object schema** (directly under
+`content`, not a `$ref` to a component), the generator synthesizes a per-operation
+`<Operation>ResponseData` class and types it as the abstract method's return, symmetric with the
+[inline request body](#inline-request-bodies). It is the **read variant**: `readOnly` properties stay
+and `writeOnly` properties drop, because a response is server output. The class goes through the same
+model pipeline as any component schema (nested objects, rules, the tag-group placement).
+
+```yaml
+paths:
+  /pets/{petId}:
+    get:
+      operationId: getPet
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  name: { type: string }
+```
+
+```php
+// generated: app/Http/Controllers/Api/AbstractPetController.php
+abstract public function getPet(int $petId): GetPetResponseData;
+```
+
+A component `$ref` response (`#/components/responses/...`) resolves the same way: a wrapped schema
+`$ref` reuses that component's Data class, and an inline object component response emits one shared
+`<Component>ResponseData` class for every referencing operation. The [response status
+codes](#response-status-codes) semantics are unchanged: an inline 204 stays `void`, and a non-200
+inline success keeps its `RespondsWithStatus` middleware. An inline success response that is **not**
+an object shape (an array, a scalar, a `oneOf`/`anyOf` union, an enum, a free-form map) keeps the
+`JsonResponse` fallback with a warning, exactly like the non-object inline request bodies; see
+[Responses that fall back to JsonResponse](#responses-that-fall-back-to-jsonresponse).
+
+## Response status codes
+
+The success status your spec declares is the status the scaffold produces. For each operation the
+generator selects the success response that also drives the return type (the numerically smallest
+2xx status); when that status is not 200, the generated route attaches the `RespondsWithStatus`
+middleware with the declared code as its parameter:
+
+```php
+use App\Data\Support\RespondsWithStatus;
+
+Route::post('/pets', [PetController::class, 'createPet'])->name('createPet')->middleware(RespondsWithStatus::class.':201');
+```
+
+Your concrete controller keeps returning the plain Data object; no `response()` helpers, no status
+constants. `RespondsWithStatus` is inlined into your own `<output>/Support/` directory alongside
+the rule classes, so the generated output stays self-contained with no runtime dependency on the
+generator. The middleware rewrites the framework-default success status (any 2xx) to the declared
+one. That default is not always 200: spatie/laravel-data serializes a Data object returned from a
+POST as 201 Created, so a declared 202 (or any other non-201 success) on a mutating Data-returning
+operation is honored even though the framework produced a 201. An error response (404, 422, 500,
+...) or a redirect passes through untouched, and a handler that explicitly set its own non-2xx
+status keeps it.
+
+**204 No Content** gets dedicated treatment. A 204 must not carry a body (RFC 9110), so the
+abstract method for an operation whose selected success response is a 204 is typed `void`: the
+implementation returns nothing, and the route middleware sets the 204 and guarantees the empty
+body.
+
+```php
+/**
+ * DELETE /pets/{petId}
+ *
+ * Responds with HTTP 204: return nothing, the generated route sets the status.
+ */
+abstract public function destroy(int $petId): void;
+```
+
+Only the **selected** success response drives this. An operation that declares several 2xx
+responses (say a 201 and a 202) is typed and status-enforced against the smallest one; producing
+one of the other declared statuses remains your code's responsibility (return a response object
+with the status set explicitly, the middleware never overrides a non-200). See
+[limitations](/guides/limitations#response-status-codes-only-the-selected-success-response).
+
+## Request bodies that fall back to Request, with a warning
+
+Object request bodies no longer fall back, across every form. An inline JSON **object** body
+synthesizes a per-operation `<Operation>RequestData` class with the full `rules()` pipeline and a
+typed controller param (issue #76, see [inline request bodies](#inline-request-bodies)). A
+`multipart/form-data` **object** body synthesizes the same class with `UploadedFile` typing and
+`file` / `mimetypes:` rules for its binary parts (issue #75, see
+[multipart bodies](#multipart-bodies-and-file-uploads)). An
+`application/x-www-form-urlencoded` **object** body routes through the same synthesizer (issue #130:
+Laravel parses urlencoded input into `$request->all()` exactly like JSON, so the same spec-derived
+rules validate it). A body that is a `$ref` into `components.requestBodies` resolves to the
+referenced component and routes through the same content-type logic (issue #110). When several media
+types are declared, precedence is JSON > multipart > form-urlencoded. The remaining fallbacks:
+
+- A body that is **not an object shape**: an array, a scalar, a `oneOf`/`anyOf` union, an enum, or a
+  free-form map (`additionalProperties` only), in any media type. No single Data class can type
+  these; for multipart this includes the whole-body binary form
+  (`schema: {type: string, format: binary}`).
+- A whole-body raw binary body (`application/octet-stream`): there is no object schema to map to a
+  Data class, so read and validate it from the `Request` yourself (issue #119).
+- A body schema `$ref` that is external or does not resolve to a generated Data class.
+
+Multipart residuals on the bodies that ARE generated (issue #75): no file-size rule is derived
+(OpenAPI has no standard keyword for a file's byte size; `maxLength` bounds a string's character
+length and Laravel's file `max:` counts kilobytes, so no clean mapping exists), the
+`encoding.contentType` map of a multipart media type is not read (only the schema-level
+`contentMediaType` keyword feeds `mimetypes:`), a `format: binary` string **nested below the body
+root** stays a plain string (it sits inside a JSON-serialized part), and an operation declaring
+BOTH `application/json` and `multipart/form-data` keeps the JSON typing (documented precedence).
+
+## Responses that fall back to JsonResponse
+
+A response that is a `$ref` into `components.responses` resolves to the referenced component and
+types the return (issue #116), and an **inline** object response schema synthesizes a per-operation
+`<Operation>ResponseData` return (issue #129). The remaining fallbacks:
+
+- An **inline** response schema that is **not an object shape**: an array, a scalar, a `oneOf`/`anyOf`
+  union, an enum, or a free-form map. Only an object shape can name a return Data class.
+- A response `$ref` whose JSON schema is not an object shape (a scalar or array alias, an enum, a
+  map), or an unresolvable response `$ref` (external, `#/paths/...`, missing, or ref-to-ref).
+- A response with no JSON content: a non-JSON-only success (a binary download, text/html) is typed as
+  the base `Symfony\Component\HttpFoundation\Response` with a warning (issue #118), so your method can
+  return a `BinaryFileResponse` or `StreamedResponse` with no type error; a response with no declared
+  content at all keeps the `JsonResponse` default.
+
+These warn, except a `$ref` selected for a 204 (the method is `void` either way, so nothing degrades).
+
+An unresolvable parameter `$ref` (external or dangling) is dropped from its operation, also with a
+warning naming the pointer.
+
+## See also
+
+- [Parameters](/guides/parameters) for query, path, and header parameter Data classes.
+- [Server scaffold](/guides/server-scaffold) for abstract controllers, routes, and the scaffold command.
+- [Security & middleware](/guides/security) for per-route middleware from spec security declarations.
+- [Limitations](/guides/limitations#server-scaffold-gaps) for the full server scaffold gap list.

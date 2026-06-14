@@ -101,7 +101,7 @@ The shared spec is a "petstore-plus": the stock petstore with extra fields added
 
 Because the spec uses `readOnly` and `writeOnly`, the generator emits the read/write split: `PetData` (the response shape, with `created_at` and without `secret_note`) and `PetWritableData` (the request shape, with `secret_note` and without `created_at`). The generated `AbstractPetController::addPet` therefore takes a `PetWritableData` and returns a `PetData`, exactly the typing described in the [server scaffold guide](/guides/server-scaffold).
 
-The `external_id` field exercises the `oneOf` / `anyOf` support. A scalar union is chosen deliberately: an **undiscriminated** object union does not auto-hydrate in `laravel-data` (a documented residual; a union with a `discriminator` is validated and hydrated, see the [limitations page](/guides/limitations#discriminated-object-unions-are-validated-and-hydrated)), whereas a scalar union round-trips cleanly and proves the union path end to end.
+The `external_id` field exercises the `oneOf` / `anyOf` support. A scalar union is chosen deliberately: an **undiscriminated** object union does not auto-hydrate in `laravel-data` (a documented residual; a union with a `discriminator` is validated and hydrated, see the [Unions & polymorphism page](/guides/unions#discriminated-object-unions-are-validated-and-hydrated)), whereas a scalar union round-trips cleanly and proves the union path end to end.
 
 ## What the demo found
 

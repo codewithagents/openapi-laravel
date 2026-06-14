@@ -31,7 +31,7 @@ The return types get you further than nothing: an operation typed `PetData` cann
   an `enum`-as-`Rule::in` constraint, or a malformed `date-time` serializes out without complaint.
 - **`JsonResponse` fallbacks carry no schema.** Operations whose response the generator cannot type
   (non-JSON content, alias components, see
-  [limitations](/guides/limitations#responses-that-fall-back-to-jsonresponse)) return whatever you
+  [Request & response bodies](/guides/request-response-bodies#responses-that-fall-back-to-jsonresponse)) return whatever you
   build by hand.
 - **Error responses are never typed.** The scaffold types only the selected success response. The
   404 and 422 bodies your spec declares are entirely your code's responsibility.
@@ -87,7 +87,7 @@ spec.
 
 <Aside type="caution" title="Route prefixes need a matching path prefix">
   If your generated routes are wrapped in a prefix group (the `routes.prefix` config key, see
-  [server scaffold](/guides/server-scaffold#middleware-and-prefix-groups)), the spec declares
+  [Security & middleware](/guides/security#middleware-and-prefix-groups)), the spec declares
   `/pet` but the request goes to `/api/v1/pet`. Tell Spectator to strip the prefix before matching
   paths: set `SPECTATOR_PATH_PREFIX=api/v1` in your test environment, or call
   `Spectator::withPathPrefix('api/v1')` in the test setup.
