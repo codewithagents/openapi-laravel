@@ -3,7 +3,9 @@
 declare(strict_types=1);
 
 use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
+use CodeWithAgents\OpenApiLaravel\Emitter\GeneratorOptions;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 
 /**
@@ -14,6 +16,33 @@ function generateCustomer(): array
     $doc = (new SpecParser)->parseFileToDocument(__DIR__.'/../../Fixtures/emitter/customer.json');
 
     return (new ModelGenerator)->generate($doc);
+}
+
+/**
+ * Generate a single-string-property schema whose property carries the given
+ * `pattern`, returning [generated code, build warnings] for the regex-rule
+ * compile-probe tests (#150).
+ *
+ * @return array{string, list<string>}
+ */
+function generatePatternedSchema(string $pattern): array
+{
+    $document = [
+        'openapi' => '3.0.3',
+        'info' => ['title' => 'Test', 'version' => '1.0.0'],
+        'paths' => new stdClass,
+        'components' => ['schemas' => [
+            'Patterned' => [
+                'type' => 'object',
+                'properties' => ['code' => ['type' => 'string', 'pattern' => $pattern]],
+            ],
+        ]],
+    ];
+
+    $generator = new ModelGenerator(new GeneratorOptions);
+    $code = $generator->generate((new OpenApiReader)->read($document))['PatternedData']->code;
+
+    return [$code, $generator->warnings()];
 }
 
 it('emits one class per schema plus nested objects', function () {
@@ -82,4 +111,29 @@ it('matches the committed snapshot', function () {
     $combined = implode("\n", array_map(fn ($f) => $f->code, generateCustomer()));
 
     expect($combined)->toMatchSnapshot();
+});
+
+it('drops an uncompilable spec pattern instead of emitting a broken regex rule (#150)', function () {
+    // An ECMA-valid-but-PCRE-invalid (here syntactically broken) pattern
+    // embedded verbatim into a `regex:` rule makes Laravel's preg_match raise
+    // an uncatchable compile error on every request, a runtime 500/DoS. So the
+    // rule is dropped, the field keeps its other rules, and a warning surfaces.
+    [$code, $warnings] = generatePatternedSchema('(');
+
+    expect($code)
+        ->not->toContain('regex:')
+        ->and($code)->toContain("'code' => ['sometimes', 'string'],")
+        ->and($warnings)->toContain(
+            'A string schema declares a `pattern` that is not valid PCRE ("("); the `regex:` rule is dropped '
+            .'so the generated app never raises an uncatchable preg_match compile error at runtime. '
+            .'The field keeps its other validation rules.',
+        );
+});
+
+it('still emits the regex rule for a valid spec pattern (#150 over-drop guard)', function () {
+    [$code, $warnings] = generatePatternedSchema('^[A-Z]{3}$');
+
+    expect($code)
+        ->toContain("'code' => ['sometimes', 'string', 'regex:#^[A-Z]{3}\$#'],")
+        ->and($warnings)->toBe([]);
 });

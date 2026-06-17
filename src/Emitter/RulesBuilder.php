@@ -972,7 +972,28 @@ final class RulesBuilder
             return null;
         }
 
-        return "'regex:".PhpLiteral::escapeSingleQuoted($this->delimitedPattern($pattern))."'";
+        $delimited = $this->delimitedPattern($pattern);
+
+        // The spec `pattern` is ECMA-262 and untrusted input; PHP's `regex:`
+        // rule compiles it as PCRE. An ECMA-valid-but-PCRE-invalid (or simply
+        // broken) pattern compiled by Laravel's preg_match raises an
+        // UNCATCHABLE compile error on every request to the field, a runtime
+        // 500/DoS in the consumer's app. So the pattern is probed exactly like
+        // the patternProperties patterns in closedObjectRule(); if it does not
+        // compile, the regex rule is dropped (the field keeps its other rules)
+        // and the skip is surfaced as a build warning.
+        if (! $this->compilesAsPcre($delimited)) {
+            $this->state->warnings[sprintf(
+                'A string schema declares a `pattern` that is not valid PCRE (%s); the `regex:` rule is dropped '
+                .'so the generated app never raises an uncatchable preg_match compile error at runtime. '
+                .'The field keeps its other validation rules.',
+                (string) json_encode($pattern),
+            )] = true;
+
+            return null;
+        }
+
+        return "'regex:".PhpLiteral::escapeSingleQuoted($delimited)."'";
     }
 
     /**
