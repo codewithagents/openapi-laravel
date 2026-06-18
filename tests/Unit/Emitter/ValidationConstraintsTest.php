@@ -243,6 +243,27 @@ it('emits a MultipleOfRule for a numeric multipleOf', function () {
         ->and($code)->toContain('use App\Data\Support\MultipleOfRule;');
 });
 
+it('renders a tiny float bound and multipleOf in fixed decimal, never scientific notation (#148)', function () {
+    // multipleOf/minimum of 1e-7 would stringify as "1.0E-7": a broken
+    // `min:1.0E-7` rule parameter and an opaque MultipleOfRule argument. Both
+    // must come out as plain decimal.
+    $files = generateConstraintSchemas([
+        'Holder' => [
+            'type' => 'object',
+            'properties' => [
+                'n' => ['type' => 'number', 'minimum' => 0.0000001, 'multipleOf' => 0.0000001],
+            ],
+        ],
+    ]);
+
+    $code = $files['HolderData']->code;
+
+    expect($code)->toContain("'min:0.0000001'")
+        ->and($code)->toContain('new MultipleOfRule(0.0000001)')
+        ->and($code)->not->toContain('E-7')
+        ->and($code)->not->toContain('1.0E');
+});
+
 // FIX 5: uniqueItems.
 
 it('adds distinct to the field.* item rules for uniqueItems', function () {

@@ -36,7 +36,68 @@ final class PhpLiteral
 
     public static function numberLiteral(int|float $value): string
     {
-        return (string) $value;
+        $rendered = (string) $value;
+
+        // A small- or large-magnitude float stringifies in scientific notation
+        // (`(string) 1e-7` is `"1.0E-7"`). That form breaks a Laravel rule-string
+        // parameter (`min:1.0E-7`, `multipleOf:1.0E-7`), where the validator
+        // reads the literal text and the `E` is not understood as an exponent,
+        // and it makes a generated PHP default needlessly opaque. The exponent is
+        // expanded into plain fixed-decimal notation, preserving the exact digits
+        // the cast produced (issue #148). A non-scientific value is returned
+        // untouched, so every normal-range number is byte-identical to before.
+        if (stripos($rendered, 'e') === false) {
+            return $rendered;
+        }
+
+        return self::expandScientific($rendered);
+    }
+
+    /**
+     * Expand a scientific-notation decimal string (`"1.0E-7"`, `"-2.5E+20"`)
+     * into plain fixed-decimal notation (`"0.0000001"`, `"-250000000000000000000"`)
+     * by shifting the decimal point per the exponent. The mantissa digits are
+     * preserved verbatim; only the radix point moves, so the rendered value is
+     * exactly the one the `(string)` cast produced, just without the exponent.
+     */
+    private static function expandScientific(string $rendered): string
+    {
+        $sign = '';
+        if ($rendered !== '' && ($rendered[0] === '-' || $rendered[0] === '+')) {
+            $sign = $rendered[0] === '-' ? '-' : '';
+            $rendered = substr($rendered, 1);
+        }
+
+        [$mantissa, $exponentPart] = preg_split('/[eE]/', $rendered, 2) ?: [$rendered, '0'];
+        $exponent = (int) $exponentPart;
+
+        $dot = strpos($mantissa, '.');
+        if ($dot === false) {
+            $intDigits = $mantissa;
+            $fracDigits = '';
+        } else {
+            $intDigits = substr($mantissa, 0, $dot);
+            $fracDigits = substr($mantissa, $dot + 1);
+        }
+
+        $digits = $intDigits.$fracDigits;
+        // Where the radix point lands, measured from the left of $digits, after
+        // applying the exponent shift.
+        $pointPosition = strlen($intDigits) + $exponent;
+
+        if ($pointPosition <= 0) {
+            $result = '0.'.str_repeat('0', -$pointPosition).$digits;
+        } elseif ($pointPosition >= strlen($digits)) {
+            $result = $digits.str_repeat('0', $pointPosition - strlen($digits));
+        } else {
+            $result = substr($digits, 0, $pointPosition).'.'.substr($digits, $pointPosition);
+        }
+
+        if (str_contains($result, '.')) {
+            $result = rtrim(rtrim($result, '0'), '.');
+        }
+
+        return $result === '' ? '0' : $sign.$result;
     }
 
     /**
