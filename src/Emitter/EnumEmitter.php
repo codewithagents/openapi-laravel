@@ -60,17 +60,47 @@ final readonly class EnumEmitter
     }
 
     /**
+     * The enum is int-backed only when EVERY value can round-trip as an int
+     * without losing information; otherwise it is string-backed.
+     *
      * @param  list<string|int>  $values
      */
     private function enumBacking(array $values): string
     {
         foreach ($values as $value) {
-            if (! is_int($value) && ! (is_string($value) && $value !== '' && strspn($value, '0123456789') === strlen($value))) {
+            if (! $this->isIntBackable($value)) {
                 return 'string';
             }
         }
 
         return 'int';
+    }
+
+    /**
+     * Whether a value can back a native PHP int enum without corruption. A
+     * native int always can. A string can ONLY when it is an unsigned-digit
+     * string that ALSO round-trips through int unchanged (issue #145).
+     *
+     * The old check accepted any unsigned-digit string, which silently
+     * corrupted a leading-zero wire value: `"01"` was emitted as
+     * `case Value1 = 1`, so the spec value `"01"` no longer round-tripped (a
+     * consumer sending `"01"` never matched), and a sibling `"1"` collapsed to
+     * the SAME `1`, producing a fatal "Duplicate value in enum" PHP error. The
+     * added `(string) (int) $value === $value` round-trip test rejects every
+     * non-canonical decimal form (`"01"`, `"040000"`, `"00"`) so such an enum
+     * falls back to a faithful string backing instead. The unsigned-digit gate
+     * is kept so a signed string like `"-1"` stays string-backed exactly as
+     * before, leaving the backing decision for existing specs unchanged.
+     */
+    private function isIntBackable(string|int $value): bool
+    {
+        if (is_int($value)) {
+            return true;
+        }
+
+        return $value !== ''
+            && strspn($value, '0123456789') === strlen($value)
+            && (string) (int) $value === $value;
     }
 
     private function enumCaseName(string|int $value, string $backing): string
