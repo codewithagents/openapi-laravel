@@ -1253,15 +1253,32 @@ final class OpenApiReader
      * A number-valued keyword: int and float pass through, a strictly-numeric
      * string is coerced (issue #32), anything else is null (routed to `extra`
      * by the caller).
+     *
+     * A non-finite float (INF or NAN) is rejected as if absent (issue #151).
+     * The spec is untrusted: JSON `1e400` decodes to INF and YAML `.inf`/`.nan`
+     * yield non-finite floats, which would otherwise reach a numeric keyword
+     * and emit a degenerate rule, e.g. `max:NAN` rejects EVERY value (an
+     * availability bug planted by spec input) and `min:INF` / `MultipleOfRule(INF)`
+     * are nonsensical. Returning null here routes the raw value to `extra`, the
+     * same graceful-ignored path an absent or non-numeric keyword already takes.
      */
     private function numberValue(mixed $value): int|float|null
     {
-        if (is_int($value) || is_float($value)) {
+        if (is_int($value)) {
             return $value;
         }
 
+        if (is_float($value)) {
+            return is_finite($value) ? $value : null;
+        }
+
         if (is_string($value) && is_numeric($value)) {
-            return $this->numericFromString($value);
+            // A numeric string can also overflow to INF (e.g. "1e400"), so the
+            // coerced result is checked the same way: a non-finite float is
+            // rejected as if absent, an int is always finite.
+            $coerced = $this->numericFromString($value);
+
+            return is_int($coerced) || is_finite($coerced) ? $coerced : null;
         }
 
         return null;

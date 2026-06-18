@@ -9,7 +9,33 @@ use CodeWithAgents\OpenApiLaravel\Emitter\Server\ControllerGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\RouteGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
+use CodeWithAgents\OpenApiLaravel\Parser\OpenApiReader;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
+
+/**
+ * Generate the Data class for a single `number` property carrying the given
+ * numeric-keyword constraints, returning its emitted PHP source. The schema is
+ * built in memory so a native non-finite float (INF / NAN) can be injected the
+ * way the parser would receive it from a hostile spec (issue #151).
+ *
+ * @param  array<string, mixed>  $constraints
+ */
+function generateNumberConstraint(array $constraints): string
+{
+    $document = (new OpenApiReader)->read([
+        'openapi' => '3.1.0',
+        'info' => ['title' => 'Test', 'version' => '1.0.0'],
+        'paths' => new stdClass,
+        'components' => ['schemas' => [
+            'Measure' => [
+                'type' => 'object',
+                'properties' => ['value' => ['type' => 'number', ...$constraints]],
+            ],
+        ]],
+    ], 'hostile-number.json');
+
+    return (new ModelGenerator)->generate($document)['MeasureData']->code;
+}
 
 /**
  * The OpenAPI spec is untrusted input. The generator writes PHP source that the
@@ -196,4 +222,40 @@ it('rejects an illegal --suffix and accepts a legal one', function () {
 
     expect(OptionValidator::identifier('--suffix', 'Dto'))->toBe('Dto');
     expect(OptionValidator::identifier('--suffix', '', allowEmpty: true))->toBe('');
+});
+
+it('gracefully ignores a non-finite maximum (NAN) instead of emitting max:NAN (#151)', function () {
+    // A spec `maximum: NAN` (JSON 1e400 decodes to INF, YAML `.nan` to NAN)
+    // would otherwise emit `max:NAN`, which rejects EVERY value: an
+    // availability bug planted by spec input. The bound must be dropped.
+    $code = generateNumberConstraint(['maximum' => NAN]);
+
+    expect($code)
+        ->not->toContain('max:')
+        ->and($code)->not->toContain('NAN');
+});
+
+it('gracefully ignores a non-finite minimum (INF) instead of emitting min:INF (#151)', function () {
+    $code = generateNumberConstraint(['minimum' => INF]);
+
+    expect($code)
+        ->not->toContain('min:')
+        ->and($code)->not->toContain('INF');
+});
+
+it('gracefully ignores a non-finite multipleOf (INF) instead of emitting MultipleOfRule(INF) (#151)', function () {
+    $code = generateNumberConstraint(['multipleOf' => INF]);
+
+    expect($code)
+        ->not->toContain('MultipleOfRule')
+        ->and($code)->not->toContain('INF');
+});
+
+it('still emits a finite bound unchanged (#151 over-drop guard)', function () {
+    $code = generateNumberConstraint(['maximum' => 10, 'minimum' => 1, 'multipleOf' => 2]);
+
+    expect($code)
+        ->toContain('max:10')
+        ->toContain('min:1')
+        ->toContain('MultipleOfRule(2)');
 });
