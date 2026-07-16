@@ -54,10 +54,9 @@ exclude:
   # The remaining `(string) ...` casts the emitter keeps are load-bearing, not
   # redundant: `(string) $name` restores the string-key invariant after PHP
   # coerces a numeric-string array key (e.g. "200") to int at runtime (the same
-  # rationale as PhpCastIsUnnecessaryInspection above), and
-  # `(string) json_encode(...)` collapses json_encode's `string|false` return to
-  # a string so the `%s` sprintf argument is well-typed. Both guard real
-  # behaviour, so this inspection is a false positive here.
+  # rationale as PhpCastIsUnnecessaryInspection above). It guards real behaviour,
+  # so this inspection is a false positive here. (A `json_encode(...) ?: $raw`
+  # fallback, not a cast, now feeds the two dropped-pattern warnings.)
   - name: PhpUnnecessaryStringCast
   # PhpSameParameterValue fires on the framework-free CLI's general-purpose
   # helpers `repeatedOption()` (StandaloneApplication) and `resolveRepeatable()`
@@ -78,6 +77,15 @@ exclude:
   - name: PhpInternalEntityUsed
     paths:
       - bin/openapi-laravel
+  # ApiError::render(Request $request): Response (#168) takes $request unused:
+  # the signature IS Laravel's exception-handler render() contract (the
+  # framework calls render($request) via method_exists on a thrown exception,
+  # before it even checks Responsable), so the parameter is required by that
+  # contract even though the response is built entirely from the carried body
+  # and status. Dropping it would break the zero-registration self-render.
+  - name: PhpUnusedParameterInspection
+    paths:
+      - src/Support/ApiError.php
   # The Clover report fed to Qodana (#89) comes from the FAST suite only
   # (--exclude-group=slow), so the slow corpus gate (ReaderCorpusBaselineTest
   # runs the parser/emitter over all 135 specs) never contributes coverage to

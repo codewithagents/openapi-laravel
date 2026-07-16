@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api;
 use App\Data\ApiResponseData;
 use App\Data\Pet\FindPetsByStatusQueryData;
 use App\Data\Pet\FindPetsByTagsQueryData;
+use App\Data\Pet\GetPetByIdErrors;
 use App\Data\Pet\PetData;
 use App\Data\Pet\PetWritableData;
 use App\Data\Pet\UpdatePetWithFormQueryData;
@@ -82,7 +83,13 @@ final class PetController extends AbstractPetController
         $pet = $this->store->findPet($petId);
 
         if ($pet === null) {
-            throw new NotFoundHttpException("Pet {$petId} not found.");
+            // Answer the spec-declared 404 (getPetById -> PetNotFoundError) with
+            // the GENERATED throwable factory. It wraps a PetNotFoundErrorData in
+            // an ApiError at status 404 and self-renders, so this stays a single
+            // throw and never clashes with the PetData success return type. The
+            // other NotFoundHttpException sites below are left as-is (a documented
+            // residual): their operations declare no object error schema to flatten.
+            throw GetPetByIdErrors::notFound(message: "Pet {$petId} not found.");
         }
 
         return $pet;

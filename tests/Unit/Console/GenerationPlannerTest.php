@@ -100,6 +100,67 @@ it('plans component ResponseData classes even when controllers and routes are bo
         ->and($plan->filesByCategory(PlannedFile::CATEGORY_ROUTES))->toBe([]);
 });
 
+it('plans the ApiError support class and the <Operation>Errors CATEGORY_DATA files when controllers are enabled', function () use ($tempOut) {
+    $out = $tempOut();
+    $spec = __DIR__.'/../../Fixtures/server/api-error.yaml';
+    $plan = (new GenerationPlanner)->plan(new GenerationRequest(
+        spec: $spec,
+        output: $out,
+        namespace: 'App\\Data',
+        suffix: 'Data',
+        maxDepth: 64,
+        maxBytes: null,
+        controllers: true,
+        controllerPath: $out.'/Http',
+        controllerNamespace: 'App\\Http\\Controllers\\Api',
+        routes: true,
+        routesPath: $out.'/routes/api.generated.php',
+    ));
+
+    $support = array_map(static fn (PlannedFile $f): string => $f->path, $plan->filesByCategory(PlannedFile::CATEGORY_SUPPORT));
+    $data = array_map(static fn (PlannedFile $f): string => $f->path, $plan->filesByCategory(PlannedFile::CATEGORY_DATA));
+
+    // The <Operation>Errors factories are CATEGORY_DATA, placed in their tag
+    // group (Pets) exactly like the QueryData/ResponseData siblings.
+    expect($support)->toContain($out.'/Support/ApiError.php')
+        ->and($data)->toContain($out.'/Pets/GetPetByIdErrors.php')
+        ->and($data)->toContain($out.'/Pets/UpdatePetErrors.php')
+        ->and($data)->toContain($out.'/Pets/CreatePetErrors.php');
+});
+
+it('vetoes both the ApiError support class and the <Operation>Errors files under --no-controllers, keeping the Data classes', function () use ($tempOut) {
+    $out = $tempOut();
+    $spec = __DIR__.'/../../Fixtures/server/api-error.yaml';
+
+    // controllers: false, routes: true proves the veto keys off controllers,
+    // not routes: an <Operation>Errors class exists only to be thrown from a
+    // concrete controller, and ApiError only to carry that throw.
+    $plan = (new GenerationPlanner)->plan(new GenerationRequest(
+        spec: $spec,
+        output: $out,
+        namespace: 'App\\Data',
+        suffix: 'Data',
+        maxDepth: 64,
+        maxBytes: null,
+        controllers: false,
+        controllerPath: $out.'/Http',
+        controllerNamespace: 'App\\Http\\Controllers\\Api',
+        routes: true,
+        routesPath: $out.'/routes/api.generated.php',
+    ));
+
+    $support = array_map(static fn (PlannedFile $f): string => $f->path, $plan->filesByCategory(PlannedFile::CATEGORY_SUPPORT));
+    $data = array_map(static fn (PlannedFile $f): string => $f->path, $plan->filesByCategory(PlannedFile::CATEGORY_DATA));
+
+    // ApiError and every factory drop together; the underlying error Data
+    // classes are ordinary model output and stay (surgical veto).
+    expect($support)->not->toContain($out.'/Support/ApiError.php')
+        ->and($data)->not->toContain($out.'/Pets/GetPetByIdErrors.php')
+        ->and($data)->not->toContain($out.'/Pets/UpdatePetErrors.php')
+        ->and($data)->not->toContain($out.'/Pets/CreatePetErrors.php')
+        ->and($data)->toContain($out.'/Pets/PetErrorData.php');
+});
+
 it('plans byte-identical Data files with and without the server scaffold (lockstep)', function () use ($querySpec, $tempOut, $request) {
     $out = $tempOut();
     $planner = new GenerationPlanner;

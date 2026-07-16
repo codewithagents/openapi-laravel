@@ -69,6 +69,35 @@ and `php -l` gates, before anything ships.
     400 instead of 422), and the error-bag-to-schema mapping is application semantics the spec does
     not encode. The generator contributes the typed half (error component schemas already generate
     Data classes); the docs guide `guides/validation-errors` holds the bootstrap renderer recipe.
+    **Extended, not re-litigated, by the inlined `ApiError` throwable (issue #168):** a `final`
+    exception, inlined into the consumer's own `\Support` namespace exactly like `RespondsWithStatus`,
+    that carries any generated Data class (or other Responsable/Arrayable/JsonSerializable value) plus
+    an HTTP status and self-renders through Laravel's `render(Request): Response` exception-handler
+    hook (no `bootstrap/app.php` registration needed). It is a schema-agnostic CARRIER, not a
+    renderer: it never inspects or maps a spec's error shape itself (that mapping is still the
+    documented recipe's job), so this decision's core stance is unchanged. It solves a narrower,
+    different problem than #79: the generated abstract controller method's return type is always the
+    operation's success DTO (by design, error responses are never inspected for typing), so a concrete
+    controller that must answer a spec-declared error status previously had to hand-roll a helper that
+    RETURNS a JsonResponse, which does not satisfy the success return type. Throwing (never returning)
+    satisfies any return type, so `ApiError::notFound($errorData)` and its sibling named-status
+    factories give that throw an ergonomic, typed home without inventing a new generated renderer.
+    **Further extended by the generated `<Operation>Errors` factory layer (issue #168):** the ApiError
+    carrier is now complemented by a GENERATED per-operation factory, `<Operation>Errors` (one static
+    method per concrete 4xx/5xx error response whose JSON schema resolves to a named component object; v1
+    scope, inline-object, non-object, unresolvable, and default/wildcard error slots are documented
+    residuals). An operation that DOES get a factory warns once per declared error slot it could not
+    turn into a method; an operation with NO qualifying error slot generates no factory and stays
+    silent (so specs whose error bodies are entirely non-objects or `default` catch-alls are not
+    flooded with warnings).
+    `throw GetPetByIdErrors::notFound(message: '...');` is now the PRIMARY, RECOMMENDED pattern for a
+    spec-declared error whose operation has a generated factory; `ApiError`'s own named factories and
+    general constructor remain a documented escape hatch for anything a generated factory does not
+    cover (a cross-cutting error the spec does not declare per-operation, an operation whose error
+    responses do not qualify for flattening, or a status the spec's per-operation responses map omits).
+    Neither layer maps Laravel's error bag into a spec shape or inspects a spec's error schema on the
+    developer's behalf beyond flattening an ALREADY-NAMED schema's own constructor; decision #11's core
+    stance (no generated renderer) remains unchanged by either layer.
 12. **Config diet: the generator is opinionated about style.** New options must be environment
     facts the generator cannot know (paths, middleware names, FQCNs) or correctness escape
     hatches, never style preferences. Style is the generator's job. The #93 (`--group-by-tag` /

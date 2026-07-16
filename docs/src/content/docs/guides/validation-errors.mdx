@@ -191,6 +191,116 @@ Why the pieces are what they are:
   status separately; the explicit `response()->json(...)` form keeps the status visible.
 </Aside>
 
+## Throwing other error statuses
+
+The recipe above reshapes the framework's **own** 422, the one Laravel raises when a spec-derived
+`rules()` check fails before your code runs. A different case is a spec-declared error your *own*
+code decides to answer: a 404 when a lookup misses, a 409 on a conflicting write. The generated
+abstract method is typed to the operation's **success** DTO (error responses are never inspected for
+typing), so a hand-rolled helper that `return`s a `JsonResponse` will not satisfy that return type.
+Throwing does: a `throw` never reaches the `return`, so the declared success type stays honored no
+matter which error path a method takes.
+
+For every operation whose spec declares a named-component object error response, the generator emits
+a per-operation factory, `<Operation>Errors`, with one status-named static method per declared
+error. Throw it directly:
+
+```php
+public function show(int $petId): PetData
+{
+    return $this->store->pet($petId)
+        ?? throw GetPetByIdErrors::notFound(message: "Pet {$petId} not found.");
+}
+```
+
+The factory is generated alongside the operation's other Data classes:
+
+```php
+namespace App\Data\Pets;
+
+use App\Data\Support\ApiError;
+
+final class GetPetByIdErrors
+{
+    public static function notFound(string $message): ApiError
+    {
+        return new ApiError(new PetErrorData(message: $message), 404);
+    }
+}
+```
+
+Three things fall out of that shape, and each removes a way to get the error wrong:
+
+- **The status is written once, in the method name.** `notFound` *is* the 404; there is no status
+  literal at the throw site to drift from the spec. The name comes from the spec's declared status
+  key (`400` becomes `badRequest`, `404` becomes `notFound`, `409` becomes `conflict`, `422` becomes
+  `unprocessable`, and so on).
+- **The error DTO is never hand-rolled.** The factory constructs `PetErrorData` for you and flattens
+  its constructor into named parameters, so the call site passes `message:` directly with no
+  `new PetErrorData(...)` wrapper. A nested or collection field keeps its sub-DTO array typing,
+  exactly as the constructor declares it.
+- **No registration.** `ApiError` self-renders through Laravel's `render(Request): Response`
+  exception-handler hook, so the thrown value becomes the spec's declared error body at the spec's
+  declared status with **no** `bootstrap/app.php` closure. (Contrast the 422 recipe above: that one
+  needs a closure because Laravel's validation machinery throws `ValidationException` itself, before
+  any of your code runs.)
+
+A single error schema shared across several statuses (a 400 and a 404 both pointing at `PetError`)
+produces one method per status, each forwarding into the same DTO, so the call site stays
+status-precise while the body shape stays single-sourced.
+
+### The ApiError escape hatch
+
+`<Operation>Errors` is the pattern to reach for first. When no generated method fits, the same
+`ApiError` carrier the factory forwards into is available directly, with named-status factories
+(`badRequest`, `unauthorized`, `forbidden`, `notFound`, `conflict`, `unprocessable`,
+`tooManyRequests`, `serverError`) and a general `new ApiError($body, $status)` constructor for any
+other code:
+
+```php
+use App\Data\Support\ApiError;
+
+throw ApiError::forbidden($errorData);   // a named status
+throw new ApiError($errorData, 451);     // any other code
+```
+
+Three cases call for the escape hatch rather than a generated factory:
+
+- **An operation whose error responses do not qualify.** A v1 factory method is emitted only for a
+  declared error whose schema resolves to a **named component object**. An operation whose error
+  slot is an inline object schema (a documented residual for a fast-follow), a non-object shape, an
+  unresolvable `$ref`, or a `default`/`4XX`/`5XX` wildcard (which names no single concrete status to
+  throw) gets no generated method; throw `ApiError` with the Data class (or any
+  `Responsable`/`Arrayable`/`JsonSerializable` value) you build yourself.
+- **A cross-cutting error not tied to one operation.** A global 401 or 403 enforced in a shared base
+  controller or in middleware is not part of any single operation's declared responses, so no
+  per-operation factory covers it. `ApiError::unauthorized(...)` gives that throw the same typed,
+  ergonomic home.
+- **A status the spec's per-operation responses omit.** Spec authors routinely leave a 401 or 403
+  undeclared even when the API genuinely enforces it. The status has no generated method to reach
+  for, so `ApiError` fills the gap without waiting on a spec edit.
+
+The status names match the factory's exactly (`notFound` is a 404 whether it comes from
+`GetPetByIdErrors::notFound(...)` or the carrier's own `ApiError::notFound(...)`), so moving between
+the two layers is a mechanical change, never a semantic one.
+
+The generator is deliberate about which gaps it surfaces. When an operation **does** get a factory,
+it warns once per declared error slot that did not become a method (an inline-object schema, a
+non-object shape, an unresolvable `$ref`, or a `default`/`4XX`/`5XX` wildcard), so an incomplete
+factory is visible at generation time. An operation with **no** qualifying error slot at all
+generates no factory and stays **silent**: a warning per non-object error body would flood specs
+whose error responses are entirely non-objects or `default` catch-alls (a common shape in the wild),
+which is noise, not information the developer needs. So it is not the case that every unsupported
+error response warns, only the ones on operations that already earned a factory.
+
+<Aside type="note" title="ApiError carries, it does not map">
+  `ApiError` is a typed **carrier**, not a renderer: you hand it an already-built Data object (or any
+  `Responsable`/`Arrayable`/`JsonSerializable` value) plus a status, and it renders that body at that
+  status. It never inspects Laravel's error bag or maps it into a spec shape, so it does not replace
+  the 422 recipe above, which exists precisely because that error-bag-to-schema mapping is
+  application semantics the spec does not encode.
+</Aside>
+
 ## Testing the shape
 
 The renderer is application code, so prove it in your suite. The strongest assertion is the
@@ -232,9 +342,13 @@ contract level, so the shape cannot drift in either direction.
 - **The renderer is yours.** It is written once in `bootstrap/app.php` and survives regeneration
   untouched; the generator never writes into your bootstrap file. Regenerating after a spec change
   updates the Data classes the renderer is built from, which is exactly the coupling you want.
-- **Other error statuses follow the same pattern.** A 404 or 409 body declared in the spec also
-  generates its Data class; register additional `render` closures (for `NotFoundHttpException`,
-  your domain exceptions, and so on) and build their bodies the same way.
+- **Other error statuses: throw the generated factory.** A 404 or 409 body declared in the spec
+  also generates its Data class, and for a named-component object schema the generator emits a
+  `<Operation>Errors::notFound(...)`-style factory that wraps it in a self-rendering `ApiError` with
+  no `bootstrap/app.php` closure at all. Reach for that first (see
+  [Throwing other error statuses](#throwing-other-error-statuses)); the `ApiError` carrier covers
+  anything a generated factory does not, and a `render` closure per exception type stays available
+  when you want the framework-level hook instead.
 
 ## Related pages
 

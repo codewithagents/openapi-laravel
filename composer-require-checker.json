@@ -3,11 +3,14 @@
         "config",
         "config_path",
         "base_path",
+        "response",
         "Illuminate\\Console\\Command",
         "Illuminate\\Support\\ServiceProvider",
         "Illuminate\\Support\\Arr",
         "Illuminate\\Contracts\\Validation\\ValidationRule",
         "Illuminate\\Contracts\\Validation\\DataAwareRule",
+        "Illuminate\\Contracts\\Support\\Arrayable",
+        "Illuminate\\Contracts\\Support\\Responsable",
         "Illuminate\\Http\\Request",
         "Symfony\\Component\\HttpFoundation\\Response"
     ]

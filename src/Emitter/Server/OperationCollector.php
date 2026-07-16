@@ -406,6 +406,19 @@ final class OperationCollector
             $this->models?->markSupportClassUsed('RespondsWithStatus');
         }
 
+        // A spec-declared error response whose JSON schema resolves to a
+        // named-component object gets a throwable `<Operation>Errors` factory
+        // class a concrete controller can throw (never returned, so the
+        // success return type stays satisfied). The ApiError carrier the
+        // factory forwards into is inlined only when at least one such factory
+        // class is actually emitted (the unified trigger): this is the single
+        // mark point, mirroring RespondsWithStatus above; the --no-controllers
+        // veto lives one layer up, in GenerationPlanner.
+        $errorsClass = $this->operationErrorFactory($operation, $label, $bodyBaseName);
+        if ($errorsClass !== null) {
+            $this->models?->markSupportClassUsed('ApiError');
+        }
+
         return new OperationDescriptor(
             httpMethod: $method,
             path: $path,
@@ -1834,6 +1847,156 @@ final class OperationCollector
         }
 
         return [$resolved, $componentName];
+    }
+
+    /**
+     * Emit the per-operation `<Operation>Errors` throwable-factory class for
+     * every spec-declared error response whose JSON schema resolves to a
+     * NAMED-COMPONENT object (v1 scope), or null when the operation declares no
+     * such response (in which case the ApiError carrier is not marked either).
+     *
+     * A qualifying slot is a CONCRETE 4xx/5xx status (the `default` key and the
+     * `4XX`/`5XX` range wildcards are omitted in v1: none names one status to
+     * throw) whose `application/json` schema is a `$ref` to a registered Data
+     * class that carries a captured constructor model (a discriminated-union
+     * base or variant does not, so it is skipped). An unresolvable response
+     * `$ref` is silently ignored: the factory is an ergonomics layer, not a
+     * correctness surface, so it never warns the way the success path does.
+     *
+     * A CONCRETE error slot that does NOT qualify (an inline object schema,
+     * deferred to a fast-follow; a non-object schema; an unresolvable schema
+     * `$ref`) is warned about, but ONLY when the operation actually gets a
+     * factory: an operation with no qualifying slot produces no class and no
+     * warning, so the overwhelmingly common "error body is not a named
+     * component object" case stays quiet across the corpus.
+     *
+     * @param  string  $label  "GET /pets/{petId}", for warning messages and the class docblock
+     * @param  string  $baseName  StudlyCaps operation context (the same operationId-or-fallback the body/response classes use)
+     */
+    private function operationErrorFactory(OperationNode $operation, string $label, string $baseName): ?string
+    {
+        if ($this->models === null) {
+            return null;
+        }
+
+        $responses = $operation->responses;
+        if (! $responses instanceof ResponsesNode) {
+            return null;
+        }
+
+        /** @var list<array{status: int, dataClass: string}> $slots */
+        $slots = [];
+        /** @var list<array{status: string, reason: string}> $skipped */
+        $skipped = [];
+
+        foreach ($responses->responses as $status => $response) {
+            $status = (string) $status;
+
+            // v1: only concrete 4xx/5xx codes get a factory method (400-599).
+            if (preg_match('~^[45][0-9][0-9]$~', $status) !== 1) {
+                // `default` and the 4XX/5XX range wildcards ARE error responses,
+                // but name no single concrete status to throw, so v1 defers
+                // them: record them as skipped so a factory-getting operation
+                // warns for them too, exactly like the inline-object/non-object
+                // slots below (the "warn-and-skip" contract for deferred slots).
+                // 1xx/2xx/3xx (concrete or wildcard) are not error responses and
+                // never warn.
+                if ($status === 'default' || $status === '4XX' || $status === '5XX') {
+                    $skipped[] = ['status' => $status, 'reason' => 'default and 4XX/5XX wildcard error responses are not generated in this version; throw ApiError directly for them'];
+                }
+
+                continue;
+            }
+
+            // Resolve a #/components/responses/<Name> $ref silently.
+            if ($response instanceof ReferenceNode) {
+                $componentName = SchemaPointer::componentName($response->pointer(), 'responses');
+                $response = $componentName !== null ? ($this->componentResponses[$componentName] ?? null) : null;
+            }
+
+            if (! $response instanceof ResponseNode) {
+                continue;
+            }
+
+            $schema = $this->jsonSchema($response->content);
+
+            if ($schema instanceof ReferenceNode) {
+                $name = SchemaPointer::refName($schema->pointer());
+                if ($name !== null && isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'data') {
+                    $dataClass = $this->registry[$name]['dataClass'];
+                    // The target must be a concrete, flattenable Data class: a
+                    // discriminated-union base (abstract) or variant carries no
+                    // captured constructor model and cannot be forwarded to.
+                    if ($this->models->constructorParamsFor($dataClass) !== null) {
+                        $slots[] = ['status' => (int) $status, 'dataClass' => $dataClass];
+
+                        continue;
+                    }
+                }
+            }
+
+            $skipped[] = ['status' => $status, 'reason' => $this->errorSlotSkipReason($schema)];
+        }
+
+        // No concrete 4xx/5xx object error slot: no factory is emitted, and the
+        // operation stays SILENT by design, even if it declared default/wildcard
+        // or non-object error responses. Warning per non-object error body would
+        // flood the corpus (e.g. Stripe declares a `default` error on hundreds of
+        // operations); the warn-and-skip diagnostics fire ONLY once the operation
+        // actually gets a factory (see the loop below), where they tell the user
+        // which of its error responses that factory did not cover.
+        if ($slots === []) {
+            return null;
+        }
+
+        // Deterministic order: ascending status.
+        usort($slots, static fn (array $a, array $b): int => $a['status'] <=> $b['status']);
+
+        $class = $this->models->generateOperationErrors($baseName, $label, $this->firstTag($operation), $slots);
+
+        // The operation got a factory, so surface each error slot that did NOT
+        // become a throwable method (mirroring the body/response fallbacks).
+        foreach ($skipped as $skip) {
+            $this->warnings[sprintf(
+                'Operation %s: the %s error response did not get a throwable factory method (%s).',
+                $label,
+                $skip['status'],
+                $skip['reason'],
+            )] = true;
+        }
+
+        return $class;
+    }
+
+    /**
+     * Why a concrete error slot did not qualify for a factory method, for the
+     * warning text. An inline object schema is a documented v1 deferral; a
+     * schema $ref that resolves to a registered object Data class but carries
+     * no flattenable constructor model is a discriminated-union base/variant
+     * (emitted through its own path, never captured); any other $ref does not
+     * resolve to a generated object Data class at all.
+     */
+    private function errorSlotSkipReason(SchemaNode|ReferenceNode|null $schema): string
+    {
+        if ($schema === null) {
+            return 'it declares no application/json schema';
+        }
+
+        if ($schema instanceof ReferenceNode) {
+            // A qualifying object component never reaches here (it becomes a
+            // slot), so a $ref that IS a registered Data-class component can
+            // only be one with no captured constructor: a discriminated-union
+            // base (abstract) or a variant (forwards a discriminator to its
+            // parent), neither of which a static factory can build.
+            $name = SchemaPointer::refName($schema->pointer());
+            if ($name !== null && isset($this->registry[$name]) && $this->registry[$name]['kind'] === 'data') {
+                return 'its schema resolves to a discriminated-union base or variant, which has no flattenable constructor';
+            }
+
+            return 'its schema $ref does not resolve to a generated object Data class';
+        }
+
+        return 'its schema is inline; only named-component object error schemas are supported in this version';
     }
 
     /**

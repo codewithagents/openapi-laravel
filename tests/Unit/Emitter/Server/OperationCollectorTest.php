@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use CodeWithAgents\OpenApiLaravel\Emitter\GeneratedFile;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ControllerGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
@@ -205,6 +206,80 @@ it('does not inline RespondsWithStatus when every success response is a 200 (iss
     (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($spec);
 
     expect($generator->supportFiles())->not->toHaveKey('RespondsWithStatus');
+});
+
+/**
+ * A single-operation document whose GET declares a 200 plus the given error
+ * responses, over a small component pool, for the ApiError mark-used cases.
+ *
+ * @param  array<string, array<string, mixed>>  $errorResponses  status => response object
+ * @param  array<string, array<string, mixed>>  $schemas  extra component schemas
+ */
+function apiErrorDocument(array $errorResponses, array $schemas = []): OpenApiDocument
+{
+    $document = [
+        'openapi' => '3.0.3',
+        'info' => ['title' => 'Test', 'version' => '1.0.0'],
+        'paths' => [
+            '/things' => [
+                'get' => [
+                    'tags' => ['things'],
+                    'operationId' => 'getThing',
+                    'responses' => ['200' => ['description' => 'ok']] + $errorResponses,
+                ],
+            ],
+        ],
+        'components' => ['schemas' => ['ErrorData' => ['type' => 'object', 'required' => ['message'], 'properties' => ['message' => ['type' => 'string']]]] + $schemas],
+    ];
+
+    $spec = (new OpenApiReader)->read($document);
+    expect($spec)->toBeInstanceOf(OpenApiDocument::class);
+
+    return $spec;
+}
+
+/**
+ * @return array<string, GeneratedFile>
+ */
+function apiErrorSupport(OpenApiDocument $spec): array
+{
+    $generator = new ModelGenerator;
+    $generator->generate($spec);
+    (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($spec);
+
+    return $generator->supportFiles();
+}
+
+it('marks the ApiError support class when an error response is a named-component object', function () {
+    $spec = apiErrorDocument([
+        '404' => ['description' => 'nf', 'content' => ['application/json' => ['schema' => ['$ref' => '#/components/schemas/ErrorData']]]],
+    ]);
+
+    $support = apiErrorSupport($spec);
+    expect($support)->toHaveKey('ApiError')
+        ->and($support['ApiError']->code)->toContain('namespace App\Data\Support;')
+        ->and($support['ApiError']->code)->toContain('final class ApiError');
+});
+
+it('does not mark ApiError when there is no error response at all', function () {
+    expect(apiErrorSupport(apiErrorDocument([])))->not->toHaveKey('ApiError');
+});
+
+it('does not mark ApiError when the error response schema is a non-object component', function () {
+    $spec = apiErrorDocument(
+        ['404' => ['description' => 'nf', 'content' => ['application/json' => ['schema' => ['$ref' => '#/components/schemas/ScalarError']]]]],
+        ['ScalarError' => ['type' => 'string']],
+    );
+
+    expect(apiErrorSupport($spec))->not->toHaveKey('ApiError');
+});
+
+it('does not mark ApiError when the only error slot is an inline object (deferred in v1)', function () {
+    $spec = apiErrorDocument([
+        '404' => ['description' => 'nf', 'content' => ['application/json' => ['schema' => ['type' => 'object', 'properties' => ['message' => ['type' => 'string']]]]]],
+    ]);
+
+    expect(apiErrorSupport($spec))->not->toHaveKey('ApiError');
 });
 
 it('orders descriptors by path then by a fixed HTTP-method order', function () {

@@ -733,6 +733,37 @@ test('DELETE pet returns a 204 No Content with an empty body', async ({ request 
 });
 
 // ---------------------------------------------------------------------------
+// Scenario 10b: generated GetPetByIdErrors factory drives the 404 body shape
+//
+// The spec now gives getPetById's 404 an object error schema
+// (#/components/schemas/PetNotFoundError = { message: string }). The generator
+// therefore emits App\Data\Pet\GetPetByIdErrors with a notFound(string $message)
+// factory that wraps a PetNotFoundErrorData in an ApiError at status 404 and
+// self-renders. The concrete PetController::show() throws that generated factory
+// instead of an ad hoc NotFoundHttpException, so the spec's declared error schema
+// now drives the runtime 404 body shape. This asserts both the status and the
+// { message: string } shape over real HTTP.
+// ---------------------------------------------------------------------------
+
+test('GET /pet/{petId} for a missing id 404s with the generated PetNotFoundError { message } shape', async ({ request }) => {
+  // An id far above any seed or created pet, so the store never has it.
+  const missingId = 987654321;
+
+  const res = await request.get(`${API_BASE}/pet/${missingId}`, {
+    headers: { Accept: 'application/json' },
+  });
+  expect(res.status(), `expected 404 for a missing pet, got ${res.status()}: ${await res.text()}`).toBe(404);
+
+  const body = await res.json();
+  // The body IS the spec-declared PetNotFoundError schema: a single `message`
+  // string, rendered by the GENERATED GetPetByIdErrors::notFound() factory via
+  // ApiError. The factory sets the message from the throw site, so it carries the
+  // requested id, distinguishing this generated path from a bare framework 404.
+  expect(typeof body.message).toBe('string');
+  expect(body.message).toContain(String(missingId));
+});
+
+// ---------------------------------------------------------------------------
 // Scenario 11: X-Total-Count response header (#114, a DOCUMENTED RESIDUAL)
 //
 // IMPORTANT: this does NOT prove the generator emits response-header handling.

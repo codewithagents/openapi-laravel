@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 $customerSpec = fn (): string => __DIR__.'/../../Fixtures/emitter/customer.json';
 $serverSpec = fn (): string => __DIR__.'/../../Fixtures/server/petstore.yaml';
+$apiErrorSpec = fn (): string => __DIR__.'/../../Fixtures/server/api-error.yaml';
 $tempOut = fn (): string => sys_get_temp_dir().'/oal_check_'.uniqid();
 
 it('reports in sync after generating into the output', function () use ($customerSpec, $tempOut) {
@@ -174,6 +175,40 @@ it('checks generated controllers and the routes file by default', function () us
         '--output' => $out,
     ])
         ->expectsOutputToContain('[changed] '.$routesOut)
+        ->assertExitCode(1);
+});
+
+it('drift-checks the generated <Operation>Errors factory classes like any other owned file', function () use ($apiErrorSpec, $tempOut) {
+    $out = $tempOut();
+
+    config()->set('openapi-laravel.controllers.path', $out.'/Http/Controllers/Api');
+    config()->set('openapi-laravel.controllers.namespace', 'App\\Http\\Controllers\\Api');
+    config()->set('openapi-laravel.routes.path', $out.'/routes/api.generated.php');
+
+    $this->artisan('openapi:generate', [
+        '--spec' => $apiErrorSpec(),
+        '--output' => $out,
+    ])->assertSuccessful();
+
+    // The factory class is written as a CATEGORY_DATA file in its tag group.
+    $factory = $out.'/Pets/GetPetByIdErrors.php';
+    expect(is_file($factory))->toBeTrue();
+
+    // Right after generation the whole set, factory included, is in sync.
+    $this->artisan('openapi:check', [
+        '--spec' => $apiErrorSpec(),
+        '--output' => $out,
+    ])->assertExitCode(0);
+
+    // Tamper the factory file: check must detect the drift (generate/check
+    // share the planner, so the factory files flow through both in lockstep).
+    file_put_contents($factory, file_get_contents($factory).' ');
+
+    $this->artisan('openapi:check', [
+        '--spec' => $apiErrorSpec(),
+        '--output' => $out,
+    ])
+        ->expectsOutputToContain('[changed] '.$factory)
         ->assertExitCode(1);
 });
 

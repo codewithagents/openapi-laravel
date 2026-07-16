@@ -987,7 +987,7 @@ final class RulesBuilder
                 'A string schema declares a `pattern` that is not valid PCRE (%s); the `regex:` rule is dropped '
                 .'so the generated app never raises an uncatchable preg_match compile error at runtime. '
                 .'The field keeps its other validation rules.',
-                (string) json_encode($pattern),
+                json_encode($pattern) ?: $pattern,
             )] = true;
 
             return null;
@@ -1090,7 +1090,7 @@ final class RulesBuilder
                     .'closed-object enforcement (additionalProperties: false) is skipped for this schema '
                     .'so spec-legal keys are never falsely rejected.',
                     $schemaName,
-                    (string) json_encode($pattern),
+                    json_encode($pattern) ?: $pattern,
                 )] = true;
 
                 return null;

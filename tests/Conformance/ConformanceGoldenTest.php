@@ -772,6 +772,29 @@ it('synthesizes a per-operation ResponseData class for inline object responses (
         ->toContain('use App\Data\Misc\DuplicateOpResponseData_2;');
 });
 
+// --- Per-operation error-response factories (<Operation>Errors) -------------
+
+it('synthesizes an <Operation>Errors factory for a concrete named-component error response', function () {
+    [, $generator] = conformance31Server();
+
+    // getWidget declares a concrete 404 -> ErrorObject (a named component
+    // object): a GetWidgetErrors factory flattens ErrorObjectData's
+    // constructor and forwards into ApiError at 404. The `default` slot is
+    // deliberately omitted in v1 (no single concrete status to throw).
+    $files = $generator->errorFactoryFiles();
+    expect($files)->toHaveKey('GetWidgetErrors');
+
+    expect($files['GetWidgetErrors']->code)
+        ->toContain('final class GetWidgetErrors')
+        ->toContain('use App\Data\Support\ApiError;')
+        ->toContain('public static function notFound(int $code, string $message): ApiError')
+        ->toContain('return new ApiError(new ErrorObjectData(code: $code, message: $message), 404);')
+        ->not->toContain('function unexpected');
+
+    // Emitting a factory is exactly what inlines the ApiError carrier.
+    expect($generator->supportFiles())->toHaveKey('ApiError');
+});
+
 // --- Non-JSON responses typed as the base Response (#117/#118) --------------
 
 it('types non-JSON-only responses as the base Symfony Response in the abstract controllers (#117/#118)', function () {

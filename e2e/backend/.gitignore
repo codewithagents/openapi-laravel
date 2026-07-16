@@ -30,3 +30,4 @@ Thumbs.db
 /app/Data/
 /app/Http/Controllers/Api/Abstract*Controller.php
 /routes/api.generated.php
+/openapi-laravel.unsupported.json
