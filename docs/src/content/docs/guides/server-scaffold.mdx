@@ -357,6 +357,28 @@ final class PetController extends AbstractPetController
 }
 ```
 
+Every abstract method is typed to the operation's success DTO, so a concrete method that needs to
+answer a spec-declared **error** status throws instead of returning (a `throw` never reaches the
+`return`, so the success type stays satisfied). For an operation whose spec declares a
+named-component object error response, the generator emits a `<Operation>Errors` factory with one
+status-named method per qualifying error status, so `show()` can answer the spec's own 404 shape
+rather than let a generic lookup decide it:
+
+```php
+public function show(int $petId): PetData
+{
+    return $this->petService->find($petId)
+        ?? throw GetPetByIdErrors::notFound(message: "Pet {$petId} not found.");
+}
+```
+
+The status lives in the method name, the error DTO is built and flattened for you, and the thrown
+value self-renders with no `bootstrap/app.php` wiring. For a status a generated factory does not
+cover, the `App\Data\Support\ApiError` carrier is directly available
+(`throw ApiError::forbidden($body)` or `new ApiError($body, $status)`). See
+[Throwing other error statuses](/guides/validation-errors#throwing-other-error-statuses) for the
+full treatment.
+
 ### Generated routes file
 
 ```php

@@ -238,6 +238,10 @@ paths:
           description: Invalid ID supplied
         '404':
           description: Pet not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PetNotFoundError'
         default:
           description: Unexpected error
       security:
@@ -1997,6 +2001,13 @@ components:
           type: string
       xml:
         name: '##default'
+    PetNotFoundError:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
     LabNumeric:
       type: object
       required:

@@ -38,13 +38,16 @@ it('generates Pint-idempotent output (pint --test reports no reformats)', functi
     $queryFiles = $generator->queryFiles();
     $bodyFiles = $generator->bodyFiles();
     $responseFiles = $generator->responseFiles();
+    // The per-operation error-factory classes (`<Operation>Errors`) are owned
+    // output too, so they must be born Pint-clean like every other class.
+    $errorFactoryFiles = $generator->errorFactoryFiles();
     // The inlined runtime support classes (issue #40) are owned, drift-checked
     // output too, so they must be born Pint-clean exactly like the Data classes.
     // Collected AFTER the query and body classes so their rule references count.
     $supportFiles = $generator->supportFiles();
 
     expect(count($files))->toBeGreaterThan(0, "spec generated no files: {$path}");
-    $files = array_merge(array_values($files), array_values($queryFiles), array_values($bodyFiles), array_values($responseFiles));
+    $files = array_merge(array_values($files), array_values($queryFiles), array_values($bodyFiles), array_values($responseFiles), array_values($errorFactoryFiles));
 
     $dir = sys_get_temp_dir().'/openapi-laravel-pint-'.bin2hex(random_bytes(6));
     expect(mkdir($dir, 0700, true) || is_dir($dir))->toBeTrue("could not create temp dir {$dir}");

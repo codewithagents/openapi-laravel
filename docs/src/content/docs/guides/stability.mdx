@@ -19,9 +19,9 @@ release produces byte-identical PHP: the same class and property names, the same
 same type hints and docblocks, the same file set, the same `#[MapName]` attributes. The
 [drift check](/guides/drift-check) (`openapi:check`) enforces this byte-for-byte in CI.
 
-**2. The support-class namespace and import lines.** The eight support classes the generator inlines
+**2. The support-class namespace and import lines.** The nine support classes the generator inlines
 (`MultipleOfRule`, `Rfc3339DateTimeRule`, `Rfc3339TimeRule`, `Iso8601DurationRule`, `HostnameRule`,
-`MapObjectTransformer`, `NoUnknownPropertiesRule`, `RespondsWithStatus`) land at a fixed location
+`MapObjectTransformer`, `NoUnknownPropertiesRule`, `RespondsWithStatus`, `ApiError`) land at a fixed location
 relative to your configured Data namespace, for example `App\Data\Support\MultipleOfRule`. Their
 import lines are part of the committed output, so moving them would be an output-shape change covered
 by the same rule. The namespace is not changing after `1.0.0`.

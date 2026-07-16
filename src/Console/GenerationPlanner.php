@@ -154,12 +154,41 @@ final readonly class GenerationPlanner
             );
         }
 
+        // The per-operation `<Operation>Errors` throwable-factory classes live
+        // next to the model Data classes (same namespace, same directory, same
+        // drift-checked CATEGORY_DATA bucket). Unlike the query/body/response
+        // siblings above (always planned, even a model-only run), these exist
+        // only to be thrown FROM a concrete controller, so they get their own
+        // controllers-only gate, parallel to (and co-occurring with) the
+        // ApiError support-class veto below.
+        if ($request->controllers) {
+            foreach ($generator->errorFactoryFiles() as $operationFile) {
+                $files[] = new PlannedFile(
+                    $target.'/'.$operationFile->filename(),
+                    $operationFile->code,
+                    PlannedFile::CATEGORY_DATA,
+                );
+            }
+        }
+
         // Inline the runtime support classes the generated Data files reference
         // into the consumer's own `<output>/Support/` directory (issue #40), so
         // generated output is self-contained with no runtime dependency on the
         // generator package. Only the classes this spec used are emitted, and
         // they are owned, drift-checked output like the Data classes themselves.
-        foreach ($generator->supportFiles() as $supportFile) {
+        //
+        // ApiError is vetoed when controllers are disabled (--no-controllers):
+        // the collector marks it purely from the spec's response shapes (only
+        // when an <Operation>Errors factory is actually emitted), with no
+        // visibility into the controllers flag. An ApiError with no abstract
+        // controller to throw it from is dead weight, so the planner (the one
+        // layer both generate and check share, and the only layer that knows
+        // $request->controllers) drops it here, alongside its factory classes.
+        $supportFiles = $generator->supportFiles();
+        if (! $request->controllers) {
+            unset($supportFiles['ApiError']);
+        }
+        foreach ($supportFiles as $supportFile) {
             $files[] = new PlannedFile(
                 $target.'/Support/'.$supportFile->filename(),
                 $supportFile->code,

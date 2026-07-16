@@ -259,3 +259,32 @@ it('still emits a finite bound unchanged (#151 over-drop guard)', function () {
         ->toContain('min:1')
         ->toContain('MultipleOfRule(2)');
 });
+
+it('gracefully ignores a numeric-string that overflows to INF ("1e400") instead of emitting a rule (#151)', function () {
+    // The spec is untrusted: an overflowing numeric string coerces to INF just
+    // like a native non-finite float, so `maximum: "1e400"` must be dropped, not
+    // emitted as `max:INF`.
+    $code = generateNumberConstraint(['maximum' => '1e400']);
+
+    expect($code)
+        ->not->toContain('max:')
+        ->and($code)->not->toContain('INF');
+});
+
+it('gracefully ignores a non-finite exclusiveMinimum (INF) instead of emitting gt:INF (#151)', function () {
+    // The is_finite() guard sits at the one chokepoint feeding all five numeric
+    // keywords, so the 3.1 numeric exclusive bounds are covered too: no gt:INF.
+    $code = generateNumberConstraint(['exclusiveMinimum' => INF]);
+
+    expect($code)
+        ->not->toContain('gt:')
+        ->and($code)->not->toContain('INF');
+});
+
+it('gracefully ignores a non-finite exclusiveMaximum (NAN) instead of emitting lt:NAN (#151)', function () {
+    $code = generateNumberConstraint(['exclusiveMaximum' => NAN]);
+
+    expect($code)
+        ->not->toContain('lt:')
+        ->and($code)->not->toContain('NAN');
+});

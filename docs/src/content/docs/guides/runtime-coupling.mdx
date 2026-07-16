@@ -1,6 +1,6 @@
 ---
 title: Runtime coupling of generated code
-description: Generated code used to import eight support classes from the generator package, making it a runtime dependency. The 1.0.0 question, keep that dependency or make generation self-contained, is decided and shipped, Option B (inline into the consumer's output), with the analysis and tradeoffs that led there.
+description: Generated code used to import nine support classes from the generator package, making it a runtime dependency. The 1.0.0 question, keep that dependency or make generation self-contained, is decided and shipped, Option B (inline into the consumer's output), with the analysis and tradeoffs that led there.
 ---
 
 import { Aside } from '@astrojs/starlight/components'
@@ -21,6 +21,7 @@ The generated Data classes stand alone in your repo. When a class needs a rule o
 - `App\Data\Support\MapObjectTransformer` (every `additionalProperties` map property, via `#[WithTransformer(...)]`)
 - `App\Data\Support\NoUnknownPropertiesRule` (the default `additionalProperties: false` enforcement)
 - `App\Data\Support\RespondsWithStatus` (the route middleware that enforces non-200 declared success status codes)
+- `App\Data\Support\ApiError` (the self-rendering throwable for a spec-declared error response)
 
 (The `App\Data` prefix mirrors whatever Data namespace you configured: the support namespace is always the Data namespace plus a `\Support` suffix.)
 
@@ -32,14 +33,14 @@ The result is the headline this decision delivers: **`codewithagents/openapi-lar
 
 The project's stated philosophy is [you own the output](/philosophy): readable PHP in your repo that keeps working even if you stop using the generator. The runtime coupling (now removed) dented that in two ways:
 
-- **It was not fully owned.** Eight classes that your generated `rules()` depended on lived in `vendor/`, outside the code you committed and review in diffs.
+- **It was not fully owned.** Nine classes that your generated code depended on lived in `vendor/`, outside the code you committed and review in diffs.
 - **A `composer update` could change runtime behavior under committed code.** Because the support classes were versioned with the generator, upgrading the generator could change how your already-generated, already-committed classes validate and serialize, without you regenerating anything. That was the exact silent-change surface the [versioning policy](/guides/versioning-policy) pins down. Inlining closes it: a rule changes only when you regenerate and review the diff.
 
-`spatie/laravel-data` itself is a genuine runtime dependency under **every** option below, that is unavoidable and expected, the generated classes *are* laravel-data classes. The decision below concerned only the eight `openapi-laravel`-owned support classes, which now live in your own `Support` namespace.
+`spatie/laravel-data` itself is a genuine runtime dependency under **every** option below, that is unavoidable and expected, the generated classes *are* laravel-data classes. The decision below concerned only the nine `openapi-laravel`-owned support classes, which now live in your own `Support` namespace.
 
 ## The 1.0.0 question
 
-This had to settle **before** 1.0.0, because the import lines are part of the frozen output format. Moving the namespace later (for example from `CodeWithAgents\OpenApiLaravel\Support\...` to `App\Data\Support\...`) is a breaking output change, exactly what the 1.0.0 freeze is meant to prevent. The discriminator-aware cast ([#38](https://github.com/codewithagents/openapi-laravel/issues/38)) has since **shipped using spatie's native `PropertyMorphableData`** (an abstract morphable base plus `morph()`), so it added **no** new runtime support class. The inlined set under Option B is therefore the eight classes above (including `NoUnknownPropertiesRule`, emitted whenever a closed object is present, which is now the default), not a growing list driven by #38.
+This had to settle **before** 1.0.0, because the import lines are part of the frozen output format. Moving the namespace later (for example from `CodeWithAgents\OpenApiLaravel\Support\...` to `App\Data\Support\...`) is a breaking output change, exactly what the 1.0.0 freeze is meant to prevent. The discriminator-aware cast ([#38](https://github.com/codewithagents/openapi-laravel/issues/38)) has since **shipped using spatie's native `PropertyMorphableData`** (an abstract morphable base plus `morph()`), so it added **no** new runtime support class. The inlined set under Option B is therefore the nine classes above (including `NoUnknownPropertiesRule`, emitted whenever a closed object is present, which is now the default), not a growing list driven by #38.
 
 ## Option A: keep the runtime dependency (status quo)
 
@@ -56,7 +57,7 @@ Generated code keeps importing the support classes from the generator package. `
 
 - **Generated code is not self-contained.** "Stop using the generator and your code still works" is false: remove the package and the classes that import `Support\...` break.
 - **Silent runtime-behavior changes on upgrade**, as above. This is the strongest argument against A.
-- **The generator is a heavier dependency than it needs to be.** Consumers pull the whole generator (parser, emitter, symfony/yaml) into production just to get eight small runtime classes.
+- **The generator is a heavier dependency than it needs to be.** Consumers pull the whole generator (parser, emitter, symfony/yaml) into production just to get nine small runtime classes.
 
 ## Option B: inline the support classes into the consumer's output (adopted and shipped)
 
@@ -76,7 +77,7 @@ The generator emits the referenced support classes into the consumer's own names
 
 ## Option C: a tiny frozen runtime package
 
-Split the eight support classes into a separate, minimal, semver-frozen package (for example `codewithagents/openapi-laravel-runtime`) that changes essentially never. The generator depends on it; generated code imports from it; consumers `require` only the tiny runtime, not the whole generator.
+Split the nine support classes into a separate, minimal, semver-frozen package (for example `codewithagents/openapi-laravel-runtime`) that changes essentially never. The generator depends on it; generated code imports from it; consumers `require` only the tiny runtime, not the whole generator.
 
 **Pros**
 
@@ -114,6 +115,6 @@ Option C was the reasonable fallback if duplication had been judged unacceptable
   **Option B is implemented.** The generator inlines the referenced support classes into the consumer's own namespace (the Data namespace plus a `\Support` suffix, for example `App\Data\Support\...`), making generated output fully self-contained with no runtime dependency on the generator.
 
   - **Status:** done. The support classes are emitted into `<output>/Support/`, imported by the generated Data classes from there, and drift-checked byte-for-byte by `openapi:check`. Only the classes a spec references are emitted.
-  - **No growing set from [#38](https://github.com/codewithagents/openapi-laravel/issues/38):** the discriminator-aware cast shipped on spatie's native `PropertyMorphableData`, adding zero support classes. The inlined set is the eight listed above (including `NoUnknownPropertiesRule`, emitted whenever a closed object is present, which is now the default).
+  - **No growing set from [#38](https://github.com/codewithagents/openapi-laravel/issues/38):** the discriminator-aware cast shipped on spatie's native `PropertyMorphableData`, adding zero support classes. The inlined set is the nine listed above (including `NoUnknownPropertiesRule`, emitted whenever a closed object is present, which is now the default).
   - **It resolves [#41 (versioning policy)](/guides/versioning-policy):** now that they are inlined, the support classes fall under the **output** surface and are governed by the same major-bump rule as the rest of the generated code.
 </Aside>

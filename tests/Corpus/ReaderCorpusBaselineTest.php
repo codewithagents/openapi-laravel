@@ -1368,6 +1368,104 @@ const READER_BASELINE_REBASELINED_INT_FORMATS = [
     'zuora.json' => 'int32/int64 fields gain format-derived min/max range rules',
 ];
 
+/*
+ * INTENTIONAL post-freeze rebaseline (uncompilable-pattern rules fix, commit
+ * c670c09, bundled into this branch): the two specs in
+ * READER_BASELINE_REBASELINED_RULES_UNCOMPILABLE_PATTERN carry a post-fix hash,
+ * because they declare a `pattern` PHP's PCRE cannot compile (AWS IAM and
+ * SendGrid use JSON-Schema `\uXXXX` escapes, which PCRE spells `\x{XXXX}`).
+ * v0.11.0 emitted the pattern verbatim as a `regex:#...#` rule, which throws at
+ * runtime on the first validation; the fix drops the uncompilable rule instead
+ * of emitting a broken one. The ONLY divergence in each hash is the removed
+ * `regex:` rule on the affected string fields. The three sibling fixes bundled
+ * in the same commit range (float fixed-decimal rendering, enum int-back, and
+ * non-finite numeric keywords) touch NO corpus spec, so they need no rebaseline
+ * entry. sendgrid ALSO emits #168 error-factory output, so its hash carries
+ * both changes; every spec outside the rebaseline lists stays the frozen
+ * v0.11.0 freeze, byte for byte.
+ */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-fix output (an
+ * uncompilable `\uXXXX`-escape `pattern` drops its broken `regex:` rule instead
+ * of emitting one, commit c670c09), keyed by spec basename. The per-spec test
+ * below still compares against the JSON baseline, which now holds these specs'
+ * post-fix hashes; the coverage test pins that every listed name exists on disk
+ * and in the baseline, so the list cannot rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_RULES_UNCOMPILABLE_PATTERN = [
+    'aws_iam.json' => 'uncompilable \uXXXX-escape query-param patterns drop their broken regex: rules',
+    'sendgrid.json' => 'an uncompilable \uXXXX-escape pattern drops its broken regex: rule (hash also carries the #168 error-factory output)',
+];
+
+/*
+ * INTENTIONAL post-freeze rebaseline (#168): the thirty-two specs in
+ * READER_BASELINE_REBASELINED_168 carry a post-#168 hash, because they declare
+ * at least one error response (a concrete 4xx/5xx status) whose JSON schema
+ * resolves to a NAMED-COMPONENT object. v0.11.0 generated the error component's
+ * Data class but nothing that throws it; #168 adds, per such operation, a
+ * `<Operation>Errors` throwable-factory class (one static method per qualifying
+ * error status, forwarding into the ApiError carrier) AND inlines the ApiError
+ * support class into the consumer's Support namespace (the unified trigger:
+ * ApiError is inlined iff at least one factory is emitted). The divergence in
+ * each hash is exactly the new factory file(s), the added Support/ApiError.php,
+ * and, for an operation that DID get a factory, one warn-and-skip line per error
+ * slot it could not cover (an inline-object, non-object, unresolvable, or
+ * default/4XX/5XX wildcard slot); an operation with no qualifying error slot
+ * generates no factory and no warning. No existing Data class, controller, or
+ * routes file moves (responseType() is untouched by the feature). A spec also
+ * present in an earlier rebaseline list accumulates the changes; every spec
+ * outside the rebaseline lists stays the frozen v0.11.0 freeze, byte for byte.
+ */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-#168 output
+ * (generated <Operation>Errors factory classes plus the inlined ApiError
+ * support class for spec-declared named-component object error responses),
+ * keyed by spec basename, with the number of factory classes for auditability.
+ * The per-spec test below still compares against the JSON baseline, which now
+ * holds these specs' post-#168 hashes; the coverage test pins that every listed
+ * name exists on disk and in the baseline, so the list cannot rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_168 = [
+    '1password-connect.yaml' => '12 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'ably_control.json' => '22 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'adyen-checkout.yaml' => '20 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'adyen-legal-entity.yaml' => '33 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'airflow.json' => '71 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'amadeus.json' => '2 <Operation>Errors factory classes plus the inlined ApiError support class (hash also carries 2 default-slot warn-and-skip lines)',
+    'apple_appstore.json' => '252 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'asana.json' => '166 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'aws_apigateway.json' => '120 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'aws_cognito.json' => '101 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'aws_dynamodb.json' => '52 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'aws_lambda.json' => '66 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'bitbucket.json' => '251 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'box.json' => '160 <Operation>Errors factory classes plus the inlined ApiError support class (hash also carries 160 default-slot warn-and-skip lines)',
+    'clevercloud.json' => '1 <Operation>Errors factory class plus the inlined ApiError support class',
+    'dnd5e.json' => '1 <Operation>Errors factory class plus the inlined ApiError support class',
+    'docker.json' => '96 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'dracoon.json' => '280 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'elevenlabs.json' => '18 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'github.json' => '479 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'here_positioning.json' => '1 <Operation>Errors factory class plus the inlined ApiError support class',
+    'jira.json' => '70 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'klarna.json' => '1 <Operation>Errors factory class plus the inlined ApiError support class',
+    'openai.yaml' => '14 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'redocly-museum.yaml' => '8 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'sendgrid.json' => '127 <Operation>Errors factory classes plus the inlined ApiError support class (hash also carries the uncompilable-pattern rules fix)',
+    'soundcloud.json' => '55 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'spotify.yaml' => '3 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'vimeo.json' => '226 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'webflow.json' => '81 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'xero.json' => '96 <Operation>Errors factory classes plus the inlined ApiError support class',
+    'zuora.json' => '140 <Operation>Errors factory classes plus the inlined ApiError support class',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -1438,11 +1536,13 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
 
     // Every spec rebaselined for #110, #116, #120, #122, #124, #125, #126,
     // #113, #121, #129, #30, #130, the transitive nested-readOnly write split,
-    // #132 (delimited arrays), #131 (deepObject object query parameters), or the
-    // deprecated controller docblocks must still exist on disk and carry a hash
-    // in the baseline (it is an update, not an exemption): a renamed or deleted
-    // spec would make the documented rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY), ...array_keys(READER_BASELINE_REBASELINED_130), ...array_keys(READER_BASELINE_REBASELINED_DELIMITED_ARRAYS), ...array_keys(READER_BASELINE_REBASELINED_DEEPOBJECT), ...array_keys(READER_BASELINE_REBASELINED_SELF_STATIC), ...array_keys(READER_BASELINE_REBASELINED_DEPRECATED_CONTROLLER_DOCBLOCKS), ...array_keys(READER_BASELINE_REBASELINED_INT_FORMATS)] as $spec) {
+    // #132 (delimited arrays), #131 (deepObject object query parameters), the
+    // deprecated controller docblocks, int32/int64 formats, the uncompilable
+    // `\uXXXX`-pattern rules fix, or #168 (generated <Operation>Errors factory
+    // classes) must still exist on disk and carry a hash in the baseline (it is
+    // an update, not an exemption): a renamed or deleted spec would make the
+    // documented rebaseline lists rot silently.
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY), ...array_keys(READER_BASELINE_REBASELINED_130), ...array_keys(READER_BASELINE_REBASELINED_DELIMITED_ARRAYS), ...array_keys(READER_BASELINE_REBASELINED_DEEPOBJECT), ...array_keys(READER_BASELINE_REBASELINED_SELF_STATIC), ...array_keys(READER_BASELINE_REBASELINED_DEPRECATED_CONTROLLER_DOCBLOCKS), ...array_keys(READER_BASELINE_REBASELINED_INT_FORMATS), ...array_keys(READER_BASELINE_REBASELINED_RULES_UNCOMPILABLE_PATTERN), ...array_keys(READER_BASELINE_REBASELINED_168)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }
@@ -1497,6 +1597,7 @@ function readerBaselinePipeline(string $path): array
         ...array_values($generator->queryFiles()),
         ...array_values($generator->bodyFiles()),
         ...array_values($generator->responseFiles()),
+        ...array_values($generator->errorFactoryFiles()),
         ...array_values($controllers),
         $routes,
     ] as $file) {

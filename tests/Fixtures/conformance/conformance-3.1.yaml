@@ -77,8 +77,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Widget'
-        default:                  # default response
-          description: Unexpected error
+        '404':                    # concrete error response: exercises the
+          description: Widget not found   # generated <Operation>Errors factory
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorObject'
+        default:                  # default response (v1 omits a factory method
+          description: Unexpected error   # for it: no single concrete status)
           content:
             application/json:
               schema:

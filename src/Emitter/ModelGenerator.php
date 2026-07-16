@@ -93,6 +93,14 @@ final class ModelGenerator
      */
     private RequestDataSynthesizer $bodies;
 
+    /**
+     * Synthesizes the per-operation `<Operation>Errors` throwable-factory
+     * classes for the current run; recreated together with the state. Reads
+     * the constructor model captured during emitData(), so it never re-enters
+     * the emission pipeline.
+     */
+    private ErrorFactorySynthesizer $errorFactories;
+
     public function __construct(
         private readonly GeneratorOptions $options = new GeneratorOptions,
     ) {
@@ -119,6 +127,7 @@ final class ModelGenerator
             $this->emitData(...),
             $this->hasReadWriteFlags(...),
         );
+        $this->errorFactories = new ErrorFactorySynthesizer($this->state);
     }
 
     /**
@@ -566,6 +575,52 @@ final class ModelGenerator
     }
 
     /**
+     * The captured constructor-parameter model of a generated Data class, in
+     * constructor order, or null when no such class was emitted. The server
+     * scaffold consults this to confirm a named-component error schema resolved
+     * to a concrete, flattenable Data class (a discriminated-union base or
+     * variant carries no captured model, so it returns null and is skipped).
+     *
+     * @return list<array{wireName: string, phpName: string, type: ResolvedType, required: bool, default: ?string}>|null
+     */
+    public function constructorParamsFor(string $className): ?array
+    {
+        return $this->state->constructorParams[$className] ?? null;
+    }
+
+    /**
+     * Emit the per-operation `<Operation>Errors` throwable-factory class for an
+     * operation's qualifying error slots (a named-component object error
+     * response per slot, already classified by the collector). Must be called
+     * AFTER generate(); see {@see ErrorFactorySynthesizer::generate()} for the
+     * full contract. Kept on the generator so the server scaffold keeps one
+     * entry point into the model pipeline, exactly like generateInlineResponseData().
+     *
+     * @param  list<array{status: int, dataClass: string}>  $slots  qualifying error slots in ascending status order
+     * @return string|null the reserved factory class name, or null when there are no slots
+     */
+    public function generateOperationErrors(string $baseName, string $operationLabel, ?string $tag, array $slots): ?string
+    {
+        return $this->errorFactories->generate($baseName, $operationLabel, $tag, $slots);
+    }
+
+    /**
+     * The per-operation error-factory classes emitted since the last generate()
+     * run, keyed and ordered by class name. A dedicated bucket mirroring
+     * responseFiles(); the planner collects them into the same CATEGORY_DATA
+     * output, gated on controllers being generated.
+     *
+     * @return array<string, GeneratedFile>
+     */
+    public function errorFactoryFiles(): array
+    {
+        $files = $this->state->errorFactoryFiles;
+        ksort($files);
+
+        return $files;
+    }
+
+    /**
      * @return array<string, SchemaNode>
      */
     private function componentSchemas(OpenApiDocument $document): array
@@ -636,6 +691,13 @@ final class ModelGenerator
 
         $paramsRequired = [];
         $paramsOptional = [];
+        // The captured constructor-parameter model, split required/optional
+        // exactly like $paramsRequired/$paramsOptional so it merges in the same
+        // order (issue: error-factory flattening). The error-factory
+        // synthesizer reads this instead of re-resolving the schema, which
+        // would double-emit an inline nested class.
+        $constructorParamsRequired = [];
+        $constructorParamsOptional = [];
         $rules = [];
         $usesRule = false;
 
@@ -696,10 +758,17 @@ final class ModelGenerator
 
             $rendered = $this->renderer->renderProperty($wireName, $propertyName, $type, $isRequired, $default, SchemaFacts::deprecationTag($propertySchema));
 
+            // Capture the same (wireName, phpName, type, required, default)
+            // tuple the rendered property is built from, once, for the
+            // error-factory synthesizer to flatten later (see above).
+            $captured = ['wireName' => $wireName, 'phpName' => $propertyName, 'type' => $type, 'required' => $isRequired, 'default' => $default[0] ?? null];
+
             if ($isRequired) {
                 $paramsRequired[] = $rendered;
+                $constructorParamsRequired[] = $captured;
             } else {
                 $paramsOptional[] = $rendered;
+                $constructorParamsOptional[] = $captured;
             }
 
             // Validation rules are keyed by the wire (mapped input) name. The
@@ -739,6 +808,14 @@ final class ModelGenerator
         }
 
         $params = array_merge($paramsRequired, $paramsOptional);
+
+        // Store the captured constructor model in the SAME order $params is
+        // merged, keyed by class name, for every emitted class (an error
+        // factory can only flatten a class that carries this entry, which is
+        // how a discriminated-union base/variant is naturally excluded: those
+        // are emitted through their own paths and never populate this bucket).
+        $this->state->constructorParams[$className] = array_merge($constructorParamsRequired, $constructorParamsOptional);
+
         $imports = $this->renderer->collectImports($params, $usesRule, $rules);
 
         // An empty class body (no properties, no rules) compiles fine but

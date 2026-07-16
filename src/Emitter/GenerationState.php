@@ -172,6 +172,36 @@ final class GenerationState
     public array $responseFiles = [];
 
     /**
+     * Per-operation error-factory classes (`<Operation>Errors`), emitted on
+     * demand AFTER generate() ran during the server-scaffold collection, keyed
+     * by class name. Each carries one static factory method per spec-declared
+     * error response whose JSON schema resolves to a named-component object, so
+     * a concrete controller answers a spec error with one throw. Kept apart
+     * from $responseFiles so the throwable-factory surface stays auditable as
+     * its own layer; the planner collects them into the same drift-checked data
+     * output (CATEGORY_DATA), gated on controllers being generated.
+     *
+     * @var array<string, GeneratedFile>
+     */
+    public array $errorFactoryFiles = [];
+
+    /**
+     * The captured constructor-parameter model of every emitted Data class,
+     * keyed by class name, in constructor-parameter order (required params
+     * first, then optional, mirroring the emitted constructor). Populated by
+     * ModelGenerator::emitData() from values it already computes for the
+     * property-rendering path, for EVERY plain Data class (not just error
+     * targets, since emitData() cannot know in advance which classes a later
+     * operation-collection pass will flatten). The error-factory synthesizer
+     * READS this stored model to flatten a Data class's constructor into named
+     * factory parameters, so it never re-invokes the type resolver or the
+     * emission pipeline (which would double-emit an inline nested class).
+     *
+     * @var array<string, list<array{wireName: string, phpName: string, type: ResolvedType, required: bool, default: ?string}>>
+     */
+    public array $constructorParams = [];
+
+    /**
      * Non-fatal diagnostics gathered during a generate() run, keyed by the
      * warning text so the same finding (re-seen across the read/write variants of
      * one schema, or a recursive inline emit) is recorded only once. The CLI
