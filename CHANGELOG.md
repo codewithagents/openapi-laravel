@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.15.0](https://github.com/codewithagents/openapi-laravel/compare/v0.14.0...v0.15.0) (2026-07-17)
+
+
+### Features
+
+* **support:** add ApiError carrier and generated per-operation error-factory classes for spec-declared error responses ([b95b1ab](https://github.com/codewithagents/openapi-laravel/commit/b95b1abb92ad80e65f6720de46f383aed5b727f4)), closes [#168](https://github.com/codewithagents/openapi-laravel/issues/168)
+
+
+### Bug Fixes
+
+* **emitter:** render floats in fixed decimal, never scientific notation ([44cdb82](https://github.com/codewithagents/openapi-laravel/commit/44cdb822f9581925a85cbaab30203b238a52738a)), closes [#148](https://github.com/codewithagents/openapi-laravel/issues/148)
+* **enum:** only int-back an enum value that round-trips through int ([1849742](https://github.com/codewithagents/openapi-laravel/commit/1849742fe8c2873bbdf1eb8cf2a1ce42282dcd9a)), closes [#145](https://github.com/codewithagents/openapi-laravel/issues/145)
+* **parser:** ignore non-finite (INF/NAN) numeric keyword values ([9ebf505](https://github.com/codewithagents/openapi-laravel/commit/9ebf5054c608f9c114ebe7e423a03f07c4d95cf3)), closes [#151](https://github.com/codewithagents/openapi-laravel/issues/151)
+* **rules:** drop uncompilable spec pattern instead of emitting a broken regex rule ([2d6a875](https://github.com/codewithagents/openapi-laravel/commit/2d6a875fe3b62bd08d8726398d24b0159d480faf)), closes [#150](https://github.com/codewithagents/openapi-laravel/issues/150)
+
 ## [0.14.0](https://github.com/codewithagents/openapi-laravel/compare/v0.13.0...v0.14.0) (2026-06-14)
 
 
