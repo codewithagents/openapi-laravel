@@ -204,13 +204,19 @@ it('reuses the existing Data class when the component response content schema is
         ->and($collector->warnings())->toBe([]);
 });
 
-it('keeps a silent JsonResponse fallback when the component response wraps a $ref to a non-Data component', function () {
+it('keeps the JsonResponse fallback when the component response wraps a $ref to a non-Data component, and reports it', function () {
     // The registry path where the schema $ref NAME resolves but the kind is
     // not 'data': an enum component and a scalar alias (which never enters
     // the registry as a Data class). Both are the documented graceful
-    // fallback an inline response takes, silent because only an object shape
-    // can type the return; no synthesis is attempted (the resolved schema is
-    // a ReferenceNode, not an inline SchemaNode).
+    // fallback an inline response takes, because only an object shape can
+    // type the return.
+    //
+    // The fallback itself is unchanged; what issue #171 changed is that it is
+    // no longer SILENT. A JsonResponse return enforces nothing about the
+    // body, so the spec's declared shape goes unchecked, and that degradation
+    // now reaches the diagnostics channel like every other one (issue #67).
+    // The scalar alias reaches the tail through the new alias resolution, and
+    // a scalar still cannot be typed, so the emitted code is identical.
     $paths = sharedComponentResponsePaths();
     $paths['/shelter-pets']['get']['responses']['200'] = ['$ref' => '#/components/responses/PetName'];
 
@@ -236,7 +242,10 @@ it('keeps a silent JsonResponse fallback when the component response wraps a $re
         ->and($descriptors[1]->returnType)->toBe('JsonResponse')
         ->and($descriptors[0]->imports)->toContain('Illuminate\\Http\\JsonResponse')
         ->and($generator->responseFiles())->toBe([])
-        ->and($collector->warnings())->toBe([]);
+        ->and($collector->warnings())->toBe([
+            'Operation GET /pets: the response schema does not resolve to a generated Data class; the return type falls back to JsonResponse and the documented response shape is not enforced.',
+            'Operation GET /shelter-pets: the response schema does not resolve to a generated Data class; the return type falls back to JsonResponse and the documented response shape is not enforced.',
+        ]);
 });
 
 it('keeps the oneOf union return when the component response wraps a union of Data-class $refs', function () {

@@ -1613,6 +1613,10 @@ final class OperationCollector
         }
 
         if (! $response instanceof ResponseNode) {
+            $this->warnings[sprintf(
+                'Operation %s: no usable success response could be resolved; the return type falls back to JsonResponse and the documented response shape is not enforced.',
+                $label,
+            )] = true;
             $imports[] = self::JSON_RESPONSE_FQCN;
 
             return [self::JSON_RESPONSE_SHORT, null, $status, false];
@@ -1630,16 +1634,34 @@ final class OperationCollector
                 return [$type, null, $status, true];
             }
 
-            // A local $ref to a non-Data component (an enum, alias, or map) is
-            // the documented graceful JsonResponse fallback: only an object
-            // shape can type the return. An external or non-schema pointer is
-            // information loss, so it warns with the pointer (issue #67).
+            // An external or non-schema pointer is information loss, so it
+            // warns with the pointer (issue #67).
             if ($name === null) {
                 $this->warnings[sprintf(
                     'Operation %s: the response schema $ref "%s" is external or not a #/components/schemas pointer; the return type falls back to JsonResponse.',
                     $label,
                     $pointer,
                 )] = true;
+            }
+
+            // A `$ref` to a NON-OBJECT ALIAS component (issue #171). A
+            // component that is a bare `type: array` (or scalar, or union) is
+            // a type alias, not a Data class, so it never lands in the
+            // registry and the lookup above cannot see it. Resolve the alias
+            // to the schema at the end of its chain and let the shape checks
+            // below type it exactly as if the author had written that schema
+            // inline at the response.
+            //
+            // Without this, naming a list component (`PatientList: {type:
+            // array, items: {$ref: Patient}}`) and referencing it degraded to
+            // JsonResponse, while the SAME array written inline produced
+            // DataCollection<int, PatientData>. A degraded signature enforces
+            // nothing, so an implementation could return a paginated envelope
+            // (or anything else) and still satisfy the generated contract,
+            // which is the one guarantee the scaffold exists to provide.
+            $alias = $this->models?->aliasSchemaFor($schema);
+            if ($alias !== null) {
+                $schema = $alias;
             }
         }
 
@@ -1725,6 +1747,27 @@ final class OperationCollector
             $imports[] = self::RESPONSE_FQCN;
 
             return [self::RESPONSE_SHORT, null, $status, false];
+        }
+
+        // Reaching here with a schema in hand means the spec DESCRIBED a
+        // response shape and nothing could type it: not a Data class, not a
+        // collection, not a union, not a synthesizable object. The generated
+        // signature therefore enforces nothing, and an implementation may
+        // return a shape the spec never documented while still satisfying the
+        // contract. That is a correctness gap, so it belongs in the
+        // diagnostics channel (issue #67) like every other degradation; it
+        // stayed silent until issue #171, which is what let a non-conforming
+        // implementation look conformant to the generator.
+        //
+        // A response with NO schema is deliberately excluded: the spec
+        // promised no shape, so nothing was lost and there is nothing to
+        // enforce. Warning there would be pure noise on every
+        // description-only response.
+        if ($schema !== null) {
+            $this->warnings[sprintf(
+                'Operation %s: the response schema does not resolve to a generated Data class; the return type falls back to JsonResponse and the documented response shape is not enforced.',
+                $label,
+            )] = true;
         }
 
         $imports[] = self::JSON_RESPONSE_FQCN;
