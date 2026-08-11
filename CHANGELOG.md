@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.16.0](https://github.com/codewithagents/openapi-laravel/compare/v0.15.0...v0.16.0) (2026-08-11)
+
+
+### Features
+
+* **server:** warn when a POST declaring 200 returns Data and answers 201 ([#174](https://github.com/codewithagents/openapi-laravel/issues/174)) ([805cb6f](https://github.com/codewithagents/openapi-laravel/commit/805cb6f142618bec19d5cf17db8193e3a4d5299d))
+
+
+### Bug Fixes
+
+* **server:** make boolean query classes additive so the literal mapping runs on GET ([#172](https://github.com/codewithagents/openapi-laravel/issues/172)) ([8975615](https://github.com/codewithagents/openapi-laravel/commit/897561572bdc661da30e759f5e4f60570c2e6f03))
+
 ## [0.15.0](https://github.com/codewithagents/openapi-laravel/compare/v0.14.0...v0.15.0) (2026-07-17)
 
 
