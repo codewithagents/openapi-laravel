@@ -148,14 +148,16 @@ final readonly class ControllerGenerator
             $doc[] = '     * @deprecated';
         }
         if ($operation->queryParam !== null && ! $operation->queryParam['injected']) {
-            // The query class is NOT injected here, for one of two reasons: the
-            // request body occupies the payload and container resolution would
-            // validate the query class against the merged body + query input, OR
-            // the class carries a non-exploded delimited-array param (issue
-            // #132) whose fromQuery() split must run before validation, which
-            // container injection would shadow (spatie validates the raw request
-            // first). Either way, point the implementer at the explicit
-            // query-only factory. The FQCN is spelled out as prose, not
+            // The query class is NOT injected here, for one of three reasons:
+            // the request body occupies the payload and container resolution
+            // would validate the query class against the merged body + query
+            // input, OR the class carries a non-exploded delimited-array param
+            // (issue #132) whose fromQuery() split must run before validation,
+            // OR it carries a boolean param (issue #172) whose true/false
+            // literal mapping must run before validation. Container injection
+            // would shadow either normalization (spatie validates the raw
+            // request first). Any of the three, point the implementer at the
+            // explicit query-only factory. The FQCN is spelled out as prose, not
             // imported, so no `use` goes unused. The collector resolved it,
             // because under the grouped data layout (issue #93) the class may
             // live in a tag subnamespace.

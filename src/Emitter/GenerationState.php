@@ -123,6 +123,21 @@ final class GenerationState
     public array $delimitedQueryClasses = [];
 
     /**
+     * The subset of $queryFiles class names whose query Data class contains at
+     * least one BOOLEAN parameter (issue #172). Same mechanism as
+     * $delimitedQueryClasses, different normalization: the OpenAPI form style
+     * serializes a boolean as ?flag=true / ?flag=false, but Laravel's `boolean`
+     * rule accepts only true/false/1/0/"1"/"0" and rejects those literals, so
+     * the fromQuery() factory maps them to '1'/'0' before validating. Under
+     * container injection spatie validates the RAW request first, which 422s
+     * the spec-valid literal before the mapping ever runs, so the collector
+     * forces these classes additive too.
+     *
+     * @var array<string, true>
+     */
+    public array $booleanQueryClasses = [];
+
+    /**
      * Per-operation path Data classes (issue #113), emitted on demand AFTER
      * generate() ran, keyed by class name. Each carries spec-derived rules()
      * for the operation's `in: path` parameters plus a `fromRoute()` factory,

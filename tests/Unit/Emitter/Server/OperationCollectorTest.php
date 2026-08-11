@@ -369,6 +369,30 @@ it('forces a body-less query class ADDITIVE when it carries a delimited-array pa
         ->and($filter->imports)->not->toContain('App\\Data\\Widget\\FilterWidgetsQueryData');
 });
 
+it('forces a body-less query class ADDITIVE when it carries a boolean param (issue #172)', function () {
+    [$descriptors] = collectQueryParameters();
+
+    // GET /toggle is body-less and carries ONLY booleans: no body, no delimited
+    // array, no deepObject. Under container injection spatie validates the RAW
+    // request first, and Laravel's `boolean` rule rejects the form-style
+    // literals "true"/"false", so the fromQuery() literal mapping never ran and
+    // a spec-valid ?flag=true was a 422. Same mechanism as the delimited array
+    // (#132), path (#113) and header (#121) cases, so the same answer: NOT
+    // injected, NO import, reachable only via ::fromQuery($request).
+    $toggle = descriptorFor($descriptors, 'get', '/toggle');
+    expect($toggle->queryParam)->toBe(['name' => 'query', 'type' => 'ToggleWidgetsQueryData', 'injected' => false, 'fqcn' => 'App\\Data\\Widget\\ToggleWidgetsQueryData'])
+        ->and($toggle->imports)->not->toContain('App\\Data\\Widget\\ToggleWidgetsQueryData');
+});
+
+it('emits the fromQuery docblock pointer and no injected param for a boolean GET (issue #172)', function () {
+    [$descriptors] = collectQueryParameters();
+    $controllers = (new ControllerGenerator(new ServerOptions))->generate($descriptors);
+    $code = $controllers['AbstractWidgetController']->code;
+
+    expect($code)->toContain('\\App\\Data\\Widget\\ToggleWidgetsQueryData::fromQuery($request).')
+        ->and($code)->toContain('abstract public function toggleWidgets(): JsonResponse;');
+});
+
 it('keeps a body-less query class INJECTED when it has no delimited-array param (issue #132 unchanged path)', function () {
     [$descriptors] = collectQueryParameters();
 
