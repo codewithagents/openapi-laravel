@@ -511,6 +511,46 @@ success status is non-200, and it normalizes the framework-default success statu
 declared one; an error response (4xx/5xx) or a redirect (3xx) you set yourself always passes
 through untouched.
 
+**A POST that declares 200 answers 201, and only warns.** `spatie/laravel-data` derives a `Data`
+object's response status from the HTTP verb, not from your spec: `POST` answers `201 Created`,
+every other verb answers 200. So a POST whose selected success response is exactly 200 and whose
+return type is a `Data` class (or a `DataCollection`, or a union of `Data` classes) declares 200 in
+the contract and sends 201 at runtime, with no status middleware attached to reconcile them. The
+generator does not silently override that framework default: it emits one generation-time warning
+per run listing every affected operation.
+
+**The fix is to declare `201`.** That is what the runtime already does, so the contract simply
+catches up, and the generated route then attaches `RespondsWithStatus:201` and enforces it. If the
+operation declares **both** a 200 and a 201, remove the 200: the smallest 2xx wins, so the 200 is
+what gets selected, and the divergence there is sharper than a status mismatch, because the method
+is typed against the 200's schema while the runtime sends the 201, whose schema may be different.
+
+**If you must keep the 200**, the enforcement is yours to add, and it has to come from outside the
+generated files:
+
+- `routes.php` is a planned, drift-checked artifact. Hand-editing a route to add middleware makes
+  the next `openapi:check` report `[changed] routes.php`, so that is not a fix.
+- Do **not** reach for the `routes.middleware` config key either. It wraps the *whole* route table
+  in one `Route::middleware([...])->group(...)`, so a `RespondsWithStatus:200` there would sit
+  *outside* every per-route status middleware and rewrite your genuine 201 and 204 operations back
+  to 200 on the way out.
+- The regeneration-safe seam is controller middleware: point `controllers.base_class` at a base of
+  your own that implements Laravel's `HasMiddleware`, and scope your middleware to the method
+  (`new Middleware(ForceOkStatus::class, only: ['store'])`). Generating with `--no-routes` and
+  hand-writing the route table works too.
+
+Note that `RespondsWithStatus` is inlined into your output **only when some operation declares a
+non-200 success status**. In a spec where every success response is a 200, that file is not
+generated at all, so a keep-the-200 fix means writing the two-line middleware yourself.
+
+A POST declaring any other 2xx already carries the middleware and needs nothing. A POST whose
+return type is a `JsonResponse`, the base `Response`, or `void` is silent too: you construct the
+response there, so the status is already yours. Note the flip side: when the return type **is** a
+`Data` class you cannot set the status from the handler at all. The abstract method's return type
+is that class, and generated `Data` classes are `final`, so you can neither widen the signature to
+return a `JsonResponse` nor subclass to override `calculateResponseStatus()`. Returning the `Data`
+object is precisely what produces the 201.
+
 **A spec-violating 204 body is dropped.** RFC 9110 forbids content on a 204, so a 204 operation's
 abstract method returns `void` even if the spec (incorrectly) declares a response schema on it,
 and the middleware clears any body on the way out.

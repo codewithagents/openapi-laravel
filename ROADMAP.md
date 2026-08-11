@@ -358,6 +358,31 @@ collisions failing loudly.
 - Only the SELECTED success response (smallest 2xx) is typed and status-enforced (#64); alternative
   declared 2xx statuses on the same operation stay the implementer's responsibility (the middleware
   never overrides an explicitly set non-200 status).
+- A POST whose selected success response is exactly 200 and whose return type serializes through
+  spatie (a Data class, a DataCollection, a union of Data classes) is the one gap the #64 middleware
+  gate leaves: `ResponsableData::calculateResponseStatus()` derives the status from the HTTP VERB, so
+  that operation answers 201 Created while the contract says 200, and an exactly-200 declaration
+  attaches no middleware to reconcile them. Resolved as a DIAGNOSTIC, not a behavior change (#174,
+  the issue's option 1): ONE document-level warning per run listing every affected operation (the
+  `Document webhook(s)` shape, deliberately not one warning per operation: the predicate matches 193
+  operations in plaid.json and 288 in google_compute.json, and repeating a 300-character paragraph
+  that often would bury the scarcer security-middleware and media-type diagnostics that share the
+  same sorted channel). Attaching the middleware automatically would work, but it would have the
+  generator pick a side in a REST argument (a create arguably SHOULD be 201) and override a
+  defensible framework default, so it warns instead. PUT/PATCH/DELETE answer 200 through spatie and
+  match their declaration; a `void`, `JsonResponse`, or base `Response` return is silent because the
+  implementer sets the status there.
+  The prescribed fix is to declare 201, removing the 200 when both are declared (the smallest 2xx
+  wins, so the method is otherwise typed against the 200's schema while the runtime sends the 201,
+  whose schema may differ). Keeping the 200 is possible but is NOT a routes-file edit (that file is
+  drift-checked) and NOT the `routes.middleware` key (it wraps the WHOLE table in one group, so a
+  `RespondsWithStatus:200` there would sit outside the per-route middleware and rewrite genuine 201
+  and 204 responses back to 200); the regeneration-safe seam is controller middleware via
+  `controllers.base_class` + Laravel's `HasMiddleware` scoped with `only:`, or `--no-routes`. The
+  handler cannot set the status either: the abstract method's return type IS the generated Data
+  class and those are `final`, so the signature cannot widen to a JsonResponse and
+  `calculateResponseStatus()` cannot be overridden. `RespondsWithStatus` is inlined only when some
+  operation declares a non-200 status, so an all-200 spec never receives that class at all.
 
 ### Client generation [maybe, decide later]
 Generate a typed PHP client for *consuming* a third-party or internal API from its spec, built on the

@@ -126,7 +126,17 @@ cross-controller clashes), and the config-only `routes.middleware` / `routes.pre
 routes in one Route::group (#71, no CLI flags). The spec-declared success status is honored (#64):
 a non-200 selected success response (smallest 2xx, the same pick as the return type) gets the
 inlined `RespondsWithStatus` route middleware, and a selected 204 types the method `void` with the
-middleware guaranteeing the empty body; only an exactly-200 response is ever rewritten. The
+middleware guaranteeing the empty body; the middleware normalizes any framework-default 2xx to the
+declared code (#125) and never touches a 3xx/4xx/5xx. The exactly-200 skip has one blind spot,
+closed as a WARNING rather than a behavior change (#174): spatie derives a Data object's status
+from the HTTP verb, so a POST declaring 200 and returning Data (or a DataCollection, or a Data
+union) answers 201 with no middleware attached, and the collector emits ONE document-level warning
+per run listing every affected operation (aggregated like `Document webhook(s)`: the predicate hits
+193 operations in plaid.json). The fix it names is to declare 201, removing the 200 when both are
+declared. Keeping the 200 is NOT a routes-file edit (drift-checked) and NOT `routes.middleware`
+(one group around the whole table, so it would demote genuine 201/204 responses); the seam is
+controller middleware via `controllers.base_class` + `HasMiddleware`, or `--no-routes`. The handler
+cannot set the status: the return type IS the generated Data class and those are `final`. The
 config-only `security.middleware_map` key (#77) maps security scheme names to per-route middleware:
 operation `security` overrides global, `security: []` stays public, AND applies all mapped
 middleware, OR enforces only the first requirement object (warned), and unmapped-required or

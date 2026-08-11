@@ -1573,6 +1573,124 @@ const READER_BASELINE_REBASELINED_172 = [
     'zuora.json' => '6 body-less boolean-query operations shifted from injected to additive',
 ];
 
+/*
+ * INTENTIONAL post-freeze rebaseline (#174, the POST-declares-200 diagnostic):
+ * the 82 specs in READER_BASELINE_REBASELINED_174 carry a post-#174 hash
+ * because they declare a POST operation whose selected success response is
+ * exactly 200 and whose return type serializes through spatie's
+ * ResponsableData (a Data class, a DataCollection, or a union of Data
+ * classes). Such an operation answers 201 Created at runtime, because
+ * ResponsableData::calculateResponseStatus() derives the status from the HTTP
+ * VERB, while the contract says 200 and the #64 gate attaches no status
+ * middleware for a declared 200.
+ *
+ * The counts below are OPERATIONS, but each spec gains exactly ONE warning:
+ * the diagnostic is aggregated into a single document-level message naming all
+ * of them (the `Document webhook(s)` shape). A per-operation form would have
+ * added 193 copies of one paragraph to plaid.json and 288 to
+ * google_compute.json, in a channel that is sorted and shared with the scarcer
+ * security-middleware and media-type diagnostics.
+ *
+ * The GENERATED FILES are byte-identical to the freeze for every one of these
+ * specs: only the hashed warning list grows, by that single entry, because
+ * #174 is deliberately a diagnostic and not a behavior change. The rebaseline
+ * was verified per spec by re-hashing with the new warning filtered out and
+ * requiring the result to equal the pristine frozen hash, so no other
+ * divergence hides inside it.
+ *
+ * That 82 of the 130 frozen specs trip this is the finding, not noise: a
+ * declared-200 POST returning a modelled object is the majority shape in
+ * real-world specs, and every one of those servers would have answered 201
+ * against a contract promising 200. The coverage test pins that every listed
+ * name exists on disk and in the baseline, so the list cannot rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_174 = [
+    '1password-connect.yaml' => '1 POST operation declaring 200 with a Data return',
+    'ably_control.json' => '1 POST operation declaring 200 with a Data return',
+    'adyen-checkout.yaml' => '14 POST operations declaring 200 with a Data return',
+    'adyen-legal-entity.yaml' => '12 POST operations declaring 200 with a Data return',
+    'airflow.json' => '12 POST operations declaring 200 with a Data return',
+    'amadeus.json' => '1 POST operation declaring 200 with a Data return',
+    'asana.json' => '36 POST operations declaring 200 with a Data return',
+    'aws_apigateway.json' => '2 POST operations declaring 200 with a Data return',
+    'aws_cognito.json' => '90 POST operations declaring 200 with a Data return',
+    'aws_dynamodb.json' => '51 POST operations declaring 200 with a Data return',
+    'aws_lambda.json' => '3 POST operations declaring 200 with a Data return',
+    'bitbucket.json' => '11 POST operations declaring 200 with a Data return',
+    'box.json' => '16 POST operations declaring 200 with a Data return',
+    'brex.json' => '10 POST operations declaring 200 with a Data return',
+    'bunq.json' => '93 POST operations declaring 200 with a Data return',
+    'circleci.json' => '4 POST operations declaring 200 with a Data return',
+    'clevercloud.json' => '2 POST operations declaring 200 with a Data return',
+    'codat_accounting.json' => '19 POST operations declaring 200 with a Data return',
+    'configcat.json' => '2 POST operations declaring 200 with a Data return',
+    'digitalocean.json' => '10 POST operations declaring 200 with a Data return',
+    'discourse.json' => '22 POST operations declaring 200 with a Data return',
+    'docker.json' => '9 POST operations declaring 200 with a Data return',
+    'dracoon.json' => '14 POST operations declaring 200 with a Data return',
+    'ebay_fulfillment.json' => '3 POST operations declaring 200 with a Data return',
+    'ebay_marketing.json' => '15 POST operations declaring 200 with a Data return',
+    'elevenlabs.json' => '1 POST operation declaring 200 with a Data return',
+    'flickr.json' => '1 POST operation declaring 200 with a Data return',
+    'gettyimages.json' => '1 POST operation declaring 200 with a Data return',
+    'github.json' => '28 POST operations declaring 200 with a Data return',
+    'google_bigquery.json' => '10 POST operations declaring 200 with a Data return',
+    'google_calendar.json' => '12 POST operations declaring 200 with a Data return',
+    'google_cloudrun.json' => '6 POST operations declaring 200 with a Data return',
+    'google_compute.json' => '288 POST operations declaring 200 with a Data return',
+    'google_docs.json' => '2 POST operations declaring 200 with a Data return',
+    'google_drive.json' => '12 POST operations declaring 200 with a Data return',
+    'google_functions.json' => '5 POST operations declaring 200 with a Data return',
+    'google_gke.json' => '40 POST operations declaring 200 with a Data return',
+    'google_gmail.json' => '22 POST operations declaring 200 with a Data return',
+    'google_logging.json' => '14 POST operations declaring 200 with a Data return',
+    'google_monitoring.json' => '15 POST operations declaring 200 with a Data return',
+    'google_pubsub.json' => '14 POST operations declaring 200 with a Data return',
+    'google_sheets.json' => '12 POST operations declaring 200 with a Data return',
+    'google_speech.json' => '4 POST operations declaring 200 with a Data return',
+    'google_translate.json' => '13 POST operations declaring 200 with a Data return',
+    'google_tts.json' => '3 POST operations declaring 200 with a Data return',
+    'google_vision.json' => '16 POST operations declaring 200 with a Data return',
+    'here_positioning.json' => '1 POST operation declaring 200 with a Data return',
+    'here_tracking.json' => '15 POST operations declaring 200 with a Data return',
+    'jira.json' => '36 POST operations declaring 200 with a Data return',
+    'klarna.json' => '3 POST operations declaring 200 with a Data return',
+    'linode.json' => '110 POST operations declaring 200 with a Data return',
+    'notion.json' => '1 POST operation declaring 200 with a Data return',
+    'openai.yaml' => '98 POST operations declaring 200 with a Data return',
+    'petstore-3.0.yaml' => '6 POST operations declaring 200 with a Data return',
+    'pinecone.json' => '6 POST operations declaring 200 with a Data return',
+    'plaid.json' => '193 POST operations declaring 200 with a Data return',
+    'postman.json' => '14 POST operations declaring 200 with a Data return',
+    'resend.json' => '9 POST operations declaring 200 with a Data return',
+    'sendgrid.json' => '23 POST operations declaring 200 with a Data return',
+    'sentry.json' => '5 POST operations declaring 200 with a Data return',
+    'shutterstock.json' => '16 POST operations declaring 200 with a Data return',
+    'slack.json' => '94 POST operations declaring 200 with a Data return',
+    'snyk.json' => '19 POST operations declaring 200 with a Data return',
+    'square.json' => '88 POST operations declaring 200 with a Data return',
+    'stripe.json' => '199 POST operations declaring 200 with a Data return',
+    'telegram.json' => '74 POST operations declaring 200 with a Data return',
+    'traccar.json' => '13 POST operations declaring 200 with a Data return',
+    'twilio.json' => '26 POST operations declaring 200 with a Data return',
+    'twilio_api_v2010.json' => '32 POST operations declaring 200 with a Data return',
+    'twilio_messaging.json' => '3 POST operations declaring 200 with a Data return',
+    'twilio_verify.json' => '8 POST operations declaring 200 with a Data return',
+    'twilio_video.json' => '4 POST operations declaring 200 with a Data return',
+    'twitter.json' => '12 POST operations declaring 200 with a Data return',
+    'vercel.json' => '19 POST operations declaring 200 with a Data return',
+    'vimeo.json' => '11 POST operations declaring 200 with a Data return',
+    'wayback.json' => '1 POST operation declaring 200 with a Data return',
+    'webflow.json' => '17 POST operations declaring 200 with a Data return',
+    'xero.json' => '40 POST operations declaring 200 with a Data return',
+    'xero_assets.json' => '2 POST operations declaring 200 with a Data return',
+    'youtube.json' => '21 POST operations declaring 200 with a Data return',
+    'zoom.json' => '3 POST operations declaring 200 with a Data return',
+    'zuora.json' => '112 POST operations declaring 200 with a Data return',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -1645,11 +1763,12 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
     // #113, #121, #129, #30, #130, the transitive nested-readOnly write split,
     // #132 (delimited arrays), #131 (deepObject object query parameters), the
     // deprecated controller docblocks, int32/int64 formats, the uncompilable
-    // `\uXXXX`-pattern rules fix, or #168 (generated <Operation>Errors factory
-    // classes) must still exist on disk and carry a hash in the baseline (it is
-    // an update, not an exemption): a renamed or deleted spec would make the
-    // documented rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY), ...array_keys(READER_BASELINE_REBASELINED_130), ...array_keys(READER_BASELINE_REBASELINED_DELIMITED_ARRAYS), ...array_keys(READER_BASELINE_REBASELINED_DEEPOBJECT), ...array_keys(READER_BASELINE_REBASELINED_SELF_STATIC), ...array_keys(READER_BASELINE_REBASELINED_DEPRECATED_CONTROLLER_DOCBLOCKS), ...array_keys(READER_BASELINE_REBASELINED_INT_FORMATS), ...array_keys(READER_BASELINE_REBASELINED_RULES_UNCOMPILABLE_PATTERN), ...array_keys(READER_BASELINE_REBASELINED_168), ...array_keys(READER_BASELINE_REBASELINED_172)] as $spec) {
+    // `\uXXXX`-pattern rules fix, #168 (generated <Operation>Errors factory
+    // classes), or #174 (the POST-declares-200 diagnostic) must still exist on
+    // disk and carry a hash in the baseline (it is an update, not an
+    // exemption): a renamed or deleted spec would make the documented
+    // rebaseline lists rot silently.
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY), ...array_keys(READER_BASELINE_REBASELINED_130), ...array_keys(READER_BASELINE_REBASELINED_DELIMITED_ARRAYS), ...array_keys(READER_BASELINE_REBASELINED_DEEPOBJECT), ...array_keys(READER_BASELINE_REBASELINED_SELF_STATIC), ...array_keys(READER_BASELINE_REBASELINED_DEPRECATED_CONTROLLER_DOCBLOCKS), ...array_keys(READER_BASELINE_REBASELINED_INT_FORMATS), ...array_keys(READER_BASELINE_REBASELINED_RULES_UNCOMPILABLE_PATTERN), ...array_keys(READER_BASELINE_REBASELINED_168), ...array_keys(READER_BASELINE_REBASELINED_172), ...array_keys(READER_BASELINE_REBASELINED_174)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }

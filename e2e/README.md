@@ -353,6 +353,32 @@ Status note: spatie/laravel-data serializes a `Data` object returned from a POST
 as `201 Created`, so every `/lab` echo (and the pet/order creates) responds 201,
 not 200. That is a laravel-data framework default, not a generator choice.
 
+Since issue #174 the generator reports exactly this. `generate.sh` now emits ONE
+extra warning naming all 36 affected operations:
+
+```text
+Document: 36 POST operation(s) declare a 200 success response and return a Data
+object, so spatie/laravel-data answers 201 Created (it derives the response status
+from the HTTP verb) while the contract promises 200, and a declared 200 attaches no
+status middleware to reconcile them: POST /lab/allof, POST /lab/anyof-union, ...
+Declare 201 instead of the 200 so the generated route enforces it, or keep the 200
+and enforce it with your own middleware, applied from outside the generated routes
+file (editing that file fails the drift gate).
+```
+
+That warning is EXPECTED here and the spec is deliberately left as is. It does not
+affect the exit code, and this demo is the reference app for the diagnostic: it
+shows what the warning looks like against a realistic spec. Declaring `201` would
+not be the honest fix for most of these operations. 30 of the 36 are `/lab/*` ECHO
+endpoints that create nothing (they validate a crafted body and return it), and
+`POST /pet/{petId}` is an update, so `201 Created` would be a false claim about
+the operation's semantics. Only the five genuine creates (`/pet`, `/store/order`,
+`/user`, `/user/createWithList`, `/pet/{petId}/uploadImage`) could take a 201, and
+the spec-declares-a-non-200 remedy is ALREADY proven end to end by the `202`
+row in the API-contract table below, so changing them would demonstrate nothing
+new while churning the generated TypeScript client and the SPA that consume the
+same spec.
+
 ### UI-journey tier (SPA over real HTTP)
 
 | Feature | Spec construct | What the assertion proves | Generated vs consumer | Status |
