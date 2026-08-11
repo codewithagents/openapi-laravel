@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.17.0](https://github.com/codewithagents/openapi-laravel/compare/v0.16.0...v0.17.0) (2026-08-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **server:** an operation whose success response $refs a named array or union component changes its generated abstract signature from JsonResponse to DataCollection<int, XData> or a Data-class union. Concrete controllers implementing the old signature must be updated to the new return type.
+
+### Bug Fixes
+
+* **server:** resolve a $ref to a non-object alias component in the response type ([#171](https://github.com/codewithagents/openapi-laravel/issues/171)) ([a056aa5](https://github.com/codewithagents/openapi-laravel/commit/a056aa5b77c5f51e7b478ff922fc3f0b253fb827))
+
 ## [0.16.0](https://github.com/codewithagents/openapi-laravel/compare/v0.15.0...v0.16.0) (2026-08-11)
 
 
