@@ -557,7 +557,10 @@ and the middleware clears any body on the way out.
 
 **Status enforcement lives in the generated routes file.** If you generate with `--no-routes` and
 hand-write your own routes, attach the inlined middleware yourself
-(`RespondsWithStatus::class.':201'`) or set the status in your controllers.
+(`RespondsWithStatus::class.':201'`). Setting the status in the controller instead only works for an
+operation whose return type is a raw `JsonResponse` or `Response`: when the method is typed to a
+generated Data class, returning that object is what produces the status, and the class is `final`,
+so there is nothing to widen or override. See the POST note above.
 
 ## this is the one renamed property
 
