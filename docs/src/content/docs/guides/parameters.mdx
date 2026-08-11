@@ -109,7 +109,7 @@ Two non-flat serializations are handled rather than skipped:
 
 <Aside type="note" title="Delimited-array and boolean query classes are forced additive">
   A `<Operation>QueryData` that carries **any** non-exploded delimited-array parameter, or **any**
-  boolean parameter, is **never container-injected**, even on a body-less `GET`. The abstract method
+  boolean parameter, is **never container-injected**, even on a body-less operation. The abstract method
   takes no injected query param and instead carries a `::fromQuery($request)` docblock pointer, the
   exact mechanism path (#113) and header (#121) parameters use.
 
