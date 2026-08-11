@@ -70,11 +70,13 @@ coercion).
 
 Where the query class appears depends on whether the operation has a request body:
 
-- **No request body** (typical `GET` / `DELETE`): the class is **type-hinted into the method
-  signature** (`FindPetsByStatusQueryData $query`). Laravel resolves it from the container,
+- **No request body** (typical `GET` / `DELETE`): the class is normally **type-hinted into the
+  method signature** (`FindPetsByStatusQueryData $query`). Laravel resolves it from the container,
   laravel-data picks `fromQuery()` as the creation method, and your implementation receives an
   already validated, typed object. A spec violation never reaches your code: it surfaces as a
-  standard Laravel `ValidationException` (a 422 by default).
+  standard Laravel `ValidationException` (a 422 by default). One exception: a class carrying a
+  parameter whose wire form must be **rewritten before** the rules run stays additive, see the note
+  below.
 - **With a request body** (a typed Data param or the `Request` fallback): the class is **not**
   injected. Container resolution would hand both Data classes the merged body+query input, so body
   fields would bleed into query validation and vice versa. Instead, the generated method docblock
@@ -105,14 +107,22 @@ Two non-flat serializations are handled rather than skipped:
   ...), reusing the same nested-object pipeline a body object property uses, since PHP parses the
   bracketed keys natively into a nested array.
 
-<Aside type="note" title="A delimited-array query class is forced additive">
-  A `<Operation>QueryData` that carries **any** non-exploded delimited-array parameter is **never
-  container-injected**, even on a body-less `GET`. The abstract method takes no injected query param
-  and instead carries a `::fromQuery($request)` docblock pointer, the exact mechanism path (#113) and
-  header (#121) parameters use. Container injection would make spatie/laravel-data validate the
-  **raw, unsplit** string before `fromQuery()` runs the split, 422-ing a valid body-less filter. A
-  `deepObject` parameter needs no such treatment: PHP has already parsed the nested array, so a
-  QueryData with only flat and deepObject parameters stays container-injectable on body-less
+<Aside type="note" title="Delimited-array and boolean query classes are forced additive">
+  A `<Operation>QueryData` that carries **any** non-exploded delimited-array parameter, or **any**
+  boolean parameter, is **never container-injected**, even on a body-less `GET`. The abstract method
+  takes no injected query param and instead carries a `::fromQuery($request)` docblock pointer, the
+  exact mechanism path (#113) and header (#121) parameters use.
+
+  Both cases share one root cause: `fromQuery()` **rewrites the payload** before validating, and
+  container injection does not let it. spatie/laravel-data runs the validation pipeline against the
+  **raw** request first and only then calls `fromQuery()`, so the rewrite never happens. For a
+  delimited array that means the **unsplit** `"a,b,c"` is validated against array rules; for a
+  boolean it means the literal `"true"` is validated against Laravel's `boolean` rule, which accepts
+  `true`/`false`/`1`/`0`/`"1"`/`"0"` but not the spelled-out strings. Either way a spec-valid
+  body-less request would 422 (issues #132 and #172).
+
+  A `deepObject` parameter needs no such treatment: PHP has already parsed the nested array, so a
+  QueryData whose flat parameters are all non-boolean stays container-injectable on body-less
   operations as before.
 </Aside>
 

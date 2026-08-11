@@ -483,6 +483,17 @@ lowercase `true` / `false` that OpenAPI form serialization produces; `?flag=1` /
 Laravel's `boolean` rule natively without mapping, and uppercase variants (`True`, `TRUE`, `FALSE`,
 ...) are not mapped and are rejected.
 
+Container injection used to be one of those skipping paths, silently: spatie/laravel-data validates
+the raw request before calling `fromQuery()`, so an injected boolean class rejected `?flag=true`.
+A boolean-bearing query class is therefore never container-injected (#172), which makes the factory
+the only live path and the mapping always reachable.
+
+**The mapping is top-level only.** It walks the wire names of the query class's own scalar
+properties, so a boolean nested one level down is not covered and still rejects the literals on
+every path: an **array of booleans** (`?flags[]=true`, rules land at `flags.*`) and a **boolean
+property inside a `deepObject`** (`?filter[active]=true`, rules land at `filter.active`). Both
+accept `1` / `0`. Tracked in #175.
+
 ## Response status codes: only the selected success response
 
 The scaffold types and status-enforces each operation against **one** success response: the
