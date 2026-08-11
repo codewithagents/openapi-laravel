@@ -122,6 +122,24 @@ final class OperationCollector
     private array $warnings = [];
 
     /**
+     * The operation labels ("POST /pets") collected for the issue #174
+     * diagnostic during the current collect() run: a POST whose selected
+     * success response is exactly 200 and whose return type serializes through
+     * spatie's ResponsableData, so the framework answers 201 while the
+     * contract promises 200.
+     *
+     * Accumulated per operation but reported as ONE document-level warning
+     * ({@see warnFrameworkCreatedStatus()}), the same shape the webhook
+     * diagnostic uses. Repeating a 300-character explanatory paragraph once
+     * per operation would bury the scarcer, more urgent diagnostics (the
+     * security-middleware ones especially) under hundreds of identical copies
+     * on a large spec: 193 of plaid.json's operations match this predicate.
+     *
+     * @var list<string>
+     */
+    private array $frameworkCreatedStatusOperations = [];
+
+    /**
      * The document's `components.requestBodies` map for the current collect()
      * run (issue #110), keyed by component name, so an operation whose
      * requestBody is a `$ref` resolves through the same content-type routing
@@ -191,6 +209,7 @@ final class OperationCollector
     public function collect(OpenApiDocument $document): array
     {
         $this->warnings = [];
+        $this->frameworkCreatedStatusOperations = [];
         $componentParameters = $this->componentParameters($document);
         $this->componentRequestBodies = $this->collectComponentRequestBodies($document);
         $this->componentBodyTags = $this->collectComponentBodyTags($document);
@@ -283,6 +302,10 @@ final class OperationCollector
         // typos) join the collector's channel, already keyed by message so a
         // global scheme shared by every operation reports once.
         $this->warnings += $security->warnings();
+
+        // ONE document-level warning covering the whole POST/200 set (issue
+        // #174), emitted after every operation has been described.
+        $this->warnFrameworkCreatedStatus();
 
         return $descriptors;
     }
@@ -386,7 +409,7 @@ final class OperationCollector
         $bodyBaseName = PhpIdentifier::toClassName($this->methodName($operation, $method, $path));
 
         [$bodyParam, $bodyRequiresRequest] = $this->requestBody($operation, $imports, $label, $bodyBaseName, $pathParams);
-        [$returnType, $returnDoc, $successStatus] = $this->responseType($operation, $imports, $label, $bodyBaseName);
+        [$returnType, $returnDoc, $successStatus, $responsableReturn] = $this->responseType($operation, $imports, $label, $bodyBaseName);
 
         $this->warnUnsupportedParameterLocations($method, $path, $parameters);
         $this->warnCallbacks($operation, $label);
@@ -405,6 +428,13 @@ final class OperationCollector
         if ($successStatus !== null && $successStatus !== 200) {
             $this->models?->markSupportClassUsed('RespondsWithStatus');
         }
+
+        // The blind spot the middleware gate leaves behind (issue #174): a
+        // declared 200 attaches nothing, but the framework default is not 200
+        // for every verb. Recorded here, reported once per document below, so
+        // the generator surfaces the divergence without overriding a
+        // defensible framework default on the author's behalf.
+        $this->recordFrameworkCreatedStatus($method, $label, $successStatus, $responsableReturn);
 
         // A spec-declared error response whose JSON schema resolves to a
         // named-component object gets a throwable `<Operation>Errors` factory
@@ -737,6 +767,79 @@ final class OperationCollector
                 implode(', ', $names),
             )] = true;
         }
+    }
+
+    /**
+     * Record a POST whose selected success response is exactly 200 and whose
+     * return type spatie/laravel-data serializes itself (issue #174).
+     *
+     * `ResponsableData::calculateResponseStatus()` derives the status from the
+     * HTTP VERB, not from the payload: `POST` answers 201 Created, everything
+     * else answers 200. The #64 status gate skips a declared 200 because
+     * Laravel's own default is 200, which holds for GET and breaks here: the
+     * contract says 200, the runtime says 201, and until now nothing said so.
+     *
+     * Report rather than attach `RespondsWithStatus:200` (the middleware would
+     * demote the 201 cleanly, it normalizes any 2xx). A spec that declares 200
+     * on a create is usually the actual mistake, and picking a side in that
+     * REST argument is not the generator's call: surfacing it is.
+     *
+     * The predicate is deliberately narrow, so every silent case is one the
+     * IMPLEMENTER already controls:
+     *  - POST only. PUT/PATCH/DELETE answer 200 through spatie, matching the
+     *    declaration, so there is nothing to report.
+     *  - A Responsable return only ({@see responseType()} decides): a Data
+     *    class, a DataCollection, or a union of Data classes all serialize
+     *    through `ResponsableData`. A `JsonResponse`/`Response` fallback and a
+     *    `void` 204 do not, and their status is the implementer's to set.
+     *  - Exactly 200 only. A declared 201 already matches the framework
+     *    default AND carries the middleware, and any other non-200 success is
+     *    enforced by that same middleware.
+     *
+     * @param  string  $method  the lowercase HTTP method key
+     * @param  string  $label  "POST /pets", for the warning's operation list
+     * @param  bool  $responsableReturn  whether the resolved return type serializes through spatie's ResponsableData
+     */
+    private function recordFrameworkCreatedStatus(string $method, string $label, ?int $successStatus, bool $responsableReturn): void
+    {
+        if ($method !== 'post' || $successStatus !== 200 || ! $responsableReturn) {
+            return;
+        }
+
+        $this->frameworkCreatedStatusOperations[] = $label;
+    }
+
+    /**
+     * Emit the single document-level warning for everything
+     * {@see recordFrameworkCreatedStatus()} collected (issue #174), naming
+     * every affected operation so the output stays grep-able.
+     *
+     * ONE warning, not one per operation, following the `Document webhook(s)`
+     * precedent and the aggregation every other repeated dimension already
+     * uses (cookie parameters, response headers, callbacks). The explanation
+     * is a long paragraph and the predicate matches the majority shape of a
+     * real-world spec (193 operations in plaid.json, 288 in google_compute),
+     * so repeating it per operation would drown the scarcer diagnostics: the
+     * warnings channel is sorted, and every per-operation copy would sort in
+     * among (and ahead of) the security-middleware and media-type warnings.
+     *
+     * The labels are sorted, so the message is byte-stable across runs of the
+     * same spec, which the frozen corpus baseline hashes.
+     */
+    private function warnFrameworkCreatedStatus(): void
+    {
+        if ($this->frameworkCreatedStatusOperations === []) {
+            return;
+        }
+
+        $labels = $this->frameworkCreatedStatusOperations;
+        sort($labels);
+
+        $this->warnings[sprintf(
+            'Document: %d POST operation(s) declare a 200 success response and return a Data object, so spatie/laravel-data answers 201 Created (it derives the response status from the HTTP verb) while the contract promises 200, and a declared 200 attaches no status middleware to reconcile them: %s. Declare 201 instead of the 200 so the generated route enforces it, or keep the 200 and enforce it with your own middleware, applied from outside the generated routes file (editing that file fails the drift gate).',
+            count($labels),
+            implode(', ', $labels),
+        )] = true;
     }
 
     /**
@@ -1487,7 +1590,7 @@ final class OperationCollector
      * @param  list<string>  $imports
      * @param  string  $label  "GET /pets", for warning messages
      * @param  string  $baseName  StudlyCaps operation context for the synthesized inline response class name (the same source the inline request body uses)
-     * @return array{0: string, 1: ?string, 2: ?int} returnType, returnDoc, successStatus
+     * @return array{0: string, 1: ?string, 2: ?int, 3: bool} returnType, returnDoc, successStatus, and whether the return serializes through spatie's ResponsableData (issue #174): true for a Data class, a DataCollection, and a union of Data classes; false for `void` and for the JsonResponse/Response fallbacks, where the implementer owns the status
      */
     private function responseType(OperationNode $operation, array &$imports, string $label, string $baseName): array
     {
@@ -1506,13 +1609,13 @@ final class OperationCollector
         }
 
         if ($status === 204) {
-            return ['void', null, 204];
+            return ['void', null, 204, false];
         }
 
         if (! $response instanceof ResponseNode) {
             $imports[] = self::JSON_RESPONSE_FQCN;
 
-            return [self::JSON_RESPONSE_SHORT, null, $status];
+            return [self::JSON_RESPONSE_SHORT, null, $status, false];
         }
 
         $schema = $this->jsonSchema($response->content);
@@ -1524,7 +1627,7 @@ final class OperationCollector
                 $type = $this->registry[$name]['dataClass'];
                 $imports[] = $this->dataFqcn($type);
 
-                return [$type, null, $status];
+                return [$type, null, $status, true];
             }
 
             // A local $ref to a non-Data component (an enum, alias, or map) is
@@ -1546,7 +1649,7 @@ final class OperationCollector
                 $imports[] = self::DATA_COLLECTION_FQCN;
                 $imports[] = $this->dataFqcn($collectionOf);
 
-                return [self::DATA_COLLECTION_SHORT, 'DataCollection<int, '.$collectionOf.'>', $status];
+                return [self::DATA_COLLECTION_SHORT, 'DataCollection<int, '.$collectionOf.'>', $status, true];
             }
 
             // A oneOf/anyOf response whose members are all generated Data classes
@@ -1560,7 +1663,7 @@ final class OperationCollector
                     $imports[] = $this->dataFqcn($dataClass);
                 }
 
-                return [implode('|', $union), null, $status];
+                return [implode('|', $union), null, $status, true];
             }
 
             // A component response with an INLINE object schema (issue #116)
@@ -1576,7 +1679,7 @@ final class OperationCollector
                 if ($class !== null) {
                     $imports[] = $this->dataFqcn($class);
 
-                    return [$class, null, $status];
+                    return [$class, null, $status, true];
                 }
             }
 
@@ -1598,7 +1701,7 @@ final class OperationCollector
                 if ($class !== null) {
                     $imports[] = $this->dataFqcn($class);
 
-                    return [$class, null, $status];
+                    return [$class, null, $status, true];
                 }
             }
         }
@@ -1621,12 +1724,12 @@ final class OperationCollector
             )] = true;
             $imports[] = self::RESPONSE_FQCN;
 
-            return [self::RESPONSE_SHORT, null, $status];
+            return [self::RESPONSE_SHORT, null, $status, false];
         }
 
         $imports[] = self::JSON_RESPONSE_FQCN;
 
-        return [self::JSON_RESPONSE_SHORT, null, $status];
+        return [self::JSON_RESPONSE_SHORT, null, $status, false];
     }
 
     /**

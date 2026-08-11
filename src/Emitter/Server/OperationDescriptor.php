@@ -120,6 +120,15 @@ final readonly class OperationDescriptor
      * status via the RespondsWithStatus middleware (issue #64): a known
      * non-200 success status. Laravel's default is already 200, and a null
      * status means the spec declared none, so neither needs enforcement.
+     *
+     * The exactly-200 skip has one known blind spot, deliberately left as a
+     * DIAGNOSTIC rather than closed here (issue #174): spatie/laravel-data
+     * derives a Data object's response status from the HTTP verb, so a POST
+     * returning Data answers 201 Created and a declared 200 is not what the
+     * runtime sends. Attaching the middleware there would work (it normalizes
+     * any 2xx) but would also override a defensible framework default, so the
+     * collector warns at generation time instead and this predicate is
+     * unchanged.
      */
     public function needsStatusMiddleware(): bool
     {

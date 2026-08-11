@@ -244,6 +244,47 @@ operation is honored even though the framework produced a 201. An error response
 ...) or a redirect passes through untouched, and a handler that explicitly set its own non-2xx
 status keeps it.
 
+### A POST that declares 200 is the one gap, and it warns
+
+Because the framework default is verb-derived, an exactly-200 declaration is the one case the
+middleware gate does not cover. `POST /pets` declaring `200` and returning `PetData` gets no
+middleware (200 looks like the default), yet spatie answers **201**. The generator reports it:
+
+```text
+Document: 2 POST operation(s) declare a 200 success response and return a Data object, so
+spatie/laravel-data answers 201 Created (it derives the response status from the HTTP verb) while
+the contract promises 200, and a declared 200 attaches no status middleware to reconcile them:
+POST /pets, POST /store/order. Declare 201 instead of the 200 so the generated route enforces it,
+or keep the 200 and enforce it with your own middleware, applied from outside the generated routes
+file (editing that file fails the drift gate).
+```
+
+One warning per run, listing every affected operation, rather than one warning per operation: the
+predicate matches the majority shape of a real-world spec (193 operations in Plaid's, 288 in Google
+Compute's), and repeating the explanation that many times would bury the scarcer diagnostics that
+share the same channel.
+
+Declaring `201` is the fix, and it makes the contract match what the runtime already sends. If the
+operation declares both a 200 and a 201, remove the 200: the smallest 2xx is the one selected, so
+today the method is typed against the 200's schema while the runtime sends the 201, whose schema
+may differ.
+
+If you genuinely want 200, the enforcement is yours and it must live outside the generated files.
+Do not hand-edit `routes.php` (it is drift-checked, so the next `openapi:check` reports it), and do
+not use the `routes.middleware` config key for this: it wraps the entire route table in one group,
+so a `RespondsWithStatus:200` there would sit outside the per-route middleware and rewrite your real
+201 and 204 operations back to 200. Use controller middleware instead, via `controllers.base_class`
+and Laravel's `HasMiddleware` scoped with `only:`, or generate with `--no-routes` and own the route
+table. Be aware that `RespondsWithStatus` is inlined only when some operation declares a non-200
+status, so in an all-200 spec you write that middleware yourself.
+
+The warning is scoped to exactly that combination: only `POST`, only an exactly-200 declaration, and
+only a return type that serializes through spatie (a `Data` class, a `DataCollection`, or a union of
+`Data` classes). A `JsonResponse`, base `Response`, or `void` return is silent, because you set the
+status there. Where the return **is** a `Data` class, though, you cannot set the status from the
+handler: that class is the declared return type and generated `Data` classes are `final`, so the
+signature cannot widen to a `JsonResponse` and `calculateResponseStatus()` cannot be overridden.
+
 **204 No Content** gets dedicated treatment. A 204 must not carry a body (RFC 9110), so the
 abstract method for an operation whose selected success response is a 204 is typed `void`: the
 implementation returns nothing, and the route middleware sets the 204 and guarantees the empty
