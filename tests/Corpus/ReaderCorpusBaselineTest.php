@@ -1691,6 +1691,90 @@ const READER_BASELINE_REBASELINED_174 = [
     'zuora.json' => '112 POST operations declaring 200 with a Data return',
 ];
 
+/*
+ * INTENTIONAL post-freeze rebaseline (#171, `$ref` to a non-object alias
+ * response + unwarned degradations): the 35 specs in
+ * READER_BASELINE_REBASELINED_171 carry a post-#171 hash for one or both of
+ * two reasons, and every divergence is a strict improvement.
+ *
+ * 1. TYPED RETURNS. A component that is a bare `type: array` (or a scalar, or
+ *    a union) is a TYPE ALIAS, not a Data class, so it never enters the
+ *    registry. The response path checked the registry only, so a `$ref` to
+ *    such a component degraded to JsonResponse, while the SAME schema written
+ *    INLINE produced DataCollection<int, XData>. #171 resolves the alias (and
+ *    any `allOf: [{$ref}]` chain) to its terminal schema and runs the existing
+ *    shape checks on it. Named list components now type as DataCollection
+ *    (circleci, redocly-museum, soundcloud) and named union components as a
+ *    Data-class union (dnd5e, stripe). No signature moves the other way: the
+ *    change can only ADD typing where JsonResponse stood.
+ *
+ * 2. REPORTED DEGRADATIONS. A JsonResponse return enforces nothing about the
+ *    body, so whenever the spec DESCRIBED a response shape and the generator
+ *    could not type it, the generated contract silently stopped checking the
+ *    thing it exists to check. That fallback now reaches the diagnostics
+ *    channel like every other degradation (issue #67), as do responses whose
+ *    success entry never resolves at all (the `#/paths/...` response `$ref`s
+ *    in brex and digitalocean). A response that declares NO schema stays
+ *    silent by design: the spec promised no shape, so nothing is lost.
+ *
+ * The counts below separate the two, so a hash that moved for warnings only
+ * is distinguishable from one whose signatures changed. `synthesis fallback
+ * now reached` marks a pre-existing component/inline-response warning that
+ * only fires now that the alias resolves far enough to attempt synthesis.
+ * stripe additionally reworded its aggregate POST-201 warning (199 -> 206
+ * operations) because seven more POSTs now return a Data type. A spec present
+ * in an earlier rebaseline list accumulates the changes; every spec outside
+ * the rebaseline lists stays the frozen v0.11.0 freeze, byte for byte.
+ */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-#171 output
+ * (alias responses typed, silent degradations reported), keyed by spec
+ * basename, with the measured change for auditability. The per-spec test
+ * below still compares against the JSON baseline, which now holds these
+ * specs' post-#171 hashes; the coverage test pins that every listed name
+ * exists on disk and in the baseline, so the list cannot rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_171 = [
+    'apisguru.json' => '2 untypeable responses now reported',
+    'appwrite.json' => '3 untypeable responses now reported',
+    'brex.json' => '13 untypeable responses now reported, 19 unresolvable success responses now reported',
+    'circleci.json' => '6 array-alias responses typed as DataCollection',
+    'clevercloud.json' => '1 untypeable response now reported',
+    'codat_accounting.json' => '2 untypeable responses now reported',
+    'devto.json' => '1 untypeable response now reported',
+    'digitalocean.json' => '11 untypeable responses now reported, 62 unresolvable success responses now reported',
+    'discourse.json' => '3 untypeable responses now reported',
+    'dnd5e.json' => '1 union-alias response typed as a Data-class union, 1 untypeable response now reported',
+    'docker.json' => '9 untypeable responses now reported, 1 synthesis fallback now reached and reported',
+    'elevenlabs.json' => '6 untypeable responses now reported',
+    'flickr.json' => '2 untypeable responses now reported',
+    'github.json' => '19 untypeable responses now reported, 1 synthesis fallback now reached and reported',
+    'here_tracking.json' => '28 untypeable responses now reported',
+    'jira.json' => '22 untypeable responses now reported',
+    'linode.json' => '2 untypeable responses now reported',
+    'nasa_apod.json' => '1 untypeable response now reported',
+    'openai.yaml' => '4 untypeable responses now reported',
+    'petstore-3.0.yaml' => '2 untypeable responses now reported',
+    'pinecone.json' => '2 untypeable responses now reported, 2 synthesis fallbacks now reached and reported',
+    'plaid.json' => '1 untypeable response now reported',
+    'redocly-museum.yaml' => '2 array-alias responses typed as DataCollection',
+    'sendgrid.json' => '34 untypeable responses now reported, 11 synthesis fallbacks now reached and reported',
+    'sentry.json' => '64 untypeable responses now reported',
+    'slack.json' => '2 untypeable responses now reported',
+    'snyk.json' => '4 untypeable responses now reported',
+    'soundcloud.json' => '4 array-alias responses typed as DataCollection, 19 untypeable responses now reported, 2 synthesis fallbacks now reached and reported',
+    'spotify.yaml' => '8 untypeable responses now reported',
+    'stripe.json' => '12 union-alias responses typed as a Data-class union, 3 untypeable responses now reported, 1 synthesis fallback now reached and reported',
+    'twitter.json' => '3 untypeable responses now reported, 3 synthesis fallbacks now reached and reported',
+    'vercel.json' => '16 untypeable responses now reported',
+    'worldtime.json' => '2 untypeable responses now reported, 2 synthesis fallbacks now reached and reported',
+    'zoom.json' => '21 untypeable responses now reported',
+    'zuora.json' => '3 untypeable responses now reported',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -1768,7 +1852,7 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
     // disk and carry a hash in the baseline (it is an update, not an
     // exemption): a renamed or deleted spec would make the documented
     // rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY), ...array_keys(READER_BASELINE_REBASELINED_130), ...array_keys(READER_BASELINE_REBASELINED_DELIMITED_ARRAYS), ...array_keys(READER_BASELINE_REBASELINED_DEEPOBJECT), ...array_keys(READER_BASELINE_REBASELINED_SELF_STATIC), ...array_keys(READER_BASELINE_REBASELINED_DEPRECATED_CONTROLLER_DOCBLOCKS), ...array_keys(READER_BASELINE_REBASELINED_INT_FORMATS), ...array_keys(READER_BASELINE_REBASELINED_RULES_UNCOMPILABLE_PATTERN), ...array_keys(READER_BASELINE_REBASELINED_168), ...array_keys(READER_BASELINE_REBASELINED_172), ...array_keys(READER_BASELINE_REBASELINED_174)] as $spec) {
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY), ...array_keys(READER_BASELINE_REBASELINED_130), ...array_keys(READER_BASELINE_REBASELINED_DELIMITED_ARRAYS), ...array_keys(READER_BASELINE_REBASELINED_DEEPOBJECT), ...array_keys(READER_BASELINE_REBASELINED_SELF_STATIC), ...array_keys(READER_BASELINE_REBASELINED_DEPRECATED_CONTROLLER_DOCBLOCKS), ...array_keys(READER_BASELINE_REBASELINED_INT_FORMATS), ...array_keys(READER_BASELINE_REBASELINED_RULES_UNCOMPILABLE_PATTERN), ...array_keys(READER_BASELINE_REBASELINED_168), ...array_keys(READER_BASELINE_REBASELINED_172), ...array_keys(READER_BASELINE_REBASELINED_174), ...array_keys(READER_BASELINE_REBASELINED_171)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }

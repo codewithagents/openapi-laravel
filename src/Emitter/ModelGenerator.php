@@ -337,6 +337,28 @@ final class ModelGenerator
     }
 
     /**
+     * If a `$ref` points at a NON-OBJECT ALIAS component (a scalar, array, or
+     * union that never became a Data class), return the schema at the end of
+     * that alias chain; null when the reference is not such an alias.
+     *
+     * An alias component is deliberately absent from {@see registry()}: it has
+     * no class of its own, and use sites inline its underlying type instead.
+     * That leaves a `$ref` to one looking unresolvable to any caller that
+     * knows only the registry, which is why this accessor exists. Must be
+     * called AFTER generate(), once the alias set and its chains are built.
+     *
+     * Chained aliases (`allOf: [{$ref}]` -> alias -> ... -> array) resolve
+     * through to the terminal schema, matching what property-level rule
+     * derivation already does.
+     */
+    public function aliasSchemaFor(ReferenceNode $reference): ?SchemaNode
+    {
+        $schema = $this->state->referencedAliasSchema($reference);
+
+        return $schema instanceof SchemaNode ? $this->state->terminalAliasSchema($schema) : null;
+    }
+
+    /**
      * Non-fatal diagnostics from the last generate() run, sorted for determinism.
      * Each entry flags information the spec carried that OpenAPI ignores, so the
      * generated code is correct but quietly loses something a reader expected

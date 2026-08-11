@@ -341,16 +341,30 @@ A response that is a `$ref` into `components.responses` resolves to the referenc
 types the return (issue #116), and an **inline** object response schema synthesizes a per-operation
 `<Operation>ResponseData` return (issue #129). The remaining fallbacks:
 
-- An **inline** response schema that is **not an object shape**: an array, a scalar, a `oneOf`/`anyOf`
-  union, an enum, or a free-form map. Only an object shape can name a return Data class.
-- A response `$ref` whose JSON schema is not an object shape (a scalar or array alias, an enum, a
-  map), or an unresolvable response `$ref` (external, `#/paths/...`, missing, or ref-to-ref).
+- A response schema that names no typable shape: a scalar, an enum, a free-form map, or an array of
+  scalars. An array whose `items` is a `$ref` to a generated Data class types as
+  `DataCollection<int, XData>`, and a `oneOf`/`anyOf` whose members are all Data classes types as a
+  Data-class union.
+- An unresolvable response `$ref` (external, `#/paths/...`, missing, or ref-to-ref), or a success
+  response that does not resolve at all.
 - A response with no JSON content: a non-JSON-only success (a binary download, text/html) is typed as
   the base `Symfony\Component\HttpFoundation\Response` with a warning (issue #118), so your method can
   return a `BinaryFileResponse` or `StreamedResponse` with no type error; a response with no declared
   content at all keeps the `JsonResponse` default.
 
-These warn, except a `$ref` selected for a 204 (the method is `void` either way, so nothing degrades).
+Since issue #171 it makes **no difference whether the schema is written inline or named as a
+component**. A component that is a bare `type: array` (or a scalar, or a union) is a type ALIAS
+rather than a Data class, so it never enters the registry; the response path now resolves such a
+`$ref` to the schema at the end of its alias chain (following an `allOf: [{$ref}]` wrapper) and
+applies the same shape checks. A response referencing
+`PetList: {type: array, items: {$ref: Pet}}` therefore returns `DataCollection<int, PetData>`, where
+it previously degraded to `JsonResponse`.
+
+Every fallback above warns, except a `$ref` selected for a 204 (the method is `void` either way, so
+nothing degrades) and a response that declares **no schema at all** (the spec promised no shape, so
+nothing is lost and there is nothing to enforce). Issue #171 closed the last silent cases: a
+`JsonResponse` return enforces nothing about the body, so a degradation that went unreported let a
+non-conforming implementation look conformant to the generator.
 
 An unresolvable parameter `$ref` (external or dangling) is dropped from its operation, also with a
 warning naming the pointer.
