@@ -510,6 +510,22 @@ final class ModelGenerator
     }
 
     /**
+     * Whether the named query Data class contains at least one BOOLEAN
+     * parameter (issue #172). Such a class must be ADDITIVE for the same
+     * reason as a delimited-array one: the OpenAPI form style serializes a
+     * boolean as ?flag=true / ?flag=false, Laravel's `boolean` rule rejects
+     * those literals, and the fromQuery() factory maps them to '1'/'0' before
+     * validating. Container injection makes spatie validate the RAW request
+     * first, so an injected class 422s the spec-valid literal before the
+     * mapping ever runs. Backed by the same derivation that feeds the
+     * factory's mapping, so the two can never disagree.
+     */
+    public function queryClassHasBoolean(string $class): bool
+    {
+        return isset($this->state->booleanQueryClasses[$class]);
+    }
+
+    /**
      * The per-operation path Data classes emitted since the last generate()
      * run (issue #113), keyed and ordered by class name. Exposed as a getter,
      * mirroring queryFiles(): generate() already returned its file set when

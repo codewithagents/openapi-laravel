@@ -1466,6 +1466,113 @@ const READER_BASELINE_REBASELINED_168 = [
     'zuora.json' => '140 <Operation>Errors factory classes plus the inlined ApiError support class',
 ];
 
+/*
+ * INTENTIONAL post-freeze rebaseline (#172, boolean query parameters on
+ * body-less operations): the 73 specs in READER_BASELINE_REBASELINED_172 carry
+ * a post-#172 hash because they declare a `type: boolean` query parameter on a
+ * body-less operation. Such a query class used to be container-injected, and
+ * spatie laravel-data validates the RAW request BEFORE it calls the magic
+ * fromQuery() creation method. Laravel's stock `boolean` rule accepts
+ * true/false/1/0/"1"/"0" but NOT the form-style literals "true"/"false", so the
+ * `'true' => '1'` mapping the factory emits never ran and a spec-valid
+ * ?flag=true was a 422. #172 forces such a class ADDITIVE, exactly as the
+ * delimited-array (#132), path (#113) and header (#121) cases already are.
+ *
+ * The divergence in each hash is confined to the ABSTRACT CONTROLLER files: the
+ * injected query parameter leaves the method signature, its now-unused `use`
+ * import is dropped, and a `::fromQuery($request)` docblock pointer is added.
+ * No Data class, query class, routes file, or warning changes, so the whole
+ * corpus divergence is the injected-to-additive shift and nothing else. A spec
+ * present in an earlier rebaseline list accumulates the changes; every spec
+ * outside the rebaseline lists stays the frozen v0.11.0 freeze, byte for byte.
+ */
+
+/**
+ * Specs whose frozen hash was deliberately updated to the post-#172 output
+ * (body-less boolean query classes forced additive), keyed by spec basename,
+ * with the number of shifted operations for auditability. The per-spec test
+ * below still compares against the JSON baseline, which now holds these specs'
+ * post-#172 hashes; the coverage test pins that every listed name exists on
+ * disk and in the baseline, so the list cannot rot.
+ *
+ * @var array<string, string>
+ */
+const READER_BASELINE_REBASELINED_172 = [
+    '1password-connect.yaml' => '2 body-less boolean-query operations shifted from injected to additive',
+    'adyen-legal-entity.yaml' => '1 body-less boolean-query operation shifted from injected to additive',
+    'airflow.json' => '3 body-less boolean-query operations shifted from injected to additive',
+    'amadeus.json' => '1 body-less boolean-query operation shifted from injected to additive',
+    'appwrite.json' => '1 body-less boolean-query operation shifted from injected to additive',
+    'aws_apigateway.json' => '3 body-less boolean-query operations shifted from injected to additive',
+    'aws_cloudformation.json' => '9 body-less boolean-query operations shifted from injected to additive',
+    'aws_iam.json' => '5 body-less boolean-query operations shifted from injected to additive',
+    'aws_rds.json' => '37 body-less boolean-query operations shifted from injected to additive',
+    'aws_s3.json' => '51 body-less boolean-query operations shifted from injected to additive',
+    'aws_sns.json' => '1 body-less boolean-query operation shifted from injected to additive',
+    'bbc.json' => '2 body-less boolean-query operations shifted from injected to additive',
+    'bikewise.json' => '2 body-less boolean-query operations shifted from injected to additive',
+    'bitbucket.json' => '2 body-less boolean-query operations shifted from injected to additive',
+    'box.json' => '2 body-less boolean-query operations shifted from injected to additive',
+    'brex.json' => '3 body-less boolean-query operations shifted from injected to additive',
+    'bungie.json' => '10 body-less boolean-query operations shifted from injected to additive',
+    'clevercloud.json' => '1 body-less boolean-query operation shifted from injected to additive',
+    'devto.json' => '1 body-less boolean-query operation shifted from injected to additive',
+    'digitalocean.json' => '4 body-less boolean-query operations shifted from injected to additive',
+    'discourse.json' => '2 body-less boolean-query operations shifted from injected to additive',
+    'docker.json' => '17 body-less boolean-query operations shifted from injected to additive',
+    'dracoon.json' => '18 body-less boolean-query operations shifted from injected to additive',
+    'elevenlabs.json' => '1 body-less boolean-query operation shifted from injected to additive',
+    'flickr.json' => '1 body-less boolean-query operation shifted from injected to additive',
+    'gettyimages.json' => '4 body-less boolean-query operations shifted from injected to additive',
+    'github.json' => '13 body-less boolean-query operations shifted from injected to additive',
+    'google_bigquery.json' => '21 body-less boolean-query operations shifted from injected to additive',
+    'google_calendar.json' => '18 body-less boolean-query operations shifted from injected to additive',
+    'google_cloudrun.json' => '9 body-less boolean-query operations shifted from injected to additive',
+    'google_compute.json' => '379 body-less boolean-query operations shifted from injected to additive',
+    'google_docs.json' => '1 body-less boolean-query operation shifted from injected to additive',
+    'google_drive.json' => '30 body-less boolean-query operations shifted from injected to additive',
+    'google_functions.json' => '7 body-less boolean-query operations shifted from injected to additive',
+    'google_gke.json' => '18 body-less boolean-query operations shifted from injected to additive',
+    'google_gmail.json' => '47 body-less boolean-query operations shifted from injected to additive',
+    'google_logging.json' => '19 body-less boolean-query operations shifted from injected to additive',
+    'google_monitoring.json' => '15 body-less boolean-query operations shifted from injected to additive',
+    'google_pubsub.json' => '18 body-less boolean-query operations shifted from injected to additive',
+    'google_sheets.json' => '4 body-less boolean-query operations shifted from injected to additive',
+    'google_speech.json' => '6 body-less boolean-query operations shifted from injected to additive',
+    'google_translate.json' => '10 body-less boolean-query operations shifted from injected to additive',
+    'google_tts.json' => '4 body-less boolean-query operations shifted from injected to additive',
+    'google_vision.json' => '6 body-less boolean-query operations shifted from injected to additive',
+    'here_tracking.json' => '12 body-less boolean-query operations shifted from injected to additive',
+    'jira.json' => '36 body-less boolean-query operations shifted from injected to additive',
+    'lufthansa.json' => '2 body-less boolean-query operations shifted from injected to additive',
+    'nasa_apod.json' => '1 body-less boolean-query operation shifted from injected to additive',
+    'nytimes.json' => '1 body-less boolean-query operation shifted from injected to additive',
+    'openai.yaml' => '3 body-less boolean-query operations shifted from injected to additive',
+    'rawg.json' => '1 body-less boolean-query operation shifted from injected to additive',
+    'reverb.json' => '2 body-less boolean-query operations shifted from injected to additive',
+    'sendgrid.json' => '12 body-less boolean-query operations shifted from injected to additive',
+    'sentry.json' => '12 body-less boolean-query operations shifted from injected to additive',
+    'shutterstock.json' => '14 body-less boolean-query operations shifted from injected to additive',
+    'slack.json' => '20 body-less boolean-query operations shifted from injected to additive',
+    'snyk.json' => '1 body-less boolean-query operation shifted from injected to additive',
+    'soundcloud.json' => '5 body-less boolean-query operations shifted from injected to additive',
+    'spotify.yaml' => '1 body-less boolean-query operation shifted from injected to additive',
+    'square.json' => '4 body-less boolean-query operations shifted from injected to additive',
+    'stackexchange.json' => '4 body-less boolean-query operations shifted from injected to additive',
+    'tomtom_routing.json' => '2 body-less boolean-query operations shifted from injected to additive',
+    'traccar.json' => '10 body-less boolean-query operations shifted from injected to additive',
+    'twilio.json' => '23 body-less boolean-query operations shifted from injected to additive',
+    'twilio_api_v2010.json' => '24 body-less boolean-query operations shifted from injected to additive',
+    'twilio_video.json' => '1 body-less boolean-query operation shifted from injected to additive',
+    'vercel.json' => '1 body-less boolean-query operation shifted from injected to additive',
+    'vimeo.json' => '20 body-less boolean-query operations shifted from injected to additive',
+    'weather_visual.json' => '2 body-less boolean-query operations shifted from injected to additive',
+    'xero.json' => '5 body-less boolean-query operations shifted from injected to additive',
+    'youtube.json' => '45 body-less boolean-query operations shifted from injected to additive',
+    'zoom.json' => '8 body-less boolean-query operations shifted from injected to additive',
+    'zuora.json' => '6 body-less boolean-query operations shifted from injected to additive',
+];
+
 /**
  * Corpus specs added AFTER the v0.11.0 baseline freeze (#104 T8: the OpenAPI
  * 3.2 fixtures). The frozen baseline cannot contain them by definition, so
@@ -1542,7 +1649,7 @@ it('covers every corpus spec in the frozen baseline, nothing more', function () 
     // classes) must still exist on disk and carry a hash in the baseline (it is
     // an update, not an exemption): a renamed or deleted spec would make the
     // documented rebaseline lists rot silently.
-    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY), ...array_keys(READER_BASELINE_REBASELINED_130), ...array_keys(READER_BASELINE_REBASELINED_DELIMITED_ARRAYS), ...array_keys(READER_BASELINE_REBASELINED_DEEPOBJECT), ...array_keys(READER_BASELINE_REBASELINED_SELF_STATIC), ...array_keys(READER_BASELINE_REBASELINED_DEPRECATED_CONTROLLER_DOCBLOCKS), ...array_keys(READER_BASELINE_REBASELINED_INT_FORMATS), ...array_keys(READER_BASELINE_REBASELINED_RULES_UNCOMPILABLE_PATTERN), ...array_keys(READER_BASELINE_REBASELINED_168)] as $spec) {
+    foreach ([...array_keys(READER_BASELINE_REBASELINED_110), ...array_keys(READER_BASELINE_REBASELINED_116), ...array_keys(READER_BASELINE_REBASELINED_120), ...array_keys(READER_BASELINE_REBASELINED_122), ...array_keys(READER_BASELINE_REBASELINED_124), ...array_keys(READER_BASELINE_REBASELINED_125), ...array_keys(READER_BASELINE_REBASELINED_126), ...array_keys(READER_BASELINE_REBASELINED_113), ...array_keys(READER_BASELINE_REBASELINED_121), ...array_keys(READER_BASELINE_REBASELINED_129), ...array_keys(READER_BASELINE_REBASELINED_129_INLINE_RESPONSES), ...array_keys(READER_BASELINE_REBASELINED_30), ...array_keys(READER_BASELINE_REBASELINED_NESTED_READONLY), ...array_keys(READER_BASELINE_REBASELINED_130), ...array_keys(READER_BASELINE_REBASELINED_DELIMITED_ARRAYS), ...array_keys(READER_BASELINE_REBASELINED_DEEPOBJECT), ...array_keys(READER_BASELINE_REBASELINED_SELF_STATIC), ...array_keys(READER_BASELINE_REBASELINED_DEPRECATED_CONTROLLER_DOCBLOCKS), ...array_keys(READER_BASELINE_REBASELINED_INT_FORMATS), ...array_keys(READER_BASELINE_REBASELINED_RULES_UNCOMPILABLE_PATTERN), ...array_keys(READER_BASELINE_REBASELINED_168), ...array_keys(READER_BASELINE_REBASELINED_172)] as $spec) {
         expect($specs)->toContain($spec)
             ->and($baseline)->toHaveKey($spec);
     }

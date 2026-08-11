@@ -8,9 +8,11 @@ use App\Data\Widget\FilterWidgetsQueryData;
 use App\Data\Widget\ListWidgetsQueryData;
 use App\Data\Widget\LookupWidgetsQueryData;
 use App\Data\Widget\SearchWidgetsQueryData;
+use App\Data\Widget\ToggleWidgetsQueryData;
 use App\Data\Widget\WidgetState;
 use CodeWithAgents\OpenApiLaravel\Emitter\ModelGenerator;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationCollector;
+use CodeWithAgents\OpenApiLaravel\Emitter\Server\OperationDescriptor;
 use CodeWithAgents\OpenApiLaravel\Emitter\Server\ServerOptions;
 use CodeWithAgents\OpenApiLaravel\Parser\SpecParser;
 use Illuminate\Http\Request;
@@ -52,6 +54,33 @@ beforeEach(function () {
         loadGeneratedFiles($dir, [...array_values($files), ...array_values($generator->queryFiles())]);
     }
 });
+
+/**
+ * The server descriptor for one operation of the query-parameters fixture,
+ * memoized. The round-trip tests need the generator's INJECTION DECISION, not
+ * just the emitted classes, so a test can exercise exactly the wiring the
+ * scaffold emits instead of assuming one.
+ */
+function queryRoundTripDescriptor(string $method, string $path): OperationDescriptor
+{
+    static $descriptors = null;
+
+    if ($descriptors === null) {
+        $parser104 = new SpecParser;
+        $document = $parser104->parseFileToDocument(__DIR__.'/../../Fixtures/server/query-parameters.yaml');
+        $generator = new ModelGenerator;
+        $generator->generate($document);
+        $descriptors = (new OperationCollector(new ServerOptions, $generator->registry(), null, $generator))->collect($document);
+    }
+
+    foreach ($descriptors as $descriptor) {
+        if ($descriptor->httpMethod === $method && $descriptor->path === $path) {
+            return $descriptor;
+        }
+    }
+
+    throw new RuntimeException("No descriptor for {$method} {$path}");
+}
 
 it('hydrates typed properties from a real query string', function () {
     $request = Request::create('/widgets?state=used&page=2&ids[]=3&ids[]=4&q=ab', 'GET');
@@ -291,4 +320,76 @@ it('rejects an invalid deepObject value on the container-injection path too', fu
     $this->app->instance('request', Request::create('/lookup?range[gte]=-3', 'GET'));
 
     $this->app->make(LookupWidgetsQueryData::class);
+})->throws(ValidationException::class);
+
+// ---------------------------------------------------------------------------
+// Boolean query parameters on a BODY-LESS operation (issue #172). The literal
+// mapping in fromQuery() has always worked when called directly, but a
+// body-less boolean operation used to be container-injected, and under
+// injection spatie validates the RAW request before it calls the magic
+// fromQuery() creation method (DataFromSomethingResolver runs the pipeline
+// "solely for the purpose of validation"). Laravel's `boolean` rule accepts
+// true/false/1/0/"1"/"0" but NOT the literals "true"/"false", so the mapping
+// never ran and a spec-valid ?flag=true was a 422. GET /toggle isolates the
+// case: body-less, no delimited array, no deepObject, booleans only.
+// ---------------------------------------------------------------------------
+
+it('hydrates ?flag=true through the wiring the generator actually chose (issue #172)', function () {
+    // Deliberately driven by the descriptor rather than assuming a path: the
+    // test asserts that whatever wiring the scaffold emits for this operation
+    // hydrates a spec-valid request. Before #172 the generator chose container
+    // injection, which 422s here; after it, the additive ::fromQuery() path.
+    $toggle = queryRoundTripDescriptor('get', '/toggle');
+    $request = Request::create('/toggle?flag=true&verbose=true', 'GET');
+
+    if ($toggle->queryParam['injected']) {
+        $this->app->instance('request', $request);
+        $query = $this->app->make(ToggleWidgetsQueryData::class);
+    } else {
+        $query = ToggleWidgetsQueryData::fromQuery($request);
+    }
+
+    expect($query->flag)->toBeTrue()
+        ->and($query->verbose)->toBeTrue();
+});
+
+it('hydrates ?flag=false through the wiring the generator actually chose (issue #172)', function () {
+    $toggle = queryRoundTripDescriptor('get', '/toggle');
+    $request = Request::create('/toggle?flag=false', 'GET');
+
+    if ($toggle->queryParam['injected']) {
+        $this->app->instance('request', $request);
+        $query = $this->app->make(ToggleWidgetsQueryData::class);
+    } else {
+        $query = ToggleWidgetsQueryData::fromQuery($request);
+    }
+
+    // The literal "false" must hydrate to FALSE, never to PHP's truthy
+    // non-empty-string coercion.
+    expect($query->flag)->toBeFalse()
+        // An absent defaulted boolean takes its spec default.
+        ->and($query->verbose)->toBeFalse();
+});
+
+it('applies the spec default when a defaulted boolean is absent (issue #172)', function () {
+    $query = ToggleWidgetsQueryData::fromQuery(Request::create('/toggle', 'GET'));
+
+    expect($query->verbose)->toBeFalse()
+        ->and($query->flag)->toBeNull();
+});
+
+it('still rejects a non-boolean value on the additive boolean path (issue #172)', function () {
+    ToggleWidgetsQueryData::fromQuery(Request::create('/toggle?flag=banana', 'GET'));
+})->throws(ValidationException::class);
+
+it('documents WHY a boolean query class must not be container-injected (issue #172)', function () {
+    // The mechanism proof, and a canary. Resolving the class through the
+    // container is what an injected controller parameter does: spatie validates
+    // the raw "true" string against the `boolean` rule and rejects it before
+    // fromQuery() can map the literal. This is precisely the 422 the additive
+    // forcing avoids. If a future spatie/Laravel release stops rejecting the
+    // literals, this test goes red and the forcing can be reconsidered.
+    $this->app->instance('request', Request::create('/toggle?flag=true', 'GET'));
+
+    $this->app->make(ToggleWidgetsQueryData::class);
 })->throws(ValidationException::class);

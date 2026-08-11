@@ -58,12 +58,17 @@ with a `fromQuery(Request)` factory. A non-exploded delimited array query param 
 `fromQuery()` on its declared delimiter before the array rules run: `style: form, explode: false`
 splits on comma, `spaceDelimited` on space, `pipeDelimited` on pipe; the `form`+`explode: true`
 repeated-key form (the query default) is unchanged, a missing key stays absent (not an empty array),
-and an empty string splits to a single empty element. A QueryData class that carries any such
-delimited-array param is forced ADDITIVE (not container-injected, the same mechanism as path and
-header params): container injection would make spatie validate the RAW unsplit string before
-`fromQuery()` runs, 422-ing a body-less GET delimited filter before the split, so the abstract method
-takes no injected query param and carries a `::fromQuery($request)` docblock pointer instead. A
-QueryData with no delimited-array param stays injected on body-less ops as before. A `style: deepObject`
+and an empty string splits to a single empty element. A QueryData class whose `fromQuery()` NORMALIZES the raw query before
+validating is forced ADDITIVE (not container-injected, the same mechanism as path and header
+params): container injection would make spatie validate the RAW request before `fromQuery()` runs,
+422-ing a spec-valid body-less GET before the normalization, so the abstract method takes no injected
+query param and carries a `::fromQuery($request)` docblock pointer instead. Two normalizations
+trigger this, and either one alone is enough: a delimited-array param (#132, the RAW unsplit string
+fails the array rules) and a BOOLEAN param (#172, the form style sends the literals `?flag=true` /
+`?flag=false` and Laravel's stock `boolean` rule accepts only `true,false,1,0,"1","0"`, so the
+`'true' => '1'` mapping never ran and a spec-valid request was a 422). The injection decision reuses
+the exact boolean list that drives the emitted mapping, so the two can never disagree. A QueryData
+with neither stays injected on body-less ops as before. A `style: deepObject`
 OBJECT query param (#131, Stripe-style `?filter[gte]=10&filter[lte]=20`) is synthesized into the
 QueryData as a nested object property with dotted nested rules (`filter.gte`, ...), reusing the body
 nested-object pipeline; PHP parses the bracketed keys natively into a nested array, so no manual

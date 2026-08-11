@@ -630,15 +630,27 @@ final class OperationCollector
 
         // A body-less operation normally gets the query class injected (the
         // container resolves it and fromQuery() hydrates query-only). But a
-        // class carrying a non-exploded delimited-array param MUST stay additive
-        // (issue #132): spatie laravel-data validates the RAW request before the
-        // fromQuery() split runs, so an injected class would 422 on the unsplit
-        // "a,b,c" string before ever splitting. Forcing it additive makes
-        // ::fromQuery($request) (with its split) the live path, exactly the
-        // path (issue #113) and header (issue #121) precedent.
+        // class whose fromQuery() factory NORMALIZES the raw query before
+        // validating MUST stay additive: spatie laravel-data validates the RAW
+        // request before the factory runs, so an injected class 422s a
+        // spec-valid request before the normalization ever happens. Two such
+        // normalizations exist, and either one forces the class additive:
+        //
+        //   - a non-exploded delimited-array param (issue #132), where an
+        //     injected class would 422 on the unsplit "a,b,c" string before
+        //     ever splitting it;
+        //   - a boolean param (issue #172), where the form style sends the
+        //     literals ?flag=true / ?flag=false, Laravel's `boolean` rule
+        //     accepts only true/false/1/0/"1"/"0", and an injected class would
+        //     422 before the factory maps the literal to '1'/'0'.
+        //
+        // Forcing the class additive makes ::fromQuery($request) (with its
+        // normalization) the live path, exactly the path (issue #113) and
+        // header (issue #121) precedent.
         $injected = $bodyParam === null
             && ! $bodyRequiresRequest
-            && ! $this->models->queryClassHasDelimitedArray($class);
+            && ! $this->models->queryClassHasDelimitedArray($class)
+            && ! $this->models->queryClassHasBoolean($class);
         if ($injected) {
             $imports[] = $this->dataFqcn($class);
         }

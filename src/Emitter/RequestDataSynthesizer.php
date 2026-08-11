@@ -427,6 +427,19 @@ final class RequestDataSynthesizer
             $this->state->delimitedQueryClasses[$className] = true;
         }
 
+        // A query class carrying a BOOLEAN param must be additive for the same
+        // reason (issue #172): the form style serializes a boolean as
+        // ?flag=true / ?flag=false, Laravel's `boolean` rule rejects those
+        // literals, and the fromQuery() factory maps them to '1'/'0' before
+        // validating. Under container injection spatie validates the RAW
+        // request first, so an injected class 422s the spec-valid literal
+        // before the mapping runs. This reuses $booleanNames, the exact list
+        // that drives the factory's mapping, so the injection decision and the
+        // emitted normalization can never disagree.
+        if ($in === 'query' && $booleanNames !== []) {
+            $this->state->booleanQueryClasses[$className] = true;
+        }
+
         return $className;
     }
 

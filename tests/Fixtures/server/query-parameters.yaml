@@ -187,6 +187,34 @@ paths:
       responses:
         '200':
           description: ok
+  /toggle:
+    get:
+      tags:
+        - widget
+      operationId: toggleWidgets
+      parameters:
+        # A body-less GET whose ONLY query parameters are booleans (issue #172):
+        # no request body, no delimited array, no deepObject. Before #172 this
+        # class was container-injected, and spatie validated the RAW ?flag=true
+        # against the `boolean` rule (which rejects the literals "true"/"false")
+        # BEFORE fromQuery()'s literal mapping could run, so a spec-valid
+        # request was a 422. The class must be forced ADDITIVE, exactly like a
+        # delimited-array class (issue #132).
+        - name: flag
+          in: query
+          schema:
+            type: boolean
+        # A boolean carrying a `default` is optional on input: an absent key
+        # takes the default and is never normalized, so the default does not
+        # change the injection picture.
+        - name: verbose
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: ok
   /untyped:
     post:
       tags:
