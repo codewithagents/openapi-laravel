@@ -191,6 +191,36 @@ Why the pieces are what they are:
   status separately; the explicit `response()->json(...)` form keeps the status visible.
 </Aside>
 
+<Aside type="caution" title="A per-controller try/catch cannot replace the renderer">
+  The obvious-looking alternative does not work, and it fails silently.
+
+  ```php
+  // Does NOT catch a spec-derived validation failure.
+  public function index(ListProceduresQueryData $query): JsonResponse
+  {
+      try {
+          // ...
+      } catch (ValidationException $e) {
+          throw ListProceduresErrors::badRequest('validation_error', $e->getMessage());
+      }
+  }
+  ```
+
+  When the query or body class is **container-injected**, laravel-data resolves and validates it
+  while Laravel is building the arguments for your method. The exception is thrown **before the
+  method body is entered**, so the `try` block was never active and the `catch` never runs. Laravel
+  answers with its default 422 shape instead of your spec's error shape. The code compiles, reads
+  correctly, and quietly does nothing.
+
+  Worse, whether it works at all depends on the shape of your spec rather than on your code. A class
+  that is **additive** (see [Parameters](/guides/parameters): any delimited-array or boolean
+  parameter forces this) is built by your own `::fromQuery($request)` call inside the method body,
+  where a local catch *does* fire. So adding one boolean query parameter to an operation can silently
+  flip a working local catch into a dead one.
+
+  Register the renderer once, globally, and every path behaves the same.
+</Aside>
+
 ## Throwing other error statuses
 
 The recipe above reshapes the framework's **own** 422, the one Laravel raises when a spec-derived
