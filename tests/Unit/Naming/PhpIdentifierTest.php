@@ -18,6 +18,12 @@ it('builds StudlyCaps class names', function (string $input, string $expected) {
     'leading digit' => ['123model', '_123model'],
     'apostrophe' => ["user's-pet", 'UsersPet'],
     'empty' => ['---', '_'],
+    'german sharp s' => ['Straße', 'Strasse'],
+    'german umlaut' => ['Müller', 'Muller'],
+    'french accent' => ['café', 'Cafe'],
+    'polish' => ['Łódź', 'Lodz'],
+    'nordic' => ['Ångström', 'Angstrom'],
+    'non-latin script falls back' => ['日本語', '_'],
 ]);
 
 it('escapes reserved words used as class names', function (string $input, string $expected) {
@@ -40,6 +46,9 @@ it('builds camelCase property names', function (string $input, string $expected)
     // `$this` is the one identifier PHP forbids as a parameter; it is escaped.
     'this is escaped' => ['this', '_this'],
     'empty fallback' => ['***', 'value'],
+    'german umlaut' => ['straße', 'strasse'],
+    'french accent' => ['café_name', 'cafeName'],
+    'non-latin script falls back' => ['日本語', 'value'],
 ]);
 
 it('resolves $refs to class names', function () {

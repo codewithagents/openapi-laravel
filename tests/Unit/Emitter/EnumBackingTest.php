@@ -85,3 +85,12 @@ it('keeps a signed-int string string-backed, unchanged from prior behaviour (#14
     expect($code)->toContain('enum Code: string')
         ->and($code)->toContain("'-1'");
 });
+
+it('folds a non-ASCII enum value to its ASCII equivalent instead of dropping the accented letters', function () {
+    $code = generateBackedEnum(['Straße', 'Müller', 'café'])['Code']->code;
+
+    expect($code)->toContain('enum Code: string')
+        ->and($code)->toContain('case Strasse = ')
+        ->and($code)->toContain('case Muller = ')
+        ->and($code)->toContain('case Cafe = ');
+});
