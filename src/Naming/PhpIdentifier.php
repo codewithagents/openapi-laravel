@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CodeWithAgents\OpenApiLaravel\Naming;
 
+use Illuminate\Support\Str;
+
 /**
  * Converts raw OpenAPI names (schema names, property keys, $refs) into valid,
  * idiomatic PHP identifiers. Ported from the openapi-zod-ts naming utilities,
@@ -147,15 +149,18 @@ final class PhpIdentifier
     }
 
     /**
-     * Split a raw name into alphanumeric words. Apostrophes are stripped without
-     * splitting ("user's" -> "users"); every other non-alphanumeric run is a
-     * boundary.
+     * Split a raw name into alphanumeric words. Non-ASCII letters are folded to their
+     * closest ASCII equivalent first ("Straße" -> "Strasse", "café" -> "cafe"), so a
+     * language's own diacritics do not just get deleted as separators; apostrophes are
+     * stripped without splitting ("user's" -> "users"); every other non-alphanumeric
+     * run (including a script with no ASCII equivalent) is a boundary.
      *
      * @return list<string>
      */
     private static function words(string $name): array
     {
-        $withoutApostrophes = str_replace("'", '', $name);
+        $ascii = Str::ascii($name);
+        $withoutApostrophes = str_replace("'", '', $ascii);
         $parts = preg_split('/[^a-zA-Z0-9]+/', $withoutApostrophes, -1, PREG_SPLIT_NO_EMPTY);
 
         return $parts === false ? [] : $parts;
